@@ -1107,6 +1107,8 @@ Cheap baseline command for the next STL-quality run:
 .\backend\.venv\Scripts\python -m backend.benchmark.optimize_completion --manifest backend/output/completion-benchmark/modelnet10_60_balanced_s256_seed4040/manifest.jsonl --output-dir backend/output/completion-benchmark/experiments/modelnet10_60_balanced_stl_quality_baseline_s40_n2 --config backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_baselines.json --start-index 40 --limit 2 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --device auto --emit-stl --stl-target-dimension 96 --score-mode baseline-delta --score-profile stl-quality --baseline-method masked --contact-sheet --contact-sheet-methods masked,mirror,biharmonic --contact-sheet-max-samples 2 --resume --continue-on-error
 ```
 
+Local 3080 Ti smoke result (`modelnet10_60_balanced_stl_quality_baseline_s40_n2`, `start-index=40`, `limit=2`): `mirror` ranked first at `0.7766`, `biharmonic` second at `0.2333`, and `masked` stayed at `0.0000`. All three methods completed `2/2` samples and emitted STL meshes with median `stl_is_watertight=1`, `stl_is_volume=1`, `stl_winding_consistent=1`, `stl_single_component=1`, `stl_bbox_has_volume=1`, and `stl_positive_volume=1`. This confirms the fixed 2.5D relief exporter is now a valid STL baseline for the next direct image-to-mesh comparison.
+
 ## Kaggle
 
 A GPU-enabled Kaggle kernel scaffold lives in `backend/benchmark/kaggle`.
