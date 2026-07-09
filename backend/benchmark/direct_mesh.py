@@ -362,17 +362,35 @@ def stl_file_bbox_extents(path: Path | None) -> np.ndarray | None:
         return None
 
 
+def direct_mesh_reference_stl_path(sample: dict, output_dir: Path, args, reference_method: str) -> Path | None:
+    sample_id = str(sample.get("id", ""))
+    candidates = [output_dir.parent / reference_method / "output_model.stl"]
+    reference_root = getattr(args, "direct_mesh_reference_output_dir", None)
+    if reference_root and sample_id and reference_method:
+        candidates.append(Path(reference_root) / reference_method / sample_id / reference_method / "output_model.stl")
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def direct_mesh_bbox_placeholders(sample: dict, output_dir: Path, args) -> dict[str, str]:
     stl_target_dimension = float(getattr(args, "stl_target_dimension", 0.0) or 0.0)
     source_extents = source_mesh_bbox_extents(sample, stl_target_dimension)
-    mirror_stl = output_dir.parent / "mirror" / "output_model.stl"
+    reference_method = str(getattr(args, "direct_mesh_reference_method", "mirror") or "mirror")
+    reference_stl = direct_mesh_reference_stl_path(sample, output_dir, args, reference_method)
+    reference_extents = stl_file_bbox_extents(reference_stl)
+    mirror_stl = direct_mesh_reference_stl_path(sample, output_dir, args, "mirror")
     mirror_extents = stl_file_bbox_extents(mirror_stl)
     values = {
         "stl_target_dimension": f"{stl_target_dimension:.10g}" if stl_target_dimension > 0 else "",
-        "mirror_stl": str(mirror_stl) if mirror_stl.exists() else "",
+        "reference_method": reference_method,
+        "reference_stl": str(reference_stl or ""),
+        "mirror_stl": str(mirror_stl or ""),
     }
     values.update(_bbox_placeholder_values("source", source_extents))
     values.update(_bbox_placeholder_values("mirror", mirror_extents))
+    values.update(_bbox_placeholder_values("reference", reference_extents))
     return values
 
 

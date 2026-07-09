@@ -243,6 +243,15 @@ def run_experiment(args, experiment: dict, output_dir: Path) -> Path:
     append_optional(command, "--direct-mesh-command", experiment.get("direct_mesh_command", args.direct_mesh_command))
     append_optional(command, "--direct-mesh-output-ext", experiment.get("direct_mesh_output_ext", args.direct_mesh_output_ext))
     append_optional(command, "--direct-mesh-timeout", experiment.get("direct_mesh_timeout", args.direct_mesh_timeout))
+    reference_output_dir = experiment.get("direct_mesh_reference_output_dir", args.direct_mesh_reference_output_dir)
+    if reference_output_dir is None and is_direct_mesh_method(experiment["method"]):
+        reference_output_dir = output_dir
+    append_optional(command, "--direct-mesh-reference-output-dir", reference_output_dir)
+    append_optional(
+        command,
+        "--direct-mesh-reference-method",
+        experiment.get("direct_mesh_reference_method", args.direct_mesh_reference_method),
+    )
     append_optional(command, "--source-mesh-repair", experiment.get("source_mesh_repair", args.source_mesh_repair))
     max_method_failures = experiment.get("max_method_failures", args.max_method_failures)
     if max_method_failures:
@@ -517,6 +526,8 @@ def write_resolved_config(args, experiments: list[dict], output_dir: Path) -> Pa
             "direct_mesh_command": getattr(args, "direct_mesh_command", None),
             "direct_mesh_output_ext": getattr(args, "direct_mesh_output_ext", "glb"),
             "direct_mesh_timeout": getattr(args, "direct_mesh_timeout", 1800),
+            "direct_mesh_reference_output_dir": getattr(args, "direct_mesh_reference_output_dir", None),
+            "direct_mesh_reference_method": getattr(args, "direct_mesh_reference_method", "mirror"),
             "source_mesh_repair": getattr(args, "source_mesh_repair", "none"),
             "prompt": args.prompt,
             "steps": args.steps,
@@ -618,6 +629,8 @@ def write_experiment_report(
                 experiment.get("direct_mesh_input", getattr(args, "direct_mesh_input", "masked")),
                 experiment.get("direct_mesh_output_ext", getattr(args, "direct_mesh_output_ext", "glb")),
                 experiment.get("direct_mesh_timeout", getattr(args, "direct_mesh_timeout", 1800)),
+                experiment.get("direct_mesh_reference_output_dir", getattr(args, "direct_mesh_reference_output_dir", None)) or "",
+                experiment.get("direct_mesh_reference_method", getattr(args, "direct_mesh_reference_method", "mirror")),
                 experiment.get("source_mesh_repair", getattr(args, "source_mesh_repair", "none")),
                 experiment.get("direct_mesh_command", getattr(args, "direct_mesh_command", None)) or "",
                 experiment.get("prompt", args.prompt if experiment.get("method") not in ("mirror", "biharmonic") else ""),
@@ -776,6 +789,8 @@ def write_experiment_report(
                     "Direct Input",
                     "Direct Ext",
                     "Direct Timeout",
+                    "Direct Ref Root",
+                    "Direct Ref Method",
                     "Source Repair",
                     "Direct Command",
                     "Prompt",
@@ -914,6 +929,15 @@ def main() -> None:
     parser.add_argument("--direct-mesh-command", default=None)
     parser.add_argument("--direct-mesh-output-ext", default="glb")
     parser.add_argument("--direct-mesh-timeout", type=int, default=1800)
+    parser.add_argument(
+        "--direct-mesh-reference-output-dir",
+        default=None,
+        help=(
+            "Optional sweep output root used by direct-mesh candidates to resolve reference STL bbox "
+            "placeholders. Defaults to --output-dir for direct-mesh experiments."
+        ),
+    )
+    parser.add_argument("--direct-mesh-reference-method", default="mirror")
     parser.add_argument("--source-mesh-repair", choices=MESH_REPAIR_MODES, default="none")
     parser.add_argument("--stl-no-invert", action="store_true")
     parser.add_argument("--prompt", default="Complete the missing half naturally, preserving the same object, lighting, viewpoint, and background.")

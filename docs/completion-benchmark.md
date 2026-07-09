@@ -1362,6 +1362,14 @@ Colab G4 source-bbox oracle calibration result: the notebook terminal ran commit
 
 Selection gates passed with `10/10` wins versus `masked` and `10/10` wins versus current `mirror`; paired CI95 low versus mirror was `0.5299`, and there were no failed checks. This confirms the direct-mesh gap is largely scale/proportion calibration, not only model quality. Do not ship the source-bbox probe directly; the next implementation target is a deployable target-extents estimator from mirror relief/depth bbox statistics, then rerun the same held-out rows against this oracle upper bound.
 
+Deployable mirror-bbox calibration is now wired for optimize sweeps. `optimize_completion` passes the sweep root to direct-mesh runs as `--direct-mesh-reference-output-dir`, so a candidate can resolve the previously emitted mirror STL at `<sweep>/mirror/<sample_id>/mirror/output_model.stl`. The config `backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_triposr_mirror_bbox_candidate.json` uses:
+
+```bash
+--mesh-repair printable --mesh-target-bbox-extents "{mirror_bbox_extents}"
+```
+
+Run it on the same held-out 10 as `g4_stl_first_triposr_mirror_bbox_s40_n10` with `triposr_api_masked_repaired_stl_mirror_bbox_direct_mesh` as the candidate and `mirror` as the current method. This is the deployable follow-up to compare against the source-bbox oracle upper bound.
+
 Multiview/video backends should use the new `external-multiview-to-mesh` method. The benchmark writes `{input_bundle}` as `multiview_input.json` beside the provider outputs, with `primary_image`, `masked_image`, `full_image`, `mask`, `camera`, optional `video_path`/`frames_dir`, and a `views` list containing sibling images, masks, cameras, and view ids. `generate_rendered_dataset --views-per-asset N` now annotates rows that share an `asset_key` with `multiview_images`, `multiview_masks`, `multiview_cameras`, `multiview_view_ids`, and `multiview_primary_index`; `package_colab_inputs` carries those list-valued paths into Colab bundles.
 
 Local STL-first launcher smoke (`stl_first_reconstruction_smoke_local_s0_n1`, `dataset-count=1`, `size=128`, `stl-target-dimension=64`) completed successfully in `82.91s` for the benchmark stage. Ranking:

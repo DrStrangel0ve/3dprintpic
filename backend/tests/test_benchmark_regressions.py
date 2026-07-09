@@ -36,6 +36,7 @@ from backend.benchmark.optimize_completion import (
     annotate_per_sample_metrics,
     experiment_metadata,
     load_experiments,
+    run_experiment,
     training_metadata,
     write_experiment_report,
     write_modern_cache_preflight,
@@ -450,6 +451,150 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("output_model.stl", rows[0]["stl_model"])
         self.assertIn("output_mesh.ply", rows[0]["direct_mesh_output_mesh"])
         self.assertAlmostEqual(float(rows[0]["mesh_surface_chamfer_l1"]), 0.0)
+
+    def test_external_image_to_mesh_command_can_use_reference_mirror_bbox(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            full = root / "full.png"
+            masked = root / "masked.png"
+            mask = root / "mask.png"
+            mesh_path = root / "reference_box.ply"
+            script_path = root / "fake_image_to_mesh.py"
+            sweep_dir = root / "sweep"
+            mirror_stl = sweep_dir / "mirror" / "box" / "mirror" / "output_model.stl"
+            mirror_stl.parent.mkdir(parents=True)
+            Image.new("RGB", (12, 12), (80, 120, 160)).save(full)
+            Image.new("RGB", (12, 12), (255, 255, 255)).save(masked)
+            Image.fromarray(np.zeros((12, 12), dtype=np.uint8)).save(mask)
+            trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(mesh_path)
+            trimesh.creation.box(extents=(96.0, 48.0, 24.0)).export(mirror_stl)
+            script_path.write_text(
+                "\n".join(
+                    [
+                        "import sys",
+                        "import trimesh",
+                        "assert sys.argv[3] == '96,48,24', sys.argv[3]",
+                        "assert sys.argv[4] == '96,48,24', sys.argv[4]",
+                        "assert sys.argv[5].replace('\\\\', '/').endswith('mirror/output_model.stl'), sys.argv[5]",
+                        "assert sys.argv[6] == 'mirror', sys.argv[6]",
+                        "trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(sys.argv[1])",
+                        "trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(sys.argv[2])",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            manifest_path = root / "manifest.jsonl"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "id": "box",
+                        "full_image": str(full),
+                        "masked_image": str(masked),
+                        "mask": str(mask),
+                        "mesh": str(mesh_path),
+                        "source": "unit",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            command = (
+                f'"{sys.executable}" "{script_path}" "{{output_mesh}}" "{{output_stl}}" '
+                '"{mirror_bbox_extents}" "{reference_bbox_extents}" "{reference_stl}" "{reference_method}"'
+            )
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_completion_benchmark",
+                    "--manifest",
+                    str(manifest_path),
+                    "--output-dir",
+                    str(sweep_dir / "candidate"),
+                    "--methods",
+                    "external-image-to-mesh",
+                    "--limit",
+                    "1",
+                    "--skip-depth",
+                    "--emit-stl",
+                    "--direct-mesh-command",
+                    command,
+                    "--direct-mesh-output-ext",
+                    "ply",
+                    "--direct-mesh-reference-output-dir",
+                    str(sweep_dir),
+                    "--direct-mesh-reference-method",
+                    "mirror",
+                    "--mesh-surface-max-points",
+                    "128",
+                ],
+            ):
+                run_completion_benchmark.main()
+
+            with (sweep_dir / "candidate" / "per_sample_metrics.csv").open(newline="", encoding="utf-8") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+
+        self.assertEqual(rows[0]["method"], "external-image-to-mesh")
+        self.assertEqual(rows[0]["stl_exists"], "True")
+        self.assertIn("output_model.stl", rows[0]["stl_model"])
+
+    def test_optimize_direct_mesh_experiment_passes_reference_sweep_root(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output_dir = root / "sweep"
+            captured = []
+            args = SimpleNamespace(
+                manifest=str(root / "manifest.jsonl"),
+                limit=1,
+                start_index=0,
+                depth_provider="depth-anything-v2",
+                depth_model="depth-anything/Depth-Anything-V2-Small-hf",
+                device="cpu",
+                skip_depth=True,
+                emit_stl=True,
+                stl_no_invert=False,
+                resume=True,
+                continue_on_error=True,
+                prompt="",
+                steps=1,
+                guidance=None,
+                seed=123,
+                inpaint_max_dimension=64,
+                edit_mask_fill="input",
+                model_name=None,
+                lora_weights=None,
+                lora_scale=None,
+                stl_target_dimension=96,
+                stl_z_scale=50.0,
+                stl_sigma=4.0,
+                mesh_surface_max_points=128,
+                direct_mesh_input="masked",
+                direct_mesh_command='python fake.py "{input_image}" "{output_mesh}"',
+                direct_mesh_output_ext="ply",
+                direct_mesh_timeout=456,
+                direct_mesh_reference_output_dir=None,
+                direct_mesh_reference_method="mirror",
+                source_mesh_repair="none",
+                max_method_failures=0,
+            )
+
+            with patch("backend.benchmark.optimize_completion.run", side_effect=lambda command: captured.append(command)):
+                summary_path = run_experiment(
+                    args,
+                    {"name": "direct_candidate", "method": "external-image-to-mesh"},
+                    output_dir,
+                )
+
+        self.assertEqual(summary_path, output_dir / "direct_candidate" / "summary_metrics.csv")
+        self.assertEqual(len(captured), 1)
+        command = captured[0]
+        self.assertIn("--direct-mesh-reference-output-dir", command)
+        self.assertEqual(command[command.index("--direct-mesh-reference-output-dir") + 1], str(output_dir))
+        self.assertIn("--direct-mesh-reference-method", command)
+        self.assertEqual(command[command.index("--direct-mesh-reference-method") + 1], "mirror")
 
     def test_external_multiview_to_mesh_command_receives_bundle(self):
         import trimesh

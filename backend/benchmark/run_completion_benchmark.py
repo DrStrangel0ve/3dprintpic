@@ -860,11 +860,25 @@ def main():
         help=(
             "Shell command template for external-image-to-mesh. Available fields include "
             "{input_image}, {input_bundle}, {masked_image}, {full_image}, {mask}, {output_mesh}, "
-            "{output_stl}, {output_dir}, {sample_id}, and {method}."
+            "{output_stl}, {output_dir}, {sample_id}, {method}, {source_bbox_extents}, "
+            "{mirror_bbox_extents}, and {reference_bbox_extents}."
         ),
     )
     parser.add_argument("--direct-mesh-output-ext", default="glb")
     parser.add_argument("--direct-mesh-timeout", type=int, default=1800)
+    parser.add_argument(
+        "--direct-mesh-reference-output-dir",
+        default=None,
+        help=(
+            "Optional optimize sweep root used to resolve deployable reference STL placeholders, "
+            "for example <root>/mirror/<sample_id>/mirror/output_model.stl."
+        ),
+    )
+    parser.add_argument(
+        "--direct-mesh-reference-method",
+        default="mirror",
+        help="Method name used for {reference_stl} and {reference_bbox_extents}. Defaults to mirror.",
+    )
     parser.add_argument(
         "--source-mesh-repair",
         choices=MESH_REPAIR_MODES,
