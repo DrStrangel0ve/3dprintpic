@@ -321,6 +321,8 @@ def build_colab_run_script(
         "--run-name",
         run_name,
         "--stage",
+        "setup",
+        "--stage",
         "cache",
         "--stage",
         "eval",
