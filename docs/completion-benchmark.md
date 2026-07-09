@@ -205,6 +205,14 @@ Avoid `onnxruntime-gpu` on the current G4 image: the `1.27.0` wheel probed on Ju
 
 The provider wrapper now accepts `--mesh-repair basic|convex-hull|printable`. `printable` preserves the raw provider mesh at `--raw-output-mesh`, runs largest-component Trimesh cleanup first, and falls back to a convex hull only when the mesh still fails watertight/volume/single-body checks. The smoke config includes `triposr_api_masked_repaired_direct_mesh` so the next G4 slice can directly score raw TripoSR against a printable repaired variant instead of treating the repair as a manual postprocess.
 
+The repo also includes a one-command launcher for this exact smoke, which is easier to rerun in Colab than pasting a long notebook cell:
+
+```bash
+python -m backend.benchmark.run_triposr_repair_smoke --repo-dir /content/3dprintpic --output-dir /content/3dprintpic/backend/output/completion-benchmark/colab_g4/g4_triposr_repaired_s0_n1_v2 --triposr-python /content/triposr-venv/bin/python --provider-dir /content/TripoSR --provider-device cuda --mesh-repair printable
+```
+
+It writes `triposr_raw_vs_repaired_config.json`, `experiment/aggregate_summary.csv`, `experiment/ranked_experiments.csv`, `experiment/artifact_contact_sheet.png`, per-method metrics, and `triposr_repaired_summary.json` under the output directory. Use it after syncing the fork branch and preparing the isolated TripoSR venv; the launcher intentionally does not install provider dependencies, so dependency setup remains explicit and auditable.
+
 Colab G4 TripoSR API smoke result: the notebook ran commit `0294097` on July 9, 2026 with backend `numpy 2.0.2`, `trimesh 4.12.2`, `transformers 5.13.0`, and provider venv `torch 2.11.0+cu128`, `transformers 4.35.0`, and `torchmcubes`. The standalone `triposr-api` provider emitted OBJ and STL from an RGBA probe image. The one-sample procedural STL-quality benchmark also completed, but direct TripoSR was not printable enough to promote:
 
 | method | n | stl-quality score vs masked | mesh surface Chamfer med | STL watertight med | STL volume med | STL manifold med | STL components med | STL faces med |

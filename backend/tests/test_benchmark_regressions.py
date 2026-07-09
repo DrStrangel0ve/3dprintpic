@@ -42,6 +42,7 @@ from backend.benchmark.metrics import mesh_surface_distance_metrics, surface_dis
 from backend.benchmark.report_run import baseline_delta_rows, paired_baseline_delta_rows, paired_objective_rows, render_report
 from backend.benchmark.rank_methods import parse_weights, rank_summary_rows
 from backend.benchmark.run_image_to_mesh_provider import main as run_image_to_mesh_provider_main
+from backend.benchmark.run_triposr_repair_smoke import build_experiments, rows_from_csv
 from backend.benchmark.run_completion_benchmark import evaluate_sample, run_one, stl_diagnostics, summarize, write_split_audit
 from backend.benchmark.select_completion_candidate import evaluate_selection, json_safe
 from backend.benchmark.train_inpainting_lora import InpaintPairDataset, collate, dry_run, read_metadata, weighted_mse_loss
@@ -669,6 +670,46 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(output_stl_exists)
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
+
+    def test_triposr_repair_smoke_config_compares_raw_and_repaired_outputs(self):
+        args = SimpleNamespace(
+            triposr_python="/content/triposr-venv/bin/python",
+            provider_dir="/content/TripoSR",
+            provider_device="cuda",
+            chunk_size=123,
+            mc_resolution=32,
+            mesh_repair="printable",
+            direct_mesh_timeout=456,
+        )
+
+        experiments = build_experiments(args)
+        by_name = {experiment["name"]: experiment for experiment in experiments}
+        raw_command = by_name["triposr_api_masked_direct_mesh"]["direct_mesh_command"]
+        repaired_command = by_name["triposr_api_masked_repaired_direct_mesh"]["direct_mesh_command"]
+
+        self.assertEqual([experiment["name"] for experiment in experiments[:3]], ["masked", "mirror", "biharmonic"])
+        self.assertIn("--provider triposr-api", raw_command)
+        self.assertIn("--provider-dir /content/TripoSR", raw_command)
+        self.assertIn("--chunk-size 123", raw_command)
+        self.assertIn("--mc-resolution 32", raw_command)
+        self.assertNotIn("--mesh-repair", raw_command)
+        self.assertIn("--raw-output-mesh", repaired_command)
+        self.assertIn("{output_dir}/output_mesh_raw.obj", repaired_command)
+        self.assertIn("--mesh-repair printable", repaired_command)
+        self.assertEqual(by_name["triposr_api_masked_repaired_direct_mesh"]["direct_mesh_timeout"], 456)
+
+    def test_triposr_repair_smoke_reads_missing_or_present_csv_rows(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            csv_path = root / "summary.csv"
+            csv_path.write_text("method,n\nmasked,1\ntriposr,1\n", encoding="utf-8")
+
+            rows = rows_from_csv(csv_path)
+            missing_rows = rows_from_csv(root / "missing.csv")
+
+        self.assertEqual(rows[0]["method"], "masked")
+        self.assertEqual(rows[1]["n"], "1")
+        self.assertEqual(missing_rows, [])
 
     def test_depth_export_rejects_no_valid_cells(self):
         depth = np.array(
