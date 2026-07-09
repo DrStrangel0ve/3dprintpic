@@ -47,9 +47,102 @@ const examplePairs = [
   },
 ];
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8004';
+const PROCESS_IMAGE_TIMEOUT_MS = 10 * 60 * 1000;
+
+const depthProviderOptions = [
+  {
+    value: 'depth-anything-v2',
+    label: 'Depth Anything V2 (local GPU)',
+  },
+  {
+    value: 'sapiens',
+    label: 'Sapiens Depth (remote)',
+  },
+];
+
+const depthModelOptions = [
+  {
+    value: 'depth-anything/Depth-Anything-V2-Small-hf',
+    label: 'Small - fast local default',
+  },
+  {
+    value: 'depth-anything/Depth-Anything-V2-Base-hf',
+    label: 'Base - better detail',
+  },
+  {
+    value: 'depth-anything/Depth-Anything-V2-Large-hf',
+    label: 'Large - best detail, slower',
+  },
+];
+
+const completionModeOptions = [
+  {
+    value: 'none',
+    label: 'No completion',
+  },
+  {
+    value: 'mirror-auto',
+    label: 'Auto mirror missing half',
+  },
+  {
+    value: 'mirror-left-to-right',
+    label: 'Mirror left to right',
+  },
+  {
+    value: 'mirror-right-to-left',
+    label: 'Mirror right to left',
+  },
+];
+
+const completionProviderOptions = [
+  {
+    value: 'mirror',
+    label: 'Mirror prior - instant',
+  },
+  {
+    value: 'mirror-seam-repair',
+    label: 'Mirror seam repair - experimental',
+  },
+  {
+    value: 'sdxl-inpaint',
+    label: 'SDXL Inpaint - practical GPU',
+  },
+  {
+    value: 'dreamshaper-inpaint',
+    label: 'DreamShaper Inpaint - lighter GPU',
+  },
+  {
+    value: 'amused-inpaint',
+    label: 'AMUSED Inpaint - small/fast',
+  },
+  {
+    value: 'flux-fill',
+    label: 'FLUX.1 Fill - modern, heavy',
+  },
+  {
+    value: 'qwen-image-inpaint',
+    label: 'Qwen Image Inpaint - modern, heavier',
+  },
+  {
+    value: 'qwen-image-edit',
+    label: 'Qwen Image Edit - official Qwen path',
+  },
+];
+
+const promptDrivenCompletionProviders = new Set([
+  'sdxl-inpaint',
+  'dreamshaper-inpaint',
+  'amused-inpaint',
+  'flux-fill',
+  'qwen-image-inpaint',
+  'qwen-image-edit',
+]);
+
 export default function Home() {
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [completedImage, setCompletedImage] = useState<string | null>(null);
   const [processedSTL, setProcessedSTL] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -59,6 +152,12 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageToProcess, setImageToProcess] = useState<string | null>(null);
+  const [depthProvider, setDepthProvider] = useState('depth-anything-v2');
+  const [depthModel, setDepthModel] = useState('depth-anything/Depth-Anything-V2-Small-hf');
+  const [completionProvider, setCompletionProvider] = useState('mirror');
+  const [completionMode, setCompletionMode] = useState('none');
+  const [completionPrompt, setCompletionPrompt] = useState('Complete the missing half naturally, preserving the same person or object, lighting, camera angle, and background. Do not leave the masked area empty.');
+  const [backendRuntime, setBackendRuntime] = useState<string | null>(null);
   const router = useRouter();
 
   const ExampleCard = ({ pair, index }: { pair: any, index: any }) => {
@@ -97,6 +196,7 @@ export default function Home() {
     reader.onload = (e: ProgressEvent<FileReader>) => {
       if (e.target?.result) {
         setUploadedImage(e.target.result as string);
+        setCompletedImage(null);
         setProcessedSTL(null);
       }
     };
@@ -127,6 +227,7 @@ export default function Home() {
     event.stopPropagation();
     setUploadedImage(null);
     setGeneratedImage(null);
+    setCompletedImage(null);
     setProcessedSTL(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -147,7 +248,7 @@ export default function Home() {
       const healthCheckTimeout = setTimeout(() => healthCheckController.abort(), 2000);
   
       try {
-        const healthResponse = await fetch('http://localhost:8004/health', {
+        const healthResponse = await fetch(`${BACKEND_URL}/health`, {
           signal: healthCheckController.signal
         });
         clearTimeout(healthCheckTimeout);
@@ -166,13 +267,26 @@ export default function Home() {
       const formData = new FormData();
       const blob = await fetch(imageToProcess).then(r => r.blob());
       formData.append('file', blob, 'image.jpg');
+      formData.append('depth_provider', depthProvider);
+      formData.append('device', 'auto');
+      formData.append('completion_mode', completionMode);
+      formData.append('completion_provider', completionProvider);
+      const completionUsesPrompt = promptDrivenCompletionProviders.has(completionProvider);
+      if (completionUsesPrompt && completionPrompt.trim()) {
+        formData.append('completion_prompt', completionPrompt.trim());
+        formData.append('completion_steps', completionProvider === 'flux-fill' ? '24' : '18');
+        formData.append('completion_inpaint_max_dimension', '384');
+      }
+      if (depthProvider === 'depth-anything-v2') {
+        formData.append('depth_model', depthModel);
+      }
   
-      // Main request with 5-second timeout
+      // Depth estimation can be slow on first local model load.
       const mainRequestController = new AbortController();
-      const mainRequestTimeout = setTimeout(() => mainRequestController.abort(), 500000000);
+      const mainRequestTimeout = setTimeout(() => mainRequestController.abort(), PROCESS_IMAGE_TIMEOUT_MS);
   
       try {
-        const response = await fetch('http://localhost:8004/process_image', {
+        const response = await fetch(`${BACKEND_URL}/process_image`, {
           method: 'POST',
           body: formData,
           signal: mainRequestController.signal
@@ -184,7 +298,15 @@ export default function Home() {
         }
   
         const data = await response.json();
-        setProcessedSTL(`http://localhost:8004/stl_model/${data.stl_model}`);
+        const stlUrl = data.stl_url ? `${BACKEND_URL}${data.stl_url}` : `${BACKEND_URL}/stl_model/${data.stl_model}`;
+        setProcessedSTL(stlUrl);
+        setCompletedImage(data.completed_image_url ? `${BACKEND_URL}${data.completed_image_url}` : null);
+        if (data.depth_data) {
+          localStorage.setItem('lastDepthDataPath', data.depth_data);
+        }
+        if (data.job_id) {
+          localStorage.setItem('lastJobId', data.job_id);
+        }
       } catch (mainError) {
         if (mainError instanceof Error && mainError.name === 'AbortError') {
           throw new Error("Main request timed out");
@@ -207,7 +329,7 @@ export default function Home() {
       const healthCheckTimeout = setTimeout(() => healthCheckController.abort(), 2000);
   
       try {
-        const healthResponse = await fetch('http://localhost:8004/health', {
+        const healthResponse = await fetch(`${BACKEND_URL}/health`, {
           signal: healthCheckController.signal
         });
         clearTimeout(healthCheckTimeout);
@@ -224,7 +346,9 @@ export default function Home() {
       }
   
       // Extract the filename from the processedSTL URL
-      const stlFilename = processedSTL ? processedSTL.split('/').pop() : null;
+      const stlFilename = processedSTL
+        ? decodeURIComponent(new URL(processedSTL).pathname.replace(/^\/stl_model\//, ''))
+        : null;
   
       // Proceed with MASV upload
       const formData = new FormData();
@@ -232,7 +356,7 @@ export default function Home() {
         formData.append('file_name', stlFilename);
       }
 
-      const response = await fetch('http://localhost:8004/upload_to_masv', {
+      const response = await fetch(`${BACKEND_URL}/upload_to_masv`, {
         method: 'POST',
         body: formData,
       });
@@ -245,7 +369,7 @@ export default function Home() {
       console.log('MASV upload successful. Package ID:', data.masv_package_id);
 
       // Award RBC points
-      const rbcResponse = await fetch('http://localhost:8004/award_rbc_points?member_id=42&points=10', {
+      const rbcResponse = await fetch(`${BACKEND_URL}/award_rbc_points?member_id=42&points=10`, {
         method: 'POST',
       });
 
@@ -274,6 +398,7 @@ export default function Home() {
     handleCloseDialog();
     setUploadedImage(null);
     setGeneratedImage(null);
+    setCompletedImage(null);
     setProcessedSTL(null);
     setGeneratePrompt('');
     if (fileInputRef.current) {
@@ -341,6 +466,26 @@ export default function Home() {
       setImageToProcess(null);
     }
   }, [uploadedImage, generatedImage]);
+
+  useEffect(() => {
+    const loadBackendRuntime = async () => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/health`);
+        if (!response.ok) return;
+        const data = await response.json();
+        const runtime = data.runtime;
+        if (runtime?.cuda_available && runtime?.device) {
+          setBackendRuntime(`GPU: ${runtime.device}`);
+        } else if (runtime?.device) {
+          setBackendRuntime(`Device: ${runtime.device}`);
+        }
+      } catch {
+        setBackendRuntime(null);
+      }
+    };
+
+    loadBackendRuntime();
+  }, []);
 
   useEffect(() => {
     if (showConfetti) {
@@ -521,6 +666,90 @@ export default function Home() {
                 </div>
               </TabsContent>
             </Tabs>
+            <div className="mt-6">
+              <label htmlFor="depth-provider" className="block text-sm font-semibold text-gray-700 mb-2">
+                Depth model
+              </label>
+              <select
+                id="depth-provider"
+                value={depthProvider}
+                onChange={(event) => {
+                  const nextProvider = event.target.value;
+                  setDepthProvider(nextProvider);
+                  if (nextProvider === 'sapiens') {
+                    setDepthModel('');
+                  } else if (!depthModel) {
+                    setDepthModel('depth-anything/Depth-Anything-V2-Small-hf');
+                  }
+                }}
+                className="w-full rounded-lg border-2 border-[#c0a8f8] bg-white p-3 text-gray-800 focus:border-[#a088d8] focus:outline-none focus:ring-2 focus:ring-[#c0a8f8]"
+              >
+                {depthProviderOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {depthProvider === 'depth-anything-v2' && (
+                <select
+                  id="depth-model"
+                  value={depthModel}
+                  onChange={(event) => setDepthModel(event.target.value)}
+                  className="mt-3 w-full rounded-lg border-2 border-[#80e0b8] bg-white p-3 text-gray-800 focus:border-[#60c098] focus:outline-none focus:ring-2 focus:ring-[#80e0b8]"
+                >
+                  {depthModelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <label htmlFor="completion-mode" className="mt-4 block text-sm font-semibold text-gray-700 mb-2">
+                Missing-part helper
+              </label>
+              <select
+                id="completion-mode"
+                value={completionMode}
+                onChange={(event) => setCompletionMode(event.target.value)}
+                className="w-full rounded-lg border-2 border-[#6880d0] bg-white p-3 text-gray-800 focus:border-[#5870c0] focus:outline-none focus:ring-2 focus:ring-[#6880d0]"
+              >
+                {completionModeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {completionMode !== 'none' && (
+                <>
+                  <label htmlFor="completion-provider" className="mt-4 block text-sm font-semibold text-gray-700 mb-2">
+                    Completion method
+                  </label>
+                  <select
+                    id="completion-provider"
+                    value={completionProvider}
+                    onChange={(event) => setCompletionProvider(event.target.value)}
+                    className="w-full rounded-lg border-2 border-[#f070b8] bg-white p-3 text-gray-800 focus:border-[#d858a0] focus:outline-none focus:ring-2 focus:ring-[#f070b8]"
+                  >
+                    {completionProviderOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {promptDrivenCompletionProviders.has(completionProvider) && (
+                    <Input
+                      type="text"
+                      value={completionPrompt}
+                      onChange={(event) => setCompletionPrompt(event.target.value)}
+                      className="mt-3 w-full p-3 border-2 border-[#f070b8] rounded-lg focus:border-[#d858a0] focus:ring-2 focus:ring-[#f070b8] font-light"
+                    />
+                  )}
+                </>
+              )}
+              {backendRuntime && (
+                <p className="mt-2 text-sm text-gray-600">{backendRuntime}</p>
+              )}
+            </div>
           </CardContent>
         </Card>
         
@@ -545,6 +774,11 @@ export default function Home() {
           <Card className="w-full max-w-3xl mb-20 shadow-lg bg-white">
             <CardContent className="p-6">
               <h3 className="text-2xl font-bold mb-6 text-[#6880d0] font-serif">Your 3D Model is Ready!</h3>
+              {completedImage && (
+                <div className="w-full h-48 bg-black flex items-center justify-center mb-6 relative rounded-lg overflow-hidden">
+                  <img src={completedImage} alt="Completed input" className="max-w-full max-h-full object-contain" />
+                </div>
+              )}
               <div className="w-full h-80 md:h-96 bg-black flex items-center justify-center mb-8 relative rounded-lg overflow-hidden">
                 <StlViewer
                   url={processedSTL}

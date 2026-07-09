@@ -1,17 +1,30 @@
 import os
+import json
 from dotenv import load_dotenv
 import aiohttp
 import asyncio
 import re
 import math
 from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import logging
 from tempfile import NamedTemporaryFile
-from pic_to_3d import process_image_get_depth_data, depth_data_to_3d_model
+try:
+    from .pic_to_3d import (
+        MODERN_INPAINT_MODELS,
+        complete_image,
+        depth_data_to_3d_model,
+        process_image_get_depth_data,
+    )
+except ImportError:  # pragma: no cover - supports running uvicorn from backend/
+    if __package__:
+        raise
+    from pic_to_3d import MODERN_INPAINT_MODELS, complete_image, process_image_get_depth_data, depth_data_to_3d_model
 import numpy as np
 from PIL import Image
 
@@ -23,11 +36,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
 
 # Updated CORS middleware configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Allow requests from your frontend origin
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
@@ -38,36 +56,208 @@ MASV_API_KEY = os.getenv("MASV_API_KEY")
 MASV_TEAM_ID = os.getenv("MASV_TEAM_ID")
 RBC_ACCESS_TOKEN = os.getenv("RBC_ACCESS_TOKEN")
 RBC_API_BASE_URL = "https://paywithpretendpointsapi.onrender.com/api/v1"
+DEFAULT_DEPTH_PROVIDER = os.getenv("DEPTH_PROVIDER", "depth-anything-v2")
+DEFAULT_DEPTH_MODEL = os.getenv("DEPTH_MODEL", "depth-anything/Depth-Anything-V2-Small-hf")
+OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "./output")).resolve()
+
+DEPTH_MODELS = [
+    {
+        "id": "depth-anything/Depth-Anything-V2-Small-hf",
+        "label": "Depth Anything V2 Small",
+        "provider": "depth-anything-v2",
+        "recommended": True,
+        "notes": "Fast local default for iterative STL generation.",
+    },
+    {
+        "id": "depth-anything/Depth-Anything-V2-Base-hf",
+        "label": "Depth Anything V2 Base",
+        "provider": "depth-anything-v2",
+        "recommended": False,
+        "notes": "Better detail with a larger download and slower first run.",
+    },
+    {
+        "id": "depth-anything/Depth-Anything-V2-Large-hf",
+        "label": "Depth Anything V2 Large",
+        "provider": "depth-anything-v2",
+        "recommended": False,
+        "notes": "Highest quality Depth Anything V2 option; expensive first download.",
+    },
+]
+
+
+def is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
+def resolve_output_file(file_path: str, allowed_suffixes: tuple[str, ...]) -> Path:
+    resolved_path = (OUTPUT_DIR / file_path).resolve()
+    if not is_relative_to(resolved_path, OUTPUT_DIR):
+        raise HTTPException(status_code=400, detail="Invalid output file path")
+    if resolved_path.suffix.lower() not in allowed_suffixes:
+        raise HTTPException(status_code=400, detail="Unsupported output file type")
+    if not resolved_path.exists():
+        raise HTTPException(status_code=404, detail="Output file not found")
+    return resolved_path
+
+
+def output_relative_path(file_path: Path | str) -> str:
+    path = Path(file_path).resolve()
+    return path.relative_to(OUTPUT_DIR).as_posix()
+
+
+def get_runtime_info() -> dict:
+    try:
+        import torch
+
+        cuda_available = torch.cuda.is_available()
+        return {
+            "torch": torch.__version__,
+            "cuda_available": cuda_available,
+            "cuda_version": torch.version.cuda,
+            "device": torch.cuda.get_device_name(0) if cuda_available else "cpu",
+        }
+    except Exception as exc:
+        return {
+            "torch": None,
+            "cuda_available": False,
+            "cuda_version": None,
+            "device": "unknown",
+            "error": str(exc),
+        }
 
 @app.post("/process_image")
-async def process_image(file: UploadFile = File(...)):
+async def process_image(
+    file: UploadFile = File(...),
+    depth_provider: str = Form(DEFAULT_DEPTH_PROVIDER),
+    depth_model: str | None = Form(None),
+    device: str = Form("auto"),
+    target_dimension: int = Form(300),
+    z_scale: float = Form(50),
+    invert: bool = Form(True),
+    sigma: float = Form(4.0),
+    completion_mode: str = Form("none"),
+    completion_provider: str = Form("mirror"),
+    completion_prompt: str | None = Form(None),
+    completion_model: str | None = Form(None),
+    completion_lora_weights: str | None = Form(None),
+    completion_lora_scale: float | None = Form(None),
+    completion_steps: int = Form(24),
+    completion_guidance: float | None = Form(None),
+    completion_seed: int | None = Form(None),
+    completion_inpaint_max_dimension: int = Form(768),
+):
     logger.info(f"Received file: {file.filename}")
-    
-    with NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+
+    job_id = uuid4().hex
+    job_dir = OUTPUT_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    upload_suffix = Path(file.filename or "").suffix or ".jpg"
+    with NamedTemporaryFile(delete=False, suffix=upload_suffix, dir=job_dir) as temp_file:
         shutil.copyfileobj(file.file, temp_file)
         temp_file_path = temp_file.name
     
     try:
         # Process the image and get depth data
-        logger.info("Processing image to get depth data...")
-        depth_data_path = process_image_get_depth_data(temp_file_path)
+        selected_model = depth_model or DEFAULT_DEPTH_MODEL
+        logger.info(
+            "Processing image to get depth data with provider=%s model=%s device=%s",
+            depth_provider,
+            selected_model,
+            device,
+        )
+        completed_image_path, applied_completion_mode = complete_image(
+            temp_file_path,
+            output_dir=str(job_dir),
+            mode=completion_mode,
+            provider=completion_provider,
+            prompt=completion_prompt,
+            model_name=completion_model,
+            lora_weights=completion_lora_weights,
+            lora_scale=completion_lora_scale,
+            device=device,
+            num_inference_steps=completion_steps,
+            guidance_scale=completion_guidance,
+            seed=completion_seed,
+            inpaint_max_dimension=completion_inpaint_max_dimension,
+        )
+        image_for_depth = completed_image_path
+
+        depth_data_path = process_image_get_depth_data(
+            image_for_depth,
+            output_dir=str(job_dir),
+            provider=depth_provider,
+            model_name=selected_model,
+            device=device,
+        )
         logger.info(f"Depth data saved as: {depth_data_path}")
         
         # Generate 3D model
         logger.info("Generating 3D model...")
-        stl_path = "output_3d_model.stl"
-        depth_data_to_3d_model(depth_data_path, output_stl_path=stl_path)
+        stl_path = job_dir / "model.stl"
+        depth_data_to_3d_model(
+            depth_data_path,
+            output_stl_path=str(stl_path),
+            target_dimension=target_dimension,
+            z_scale=z_scale,
+            invert=invert,
+            sigma=sigma,
+        )
         logger.info(f"3D model saved as: {stl_path}")
         
         # Check if the STL file was actually created
         if not os.path.exists(stl_path):
             raise FileNotFoundError(f"STL file was not created at {stl_path}")
+
+        metadata = {
+            "job_id": job_id,
+            "source_filename": file.filename,
+            "depth_provider": depth_provider,
+            "depth_model": selected_model,
+            "device": device,
+            "target_dimension": target_dimension,
+            "z_scale": z_scale,
+            "invert": invert,
+            "sigma": sigma,
+            "completion_mode": completion_mode,
+            "completion_provider": completion_provider,
+            "completion_model": completion_model,
+            "completion_lora_weights": completion_lora_weights,
+            "completion_lora_scale": completion_lora_scale,
+            "completion_steps": completion_steps,
+            "completion_guidance": completion_guidance,
+            "completion_seed": completion_seed,
+            "completion_inpaint_max_dimension": completion_inpaint_max_dimension,
+            "applied_completion_mode": applied_completion_mode,
+            "created_at": datetime.utcnow().isoformat() + "Z",
+        }
+        with open(job_dir / "metadata.json", "w", encoding="utf-8") as metadata_file:
+            json.dump(metadata, metadata_file, indent=2)
+
+        depth_relative_path = output_relative_path(depth_data_path)
+        stl_relative_path = output_relative_path(stl_path)
+        completed_image_relative_path = (
+            output_relative_path(completed_image_path)
+            if completed_image_path and applied_completion_mode
+            else None
+        )
         
         # Return paths to the generated files
-        return {
-            "depth_data": depth_data_path,
-            "stl_model": stl_path
+        response = {
+            **metadata,
+            "depth_data": depth_relative_path,
+            "depth_data_url": f"/depth_data/{depth_relative_path}",
+            "stl_model": stl_relative_path,
+            "stl_url": f"/stl_model/{stl_relative_path}",
         }
+        if completed_image_relative_path:
+            response["completed_image"] = completed_image_relative_path
+            response["completed_image_url"] = f"/depth_data/{completed_image_relative_path}"
+        return response
     except Exception as e:
         logger.error(f"An error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -79,15 +269,12 @@ async def process_image(file: UploadFile = File(...)):
 async def upload_to_masv_endpoint(file_name: str = Form(...)):
     logger.info(f"Received request to upload file to MASV: {file_name}")
     
-    file_path = os.path.join(os.getcwd(), file_name)
-    
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail=f"File not found: {file_name}")
+    file_path = resolve_output_file(file_name, (".stl",))
     
     try:
         # Upload to MASV
         logger.info("Uploading to MASV...")
-        masv_package_id = await upload_to_masv(file_path, file_name)
+        masv_package_id = await upload_to_masv(str(file_path), file_path.name)
         logger.info(f"Uploaded to MASV. Package ID: {masv_package_id}")
         
         return {"masv_package_id": masv_package_id}
@@ -216,34 +403,67 @@ async def upload_to_masv(file_path: str, file_name: str):
         logger.error(f"Unexpected error during MASV upload: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Unexpected error during MASV upload: {str(e)}")
 
-@app.get("/depth_data/{filename}")
-async def get_depth_data(filename: str):
-    file_path = os.path.join(os.getcwd(), filename)
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Depth data file not found")
-    return FileResponse(file_path)
+@app.get("/depth_data/{file_path:path}")
+async def get_depth_data(file_path: str):
+    resolved_path = resolve_output_file(file_path, (".npy", ".png", ".webp"))
+    return FileResponse(resolved_path)
 
-@app.get("/stl_model/{filename}")
-async def get_stl_model(filename: str):
-    file_path = os.path.join(os.getcwd(), filename)
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="STL model file not found")
-    return FileResponse(file_path)
+@app.get("/stl_model/{file_path:path}")
+async def get_stl_model(file_path: str):
+    resolved_path = resolve_output_file(file_path, (".stl",))
+    return FileResponse(resolved_path)
 
 def sanitize_float(x):
     if np.isnan(x) or np.isinf(x):
         return -12345678  # or another appropriate default value
     return float(x)
 
-@app.get("/depth_data_downsampled/{filename}")
-async def get_depth_data_downsampled(filename: str):
-    file_path = os.path.join(os.getcwd(), f"./output/{filename}")
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Depth data file not found")
+
+def completion_provider_rows() -> list[dict]:
+    notes = {
+        "sdxl-inpaint": "Public SDXL inpainting checkpoint. Practical middle tier for a 12 GB GPU when run at 384-512 px with fp16 and CPU offload.",
+        "dreamshaper-inpaint": "Public SD1.5-style inpainting checkpoint. Smaller fp16 footprint than SDXL and useful as the first learned baseline to beat mirror/biharmonic.",
+        "amused-inpaint": "Small public masked-token inpainting model. Useful as a fast non-diffusion learned baseline against mirror/biharmonic.",
+        "flux-fill": "Modern rectified-flow inpainting/outpainting model. Large and may require Hugging Face access plus CPU offload.",
+        "qwen-image-inpaint": "Qwen Image model through the Diffusers inpaint pipeline. Large; preserves visible pixels after generation.",
+        "qwen-image-edit": "Official Qwen Image Edit pipeline prompted to fill the blank half. Large; visible pixels are restored after generation.",
+    }
+    rows = [
+        {
+            "id": "mirror",
+            "label": "Mirror prior",
+            "local": True,
+            "gpu_supported": False,
+            "notes": "Fast geometric symmetry prior. No diffusion model.",
+        },
+        {
+            "id": "mirror-seam-repair",
+            "label": "Mirror seam repair",
+            "local": True,
+            "gpu_supported": False,
+            "notes": "Experimental fast mirror prior with a small classical inpaint repair band along the generated seam. Benchmark before making it the default.",
+        }
+    ]
+    for provider_id, provider in MODERN_INPAINT_MODELS.items():
+        rows.append(
+            {
+                "id": provider_id,
+                "label": provider["label"],
+                "model": provider["model"],
+                "local": True,
+                "gpu_supported": True,
+                "notes": notes.get(provider_id, "Modern diffusion-based completion provider."),
+            }
+        )
+    return rows
+
+@app.get("/depth_data_downsampled/{file_path:path}")
+async def get_depth_data_downsampled(file_path: str):
+    resolved_path = resolve_output_file(file_path, (".npy",))
     
     try:
         # Load the depth data
-        depth_data = np.load(file_path)
+        depth_data = np.load(resolved_path)
         
         # Get original dimensions
         original_height, original_width = depth_data.shape
@@ -326,7 +546,60 @@ async def award_rbc_points(
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "default_depth_provider": DEFAULT_DEPTH_PROVIDER,
+        "default_depth_model": DEFAULT_DEPTH_MODEL,
+        "output_dir": str(OUTPUT_DIR),
+        "runtime": get_runtime_info(),
+    }
+
+
+@app.get("/models")
+async def get_models():
+    return {
+        "default_provider": DEFAULT_DEPTH_PROVIDER,
+        "providers": [
+            {
+                "id": "depth-anything-v2",
+                "label": "Depth Anything V2",
+                "model": DEFAULT_DEPTH_MODEL,
+                "local": True,
+                "gpu_supported": True,
+                "models": DEPTH_MODELS,
+            },
+            {
+                "id": "sapiens",
+                "label": "Sapiens Depth",
+                "model": "facebook/sapiens_depth",
+                "local": False,
+                "gpu_supported": False,
+            },
+        ],
+        "completion_modes": [
+            {
+                "id": "none",
+                "label": "No completion",
+                "notes": "Estimate depth only from the input pixels.",
+            },
+            {
+                "id": "mirror-auto",
+                "label": "Auto mirror completion",
+                "notes": "Mirror the visually richer half across the center before depth estimation.",
+            },
+            {
+                "id": "mirror-left-to-right",
+                "label": "Mirror left to right",
+                "notes": "Use the left half to synthesize the right half.",
+            },
+            {
+                "id": "mirror-right-to-left",
+                "label": "Mirror right to left",
+                "notes": "Use the right half to synthesize the left half.",
+            },
+        ],
+        "completion_providers": completion_provider_rows(),
+    }
 
 if __name__ == "__main__":
     import uvicorn

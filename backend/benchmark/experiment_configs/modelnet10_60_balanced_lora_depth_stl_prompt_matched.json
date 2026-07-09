@@ -1,0 +1,48 @@
+[
+  {
+    "name": "masked",
+    "method": "masked"
+  },
+  {
+    "name": "mirror",
+    "method": "mirror"
+  },
+  {
+    "name": "biharmonic",
+    "method": "biharmonic"
+  },
+  {
+    "name": "dreamshaper_base_generic_s20_s256",
+    "method": "dreamshaper-inpaint",
+    "model_name": "Lykon/dreamshaper-8-inpainting",
+    "prompt": "Complete the missing half naturally while preserving the same subject, lighting, perspective, and background.",
+    "steps": 20,
+    "guidance": 7.5,
+    "seed": 1234,
+    "inpaint_max_dimension": 256
+  },
+  {
+    "name": "dreamshaper_lora_balanced_train40_promptmatched_scale050_s256",
+    "method": "dreamshaper-inpaint",
+    "model_name": "Lykon/dreamshaper-8-inpainting",
+    "lora_weights": "backend/output/completion-benchmark/lora/modelnet10_60_balanced_train40_dreamshaper_mask3_seam4_s200_generic",
+    "lora_scale": 0.5,
+    "prompt": "Complete the missing half naturally while preserving the same subject, lighting, perspective, and background.",
+    "steps": 20,
+    "guidance": 7.5,
+    "seed": 1234,
+    "inpaint_max_dimension": 256
+  },
+  {
+    "name": "dreamshaper_lora_balanced_train40_promptmatched_scale075_s256",
+    "method": "dreamshaper-inpaint",
+    "model_name": "Lykon/dreamshaper-8-inpainting",
+    "lora_weights": "backend/output/completion-benchmark/lora/modelnet10_60_balanced_train40_dreamshaper_mask3_seam4_s200_generic",
+    "lora_scale": 0.75,
+    "prompt": "Complete the missing half naturally while preserving the same subject, lighting, perspective, and background.",
+    "steps": 20,
+    "guidance": 7.5,
+    "seed": 1234,
+    "inpaint_max_dimension": 256
+  }
+]

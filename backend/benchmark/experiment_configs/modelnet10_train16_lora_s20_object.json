@@ -1,0 +1,56 @@
+[
+  {
+    "name": "mirror",
+    "method": "mirror"
+  },
+  {
+    "name": "biharmonic",
+    "method": "biharmonic"
+  },
+  {
+    "name": "dreamshaper_base_s20_s256",
+    "method": "dreamshaper-inpaint",
+    "model_name": "Lykon/dreamshaper-8-inpainting",
+    "prompt": "Complete the missing half of the same {category} with matching geometry, lighting, viewpoint, and background. The masked half must contain the missing {category}, not an empty background.",
+    "steps": 20,
+    "guidance": 7.5,
+    "seed": 1234,
+    "inpaint_max_dimension": 256
+  },
+  {
+    "name": "dreamshaper_lora_plain_s20_s256",
+    "method": "dreamshaper-inpaint",
+    "model_name": "Lykon/dreamshaper-8-inpainting",
+    "lora_weights": "backend/output/completion-benchmark/lora/modelnet10_train16_dreamshaper_s20",
+    "lora_scale": 1.0,
+    "prompt": "Complete the missing half of the same {category} with matching geometry, lighting, viewpoint, and background. The masked half must contain the missing {category}, not an empty background.",
+    "steps": 20,
+    "guidance": 7.5,
+    "seed": 1234,
+    "inpaint_max_dimension": 256
+  },
+  {
+    "name": "dreamshaper_lora_mask3_seam4_s20_s256",
+    "method": "dreamshaper-inpaint",
+    "model_name": "Lykon/dreamshaper-8-inpainting",
+    "lora_weights": "backend/output/completion-benchmark/lora/modelnet10_train16_dreamshaper_mask3_seam4_s20",
+    "lora_scale": 1.0,
+    "prompt": "Complete the missing half of the same {category} with matching geometry, lighting, viewpoint, and background. The masked half must contain the missing {category}, not an empty background.",
+    "steps": 20,
+    "guidance": 7.5,
+    "seed": 1234,
+    "inpaint_max_dimension": 256
+  },
+  {
+    "name": "dreamshaper_lora_obj8_mask2_seam2_s20_s256",
+    "method": "dreamshaper-inpaint",
+    "model_name": "Lykon/dreamshaper-8-inpainting",
+    "lora_weights": "backend/output/completion-benchmark/lora/modelnet10_train16_dreamshaper_obj8_mask2_seam2_s20",
+    "lora_scale": 1.0,
+    "prompt": "Complete the missing half of the same {category} with matching geometry, lighting, viewpoint, and background. The masked half must contain the missing {category}, not an empty background.",
+    "steps": 20,
+    "guidance": 7.5,
+    "seed": 1234,
+    "inpaint_max_dimension": 256
+  }
+]
