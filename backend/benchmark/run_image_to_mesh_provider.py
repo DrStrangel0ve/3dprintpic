@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from backend.benchmark.direct_mesh import convert_mesh_to_stl
+from backend.benchmark.direct_mesh import MESH_REPAIR_MODES, convert_mesh_to_stl, repair_mesh_for_printable_stl
 from backend.benchmark.mesh_rendering import load_mesh
 
 
@@ -212,6 +212,7 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
     args.input_image = Path(args.input_image)
     args.output_mesh = Path(args.output_mesh)
     args.output_stl = Path(args.output_stl) if args.output_stl else None
+    args.raw_output_mesh = Path(args.raw_output_mesh) if args.raw_output_mesh else None
     if not args.input_image.exists():
         raise FileNotFoundError(f"Input image does not exist: {args.input_image}")
 
@@ -224,6 +225,15 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
         output_mesh = run_hunyuan_shape(args)
     else:
         raise ValueError(f"Unsupported provider: {args.provider}")
+
+    if args.mesh_repair != "none":
+        raw_output_mesh = args.raw_output_mesh or output_mesh.with_name(
+            f"{output_mesh.stem}_raw{output_mesh.suffix}"
+        )
+        raw_output_mesh.parent.mkdir(parents=True, exist_ok=True)
+        if output_mesh.resolve() != raw_output_mesh.resolve():
+            shutil.copy2(output_mesh, raw_output_mesh)
+        output_mesh = repair_mesh_for_printable_stl(raw_output_mesh, args.output_mesh, args.mesh_repair)
 
     output_stl = None
     if args.output_stl:
@@ -239,6 +249,7 @@ def main() -> None:
     parser.add_argument("--input-image", required=True)
     parser.add_argument("--output-mesh", required=True)
     parser.add_argument("--output-stl", default=None)
+    parser.add_argument("--raw-output-mesh", default=None)
     parser.add_argument("--provider-dir", default=None)
     parser.add_argument("--provider-output-dir", type=Path, default=None)
     parser.add_argument(
@@ -255,6 +266,16 @@ def main() -> None:
     parser.add_argument("--mc-resolution", type=int, default=256)
     parser.add_argument("--texture-resolution", type=int, default=None)
     parser.add_argument("--remesh-option", choices=("none", "triangle", "quad"), default=None)
+    parser.add_argument(
+        "--mesh-repair",
+        choices=MESH_REPAIR_MODES,
+        default="none",
+        help=(
+            "Postprocess the provider mesh before STL export. 'basic' keeps the largest connected body and "
+            "runs Trimesh cleanup; 'convex-hull' forces a watertight hull; 'printable' tries basic repair and "
+            "falls back to a hull only if watertight/volume/single-component checks still fail."
+        ),
+    )
     parser.add_argument("--provider-arg", action="append", default=[])
     parser.add_argument("--model-name", default=None)
     args = parser.parse_args()

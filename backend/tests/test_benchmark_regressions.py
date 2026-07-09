@@ -18,7 +18,7 @@ from backend.benchmark.backfill_lora_provenance import backfill_lora_root, backf
 from backend.benchmark import colab_g4_orchestrator, run_completion_benchmark
 from backend.benchmark.combine_optimize_runs import combine_runs
 from backend.benchmark.compare_optimize_runs import add_score_deltas, compare_run, render_markdown
-from backend.benchmark.direct_mesh import direct_mesh_input_path
+from backend.benchmark.direct_mesh import direct_mesh_input_path, repair_mesh_for_printable_stl
 from backend.benchmark.export_training_pairs import main as export_training_pairs_main
 from backend.benchmark.package_colab_inputs import package_inputs
 from backend.benchmark.optimize_completion import (
@@ -456,6 +456,99 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(output_mesh_exists)
         self.assertTrue(output_stl_exists)
         self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
+
+    def test_printable_mesh_repair_falls_back_to_watertight_hull(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            broken_path = root / "open_box.ply"
+            repaired_path = root / "repaired.stl"
+            broken = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
+            keep_faces = np.ones(len(broken.faces), dtype=bool)
+            keep_faces[-2:] = False
+            broken.update_faces(keep_faces)
+            broken.export(broken_path)
+
+            repair_mesh_for_printable_stl(broken_path, repaired_path, mode="printable")
+
+            diagnostics = stl_diagnostics(repaired_path)
+
+        self.assertTrue(diagnostics["stl_exists"])
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_is_volume"])
+        self.assertTrue(diagnostics["stl_single_component"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
+
+    def test_image_to_mesh_provider_wrapper_can_repair_unprintable_mesh(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            provider_dir = root / "fake_spar3d"
+            provider_dir.mkdir()
+            input_image = root / "input.png"
+            output_mesh = root / "normalized.ply"
+            raw_output_mesh = root / "raw_provider_mesh.ply"
+            output_stl = root / "normalized.stl"
+            Image.new("RGB", (12, 12), (120, 80, 160)).save(input_image)
+            (provider_dir / "run.py").write_text(
+                "\n".join(
+                    [
+                        "import argparse",
+                        "from pathlib import Path",
+                        "import numpy as np",
+                        "import trimesh",
+                        "parser = argparse.ArgumentParser()",
+                        "parser.add_argument('input_image')",
+                        "parser.add_argument('--output-dir', required=True)",
+                        "args = parser.parse_args()",
+                        "Path(args.output_dir).mkdir(parents=True, exist_ok=True)",
+                        "mesh = trimesh.creation.box(extents=(1.0, 0.75, 0.5))",
+                        "keep_faces = np.ones(len(mesh.faces), dtype=bool)",
+                        "keep_faces[-2:] = False",
+                        "mesh.update_faces(keep_faces)",
+                        "mesh.export(Path(args.output_dir) / 'broken.ply')",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_image_to_mesh_provider",
+                    "--provider",
+                    "spar3d",
+                    "--provider-dir",
+                    str(provider_dir),
+                    "--input-image",
+                    str(input_image),
+                    "--output-mesh",
+                    str(output_mesh),
+                    "--raw-output-mesh",
+                    str(raw_output_mesh),
+                    "--output-stl",
+                    str(output_stl),
+                    "--provider-python",
+                    sys.executable,
+                    "--mesh-repair",
+                    "printable",
+                ],
+            ):
+                run_image_to_mesh_provider_main()
+
+            diagnostics = stl_diagnostics(output_stl)
+            raw_output_mesh_exists = raw_output_mesh.exists()
+            output_mesh_exists = output_mesh.exists()
+            output_stl_exists = output_stl.exists()
+
+        self.assertTrue(raw_output_mesh_exists)
+        self.assertTrue(output_mesh_exists)
+        self.assertTrue(output_stl_exists)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_is_volume"])
+        self.assertTrue(diagnostics["stl_single_component"])
         self.assertTrue(diagnostics["stl_positive_volume"])
 
     def test_triposr_api_provider_uses_preprocessed_input_without_rembg(self):

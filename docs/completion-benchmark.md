@@ -198,10 +198,12 @@ python -m virtualenv --system-site-packages /content/triposr-venv
 export TRIPOSR_DIR=/content/TripoSR
 cd /content/3dprintpic
 python -m pip install -r backend/requirements-cuda.txt
-python -m backend.benchmark.optimize_completion --manifest backend/output/completion-benchmark/modelnet10_60_balanced_s256_seed4040/manifest.jsonl --output-dir backend/output/completion-benchmark/experiments/modelnet10_60_balanced_stl_quality_triposr_api_venv_prefill_direct_mesh_s40_n2 --config backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_triposr_api_venv_prefill_direct_mesh_smoke.json --start-index 40 --limit 2 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --device auto --emit-stl --stl-target-dimension 96 --score-mode baseline-delta --score-profile stl-quality --baseline-method masked --contact-sheet --contact-sheet-methods masked,mirror,biharmonic,triposr_api_masked_direct_mesh,triposr_api_mirror_prefill_direct_mesh,triposr_api_biharmonic_prefill_direct_mesh --contact-sheet-max-samples 2 --resume --continue-on-error
+python -m backend.benchmark.optimize_completion --manifest backend/output/completion-benchmark/modelnet10_60_balanced_s256_seed4040/manifest.jsonl --output-dir backend/output/completion-benchmark/experiments/modelnet10_60_balanced_stl_quality_triposr_api_venv_prefill_direct_mesh_s40_n2 --config backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_triposr_api_venv_prefill_direct_mesh_smoke.json --start-index 40 --limit 2 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --device auto --emit-stl --stl-target-dimension 96 --score-mode baseline-delta --score-profile stl-quality --baseline-method masked --contact-sheet --contact-sheet-methods masked,mirror,biharmonic,triposr_api_masked_direct_mesh,triposr_api_masked_repaired_direct_mesh,triposr_api_mirror_prefill_direct_mesh,triposr_api_biharmonic_prefill_direct_mesh --contact-sheet-max-samples 2 --resume --continue-on-error
 ```
 
 Avoid `onnxruntime-gpu` on the current G4 image: the `1.27.0` wheel probed on July 9, 2026 attempted to load CUDA 13 runtime libraries on the CUDA 12.8 Colab image. The preferred `triposr-api` path skips ONNX background removal entirely; CPU `onnxruntime` is only needed if you deliberately fall back to TripoSR's official `run.py`. Also avoid installing TripoSR requirements into the main backend interpreter; TripoSR's old `trimesh==4.0.5` breaks procedural dataset rendering under NumPy 2.0, while the backend now requires `trimesh>=4.12.2`.
+
+The provider wrapper now accepts `--mesh-repair basic|convex-hull|printable`. `printable` preserves the raw provider mesh at `--raw-output-mesh`, runs largest-component Trimesh cleanup first, and falls back to a convex hull only when the mesh still fails watertight/volume/single-body checks. The smoke config includes `triposr_api_masked_repaired_direct_mesh` so the next G4 slice can directly score raw TripoSR against a printable repaired variant instead of treating the repair as a manual postprocess.
 
 Colab G4 TripoSR API smoke result: the notebook ran commit `0294097` on July 9, 2026 with backend `numpy 2.0.2`, `trimesh 4.12.2`, `transformers 5.13.0`, and provider venv `torch 2.11.0+cu128`, `transformers 4.35.0`, and `torchmcubes`. The standalone `triposr-api` provider emitted OBJ and STL from an RGBA probe image. The one-sample procedural STL-quality benchmark also completed, but direct TripoSR was not printable enough to promote:
 
@@ -212,7 +214,7 @@ Colab G4 TripoSR API smoke result: the notebook ran commit `0294097` on July 9, 
 | `masked` | 1 | 0.0000 | 0.1911 | 1.0 | 1.0 | 1.0 | 1 | 29580 |
 | `triposr_api_masked_direct_mesh` | 1 | -14.4972 | 0.1698 | 0.0 | 0.0 | 0.0 | 2 | 36950 |
 
-Interpretation: the direct API integration works, but raw TripoSR output needs a mesh-repair/remesh postprocess before it can beat the existing depth-to-STL relief baseline on printable STL quality. The next STL-first direct-mesh iteration should add a repair candidate around `triposr-api`, then rerun the same smoke with `masked`, `mirror`, `biharmonic`, raw TripoSR, and repaired TripoSR.
+Interpretation: the direct API integration works, but raw TripoSR output needs a mesh-repair/remesh postprocess before it can beat the existing depth-to-STL relief baseline on printable STL quality. The follow-up config now includes a repaired TripoSR candidate; rerun the same smoke with `masked`, `mirror`, `biharmonic`, raw TripoSR, and repaired TripoSR, then only promote it if the STL-quality score improves without hiding excessive surface error behind hull repair.
 
 Learned inpainting smoke with `dreamshaper-inpaint`:
 
@@ -1176,7 +1178,7 @@ The end product is a printable STL, not a better-looking 3D preview. Keep the cu
 Next experiment lanes:
 
 - Fast 2.5D relief: current completion/depth/STL path with `--emit-stl`, then rank or optimize the run with `--score-profile stl-quality`; this remains the baseline and should stay cheap.
-- Single-image mesh: add direct image-to-3D candidates that emit mesh/STL artifacts, such as Hunyuan3D/TripoSR/SV3D-style paths where practical, then rank them with the same STL diagnostics rather than visual preview quality.
+- Single-image mesh: add direct image-to-3D candidates that emit mesh/STL artifacts, such as Hunyuan3D/TripoSR/SV3D-style paths where practical, then rank them with the same STL diagnostics rather than visual preview quality. Compare raw provider meshes against repaired/remeshed variants because STL printability can fail even when the preview mesh looks plausible.
 - Video or multiview mesh: reconstruct from selected or every frames with camera/keypoint matching and object masks/crops; Gaussian splatting or NeRF should be optional intermediate backends only when the final extracted mesh/STL improves.
 
 Promotion should require STL-facing evidence: watertightness, manifold/volume status, winding consistency, body count, printable thickness or bounding-box sanity, hole/degeneracy checks when available, mesh complexity, and surface Chamfer/visual-depth agreement when ground truth exists.
