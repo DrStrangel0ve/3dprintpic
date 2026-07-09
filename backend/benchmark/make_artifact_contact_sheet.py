@@ -32,6 +32,8 @@ METRIC_FIELDS = [
     ("object_surface_chamfer_l1", "obj surf chamfer"),
     ("object_surface_chamfer_rmse", "obj surf rmse"),
     ("object_surface_hausdorff95", "obj surf h95"),
+    ("mesh_surface_chamfer_l1", "mesh chamfer"),
+    ("mesh_surface_hausdorff95", "mesh h95"),
     ("silhouette_iou_masked", "silhouette iou"),
     ("stl_is_watertight", "watertight"),
     ("stl_positive_volume", "positive volume"),

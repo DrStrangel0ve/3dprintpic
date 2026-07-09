@@ -187,6 +187,55 @@ def surface_distance_metrics(reference_depth, aligned_prediction_depth, eval_mas
     }
 
 
+def mesh_surface_distance_metrics(reference_mesh_path, prediction_mesh_path, max_points=4096, reference_camera=None):
+    from scipy.spatial import cKDTree
+
+    from backend.benchmark.mesh_rendering import load_mesh, mesh_in_render_frame, normalize_mesh
+
+    reference_mesh = load_mesh(reference_mesh_path)
+    if reference_camera is not None:
+        reference_mesh = mesh_in_render_frame(reference_mesh, reference_camera)
+    reference_mesh = normalize_mesh(reference_mesh)
+    prediction_mesh = normalize_mesh(load_mesh(prediction_mesh_path))
+    ref_points = _mesh_surface_points(reference_mesh, max_points=max_points)
+    pred_points = _mesh_surface_points(prediction_mesh, max_points=max_points)
+    if len(ref_points) == 0 or len(pred_points) == 0:
+        return {
+            "chamfer_l1": math.nan,
+            "chamfer_rmse": math.nan,
+            "hausdorff95": math.nan,
+            "point_count": 0,
+        }
+
+    ref_tree = cKDTree(ref_points)
+    pred_tree = cKDTree(pred_points)
+    pred_to_ref, _ = ref_tree.query(pred_points, k=1)
+    ref_to_pred, _ = pred_tree.query(ref_points, k=1)
+    combined_nearest = np.concatenate([pred_to_ref, ref_to_pred])
+
+    return {
+        "chamfer_l1": float((np.mean(pred_to_ref) + np.mean(ref_to_pred)) / 2.0),
+        "chamfer_rmse": float(np.sqrt(np.mean(combined_nearest**2))),
+        "hausdorff95": float(max(np.quantile(pred_to_ref, 0.95), np.quantile(ref_to_pred, 0.95))),
+        "point_count": int(min(len(ref_points), len(pred_points))),
+    }
+
+
+def _mesh_surface_points(mesh, max_points=4096):
+    import trimesh
+
+    areas = np.asarray(mesh.area_faces, dtype=np.float64)
+    valid = np.isfinite(areas) & (areas > 1e-12)
+    if not np.any(valid):
+        return np.empty((0, 3), dtype=np.float64)
+    weights = np.where(valid, areas, 0.0)
+    total = float(np.sum(weights))
+    if total <= 0 or not np.isfinite(total):
+        return np.empty((0, 3), dtype=np.float64)
+    points, _ = trimesh.sample.sample_surface(mesh, int(max_points), face_weight=weights, seed=0)
+    return np.asarray(points, dtype=np.float64)
+
+
 def _masked_values(reference, prediction, mask):
     if mask is None:
         return reference.reshape(-1, reference.shape[-1]), prediction.reshape(-1, prediction.shape[-1])

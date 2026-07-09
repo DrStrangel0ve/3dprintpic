@@ -38,17 +38,28 @@ class RenderResult:
     silhouette: np.ndarray
 
 
-def load_mesh(path: str | Path) -> trimesh.Trimesh:
-    loaded = trimesh.load(Path(path), process=True)
-    if isinstance(loaded, trimesh.Scene):
+def scene_to_mesh(scene: trimesh.Scene, path: str | Path = "") -> trimesh.Trimesh:
+    dumped = scene.to_geometry() if hasattr(scene, "to_geometry") else scene.dump(concatenate=True)
+    if isinstance(dumped, trimesh.Trimesh):
+        mesh = dumped
+    else:
         meshes = [
             geometry
-            for geometry in loaded.geometry.values()
+            for geometry in dumped
             if isinstance(geometry, trimesh.Trimesh) and len(geometry.vertices) and len(geometry.faces)
         ]
         if not meshes:
             raise ValueError(f"No mesh geometry found in scene: {path}")
         mesh = trimesh.util.concatenate(meshes)
+    if not len(mesh.vertices) or not len(mesh.faces):
+        raise ValueError(f"Scene has no renderable triangles: {path}")
+    return mesh
+
+
+def load_mesh(path: str | Path) -> trimesh.Trimesh:
+    loaded = trimesh.load(Path(path), process=True)
+    if isinstance(loaded, trimesh.Scene):
+        mesh = scene_to_mesh(loaded, path)
     elif isinstance(loaded, trimesh.Trimesh):
         mesh = loaded
     else:
@@ -107,6 +118,39 @@ def sample_camera(index: int, seed: int = 2026) -> CameraSpec:
         elevation_deg=float(-18 + (index % 5) * 9 + rng.uniform(-4, 4)),
         roll_deg=float((index % 3 - 1) * 7 + rng.uniform(-2, 2)),
     )
+
+
+def camera_from_value(value) -> CameraSpec | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, CameraSpec):
+        return value
+    if isinstance(value, dict):
+        return CameraSpec(
+            azimuth_deg=float(value.get("azimuth_deg", 0.0)),
+            elevation_deg=float(value.get("elevation_deg", 0.0)),
+            roll_deg=float(value.get("roll_deg", 0.0)),
+        )
+    raise ValueError(f"Unsupported camera value: {value!r}")
+
+
+def camera_transform(camera: CameraSpec | dict) -> np.ndarray:
+    spec = camera_from_value(camera)
+    if spec is None:
+        return np.eye(4)
+    return trimesh.transformations.euler_matrix(
+        np.deg2rad(spec.elevation_deg),
+        np.deg2rad(spec.azimuth_deg),
+        np.deg2rad(spec.roll_deg),
+        axes="sxyz",
+    )
+
+
+def mesh_in_render_frame(mesh: trimesh.Trimesh, camera: CameraSpec | dict | None) -> trimesh.Trimesh:
+    transformed = normalize_mesh(mesh)
+    if camera is not None:
+        transformed.apply_transform(camera_transform(camera))
+    return transformed
 
 
 def iter_mesh_paths(asset_root: str | Path, asset_glob: str, limit: int | None, seed: int) -> Iterable[Path]:
@@ -176,14 +220,7 @@ def render_mesh(
     config: RenderConfig,
     base_color: tuple[int, int, int],
 ) -> RenderResult:
-    mesh = normalize_mesh(mesh)
-    transform = trimesh.transformations.euler_matrix(
-        np.deg2rad(camera.elevation_deg),
-        np.deg2rad(camera.azimuth_deg),
-        np.deg2rad(camera.roll_deg),
-        axes="sxyz",
-    )
-    mesh.apply_transform(transform)
+    mesh = mesh_in_render_frame(mesh, camera)
     rgb, depth, silhouette = _render_orthographic(mesh, config=config, base_color=base_color)
     return RenderResult(rgb=rgb, depth=depth, silhouette=silhouette)
 

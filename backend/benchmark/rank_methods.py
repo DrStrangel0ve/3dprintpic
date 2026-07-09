@@ -48,9 +48,9 @@ OBJECT_SURFACE_WEIGHTS = {
 }
 
 STL_QUALITY_WEIGHTS = {
-    "object_surface_chamfer_l1_median": -4.0,
-    "object_surface_chamfer_rmse_median": -3.0,
-    "object_surface_hausdorff95_median": -2.0,
+    "mesh_surface_chamfer_l1_median": -4.0,
+    "mesh_surface_chamfer_rmse_median": -3.0,
+    "mesh_surface_hausdorff95_median": -2.0,
     "silhouette_iou_masked_median": 1.0,
     "stl_exists_median": 2.0,
     "stl_is_watertight_median": 3.0,
@@ -58,7 +58,7 @@ STL_QUALITY_WEIGHTS = {
     "stl_winding_consistent_median": 1.0,
     "stl_positive_volume_median": 1.0,
     "stl_single_component_median": 1.0,
-    "stl_component_excess_median": -0.75,
+    "stl_component_excess_log1p_median": -0.75,
     "stl_bbox_has_volume_median": 1.0,
     "stl_bbox_aspect_ratio_median": -0.5,
     "stl_faces_per_bbox_volume_log1p_median": -0.25,
@@ -73,7 +73,7 @@ SCORE_PROFILES = {
 SCORE_PROFILE_DESCRIPTIONS = {
     "default": "balanced image, depth, surface, silhouette, and STL validity metrics",
     "object-surface": "object depth/surface reconstruction plus silhouette and STL validity metrics",
-    "stl-quality": "final STL validity, mesh quality, printable complexity, and optional surface accuracy metrics",
+    "stl-quality": "final STL mesh accuracy, validity, and printable complexity metrics",
 }
 
 SCORE_MODES = {"normalized", "baseline-delta"}

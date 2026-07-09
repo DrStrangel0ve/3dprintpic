@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.benchmark.cache_provider import provider_plan
+from backend.benchmark.direct_mesh import is_direct_mesh_method
 from backend.benchmark.make_artifact_contact_sheet import make_contact_sheet, parse_csv_arg
 from backend.benchmark.report_run import (
     baseline_delta_rows,
@@ -52,6 +53,9 @@ REPORT_METRICS = [
     ("object_surface_chamfer_l1_median", "Object Surface Chamfer"),
     ("object_surface_chamfer_rmse_median", "Object Surface Chamfer RMSE"),
     ("object_surface_hausdorff95_median", "Object Surface Hausdorff95"),
+    ("mesh_surface_chamfer_l1_median", "Mesh Surface Chamfer"),
+    ("mesh_surface_chamfer_rmse_median", "Mesh Surface Chamfer RMSE"),
+    ("mesh_surface_hausdorff95_median", "Mesh Surface Hausdorff95"),
     ("silhouette_iou_masked_median", "Silhouette IoU"),
     ("stl_is_watertight_median", "STL Watertight"),
     ("stl_is_volume_median", "STL Volume Mesh"),
@@ -60,6 +64,7 @@ REPORT_METRICS = [
     ("stl_single_component_median", "STL Single Body"),
     ("stl_component_count_median", "STL Bodies"),
     ("stl_component_excess_median", "STL Body Excess"),
+    ("stl_component_excess_log1p_median", "STL Body Excess log1p"),
     ("stl_bbox_min_dimension_median", "STL Min Dimension"),
     ("stl_bbox_has_volume_median", "STL 3D BBox"),
     ("stl_bbox_aspect_ratio_median", "STL Aspect"),
@@ -233,6 +238,11 @@ def run_experiment(args, experiment: dict, output_dir: Path) -> Path:
     append_optional(command, "--stl-target-dimension", experiment.get("stl_target_dimension", args.stl_target_dimension))
     append_optional(command, "--stl-z-scale", experiment.get("stl_z_scale", args.stl_z_scale))
     append_optional(command, "--stl-sigma", experiment.get("stl_sigma", args.stl_sigma))
+    append_optional(command, "--mesh-surface-max-points", experiment.get("mesh_surface_max_points", args.mesh_surface_max_points))
+    append_optional(command, "--direct-mesh-input", experiment.get("direct_mesh_input", args.direct_mesh_input))
+    append_optional(command, "--direct-mesh-command", experiment.get("direct_mesh_command", args.direct_mesh_command))
+    append_optional(command, "--direct-mesh-output-ext", experiment.get("direct_mesh_output_ext", args.direct_mesh_output_ext))
+    append_optional(command, "--direct-mesh-timeout", experiment.get("direct_mesh_timeout", args.direct_mesh_timeout))
     max_method_failures = experiment.get("max_method_failures", args.max_method_failures)
     if max_method_failures:
         append_optional(command, "--max-method-failures", max_method_failures)
@@ -499,6 +509,11 @@ def write_resolved_config(args, experiments: list[dict], output_dir: Path) -> Pa
             "stl_z_scale": args.stl_z_scale,
             "stl_sigma": args.stl_sigma,
             "stl_no_invert": args.stl_no_invert,
+            "mesh_surface_max_points": getattr(args, "mesh_surface_max_points", 4096),
+            "direct_mesh_input": getattr(args, "direct_mesh_input", "masked"),
+            "direct_mesh_command": getattr(args, "direct_mesh_command", None),
+            "direct_mesh_output_ext": getattr(args, "direct_mesh_output_ext", "glb"),
+            "direct_mesh_timeout": getattr(args, "direct_mesh_timeout", 1800),
             "prompt": args.prompt,
             "steps": args.steps,
             "guidance": args.guidance,
@@ -585,6 +600,11 @@ def write_experiment_report(
                 experiment.get("start_index", args.start_index),
                 experiment.get("skip_depth", args.skip_depth),
                 experiment.get("emit_stl", args.emit_stl),
+                experiment.get("mesh_surface_max_points", getattr(args, "mesh_surface_max_points", 4096)),
+                experiment.get("direct_mesh_input", getattr(args, "direct_mesh_input", "masked")),
+                experiment.get("direct_mesh_output_ext", getattr(args, "direct_mesh_output_ext", "glb")),
+                experiment.get("direct_mesh_timeout", getattr(args, "direct_mesh_timeout", 1800)),
+                experiment.get("direct_mesh_command", getattr(args, "direct_mesh_command", None)) or "",
                 experiment.get("prompt", args.prompt if experiment.get("method") not in ("mirror", "biharmonic") else ""),
             ]
         )
@@ -723,7 +743,27 @@ def write_experiment_report(
             "## Experiment Config",
             "",
             markdown_table(
-                ["Name", "Base Method", "Steps", "Guidance", "Seed", "Max Dim", "Edit Fill", "Model", "LoRA", "LoRA Scale", "Start", "Skip Depth", "Emit STL", "Prompt"],
+                [
+                    "Name",
+                    "Base Method",
+                    "Steps",
+                    "Guidance",
+                    "Seed",
+                    "Max Dim",
+                    "Edit Fill",
+                    "Model",
+                    "LoRA",
+                    "LoRA Scale",
+                    "Start",
+                    "Skip Depth",
+                    "Emit STL",
+                    "Mesh Samples",
+                    "Direct Input",
+                    "Direct Ext",
+                    "Direct Timeout",
+                    "Direct Command",
+                    "Prompt",
+                ],
                 config_rows,
             ),
             "",
@@ -843,6 +883,11 @@ def main() -> None:
     parser.add_argument("--stl-target-dimension", type=int, default=160)
     parser.add_argument("--stl-z-scale", type=float, default=50.0)
     parser.add_argument("--stl-sigma", type=float, default=4.0)
+    parser.add_argument("--mesh-surface-max-points", type=int, default=4096)
+    parser.add_argument("--direct-mesh-input", choices=("masked", "full"), default="masked")
+    parser.add_argument("--direct-mesh-command", default=None)
+    parser.add_argument("--direct-mesh-output-ext", default="glb")
+    parser.add_argument("--direct-mesh-timeout", type=int, default=1800)
     parser.add_argument("--stl-no-invert", action="store_true")
     parser.add_argument("--prompt", default="Complete the missing half naturally, preserving the same object, lighting, viewpoint, and background.")
     parser.add_argument("--steps", type=int, default=24)
@@ -905,18 +950,24 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
     args = parser.parse_args()
-    if args.emit_stl and args.skip_depth:
-        raise ValueError("--emit-stl requires depth generation; remove --skip-depth")
     if args.start_index < 0:
         raise ValueError("--start-index must be non-negative")
     if args.max_method_failures < 0:
         raise ValueError("--max-method-failures must be non-negative")
+    if args.mesh_surface_max_points <= 0:
+        raise ValueError("--mesh-surface-max-points must be positive")
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     experiments = load_experiments(args.config, include_baselines=args.include_baselines)
+    if args.emit_stl and args.skip_depth and not all(is_direct_mesh_method(experiment["method"]) for experiment in experiments):
+        raise ValueError("--emit-stl requires depth generation for non-direct-mesh experiments; remove --skip-depth")
     for experiment in experiments:
-        if bool_arg(args, experiment, "emit_stl") and bool_arg(args, experiment, "skip_depth"):
+        if (
+            bool_arg(args, experiment, "emit_stl")
+            and bool_arg(args, experiment, "skip_depth")
+            and not is_direct_mesh_method(experiment["method"])
+        ):
             raise ValueError(f"{experiment['name']}: emit_stl requires depth generation; remove skip_depth")
     write_resolved_config(args, experiments, output_dir)
     if args.require_modern_cache:

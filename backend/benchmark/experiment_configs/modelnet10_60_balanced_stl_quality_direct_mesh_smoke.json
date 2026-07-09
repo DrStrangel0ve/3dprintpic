@@ -1,0 +1,20 @@
+[
+  {
+    "name": "masked",
+    "method": "masked"
+  },
+  {
+    "name": "mirror",
+    "method": "mirror"
+  },
+  {
+    "name": "biharmonic",
+    "method": "biharmonic"
+  },
+  {
+    "name": "source_mesh_oracle",
+    "method": "source-mesh-oracle",
+    "skip_depth": true,
+    "emit_stl": true
+  }
+]

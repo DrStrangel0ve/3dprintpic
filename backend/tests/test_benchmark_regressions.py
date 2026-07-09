@@ -37,7 +37,7 @@ from backend.benchmark.make_artifact_contact_sheet import (
     reference_artifacts,
     stl_preview_image,
 )
-from backend.benchmark.metrics import surface_distance_metrics
+from backend.benchmark.metrics import mesh_surface_distance_metrics, surface_distance_metrics
 from backend.benchmark.report_run import baseline_delta_rows, paired_baseline_delta_rows, paired_objective_rows, render_report
 from backend.benchmark.rank_methods import parse_weights, rank_summary_rows
 from backend.benchmark.run_completion_benchmark import evaluate_sample, run_one, stl_diagnostics, summarize, write_split_audit
@@ -140,6 +140,219 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertFalse(diagnostics["stl_bbox_has_volume"])
         self.assertTrue(np.isinf(diagnostics["stl_bbox_aspect_ratio"]))
         self.assertFalse(diagnostics["stl_is_volume"])
+
+    def test_mesh_surface_distance_is_zero_for_same_mesh(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mesh_path = Path(temp_dir) / "box.ply"
+            trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(mesh_path)
+            metrics = mesh_surface_distance_metrics(mesh_path, mesh_path, max_points=128)
+
+        self.assertAlmostEqual(metrics["chamfer_l1"], 0.0)
+        self.assertAlmostEqual(metrics["chamfer_rmse"], 0.0)
+        self.assertAlmostEqual(metrics["hausdorff95"], 0.0)
+        self.assertGreater(metrics["point_count"], 0)
+
+    def test_mesh_surface_distance_tolerates_different_triangulation(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            coarse_path = root / "coarse_box.ply"
+            fine_path = root / "fine_box.ply"
+            coarse = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
+            fine = coarse.subdivide().subdivide()
+            coarse.export(coarse_path)
+            fine.export(fine_path)
+            metrics = mesh_surface_distance_metrics(coarse_path, fine_path, max_points=2048)
+
+        self.assertLess(metrics["chamfer_l1"], 0.04)
+        self.assertLess(metrics["hausdorff95"], 0.09)
+
+    def test_mesh_surface_distance_applies_reference_camera(self):
+        import trimesh
+        from backend.benchmark.mesh_rendering import load_mesh, mesh_in_render_frame
+
+        camera = {"azimuth_deg": 37.0, "elevation_deg": 14.0, "roll_deg": 5.0}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            reference_path = root / "reference_box.ply"
+            prediction_path = root / "view_box.ply"
+            trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(reference_path)
+            mesh_in_render_frame(load_mesh(reference_path), camera).export(prediction_path)
+
+            framed = mesh_surface_distance_metrics(
+                reference_path,
+                prediction_path,
+                max_points=256,
+                reference_camera=camera,
+            )
+            unframed = mesh_surface_distance_metrics(reference_path, prediction_path, max_points=256)
+
+        self.assertAlmostEqual(framed["chamfer_l1"], 0.0)
+        self.assertGreater(unframed["chamfer_l1"], 0.01)
+
+    def test_load_mesh_applies_scene_graph_transforms(self):
+        import trimesh
+        from backend.benchmark.mesh_rendering import load_mesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scene_path = root / "translated.glb"
+            scene = trimesh.Scene()
+            scene.add_geometry(
+                trimesh.creation.box(extents=(1.0, 0.75, 0.5)),
+                node_name="translated_box",
+                transform=trimesh.transformations.translation_matrix([3.0, 0.0, 0.0]),
+            )
+            scene.export(scene_path)
+            loaded = load_mesh(scene_path)
+
+        center = loaded.bounds.mean(axis=0)
+        self.assertGreater(center[0], 2.5)
+
+    def test_source_mesh_oracle_emits_stl_without_depth(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            full = root / "full.png"
+            masked = root / "masked.png"
+            mask = root / "mask.png"
+            mesh_path = root / "box.ply"
+            Image.new("RGB", (12, 12), (80, 120, 160)).save(full)
+            Image.new("RGB", (12, 12), (255, 255, 255)).save(masked)
+            Image.fromarray(np.zeros((12, 12), dtype=np.uint8)).save(mask)
+            trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(mesh_path)
+            manifest_path = root / "manifest.jsonl"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "id": "box",
+                        "full_image": str(full),
+                        "masked_image": str(masked),
+                        "mask": str(mask),
+                        "mesh": str(mesh_path),
+                        "source": "unit",
+                        "camera": {"azimuth_deg": 37.0, "elevation_deg": 14.0, "roll_deg": 5.0},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            output_dir = root / "run"
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_completion_benchmark",
+                    "--manifest",
+                    str(manifest_path),
+                    "--output-dir",
+                    str(output_dir),
+                    "--methods",
+                    "source-mesh-oracle",
+                    "--limit",
+                    "1",
+                    "--skip-depth",
+                    "--emit-stl",
+                    "--mesh-surface-max-points",
+                    "128",
+                ],
+            ):
+                run_completion_benchmark.main()
+
+            with (output_dir / "per_sample_metrics.csv").open(newline="", encoding="utf-8") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+            with (output_dir / "summary_metrics.csv").open(newline="", encoding="utf-8") as csv_file:
+                summary = list(csv.DictReader(csv_file))
+
+        self.assertEqual(rows[0]["method"], "source-mesh-oracle")
+        self.assertEqual(rows[0]["stl_exists"], "True")
+        self.assertEqual(rows[0]["stl_is_volume"], "True")
+        self.assertEqual(rows[0]["stl_single_component"], "True")
+        self.assertIn("output_model.stl", rows[0]["stl_model"])
+        self.assertAlmostEqual(float(rows[0]["mesh_surface_chamfer_l1"]), 0.0)
+        self.assertEqual(summary[0]["n"], "1")
+        self.assertAlmostEqual(float(summary[0]["mesh_surface_chamfer_l1_median"]), 0.0)
+
+    def test_external_image_to_mesh_command_emits_stl_without_depth(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            full = root / "full.png"
+            masked = root / "masked.png"
+            mask = root / "mask.png"
+            mesh_path = root / "reference_box.ply"
+            script_path = root / "fake_image_to_mesh.py"
+            Image.new("RGB", (12, 12), (80, 120, 160)).save(full)
+            Image.new("RGB", (12, 12), (255, 255, 255)).save(masked)
+            Image.fromarray(np.zeros((12, 12), dtype=np.uint8)).save(mask)
+            trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(mesh_path)
+            script_path.write_text(
+                "\n".join(
+                    [
+                        "import sys",
+                        "import trimesh",
+                        "trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(sys.argv[1])",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            manifest_path = root / "manifest.jsonl"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "id": "box",
+                        "full_image": str(full),
+                        "masked_image": str(masked),
+                        "mask": str(mask),
+                        "mesh": str(mesh_path),
+                        "source": "unit",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            output_dir = root / "run"
+            command = f'"{sys.executable}" "{script_path}" "{{output_mesh}}"'
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_completion_benchmark",
+                    "--manifest",
+                    str(manifest_path),
+                    "--output-dir",
+                    str(output_dir),
+                    "--methods",
+                    "external-image-to-mesh",
+                    "--limit",
+                    "1",
+                    "--skip-depth",
+                    "--emit-stl",
+                    "--direct-mesh-command",
+                    command,
+                    "--direct-mesh-output-ext",
+                    "ply",
+                    "--mesh-surface-max-points",
+                    "128",
+                ],
+            ):
+                run_completion_benchmark.main()
+
+            with (output_dir / "per_sample_metrics.csv").open(newline="", encoding="utf-8") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+
+        self.assertEqual(rows[0]["method"], "external-image-to-mesh")
+        self.assertEqual(rows[0]["stl_exists"], "True")
+        self.assertIn("output_model.stl", rows[0]["stl_model"])
+        self.assertIn("output_mesh.ply", rows[0]["direct_mesh_output_mesh"])
+        self.assertAlmostEqual(float(rows[0]["mesh_surface_chamfer_l1"]), 0.0)
 
     def test_depth_export_rejects_no_valid_cells(self):
         depth = np.array(
@@ -2546,7 +2759,10 @@ class RankMethodRegressionTests(unittest.TestCase):
         rows = [
             {
                 "method": "masked",
-                "object_surface_chamfer_l1_median": "0.80",
+                "mesh_surface_chamfer_l1_median": "0.80",
+                "mesh_surface_chamfer_rmse_median": "0.90",
+                "mesh_surface_hausdorff95_median": "1.20",
+                "object_surface_chamfer_l1_median": "0.01",
                 "stl_is_watertight_median": "0.0",
                 "stl_is_volume_median": "0.0",
                 "stl_winding_consistent_median": "0.0",
@@ -2554,6 +2770,7 @@ class RankMethodRegressionTests(unittest.TestCase):
                 "stl_single_component_median": "0.0",
                 "stl_component_count_median": "3",
                 "stl_component_excess_median": "2",
+                "stl_component_excess_log1p_median": "1.1",
                 "stl_bbox_has_volume_median": "0.0",
                 "stl_bbox_aspect_ratio_median": "12",
                 "stl_faces_per_bbox_volume_median": "1000",
@@ -2561,7 +2778,10 @@ class RankMethodRegressionTests(unittest.TestCase):
             },
             {
                 "method": "direct_mesh_good",
-                "object_surface_chamfer_l1_median": "0.20",
+                "mesh_surface_chamfer_l1_median": "0.20",
+                "mesh_surface_chamfer_rmse_median": "0.25",
+                "mesh_surface_hausdorff95_median": "0.35",
+                "object_surface_chamfer_l1_median": "0.99",
                 "stl_is_watertight_median": "1.0",
                 "stl_is_volume_median": "1.0",
                 "stl_winding_consistent_median": "1.0",
@@ -2569,6 +2789,7 @@ class RankMethodRegressionTests(unittest.TestCase):
                 "stl_single_component_median": "1.0",
                 "stl_component_count_median": "1",
                 "stl_component_excess_median": "0",
+                "stl_component_excess_log1p_median": "0",
                 "stl_bbox_has_volume_median": "1.0",
                 "stl_bbox_aspect_ratio_median": "2",
                 "stl_faces_per_bbox_volume_median": "20",
@@ -2584,13 +2805,18 @@ class RankMethodRegressionTests(unittest.TestCase):
         )
         scores = {row["method"]: row["rank_score"] for row in ranked}
 
+        self.assertIn("mesh_surface_chamfer_l1_median", used_metrics)
+        self.assertIn("mesh_surface_chamfer_rmse_median", used_metrics)
+        self.assertIn("mesh_surface_hausdorff95_median", used_metrics)
+        self.assertNotIn("object_surface_chamfer_l1_median", used_metrics)
         self.assertIn("stl_is_volume_median", used_metrics)
         self.assertIn("stl_winding_consistent_median", used_metrics)
         self.assertIn("stl_single_component_median", used_metrics)
-        self.assertIn("stl_component_excess_median", used_metrics)
+        self.assertIn("stl_component_excess_log1p_median", used_metrics)
         self.assertIn("stl_bbox_has_volume_median", used_metrics)
         self.assertIn("stl_faces_per_bbox_volume_log1p_median", used_metrics)
         self.assertNotIn("stl_component_count_median", used_metrics)
+        self.assertNotIn("stl_component_excess_median", used_metrics)
         self.assertNotIn("stl_faces_per_bbox_volume_median", used_metrics)
         self.assertGreater(scores["direct_mesh_good"], scores["masked"])
 

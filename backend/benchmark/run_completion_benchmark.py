@@ -11,6 +11,7 @@ import numpy as np
 from PIL import Image
 from skimage.restoration import inpaint_biharmonic
 
+from backend.benchmark.direct_mesh import is_direct_mesh_method, run_direct_mesh, sample_mesh_path
 from backend.benchmark.metrics import (
     align_depth,
     depth_metrics,
@@ -18,6 +19,7 @@ from backend.benchmark.metrics import (
     load_mask,
     load_rgb,
     mae_rgb,
+    mesh_surface_distance_metrics,
     psnr_rgb,
     seam_mae,
     silhouette_iou,
@@ -43,6 +45,7 @@ METADATA_FIELDS = {
     "mask",
     "gt_depth",
     "gt_silhouette",
+    "mesh",
     "depth_data",
     "depth_preview",
     "source",
@@ -62,6 +65,8 @@ METADATA_FIELDS = {
     "model_name",
     "lora_weights",
     "lora_scale",
+    "direct_mesh_input_image",
+    "direct_mesh_output_mesh",
 }
 
 DEFAULT_PROMPT_TEMPLATE = (
@@ -134,6 +139,24 @@ def key_tuple(row):
         text(row.get("lora_weights", "")),
         text(row.get("lora_scale", "")),
     )
+
+
+def sample_artifact_fields(sample):
+    return {
+        "full_image": sample.get("full_image", ""),
+        "masked_image": sample.get("masked_image", ""),
+        "mask": sample.get("mask", ""),
+        "gt_depth": sample.get("gt_depth", ""),
+        "gt_silhouette": sample.get("gt_silhouette") or sample.get("silhouette", ""),
+        "mesh": sample.get("mesh", ""),
+        "source": sample.get("source", ""),
+        "asset_id": sample.get("asset_id", ""),
+        "asset_path": sample.get("asset_path", ""),
+        "asset_category": sample.get("asset_category", ""),
+        "asset_source_split": sample.get("asset_source_split", ""),
+        "asset_key": sample.get("asset_key", ""),
+        "view_index": sample.get("view_index", ""),
+    }
 
 
 def load_jsonl(path):
@@ -454,6 +477,9 @@ def stl_diagnostics(stl_path):
             "stl_component_count": component_count,
             "stl_single_component": bool(component_count == 1) if np.isfinite(component_count) else False,
             "stl_component_excess": component_excess,
+            "stl_component_excess_log1p": (
+                float(math.log1p(component_excess)) if np.isfinite(component_excess) else math.nan
+            ),
             "stl_euler_number": int(mesh.euler_number) if mesh.euler_number is not None else math.nan,
             "stl_surface_area": float(mesh.area) if np.isfinite(mesh.area) else math.nan,
             "stl_volume": signed_volume,
@@ -477,6 +503,53 @@ def stl_diagnostics(stl_path):
     return diagnostics
 
 
+def stl_and_mesh_metrics(sample, stl_path, max_points=4096):
+    metrics = stl_diagnostics(stl_path)
+    reference_mesh = sample_mesh_path(sample)
+    if reference_mesh is None:
+        return metrics
+    try:
+        metrics.update(
+            _prefixed(
+                "mesh_surface_",
+                mesh_surface_distance_metrics(
+                    reference_mesh,
+                    stl_path,
+                    max_points=max_points,
+                    reference_camera=sample.get("camera"),
+                ),
+            )
+        )
+    except Exception as exc:
+        metrics.update(
+            {
+                "mesh_surface_error_type": type(exc).__name__,
+                "mesh_surface_error": str(exc),
+                "mesh_surface_chamfer_l1": math.nan,
+                "mesh_surface_chamfer_rmse": math.nan,
+                "mesh_surface_hausdorff95": math.nan,
+                "mesh_surface_point_count": 0,
+            }
+        )
+    return metrics
+
+
+def evaluate_direct_mesh_sample(sample, method, output_dir, args):
+    input_image, output_mesh, stl_path = run_direct_mesh(sample, method, output_dir, args)
+    row = {
+        **experiment_key(sample, method, args),
+        "sample_id": sample["id"],
+        "method": method,
+        "raw_completed_image": str(input_image),
+        "completed_image": str(input_image),
+        "direct_mesh_input_image": str(input_image),
+        "direct_mesh_output_mesh": str(output_mesh),
+        **sample_artifact_fields(sample),
+    }
+    row.update(stl_and_mesh_metrics(sample, stl_path, max_points=args.mesh_surface_max_points))
+    return row
+
+
 def evaluate_sample(sample, method, raw_completed_path, completed_path, output_dir, args):
     full = load_rgb(sample["full_image"])
     raw_completed = load_rgb(raw_completed_path)
@@ -494,18 +567,7 @@ def evaluate_sample(sample, method, raw_completed_path, completed_path, output_d
         "method": method,
         "raw_completed_image": raw_completed_path,
         "completed_image": completed_path,
-        "full_image": sample.get("full_image", ""),
-        "masked_image": sample.get("masked_image", ""),
-        "mask": sample.get("mask", ""),
-        "gt_depth": sample.get("gt_depth", ""),
-        "gt_silhouette": sample.get("gt_silhouette") or sample.get("silhouette", ""),
-        "source": sample.get("source", ""),
-        "asset_id": sample.get("asset_id", ""),
-        "asset_path": sample.get("asset_path", ""),
-        "asset_category": sample.get("asset_category", ""),
-        "asset_source_split": sample.get("asset_source_split", ""),
-        "asset_key": sample.get("asset_key", ""),
-        "view_index": sample.get("view_index", ""),
+        **sample_artifact_fields(sample),
         "masked_psnr": psnr_rgb(full, completed, mask),
         "masked_ssim": ssim_rgb(full, completed, mask),
         "masked_mae": mae_rgb(full, completed, mask),
@@ -600,7 +662,7 @@ def evaluate_sample(sample, method, raw_completed_path, completed_path, output_d
                 invert=not args.stl_no_invert,
                 sigma=args.stl_sigma,
             )
-            row.update(stl_diagnostics(stl_path))
+            row.update(stl_and_mesh_metrics(sample, stl_path, max_points=args.mesh_surface_max_points))
 
     return row
 
@@ -608,6 +670,8 @@ def evaluate_sample(sample, method, raw_completed_path, completed_path, output_d
 def run_one(sample, method, output_dir, args):
     method_dir = output_dir / sample["id"] / method
     method_dir.mkdir(parents=True, exist_ok=True)
+    if is_direct_mesh_method(method):
+        return evaluate_direct_mesh_sample(sample, method, method_dir, args)
     if method == "masked":
         completed_path = run_masked(sample, method_dir)
     elif method == "mirror":
@@ -725,11 +789,38 @@ def main():
     parser.add_argument("--depth-provider", default="depth-anything-v2")
     parser.add_argument("--depth-model", default="depth-anything/Depth-Anything-V2-Small-hf")
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--emit-stl", action="store_true", help="Convert each predicted depth map to an STL and report mesh diagnostics.")
+    parser.add_argument(
+        "--emit-stl",
+        action="store_true",
+        help="Convert each predicted depth map or direct mesh output to an STL and report mesh diagnostics.",
+    )
     parser.add_argument("--stl-target-dimension", type=int, default=160)
     parser.add_argument("--stl-z-scale", type=float, default=50.0)
     parser.add_argument("--stl-sigma", type=float, default=4.0)
     parser.add_argument("--stl-no-invert", action="store_true")
+    parser.add_argument(
+        "--mesh-surface-max-points",
+        type=int,
+        default=4096,
+        help="Maximum deterministic surface samples for mesh-to-mesh STL accuracy metrics.",
+    )
+    parser.add_argument(
+        "--direct-mesh-input",
+        choices=("masked", "full"),
+        default="masked",
+        help="Input image passed to direct image-to-mesh methods.",
+    )
+    parser.add_argument(
+        "--direct-mesh-command",
+        default=None,
+        help=(
+            "Shell command template for external-image-to-mesh. Available fields include "
+            "{input_image}, {masked_image}, {full_image}, {mask}, {output_mesh}, {output_stl}, "
+            "{output_dir}, {sample_id}, and {method}."
+        ),
+    )
+    parser.add_argument("--direct-mesh-output-ext", default="glb")
+    parser.add_argument("--direct-mesh-timeout", type=int, default=1800)
     parser.add_argument("--prompt", default=DEFAULT_PROMPT_TEMPLATE)
     parser.add_argument("--steps", type=int, default=24)
     parser.add_argument("--guidance", type=float, default=None)
@@ -753,12 +844,15 @@ def main():
         help="With --continue-on-error, skip remaining samples for a method/config after this many logged failures. 0 disables the cap.",
     )
     args = parser.parse_args()
-    if args.emit_stl and args.skip_depth:
-        raise ValueError("--emit-stl requires depth generation; remove --skip-depth")
+    methods = [method.strip() for method in args.methods.split(",") if method.strip()]
+    if args.emit_stl and args.skip_depth and not all(is_direct_mesh_method(method) for method in methods):
+        raise ValueError("--emit-stl requires depth generation for non-direct-mesh methods; remove --skip-depth")
     if args.start_index < 0:
         raise ValueError("--start-index must be non-negative")
     if args.max_method_failures < 0:
         raise ValueError("--max-method-failures must be non-negative")
+    if args.mesh_surface_max_points <= 0:
+        raise ValueError("--mesh-surface-max-points must be positive")
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -768,7 +862,6 @@ def main():
         for path in (jsonl_path, failures_path):
             if path.exists():
                 path.unlink()
-    methods = [method.strip() for method in args.methods.split(",") if method.strip()]
     samples = []
     with open(args.manifest, encoding="utf-8") as manifest_file:
         for manifest_index, line in enumerate(manifest_file):
