@@ -3068,6 +3068,11 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
             archive_run_script,
         )
         self.assertIn('HUNYUAN3D_VENV="${HUNYUAN3D_VENV:-/content/hunyuan3d-venv}"', archive_run_script)
+        self.assertIn('HUNYUAN3D_VENV_BACKEND="${HUNYUAN3D_VENV_BACKEND:-stdlib}"', archive_run_script)
+        self.assertIn("Creating Hunyuan3D Python env with stdlib venv", archive_run_script)
+        self.assertIn("python -m venv --system-site-packages", archive_run_script)
+        self.assertIn("Creating Hunyuan3D Python env with virtualenv", archive_run_script)
+        self.assertIn("python -m virtualenv --system-site-packages", archive_run_script)
         self.assertIn('export PYTHONPATH="$HUNYUAN3D_DIR/hy3dshape:$HUNYUAN3D_DIR:${PYTHONPATH:-}"', archive_run_script)
         self.assertIn("import importlib.util", archive_run_script)
         self.assertIn("except ModuleNotFoundError:", archive_run_script)

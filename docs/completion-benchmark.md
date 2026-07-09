@@ -1291,6 +1291,8 @@ Follow-up G4 terminal retry evidence on July 10, 2026 SGT: the GitHub-hosted Col
 
 The package launcher was hardened from that evidence. Generated `run_colab_eval.sh` now honors `COLAB_SKIP_BACKEND_INSTALL=1` for a pre-warmed runtime, while keeping the full backend install path as the default for fresh runtimes. The Hunyuan setup probe now checks missing Python deps with `importlib.util.find_spec`, catches missing parent packages, prints one compact `missing Hunyuan3D Python deps: ...` line, and splits Hunyuan venv installs into labeled chunks (`core diffusers stack`, `geometry and image stack`, `model helpers`, `pymeshlab`) so a reset leaves a clear last completed setup stage.
 
+A hardened-package rerun on the same G4 notebook then repaired the backend geometry stack, verified `backend_imports_ok 2.11.0+cu128`, and launched the one-row package with `COLAB_SKIP_BACKEND_INSTALL=1`. That avoided the backend reinstall path and reached the Hunyuan setup, but the runtime disconnected again immediately after the `python -m virtualenv --system-site-packages /content/hunyuan3d-venv` creation output; a fresh terminal showed `/content/3dprintpic`, `/content/Hunyuan3D-2.1`, `/content/hunyuan3d-venv`, the extracted package, and the result archive were all gone. The next package therefore defaults Hunyuan environment creation to stdlib `python -m venv --system-site-packages`, with `HUNYUAN3D_VENV_BACKEND=virtualenv` retained as an override, to test whether Colab's reset is tied to the external `virtualenv` path rather than the Hunyuan packages themselves.
+
 Regression coverage for that hardening:
 
 ```powershell
