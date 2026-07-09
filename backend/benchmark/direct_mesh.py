@@ -89,6 +89,7 @@ def mesh_is_printable_volume(mesh) -> bool:
         component_count = len(mesh.split(only_watertight=False))
     except Exception:
         component_count = math.inf
+    nonmanifold_edge_count, degenerate_face_count = mesh_face_health(mesh)
     return bool(
         len(mesh.vertices)
         and len(mesh.faces)
@@ -96,6 +97,8 @@ def mesh_is_printable_volume(mesh) -> bool:
         and mesh.is_volume
         and mesh.is_winding_consistent
         and component_count == 1
+        and nonmanifold_edge_count == 0
+        and degenerate_face_count == 0
         and _finite_positive_volume(mesh)
     )
 
@@ -107,6 +110,34 @@ def _update_faces(mesh, mask) -> None:
         mesh.update_faces(mask)
     else:
         mesh.faces = mesh.faces[mask]
+
+
+def mesh_face_health(mesh) -> tuple[int, int]:
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    if not len(faces):
+        return 0, 0
+    face_edges = np.vstack((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]))
+    face_edges = np.sort(face_edges, axis=1)
+    _, edge_counts = np.unique(face_edges, axis=0, return_counts=True)
+    nonmanifold_edge_count = int(np.count_nonzero(edge_counts != 2))
+    try:
+        face_areas = np.asarray(mesh.area_faces, dtype=np.float64)
+    except Exception:
+        face_areas = np.full(len(faces), math.nan, dtype=np.float64)
+    degenerate_face_count = int(np.count_nonzero((~np.isfinite(face_areas)) | (face_areas <= 1e-12)))
+    return nonmanifold_edge_count, degenerate_face_count
+
+
+def _drop_duplicate_and_degenerate_faces(mesh) -> None:
+    if hasattr(mesh, "unique_faces"):
+        _update_faces(mesh, mesh.unique_faces())
+    elif hasattr(mesh, "remove_duplicate_faces"):
+        mesh.remove_duplicate_faces()
+    if hasattr(mesh, "nondegenerate_faces"):
+        _update_faces(mesh, mesh.nondegenerate_faces())
+    elif hasattr(mesh, "remove_degenerate_faces"):
+        mesh.remove_degenerate_faces()
+    mesh.remove_unreferenced_vertices()
 
 
 def _component_score(mesh) -> tuple[float, float, int]:
@@ -143,15 +174,7 @@ def _clean_mesh(mesh):
     cleaned = mesh.copy()
     if hasattr(cleaned, "remove_infinite_values"):
         cleaned.remove_infinite_values()
-    if hasattr(cleaned, "unique_faces"):
-        _update_faces(cleaned, cleaned.unique_faces())
-    elif hasattr(cleaned, "remove_duplicate_faces"):
-        cleaned.remove_duplicate_faces()
-    if hasattr(cleaned, "nondegenerate_faces"):
-        _update_faces(cleaned, cleaned.nondegenerate_faces())
-    elif hasattr(cleaned, "remove_degenerate_faces"):
-        cleaned.remove_degenerate_faces()
-    cleaned.remove_unreferenced_vertices()
+    _drop_duplicate_and_degenerate_faces(cleaned)
     cleaned.merge_vertices()
     cleaned.process(validate=True)
     cleaned = _largest_component(cleaned).copy()
@@ -159,6 +182,7 @@ def _clean_mesh(mesh):
     trimesh.repair.fix_winding(cleaned)
     trimesh.repair.fix_normals(cleaned)
     trimesh.repair.fix_inversion(cleaned)
+    _drop_duplicate_and_degenerate_faces(cleaned)
     cleaned.process(validate=True)
     return _largest_component(cleaned).copy()
 
@@ -176,10 +200,12 @@ def _convex_hull_mesh(mesh):
     if not len(hull.vertices) or not len(hull.faces):
         hull = trimesh.creation.box(extents=np.maximum(np.asarray(source.extents), 1e-6))
         hull.apply_translation(source.bounds.mean(axis=0))
+    _drop_duplicate_and_degenerate_faces(hull)
     hull.process(validate=True)
     trimesh.repair.fix_winding(hull)
     trimesh.repair.fix_normals(hull)
     trimesh.repair.fix_inversion(hull)
+    _drop_duplicate_and_degenerate_faces(hull)
     return hull
 
 

@@ -18,7 +18,7 @@ from backend.benchmark.backfill_lora_provenance import backfill_lora_root, backf
 from backend.benchmark import colab_g4_orchestrator, run_completion_benchmark
 from backend.benchmark.combine_optimize_runs import combine_runs
 from backend.benchmark.compare_optimize_runs import add_score_deltas, compare_run, render_markdown
-from backend.benchmark.direct_mesh import direct_mesh_input_path, repair_mesh_for_printable_stl
+from backend.benchmark.direct_mesh import direct_mesh_input_path, mesh_is_printable_volume, repair_mesh_for_printable_stl
 from backend.benchmark.export_training_pairs import main as export_training_pairs_main
 from backend.benchmark.package_colab_inputs import package_inputs
 from backend.benchmark.optimize_completion import (
@@ -478,8 +478,35 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(diagnostics["stl_exists"])
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_is_volume"])
+        self.assertTrue(diagnostics["stl_is_manifold"])
+        self.assertEqual(diagnostics["stl_degenerate_face_count"], 0)
         self.assertTrue(diagnostics["stl_single_component"])
         self.assertTrue(diagnostics["stl_positive_volume"])
+
+    def test_printable_mesh_gate_rejects_degenerate_faces(self):
+        tetra_faces = np.array(
+            [
+                [0, 1, 2],
+                [0, 3, 1],
+                [1, 3, 2],
+                [2, 3, 0],
+                [0, 0, 0],
+            ],
+            dtype=np.int64,
+        )
+        mesh = SimpleNamespace(
+            vertices=np.zeros((4, 3), dtype=np.float64),
+            faces=tetra_faces,
+            extents=np.array([1.0, 1.0, 1.0]),
+            area_faces=np.array([0.5, 0.5, 0.5, 0.5, 0.0], dtype=np.float64),
+            volume=1.0,
+            is_watertight=True,
+            is_volume=True,
+            is_winding_consistent=True,
+            split=lambda only_watertight=False: [object()],
+        )
+
+        self.assertFalse(mesh_is_printable_volume(mesh))
 
     def test_image_to_mesh_provider_wrapper_can_repair_unprintable_mesh(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -548,6 +575,8 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(output_stl_exists)
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_is_volume"])
+        self.assertTrue(diagnostics["stl_is_manifold"])
+        self.assertEqual(diagnostics["stl_degenerate_face_count"], 0)
         self.assertTrue(diagnostics["stl_single_component"])
         self.assertTrue(diagnostics["stl_positive_volume"])
 

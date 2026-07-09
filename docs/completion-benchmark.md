@@ -216,6 +216,18 @@ Colab G4 TripoSR API smoke result: the notebook ran commit `0294097` on July 9, 
 
 Interpretation: the direct API integration works, but raw TripoSR output needs a mesh-repair/remesh postprocess before it can beat the existing depth-to-STL relief baseline on printable STL quality. The follow-up config now includes a repaired TripoSR candidate; rerun the same smoke with `masked`, `mirror`, `biharmonic`, raw TripoSR, and repaired TripoSR, then only promote it if the STL-quality score improves without hiding excessive surface error behind hull repair.
 
+Colab G4 repaired TripoSR smoke result: the notebook ran commit `dfff7e7` on July 9, 2026 as `g4_triposr_repaired_s0_n1_v1`, synced the fork branch, reused the existing TripoSR venv, generated one procedural render, and completed the five-candidate STL-quality smoke in `36.84s`. Backend versions were `numpy 2.0.2`, `torch 2.11.0+cu128`, `transformers 5.13.0`, and `trimesh 4.12.2`; the provider venv probed `torch 2.11.0+cu128`, `transformers 4.35.0`, `trimesh 4.12.2`, `torchmcubes`, and `tsr`.
+
+| method | n | stl-quality score vs masked | mesh surface Chamfer med | STL watertight med | STL volume med | STL manifold med | STL components med | STL faces med |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `mirror` | 1 | 1.2772 | 0.1529 | 1.0 | 1.0 | 1.0 | 1 | 29580 |
+| `biharmonic` | 1 | 0.2522 | 0.1777 | 1.0 | 1.0 | 1.0 | 1 | 29580 |
+| `masked` | 1 | 0.0000 | 0.1924 | 1.0 | 1.0 | 1.0 | 1 | 29580 |
+| `triposr_api_masked_repaired_direct_mesh` | 1 | -4.2972 | 0.1843 | 1.0 | 1.0 | 0.0 | 1 | 147698 |
+| `triposr_api_masked_direct_mesh` | 1 | -16.1202 | 0.1861 | 0.0 | 0.0 | 0.0 | 4 | 147468 |
+
+Interpretation: `--mesh-repair printable` materially improved the direct TripoSR artifact: raw output had `4` components, `584` non-manifold edges, and failed watertight/volume checks; the repaired output became watertight, positive-volume, winding-consistent, and single-component with slightly better surface Chamfer. It still did not promote because `stl_is_manifold=False` from remaining degenerate faces and because face density stayed very high. The repair gate now checks non-manifold and degenerate face counts before accepting a basic repair, so the next G4 smoke should rerun this same slice and verify whether repaired TripoSR becomes fully manifold or falls back to a simpler printable hull/remesh.
+
 Learned inpainting smoke with `dreamshaper-inpaint`:
 
 ```bash
