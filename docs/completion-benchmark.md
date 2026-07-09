@@ -1101,6 +1101,12 @@ Next experiment lanes:
 
 Promotion should require STL-facing evidence: watertightness, manifold/volume status, winding consistency, body count, printable thickness or bounding-box sanity, hole/degeneracy checks when available, mesh complexity, and surface Chamfer/visual-depth agreement when ground truth exists.
 
+Cheap baseline command for the next STL-quality run:
+
+```powershell
+.\backend\.venv\Scripts\python -m backend.benchmark.optimize_completion --manifest backend/output/completion-benchmark/modelnet10_60_balanced_s256_seed4040/manifest.jsonl --output-dir backend/output/completion-benchmark/experiments/modelnet10_60_balanced_stl_quality_baseline_s40_n2 --config backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_baselines.json --start-index 40 --limit 2 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --device auto --emit-stl --stl-target-dimension 96 --score-mode baseline-delta --score-profile stl-quality --baseline-method masked --contact-sheet --contact-sheet-methods masked,mirror,biharmonic --contact-sheet-max-samples 2 --resume --continue-on-error
+```
+
 ## Kaggle
 
 A GPU-enabled Kaggle kernel scaffold lives in `backend/benchmark/kaggle`.

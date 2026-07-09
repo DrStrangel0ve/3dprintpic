@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+from backend.benchmark.rank_methods import SCORE_PROFILES
+
 
 DEFAULT_PATH_FIELDS = (
     "full_image",
@@ -600,7 +602,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--depth-provider", default=None)
     parser.add_argument("--depth-model", default=None)
     parser.add_argument("--stl-target-dimension", type=int, default=None)
-    parser.add_argument("--score-profile", choices=("default", "object-surface"), default="object-surface")
+    parser.add_argument("--score-profile", choices=tuple(SCORE_PROFILES), default="object-surface")
     parser.add_argument("--train-steps", type=int, default=20)
     parser.add_argument("--no-require-modern-cache", action="store_true")
     parser.add_argument("--cache-download-mode", choices=("files", "snapshot"), default="snapshot")

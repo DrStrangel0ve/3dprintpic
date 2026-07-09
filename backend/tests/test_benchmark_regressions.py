@@ -754,6 +754,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                 depth_provider="depth-anything-v2",
                 depth_model="depth-anything/Depth-Anything-V2-Small-hf",
                 stl_target_dimension=96,
+                score_profile="stl-quality",
                 min_paired_n=2,
                 allow_missing_split_audit=True,
                 contact_sheet_methods="masked,mirror,biharmonic,qwen_edit_s20_s512",
@@ -774,6 +775,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("--eval-inpaint-max-dimension 512", archive_run_script)
         self.assertIn("--depth-provider depth-anything-v2", archive_run_script)
         self.assertIn("--stl-target-dimension 96", archive_run_script)
+        self.assertIn("--score-profile stl-quality", archive_run_script)
         self.assertIn("--min-paired-n 2", archive_run_script)
         self.assertIn("--max-method-failures 2", archive_run_script)
         self.assertIn("--allow-missing-split-audit", archive_run_script)

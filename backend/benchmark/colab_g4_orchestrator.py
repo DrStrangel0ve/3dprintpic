@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from backend.benchmark.rank_methods import SCORE_PROFILES
+
 
 DEFAULT_COLAB_NOTEBOOK_URL = "https://colab.research.google.com/drive/1SuilhFuF5L3ELkEy2rnEsTmKAL19ob60"
 DEFAULT_REPO_URL = "https://github.com/jennyzzt/3dprintpic.git"
@@ -702,7 +704,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--force-pairs", action="store_true")
     parser.add_argument("--calibration-start", type=int, default=0)
     parser.add_argument("--calibration-limit", type=int, default=10)
-    parser.add_argument("--score-profile", choices=("default", "object-surface"), default="object-surface")
+    parser.add_argument("--score-profile", choices=tuple(SCORE_PROFILES), default="object-surface")
     parser.add_argument("--base-weight", type=float, default=1.0)
     parser.add_argument("--weight-scale", type=float, default=2.0)
     parser.add_argument("--max-weight", type=float, default=4.0)
