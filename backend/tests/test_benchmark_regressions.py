@@ -1,4 +1,6 @@
 import csv
+import hashlib
+import io
 import json
 import subprocess
 import sys
@@ -31,7 +33,7 @@ from backend.benchmark.explain_paired_objective import (
 )
 from backend.benchmark.export_training_pairs import main as export_training_pairs_main
 from backend.benchmark.generate_rendered_dataset import attach_multiview_fields, generate_dataset
-from backend.benchmark.package_colab_inputs import package_inputs
+from backend.benchmark.package_colab_inputs import build_inline_colab_launcher, package_inputs
 from backend.benchmark.optimize_completion import (
     annotate_per_sample_metrics,
     experiment_metadata,
@@ -2367,6 +2369,136 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("--current-method mirror", archive_run_script)
         self.assertIn("--manifest /content/inputs/modelnet/inputs/manifest.jsonl", archive_run_script)
         self.assertIn("--existing-lora-weights /content/inputs/modelnet/lora/weighted_surface", archive_run_script)
+
+    def test_package_inputs_can_write_inline_colab_launcher(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dataset = root / "dataset"
+            dataset.mkdir()
+            full = dataset / "full.png"
+            masked = dataset / "masked.png"
+            mask = dataset / "mask.png"
+            for path in (full, masked, mask):
+                path.write_bytes(b"asset")
+            manifest = dataset / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "id": "sample",
+                        "full_image": str(full.relative_to(root)),
+                        "masked_image": str(masked.relative_to(root)),
+                        "mask": str(mask.relative_to(root)),
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            archive = root / "inline_bundle.tar.gz"
+            launcher = root / "launch_inline_colab.py"
+
+            report = package_inputs(
+                manifest=manifest,
+                output=archive,
+                extract_root="/content/inputs/inline",
+                root=root,
+                include_run_script=True,
+                colab_archive_path="/content/inline_bundle.tar.gz",
+                inline_colab_launcher_path=launcher,
+                inline_colab_chunk_size=64,
+                run_name="g4_inline_test",
+                eval_starts=[0],
+                eval_limit=1,
+            )
+            launcher_text = launcher.read_text(encoding="utf-8")
+
+        self.assertEqual(report["inline_colab_launcher"], str(launcher))
+        self.assertGreater(report["inline_colab_chunk_count"], 1)
+        self.assertEqual(report["inline_colab_chunk_size"], 64)
+        self.assertGreater(report["output_size"], 0)
+        self.assertIn("inline_colab_launcher_sha256", report)
+        self.assertIn("ARCHIVE_B64_CHUNKS", launcher_text)
+        self.assertIn("/content/inline_bundle.tar.gz", launcher_text)
+        self.assertIn(report["output_sha256"], launcher_text)
+        self.assertIn("EXPECTED_SIZE", launcher_text)
+        self.assertIn("base64.b64decode", launcher_text)
+        self.assertIn("run_colab_eval.sh", launcher_text)
+        self.assertIn("EXPECTED_SHA256", launcher_text)
+        self.assertIn("env['EXTRACT_ROOT'] = str(EXTRACT_ROOT)", launcher_text)
+        self.assertIn("subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)", launcher_text)
+
+    def test_package_inputs_rejects_inline_launcher_without_run_script(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dataset = root / "dataset"
+            dataset.mkdir()
+            full = dataset / "full.png"
+            full.write_bytes(b"asset")
+            manifest = dataset / "manifest.jsonl"
+            manifest.write_text(json.dumps({"id": "sample", "full_image": str(full.relative_to(root))}) + "\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "--inline-colab-launcher requires --include-run-script"):
+                package_inputs(
+                    manifest=manifest,
+                    output=root / "bundle.tar.gz",
+                    extract_root="/content/inputs/inline",
+                    root=root,
+                    inline_colab_launcher_path=root / "launch_inline_colab.py",
+                )
+
+    def test_build_inline_colab_launcher_materializes_stub_package(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            archive = root / "stub_bundle.tar.gz"
+            stub_script = (
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "echo stub\n"
+            )
+            with tarfile.open(archive, "w:gz") as tar:
+                encoded = stub_script.encode("utf-8")
+                info = tarfile.TarInfo("run_colab_eval.sh")
+                info.mode = 0o755
+                info.size = len(encoded)
+                tar.addfile(info, io.BytesIO(encoded))
+            expected_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+            launcher_text, meta = build_inline_colab_launcher(
+                archive_path=archive,
+                colab_archive_path=str(root / "content" / "stub_bundle.tar.gz"),
+                extract_root=str(root / "extract"),
+                expected_sha256=expected_sha,
+                expected_size=archive.stat().st_size,
+                chunk_size=32,
+            )
+            materialized_archive = root / "content" / "stub_bundle.tar.gz"
+            extracted_script = root / "extract" / "run_colab_eval.sh"
+
+            with patch("subprocess.run") as run_mock:
+                exec(compile(launcher_text, str(root / "launch_inline_colab.py"), "exec"), {"__name__": "__main__"})
+
+            self.assertGreater(meta["inline_colab_chunk_count"], 1)
+            self.assertEqual(hashlib.sha256(materialized_archive.read_bytes()).hexdigest(), expected_sha)
+            self.assertEqual(extracted_script.read_text(encoding="utf-8"), stub_script)
+            run_mock.assert_called_once()
+            args, kwargs = run_mock.call_args
+            self.assertEqual(args[0], ["bash", str(extracted_script), str(materialized_archive)])
+            self.assertTrue(kwargs["check"])
+            self.assertEqual(kwargs["env"]["EXTRACT_ROOT"], str(root / "extract"))
+            self.assertEqual(kwargs["env"]["EXPECTED_SHA256"], expected_sha)
+
+    def test_inline_colab_launcher_rejects_non_positive_chunk_size(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive = Path(temp_dir) / "stub_bundle.tar.gz"
+            archive.write_bytes(b"payload")
+
+            with self.assertRaisesRegex(ValueError, "--inline-colab-chunk-size must be positive"):
+                build_inline_colab_launcher(
+                    archive_path=archive,
+                    colab_archive_path="/content/stub_bundle.tar.gz",
+                    extract_root="/content/stub",
+                    expected_sha256="abc",
+                    expected_size=archive.stat().st_size,
+                    chunk_size=0,
+                )
 
     def test_package_inputs_can_write_modern_provider_launcher_without_lora(self):
         with tempfile.TemporaryDirectory() as temp_dir:

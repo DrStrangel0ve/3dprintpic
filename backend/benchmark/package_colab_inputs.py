@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import io
 import json
@@ -30,6 +31,7 @@ DEFAULT_PATH_FIELDS = (
 DEFAULT_EXTRACT_ROOT = "/content/3dprintpic_colab_inputs"
 DEFAULT_REPO_REMOTE = "https://github.com/DrStrangel0ve/3dprintpic.git"
 DEFAULT_REPO_REF = "codex/3d-completion-benchmark-g4"
+DEFAULT_INLINE_B64_CHUNK_SIZE = 76_000
 
 
 def repo_root() -> Path:
@@ -527,6 +529,75 @@ def build_colab_run_script(
     )
 
 
+def build_inline_colab_launcher(
+    *,
+    archive_path: Path,
+    colab_archive_path: str,
+    extract_root: str,
+    expected_sha256: str,
+    expected_size: int,
+    chunk_size: int = DEFAULT_INLINE_B64_CHUNK_SIZE,
+) -> tuple[str, dict]:
+    if chunk_size <= 0:
+        raise ValueError("--inline-colab-chunk-size must be positive")
+    encoded = base64.b64encode(archive_path.read_bytes()).decode("ascii")
+    chunks = [encoded[index : index + chunk_size] for index in range(0, len(encoded), chunk_size)]
+    chunks_text = ",\n".join(f"    {json.dumps(chunk)}" for chunk in chunks)
+    script = (
+        "# Paste this into one Colab Python cell to upload and launch the packaged benchmark.\n"
+        "import base64\n"
+        "import hashlib\n"
+        "import os\n"
+        "import pathlib\n"
+        "import subprocess\n"
+        "import tarfile\n"
+        "\n"
+        f"ARCHIVE_PATH = pathlib.Path({json.dumps(colab_archive_path)})\n"
+        f"EXTRACT_ROOT = pathlib.Path({json.dumps(extract_root)})\n"
+        f"EXPECTED_SHA256 = {json.dumps(expected_sha256)}\n"
+        f"EXPECTED_SIZE = {expected_size}\n"
+        "ARCHIVE_B64_CHUNKS = [\n"
+        f"{chunks_text}\n"
+        "]\n"
+        "\n"
+        "ARCHIVE_PATH.parent.mkdir(parents=True, exist_ok=True)\n"
+        "payload = base64.b64decode(''.join(ARCHIVE_B64_CHUNKS).encode('ascii'))\n"
+        "ARCHIVE_PATH.write_bytes(payload)\n"
+        "actual_sha256 = hashlib.sha256(payload).hexdigest()\n"
+        "actual_size = ARCHIVE_PATH.stat().st_size\n"
+        "print({'archive': str(ARCHIVE_PATH), 'bytes': actual_size, 'sha256': actual_sha256})\n"
+        "if actual_size != EXPECTED_SIZE:\n"
+        "    raise SystemExit(f'archive size mismatch: expected {EXPECTED_SIZE} got {actual_size}')\n"
+        "if actual_sha256 != EXPECTED_SHA256:\n"
+        "    raise SystemExit(f'archive sha256 mismatch: expected {EXPECTED_SHA256} got {actual_sha256}')\n"
+        "\n"
+        "EXTRACT_ROOT.mkdir(parents=True, exist_ok=True)\n"
+        "run_script = EXTRACT_ROOT / 'run_colab_eval.sh'\n"
+        "with tarfile.open(ARCHIVE_PATH, 'r:gz') as tar:\n"
+        "    try:\n"
+        "        member = tar.getmember('run_colab_eval.sh')\n"
+        "    except KeyError as exc:\n"
+        "        raise SystemExit('archive does not contain run_colab_eval.sh; regenerate with --include-run-script') from exc\n"
+        "    extracted = tar.extractfile(member)\n"
+        "    if extracted is None:\n"
+        "        raise SystemExit('could not read run_colab_eval.sh from archive')\n"
+        "    run_script.write_bytes(extracted.read())\n"
+        "run_script.chmod(0o755)\n"
+        "\n"
+        "env = os.environ.copy()\n"
+        "env['EXTRACT_ROOT'] = str(EXTRACT_ROOT)\n"
+        "env['EXPECTED_SHA256'] = EXPECTED_SHA256\n"
+        "print(f'Launching {run_script} with {ARCHIVE_PATH}')\n"
+        "subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)\n"
+    )
+    return script, {
+        "inline_colab_chunk_count": len(chunks),
+        "inline_colab_chunk_size": chunk_size,
+        "inline_colab_encoded_bytes": len(encoded),
+        "inline_colab_expected_size": expected_size,
+    }
+
+
 def package_inputs(
     *,
     manifest: Path,
@@ -571,11 +642,17 @@ def package_inputs(
     include_triposr_setup: bool = False,
     include_hunyuan3d_setup: bool = False,
     report_path: Path | None = None,
+    inline_colab_launcher_path: Path | None = None,
+    inline_colab_chunk_size: int = DEFAULT_INLINE_B64_CHUNK_SIZE,
 ) -> dict:
     if not manifest.exists():
         raise FileNotFoundError(f"--manifest does not exist: {manifest}")
     if max_method_failures < 0:
         raise ValueError("--max-method-failures must be non-negative")
+    if inline_colab_launcher_path and not include_run_script:
+        raise ValueError("--inline-colab-launcher requires --include-run-script")
+    if inline_colab_chunk_size <= 0:
+        raise ValueError("--inline-colab-chunk-size must be positive")
     rows = load_jsonl(manifest)
     selected = select_rows(rows, start_index, limit)
     cache_provider_list = list(cache_providers)
@@ -634,12 +711,15 @@ def package_inputs(
             )
             add_text_file(tar, "run_colab_eval.sh", run_script_text, mode=0o755)
 
+    output_sha256 = file_sha256(output)
+    output_size = output.stat().st_size
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "manifest": str(manifest),
         "manifest_sha256": file_sha256(manifest),
         "output": str(output),
-        "output_sha256": file_sha256(output),
+        "output_sha256": output_sha256,
+        "output_size": output_size,
         "extract_root": extract_root,
         "rewritten_manifest": colab_path(extract_root, manifest_archive_path),
         "input_rows": len(rows),
@@ -678,6 +758,20 @@ def package_inputs(
     if run_script_path and include_run_script:
         run_script_path.write_text(run_script_text, encoding="utf-8")
         report["run_script"] = str(run_script_path)
+    if inline_colab_launcher_path:
+        launcher_text, launcher_meta = build_inline_colab_launcher(
+            archive_path=output,
+            colab_archive_path=colab_archive_path or f"/content/{output.name}",
+            extract_root=extract_root,
+            expected_sha256=output_sha256,
+            expected_size=output_size,
+            chunk_size=inline_colab_chunk_size,
+        )
+        inline_colab_launcher_path.parent.mkdir(parents=True, exist_ok=True)
+        inline_colab_launcher_path.write_text(launcher_text, encoding="utf-8")
+        report["inline_colab_launcher"] = str(inline_colab_launcher_path)
+        report["inline_colab_launcher_sha256"] = file_sha256(inline_colab_launcher_path)
+        report.update(launcher_meta)
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return report
 
@@ -734,6 +828,12 @@ def parse_args() -> argparse.Namespace:
         help="Embed a Colab setup prelude for /content/Hunyuan3D-2.1 and /content/hunyuan3d-venv before running eval.",
     )
     parser.add_argument("--report", default=None)
+    parser.add_argument(
+        "--inline-colab-launcher",
+        default=None,
+        help="Write a pasteable Colab Python cell that embeds the archive, verifies it, extracts run_colab_eval.sh, and launches it.",
+    )
+    parser.add_argument("--inline-colab-chunk-size", type=int, default=DEFAULT_INLINE_B64_CHUNK_SIZE)
     return parser.parse_args()
 
 
@@ -783,6 +883,8 @@ def main() -> None:
         include_triposr_setup=args.include_triposr_setup,
         include_hunyuan3d_setup=args.include_hunyuan3d_setup,
         report_path=Path(args.report) if args.report else None,
+        inline_colab_launcher_path=Path(args.inline_colab_launcher) if args.inline_colab_launcher else None,
+        inline_colab_chunk_size=args.inline_colab_chunk_size,
     )
     print(json.dumps(report, indent=2, sort_keys=True))
 
