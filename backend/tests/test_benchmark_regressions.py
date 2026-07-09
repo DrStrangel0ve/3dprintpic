@@ -1348,6 +1348,9 @@ class StlExportRegressionTests(unittest.TestCase):
             output_stl = root / "hunyuan.stl"
             Image.new("RGB", (8, 8), (127, 127, 127)).save(input_image)
 
+            for module_name in list(sys.modules):
+                if module_name == "hy3dshape" or module_name.startswith("hy3dshape."):
+                    sys.modules.pop(module_name, None)
             with patch.object(
                 sys,
                 "argv",
@@ -1379,6 +1382,85 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(output_stl_exists)
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
+
+    def test_hunyuan3d_shape_provider_retries_after_partial_model_cache(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            cache_root = root / ".cache" / "hy3dgen" / "tencent" / "Hunyuan3D-2.1"
+            model_dir = cache_root / "hunyuan3d-dit-v2-1"
+            download_dir = cache_root / ".cache" / "huggingface" / "download" / "hunyuan3d-dit-v2-1"
+            model_dir.mkdir(parents=True)
+            download_dir.mkdir(parents=True)
+            (model_dir / "config.yaml").write_text("partial", encoding="utf-8")
+            (download_dir / "model.fp16.ckpt.lock").write_text("", encoding="utf-8")
+            provider_dir = root / "fake_hunyuan"
+            package_dir = provider_dir / "hy3dshape" / "hy3dshape"
+            package_dir.mkdir(parents=True)
+            (package_dir / "__init__.py").write_text("", encoding="utf-8")
+            missing_model = model_dir / "model.fp16.ckpt"
+            (package_dir / "pipelines.py").write_text(
+                "import pathlib\n"
+                "import trimesh\n"
+                f"CACHE_MODEL = pathlib.Path({str(missing_model)!r})\n"
+                "CALLS_FILE = CACHE_MODEL.parents[1] / 'calls.txt'\n"
+                "\n"
+                "class Hunyuan3DDiTFlowMatchingPipeline:\n"
+                "    @classmethod\n"
+                "    def from_pretrained(cls, model_name, device='cuda', dtype=None):\n"
+                "        calls = int(CALLS_FILE.read_text() or '0') if CALLS_FILE.exists() else 0\n"
+                "        CALLS_FILE.write_text(str(calls + 1))\n"
+                "        if calls == 0:\n"
+                "            raise FileNotFoundError(f'Model file {CACHE_MODEL} not found')\n"
+                "        return cls()\n"
+                "\n"
+                "    def __call__(self, image):\n"
+                "        return [trimesh.creation.box(extents=(1.0, 0.75, 0.5))]\n",
+                encoding="utf-8",
+            )
+            input_image = root / "input.png"
+            output_mesh = root / "hunyuan.glb"
+            output_stl = root / "hunyuan.stl"
+            Image.new("RGB", (8, 8), (127, 127, 127)).save(input_image)
+
+            for module_name in list(sys.modules):
+                if module_name == "hy3dshape" or module_name.startswith("hy3dshape."):
+                    sys.modules.pop(module_name, None)
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_image_to_mesh_provider",
+                    "--provider",
+                    "hunyuan3d-shape",
+                    "--provider-dir",
+                    str(provider_dir),
+                    "--input-image",
+                    str(input_image),
+                    "--output-mesh",
+                    str(output_mesh),
+                    "--output-stl",
+                    str(output_stl),
+                    "--provider-device",
+                    "cpu",
+                    "--model-name",
+                    "unit/hunyuan",
+                ],
+            ):
+                run_image_to_mesh_provider_main()
+
+            diagnostics = stl_diagnostics(output_stl)
+            calls = (cache_root / "calls.txt").read_text(encoding="utf-8")
+            model_dir_exists = model_dir.exists()
+            download_dir_exists = download_dir.exists()
+            output_mesh_exists = output_mesh.exists()
+            output_stl_exists = output_stl.exists()
+
+        self.assertEqual(calls, "2")
+        self.assertFalse(model_dir_exists)
+        self.assertFalse(download_dir_exists)
+        self.assertTrue(output_mesh_exists)
+        self.assertTrue(output_stl_exists)
+        self.assertTrue(diagnostics["stl_is_watertight"])
 
     def test_triposr_repair_smoke_config_compares_raw_and_repaired_outputs(self):
         args = SimpleNamespace(
@@ -2319,6 +2401,11 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
 
         self.assertTrue(report["include_hunyuan3d_setup"])
         self.assertIn("https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1", archive_run_script)
+        self.assertIn("git clone --filter=blob:none --depth 1 --sparse", archive_run_script)
+        self.assertIn(
+            'git -C "$HUNYUAN3D_DIR" sparse-checkout set hy3dshape/hy3dshape hy3dshape/configs',
+            archive_run_script,
+        )
         self.assertIn('HUNYUAN3D_VENV="${HUNYUAN3D_VENV:-/content/hunyuan3d-venv}"', archive_run_script)
         self.assertIn('export PYTHONPATH="$HUNYUAN3D_DIR/hy3dshape:$HUNYUAN3D_DIR:${PYTHONPATH:-}"', archive_run_script)
         self.assertIn("'hy3dshape.pipelines'", archive_run_script)

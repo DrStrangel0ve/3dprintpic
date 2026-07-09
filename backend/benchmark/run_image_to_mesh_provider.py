@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -180,11 +181,17 @@ def run_hunyuan_shape(args: argparse.Namespace) -> Path:
     if str(device).startswith("cuda") and not torch.cuda.is_available():
         device = "cpu"
     dtype = torch.float16 if str(device).startswith("cuda") else torch.float32
-    pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-        args.model_name or DEFAULT_HUNYUAN3D_MODEL,
-        device=device,
-        dtype=dtype,
-    )
+    pipeline_kwargs = {
+        "device": device,
+        "dtype": dtype,
+    }
+    model_name = args.model_name or DEFAULT_HUNYUAN3D_MODEL
+    try:
+        pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(model_name, **pipeline_kwargs)
+    except FileNotFoundError as exc:
+        if not clean_incomplete_hunyuan_cache(exc):
+            raise
+        pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(model_name, **pipeline_kwargs)
     if args.low_vram and str(device).startswith("cuda") and hasattr(pipeline, "enable_model_cpu_offload"):
         pipeline.enable_model_cpu_offload(device=device)
     with torch.no_grad():
@@ -192,6 +199,31 @@ def run_hunyuan_shape(args: argparse.Namespace) -> Path:
     args.output_mesh.parent.mkdir(parents=True, exist_ok=True)
     mesh.export(args.output_mesh)
     return args.output_mesh
+
+
+def clean_incomplete_hunyuan_cache(exc: FileNotFoundError) -> bool:
+    match = re.search(r"Model file (.+?model\.fp16\.ckpt) not found", str(exc))
+    if not match:
+        return False
+    model_file = Path(match.group(1))
+    if model_file.name != "model.fp16.ckpt":
+        return False
+    parts = {part.lower() for part in model_file.parts}
+    if ".cache" not in parts or "hy3dgen" not in parts:
+        return False
+    model_dir = model_file.parent
+    if model_dir.name != "hunyuan3d-dit-v2-1" or not model_dir.exists():
+        return False
+    download_dir = model_dir.parent / ".cache" / "huggingface" / "download" / model_dir.name
+    has_partial_download = download_dir.exists() and any(
+        path.suffix in {".lock", ".incomplete"} for path in download_dir.iterdir() if path.is_file()
+    )
+    has_partial_model_dir = (model_dir / "config.yaml").exists() and not model_file.exists()
+    if not (has_partial_download or has_partial_model_dir):
+        return False
+    shutil.rmtree(model_dir, ignore_errors=True)
+    shutil.rmtree(download_dir, ignore_errors=True)
+    return True
 
 
 def install_rembg_stub() -> None:
