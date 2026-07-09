@@ -33,7 +33,7 @@ from backend.benchmark.explain_paired_objective import (
 )
 from backend.benchmark.export_training_pairs import main as export_training_pairs_main
 from backend.benchmark.generate_rendered_dataset import attach_multiview_fields, generate_dataset
-from backend.benchmark.package_colab_inputs import build_inline_colab_launcher, package_inputs
+from backend.benchmark.package_colab_inputs import build_fetch_colab_launcher, build_inline_colab_launcher, package_inputs
 from backend.benchmark.optimize_completion import (
     annotate_per_sample_metrics,
     experiment_metadata,
@@ -2498,6 +2498,131 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                     expected_sha256="abc",
                     expected_size=archive.stat().st_size,
                     chunk_size=0,
+                )
+
+    def test_package_inputs_can_write_fetch_colab_launcher(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dataset = root / "dataset"
+            dataset.mkdir()
+            full = dataset / "full.png"
+            masked = dataset / "masked.png"
+            mask = dataset / "mask.png"
+            for path in (full, masked, mask):
+                path.write_bytes(b"asset")
+            manifest = dataset / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "id": "sample",
+                        "full_image": str(full.relative_to(root)),
+                        "masked_image": str(masked.relative_to(root)),
+                        "mask": str(mask.relative_to(root)),
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            archive = root / "fetch_bundle.tar.gz"
+            launcher = root / "fetch_colab.py"
+            payload_url = "https://raw.githubusercontent.com/example/repo/commit/fetch_bundle.tar.gz"
+
+            report = package_inputs(
+                manifest=manifest,
+                output=archive,
+                extract_root="/content/inputs/fetch",
+                root=root,
+                include_run_script=True,
+                colab_archive_path="/content/fetch_bundle.tar.gz",
+                fetch_colab_launcher_path=launcher,
+                fetch_colab_payload_url=payload_url,
+                run_name="g4_fetch_test",
+                eval_starts=[0],
+                eval_limit=1,
+            )
+            launcher_text = launcher.read_text(encoding="utf-8")
+
+        self.assertEqual(report["fetch_colab_launcher"], str(launcher))
+        self.assertEqual(report["fetch_colab_payload_url"], payload_url)
+        self.assertEqual(report["fetch_colab_expected_size"], report["output_size"])
+        self.assertIn("fetch_colab_launcher_sha256", report)
+        self.assertIn(payload_url, launcher_text)
+        self.assertIn(report["output_sha256"], launcher_text)
+        self.assertIn("urllib.request.urlopen(PAYLOAD_URL)", launcher_text)
+        self.assertIn("EXPECTED_SIZE", launcher_text)
+        self.assertIn("env['EXTRACT_ROOT'] = str(EXTRACT_ROOT)", launcher_text)
+        self.assertIn("env['EXPECTED_SHA256'] = EXPECTED_SHA256", launcher_text)
+        self.assertIn("subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)", launcher_text)
+
+    def test_build_fetch_colab_launcher_materializes_stub_package(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            archive = root / "stub_bundle.tar.gz"
+            stub_script = (
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "echo fetch-stub\n"
+            )
+            with tarfile.open(archive, "w:gz") as tar:
+                encoded = stub_script.encode("utf-8")
+                info = tarfile.TarInfo("run_colab_eval.sh")
+                info.mode = 0o755
+                info.size = len(encoded)
+                tar.addfile(info, io.BytesIO(encoded))
+            archive_bytes = archive.read_bytes()
+            expected_sha = hashlib.sha256(archive_bytes).hexdigest()
+            payload_url = "https://example.invalid/stub_bundle.tar.gz"
+            launcher_text = build_fetch_colab_launcher(
+                payload_url=payload_url,
+                colab_archive_path=str(root / "content" / "stub_bundle.tar.gz"),
+                extract_root=str(root / "extract"),
+                expected_sha256=expected_sha,
+                expected_size=archive.stat().st_size,
+            )
+            materialized_archive = root / "content" / "stub_bundle.tar.gz"
+            extracted_script = root / "extract" / "run_colab_eval.sh"
+
+            with patch("urllib.request.urlopen", return_value=io.BytesIO(archive_bytes)) as urlopen_mock:
+                with patch("subprocess.run") as run_mock:
+                    exec(compile(launcher_text, str(root / "fetch_colab.py"), "exec"), {"__name__": "__main__"})
+
+            urlopen_mock.assert_called_once_with(payload_url)
+            self.assertEqual(hashlib.sha256(materialized_archive.read_bytes()).hexdigest(), expected_sha)
+            self.assertEqual(extracted_script.read_text(encoding="utf-8"), stub_script)
+            run_mock.assert_called_once()
+            args, kwargs = run_mock.call_args
+            self.assertEqual(args[0], ["bash", str(extracted_script), str(materialized_archive)])
+            self.assertTrue(kwargs["check"])
+            self.assertEqual(kwargs["env"]["EXTRACT_ROOT"], str(root / "extract"))
+            self.assertEqual(kwargs["env"]["EXPECTED_SHA256"], expected_sha)
+
+    def test_fetch_colab_launcher_requires_url_and_run_script(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dataset = root / "dataset"
+            dataset.mkdir()
+            full = dataset / "full.png"
+            full.write_bytes(b"asset")
+            manifest = dataset / "manifest.jsonl"
+            manifest.write_text(json.dumps({"id": "sample", "full_image": str(full.relative_to(root))}) + "\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "--fetch-colab-launcher requires --include-run-script"):
+                package_inputs(
+                    manifest=manifest,
+                    output=root / "bundle.tar.gz",
+                    extract_root="/content/inputs/fetch",
+                    root=root,
+                    fetch_colab_launcher_path=root / "fetch_colab.py",
+                    fetch_colab_payload_url="https://example.invalid/bundle.tar.gz",
+                )
+            with self.assertRaisesRegex(ValueError, "--fetch-colab-payload-url is required"):
+                package_inputs(
+                    manifest=manifest,
+                    output=root / "bundle.tar.gz",
+                    extract_root="/content/inputs/fetch",
+                    root=root,
+                    include_run_script=True,
+                    fetch_colab_launcher_path=root / "fetch_colab.py",
                 )
 
     def test_package_inputs_can_write_modern_provider_launcher_without_lora(self):

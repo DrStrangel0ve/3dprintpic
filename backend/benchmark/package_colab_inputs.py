@@ -598,6 +598,66 @@ def build_inline_colab_launcher(
     }
 
 
+def build_fetch_colab_launcher(
+    *,
+    payload_url: str,
+    colab_archive_path: str,
+    extract_root: str,
+    expected_sha256: str,
+    expected_size: int,
+) -> str:
+    if not payload_url:
+        raise ValueError("--fetch-colab-payload-url is required when writing --fetch-colab-launcher")
+    return (
+        "# Paste this into one Colab Python cell to download and launch the packaged benchmark.\n"
+        "import hashlib\n"
+        "import os\n"
+        "import pathlib\n"
+        "import subprocess\n"
+        "import tarfile\n"
+        "import urllib.request\n"
+        "\n"
+        f"PAYLOAD_URL = {json.dumps(payload_url)}\n"
+        f"ARCHIVE_PATH = pathlib.Path({json.dumps(colab_archive_path)})\n"
+        f"EXTRACT_ROOT = pathlib.Path({json.dumps(extract_root)})\n"
+        f"EXPECTED_SHA256 = {json.dumps(expected_sha256)}\n"
+        f"EXPECTED_SIZE = {expected_size}\n"
+        "\n"
+        "ARCHIVE_PATH.parent.mkdir(parents=True, exist_ok=True)\n"
+        "print(f'Downloading {PAYLOAD_URL}')\n"
+        "with urllib.request.urlopen(PAYLOAD_URL) as response:\n"
+        "    payload = response.read()\n"
+        "ARCHIVE_PATH.write_bytes(payload)\n"
+        "\n"
+        "actual_size = ARCHIVE_PATH.stat().st_size\n"
+        "actual_sha256 = hashlib.sha256(payload).hexdigest()\n"
+        "print({'archive': str(ARCHIVE_PATH), 'bytes': actual_size, 'sha256': actual_sha256})\n"
+        "if actual_size != EXPECTED_SIZE:\n"
+        "    raise SystemExit(f'archive size mismatch: expected {EXPECTED_SIZE} got {actual_size}')\n"
+        "if actual_sha256 != EXPECTED_SHA256:\n"
+        "    raise SystemExit(f'archive sha256 mismatch: expected {EXPECTED_SHA256} got {actual_sha256}')\n"
+        "\n"
+        "EXTRACT_ROOT.mkdir(parents=True, exist_ok=True)\n"
+        "run_script = EXTRACT_ROOT / 'run_colab_eval.sh'\n"
+        "with tarfile.open(ARCHIVE_PATH, 'r:gz') as tar:\n"
+        "    try:\n"
+        "        member = tar.getmember('run_colab_eval.sh')\n"
+        "    except KeyError as exc:\n"
+        "        raise SystemExit('archive does not contain run_colab_eval.sh; regenerate with --include-run-script') from exc\n"
+        "    extracted = tar.extractfile(member)\n"
+        "    if extracted is None:\n"
+        "        raise SystemExit('could not read run_colab_eval.sh from archive')\n"
+        "    run_script.write_bytes(extracted.read())\n"
+        "run_script.chmod(0o755)\n"
+        "\n"
+        "env = os.environ.copy()\n"
+        "env['EXTRACT_ROOT'] = str(EXTRACT_ROOT)\n"
+        "env['EXPECTED_SHA256'] = EXPECTED_SHA256\n"
+        "print(f'Launching {run_script} with {ARCHIVE_PATH}')\n"
+        "subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)\n"
+    )
+
+
 def package_inputs(
     *,
     manifest: Path,
@@ -644,6 +704,8 @@ def package_inputs(
     report_path: Path | None = None,
     inline_colab_launcher_path: Path | None = None,
     inline_colab_chunk_size: int = DEFAULT_INLINE_B64_CHUNK_SIZE,
+    fetch_colab_launcher_path: Path | None = None,
+    fetch_colab_payload_url: str | None = None,
 ) -> dict:
     if not manifest.exists():
         raise FileNotFoundError(f"--manifest does not exist: {manifest}")
@@ -651,6 +713,10 @@ def package_inputs(
         raise ValueError("--max-method-failures must be non-negative")
     if inline_colab_launcher_path and not include_run_script:
         raise ValueError("--inline-colab-launcher requires --include-run-script")
+    if fetch_colab_launcher_path and not include_run_script:
+        raise ValueError("--fetch-colab-launcher requires --include-run-script")
+    if fetch_colab_launcher_path and not fetch_colab_payload_url:
+        raise ValueError("--fetch-colab-payload-url is required when writing --fetch-colab-launcher")
     if inline_colab_chunk_size <= 0:
         raise ValueError("--inline-colab-chunk-size must be positive")
     rows = load_jsonl(manifest)
@@ -772,6 +838,20 @@ def package_inputs(
         report["inline_colab_launcher"] = str(inline_colab_launcher_path)
         report["inline_colab_launcher_sha256"] = file_sha256(inline_colab_launcher_path)
         report.update(launcher_meta)
+    if fetch_colab_launcher_path:
+        fetch_launcher_text = build_fetch_colab_launcher(
+            payload_url=fetch_colab_payload_url or "",
+            colab_archive_path=colab_archive_path or f"/content/{output.name}",
+            extract_root=extract_root,
+            expected_sha256=output_sha256,
+            expected_size=output_size,
+        )
+        fetch_colab_launcher_path.parent.mkdir(parents=True, exist_ok=True)
+        fetch_colab_launcher_path.write_text(fetch_launcher_text, encoding="utf-8")
+        report["fetch_colab_launcher"] = str(fetch_colab_launcher_path)
+        report["fetch_colab_launcher_sha256"] = file_sha256(fetch_colab_launcher_path)
+        report["fetch_colab_payload_url"] = fetch_colab_payload_url or ""
+        report["fetch_colab_expected_size"] = output_size
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return report
 
@@ -834,6 +914,12 @@ def parse_args() -> argparse.Namespace:
         help="Write a pasteable Colab Python cell that embeds the archive, verifies it, extracts run_colab_eval.sh, and launches it.",
     )
     parser.add_argument("--inline-colab-chunk-size", type=int, default=DEFAULT_INLINE_B64_CHUNK_SIZE)
+    parser.add_argument(
+        "--fetch-colab-launcher",
+        default=None,
+        help="Write a pasteable Colab Python cell that downloads the archive from --fetch-colab-payload-url, verifies it, extracts run_colab_eval.sh, and launches it.",
+    )
+    parser.add_argument("--fetch-colab-payload-url", default=None)
     return parser.parse_args()
 
 
@@ -885,6 +971,8 @@ def main() -> None:
         report_path=Path(args.report) if args.report else None,
         inline_colab_launcher_path=Path(args.inline_colab_launcher) if args.inline_colab_launcher else None,
         inline_colab_chunk_size=args.inline_colab_chunk_size,
+        fetch_colab_launcher_path=Path(args.fetch_colab_launcher) if args.fetch_colab_launcher else None,
+        fetch_colab_payload_url=args.fetch_colab_payload_url,
     )
     print(json.dumps(report, indent=2, sort_keys=True))
 
