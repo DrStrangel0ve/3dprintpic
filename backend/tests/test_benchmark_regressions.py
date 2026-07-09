@@ -39,7 +39,7 @@ from backend.benchmark.ingest_stl_results import (
     render_markdown as render_stl_ingest_markdown,
     summarize_inputs as summarize_stl_inputs,
 )
-from backend.benchmark.package_colab_inputs import build_fetch_colab_launcher, build_inline_colab_launcher, package_inputs
+from backend.benchmark.package_colab_inputs import build_fetch_colab_launcher, build_inline_colab_launcher, package_inputs, parse_colab_env
 from backend.benchmark.optimize_completion import (
     annotate_per_sample_metrics,
     experiment_metadata,
@@ -2814,6 +2814,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                 expected_sha256=expected_sha,
                 expected_size=archive.stat().st_size,
                 chunk_size=32,
+                colab_env={"TRIPOSG_SETUP_ONLY": "1"},
             )
             materialized_archive = root / "content" / "stub_bundle.tar.gz"
             extracted_script = root / "extract" / "run_colab_eval.sh"
@@ -2830,6 +2831,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
             self.assertTrue(kwargs["check"])
             self.assertEqual(kwargs["env"]["EXTRACT_ROOT"], str(root / "extract"))
             self.assertEqual(kwargs["env"]["EXPECTED_SHA256"], expected_sha)
+            self.assertEqual(kwargs["env"]["TRIPOSG_SETUP_ONLY"], "1")
 
     def test_inline_colab_launcher_rejects_non_positive_chunk_size(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2884,6 +2886,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                 fetch_colab_launcher_path=launcher,
                 fetch_colab_notebook_path=notebook,
                 fetch_colab_payload_url=payload_url,
+                colab_env={"TRIPOSG_SETUP_ONLY": "1"},
                 run_name="g4_fetch_test",
                 eval_starts=[0],
                 eval_limit=1,
@@ -2897,6 +2900,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertEqual(report["fetch_colab_notebook"], str(notebook))
         self.assertEqual(report["fetch_colab_payload_url"], payload_url)
         self.assertEqual(report["fetch_colab_expected_size"], report["output_size"])
+        self.assertEqual(report["colab_env"], {"TRIPOSG_SETUP_ONLY": "1"})
         self.assertIn("fetch_colab_launcher_sha256", report)
         self.assertIn("fetch_colab_notebook_sha256", report)
         self.assertEqual(report["fetch_colab_notebook_sha256"], hashlib.sha256(notebook_bytes).hexdigest())
@@ -2910,8 +2914,10 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)", notebook_source)
         self.assertIn("urllib.request.urlopen(PAYLOAD_URL)", launcher_text)
         self.assertIn("EXPECTED_SIZE", launcher_text)
+        self.assertIn('"TRIPOSG_SETUP_ONLY": "1"', launcher_text)
         self.assertIn("env['EXTRACT_ROOT'] = str(EXTRACT_ROOT)", launcher_text)
         self.assertIn("env['EXPECTED_SHA256'] = EXPECTED_SHA256", launcher_text)
+        self.assertIn("for key, value in LAUNCH_ENV.items():", launcher_text)
         self.assertIn("subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)", launcher_text)
 
     def test_package_inputs_writes_deterministic_archive(self):
@@ -2985,6 +2991,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                 extract_root=str(root / "extract"),
                 expected_sha256=expected_sha,
                 expected_size=archive.stat().st_size,
+                colab_env={"TRIPOSG_SETUP_ONLY": "1", "HUNYUAN3D_PREFETCH": "0"},
             )
             materialized_archive = root / "content" / "stub_bundle.tar.gz"
             extracted_script = root / "extract" / "run_colab_eval.sh"
@@ -3002,6 +3009,18 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
             self.assertTrue(kwargs["check"])
             self.assertEqual(kwargs["env"]["EXTRACT_ROOT"], str(root / "extract"))
             self.assertEqual(kwargs["env"]["EXPECTED_SHA256"], expected_sha)
+            self.assertEqual(kwargs["env"]["TRIPOSG_SETUP_ONLY"], "1")
+            self.assertEqual(kwargs["env"]["HUNYUAN3D_PREFETCH"], "0")
+
+    def test_parse_colab_env_validates_key_value_pairs(self):
+        self.assertEqual(
+            parse_colab_env(["TRIPOSG_SETUP_ONLY=1", "HUNYUAN3D_PREFETCH=0"]),
+            {"TRIPOSG_SETUP_ONLY": "1", "HUNYUAN3D_PREFETCH": "0"},
+        )
+        with self.assertRaisesRegex(ValueError, "KEY=VALUE"):
+            parse_colab_env(["TRIPOSG_SETUP_ONLY"])
+        with self.assertRaisesRegex(ValueError, "valid environment variable"):
+            parse_colab_env(["BAD-NAME=1"])
 
     def test_fetch_colab_launcher_requires_url_and_run_script(self):
         with tempfile.TemporaryDirectory() as temp_dir:

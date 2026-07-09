@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import io
 import json
+import re
 import shlex
 import tarfile
 from contextlib import contextmanager
@@ -139,6 +140,18 @@ def colab_path(extract_root: str, archive_name: Path) -> str:
 
 def shell_join(command: Iterable[str]) -> str:
     return " ".join(shlex.quote(str(part)) for part in command)
+
+
+def parse_colab_env(items: Iterable[str] | None) -> dict[str, str]:
+    env: dict[str, str] = {}
+    for item in items or ():
+        key, separator, value = str(item).partition("=")
+        if not separator:
+            raise ValueError(f"--colab-env must be KEY=VALUE, got: {item}")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            raise ValueError(f"--colab-env key is not a valid environment variable name: {key}")
+        env[key] = value
+    return env
 
 
 def rewrite_manifest_rows(
@@ -717,9 +730,11 @@ def build_inline_colab_launcher(
     expected_sha256: str,
     expected_size: int,
     chunk_size: int = DEFAULT_INLINE_B64_CHUNK_SIZE,
+    colab_env: dict[str, str] | None = None,
 ) -> tuple[str, dict]:
     if chunk_size <= 0:
         raise ValueError("--inline-colab-chunk-size must be positive")
+    launch_env = dict(colab_env or {})
     encoded = base64.b64encode(archive_path.read_bytes()).decode("ascii")
     chunks = [encoded[index : index + chunk_size] for index in range(0, len(encoded), chunk_size)]
     chunks_text = ",\n".join(f"    {json.dumps(chunk)}" for chunk in chunks)
@@ -736,6 +751,7 @@ def build_inline_colab_launcher(
         f"EXTRACT_ROOT = pathlib.Path({json.dumps(extract_root)})\n"
         f"EXPECTED_SHA256 = {json.dumps(expected_sha256)}\n"
         f"EXPECTED_SIZE = {expected_size}\n"
+        f"LAUNCH_ENV = {json.dumps(launch_env, sort_keys=True)}\n"
         "ARCHIVE_B64_CHUNKS = [\n"
         f"{chunks_text}\n"
         "]\n"
@@ -767,6 +783,10 @@ def build_inline_colab_launcher(
         "env = os.environ.copy()\n"
         "env['EXTRACT_ROOT'] = str(EXTRACT_ROOT)\n"
         "env['EXPECTED_SHA256'] = EXPECTED_SHA256\n"
+        "for key, value in LAUNCH_ENV.items():\n"
+        "    env[key] = value\n"
+        "if LAUNCH_ENV:\n"
+        "    print({'launch_env': LAUNCH_ENV})\n"
         "print(f'Launching {run_script} with {ARCHIVE_PATH}')\n"
         "subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)\n"
     )
@@ -785,9 +805,11 @@ def build_fetch_colab_launcher(
     extract_root: str,
     expected_sha256: str,
     expected_size: int,
+    colab_env: dict[str, str] | None = None,
 ) -> str:
     if not payload_url:
         raise ValueError("--fetch-colab-payload-url is required when writing --fetch-colab-launcher")
+    launch_env = dict(colab_env or {})
     return (
         "# Paste this into one Colab Python cell to download and launch the packaged benchmark.\n"
         "import hashlib\n"
@@ -802,6 +824,7 @@ def build_fetch_colab_launcher(
         f"EXTRACT_ROOT = pathlib.Path({json.dumps(extract_root)})\n"
         f"EXPECTED_SHA256 = {json.dumps(expected_sha256)}\n"
         f"EXPECTED_SIZE = {expected_size}\n"
+        f"LAUNCH_ENV = {json.dumps(launch_env, sort_keys=True)}\n"
         "\n"
         "ARCHIVE_PATH.parent.mkdir(parents=True, exist_ok=True)\n"
         "print(f'Downloading {PAYLOAD_URL}')\n"
@@ -833,6 +856,10 @@ def build_fetch_colab_launcher(
         "env = os.environ.copy()\n"
         "env['EXTRACT_ROOT'] = str(EXTRACT_ROOT)\n"
         "env['EXPECTED_SHA256'] = EXPECTED_SHA256\n"
+        "for key, value in LAUNCH_ENV.items():\n"
+        "    env[key] = value\n"
+        "if LAUNCH_ENV:\n"
+        "    print({'launch_env': LAUNCH_ENV})\n"
         "print(f'Launching {run_script} with {ARCHIVE_PATH}')\n"
         "subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)\n"
     )
@@ -922,6 +949,7 @@ def package_inputs(
     include_triposr_setup: bool = False,
     include_triposg_setup: bool = False,
     include_hunyuan3d_setup: bool = False,
+    colab_env: dict[str, str] | None = None,
     report_path: Path | None = None,
     inline_colab_launcher_path: Path | None = None,
     inline_colab_chunk_size: int = DEFAULT_INLINE_B64_CHUNK_SIZE,
@@ -946,6 +974,7 @@ def package_inputs(
     rows = load_jsonl(manifest)
     selected = select_rows(rows, start_index, limit)
     cache_provider_list = list(cache_providers)
+    colab_env = dict(colab_env or {})
     rewritten_rows, source_to_archive = rewrite_manifest_rows(
         selected,
         manifest_dir=manifest.parent,
@@ -1043,6 +1072,7 @@ def package_inputs(
         "include_triposr_setup": include_triposr_setup,
         "include_triposg_setup": include_triposg_setup,
         "include_hunyuan3d_setup": include_hunyuan3d_setup,
+        "colab_env": colab_env,
         "run_script_in_archive": "run_colab_eval.sh" if include_run_script else "",
     }
     report_path = report_path or output.with_name(output.name + ".report.json")
@@ -1058,6 +1088,7 @@ def package_inputs(
             expected_sha256=output_sha256,
             expected_size=output_size,
             chunk_size=inline_colab_chunk_size,
+            colab_env=colab_env,
         )
         inline_colab_launcher_path.parent.mkdir(parents=True, exist_ok=True)
         write_utf8_lf(inline_colab_launcher_path, launcher_text)
@@ -1071,6 +1102,7 @@ def package_inputs(
             extract_root=extract_root,
             expected_sha256=output_sha256,
             expected_size=output_size,
+            colab_env=colab_env,
         )
     if fetch_colab_launcher_path:
         fetch_colab_launcher_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1166,6 +1198,12 @@ def parse_args() -> argparse.Namespace:
         help="Write a Colab .ipynb with the fetch launcher preloaded as a code cell.",
     )
     parser.add_argument("--fetch-colab-payload-url", default=None)
+    parser.add_argument(
+        "--colab-env",
+        action="append",
+        default=None,
+        help="Embed a KEY=VALUE environment override in generated Colab launchers, for example TRIPOSG_SETUP_ONLY=1.",
+    )
     return parser.parse_args()
 
 
@@ -1215,6 +1253,7 @@ def main() -> None:
         include_triposr_setup=args.include_triposr_setup,
         include_triposg_setup=args.include_triposg_setup,
         include_hunyuan3d_setup=args.include_hunyuan3d_setup,
+        colab_env=parse_colab_env(args.colab_env),
         report_path=Path(args.report) if args.report else None,
         inline_colab_launcher_path=Path(args.inline_colab_launcher) if args.inline_colab_launcher else None,
         inline_colab_chunk_size=args.inline_colab_chunk_size,
