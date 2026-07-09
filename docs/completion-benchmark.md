@@ -1304,6 +1304,14 @@ The four direct-mesh losses versus `mirror` are dominated by `stl_bbox_aspect_ra
 
 Interpretation: STL scaling fixed the earlier mesh-complexity penalty, but it did not fix occasional elongated or axis-misaligned TripoSR shapes. The next autonomous STL-first slice should add an aspect/orientation calibration candidate, for example a postprocess that aligns the direct mesh bbox to the source camera/mirror relief extent before STL export, then rerun the same held-out 10 rows before spending G4 time on larger Hunyuan3D/SV3D-style direct-mesh comparisons.
 
+The first calibration candidate is now wired through `backend.benchmark.run_image_to_mesh_provider` as `--mesh-max-bbox-aspect-ratio`. It keeps the existing scale/compact export, then thickens only the shorter STL-space axes until the final bbox aspect is below the requested ratio. The reconstruction config includes `triposr_api_masked_repaired_stl_aspect_clamped2p25_direct_mesh`, which uses:
+
+```bash
+--mesh-target-max-dimension 96 --mesh-min-bbox-dimension 12 --mesh-max-bbox-aspect-ratio 2.25
+```
+
+Use that method as the next `--candidate-method` against `mirror` on the same held-out rows. This is a calibration probe, not a default: it may improve the four elongated losses, but it can distort true thin objects, so promotion still has to pass paired STL-quality gates.
+
 Multiview/video backends should use the new `external-multiview-to-mesh` method. The benchmark writes `{input_bundle}` as `multiview_input.json` beside the provider outputs, with `primary_image`, `masked_image`, `full_image`, `mask`, `camera`, optional `video_path`/`frames_dir`, and a `views` list containing sibling images, masks, cameras, and view ids. `generate_rendered_dataset --views-per-asset N` now annotates rows that share an `asset_key` with `multiview_images`, `multiview_masks`, `multiview_cameras`, `multiview_view_ids`, and `multiview_primary_index`; `package_colab_inputs` carries those list-valued paths into Colab bundles.
 
 Local STL-first launcher smoke (`stl_first_reconstruction_smoke_local_s0_n1`, `dataset-count=1`, `size=128`, `stl-target-dimension=64`) completed successfully in `82.91s` for the benchmark stage. Ranking:

@@ -340,6 +340,28 @@ def _enforce_min_bbox_dimension(mesh, min_bbox_dimension: float):
     return compacted
 
 
+def _clamp_bbox_aspect_ratio(mesh, max_bbox_aspect_ratio: float):
+    target_ratio = float(max_bbox_aspect_ratio or 0.0)
+    if target_ratio < 1.0:
+        return mesh
+    extents = _valid_extents(mesh)
+    if extents is None:
+        return mesh
+    max_extent = float(np.max(extents))
+    min_extent = float(np.min(extents))
+    if min_extent <= 0 or max_extent / min_extent <= target_ratio:
+        return mesh
+    min_allowed_extent = max_extent / target_ratio
+    factors = np.ones(3, dtype=np.float64)
+    small = extents < min_allowed_extent
+    factors[small] = min_allowed_extent / extents[small]
+    clamped = mesh.copy()
+    bounds = np.asarray(clamped.bounds, dtype=np.float64)
+    center = bounds.mean(axis=0) if bounds.shape == (2, 3) and np.all(np.isfinite(bounds)) else np.zeros(3)
+    clamped.vertices = (np.asarray(clamped.vertices, dtype=np.float64) - center) * factors + center
+    return clamped
+
+
 def _simplify_to_face_count(mesh, target_faces: int):
     target_faces = int(target_faces or 0)
     if target_faces <= 0 or len(mesh.faces) <= target_faces:
@@ -362,6 +384,7 @@ def postprocess_mesh_for_stl(
     *,
     target_max_dimension: float = 0.0,
     min_bbox_dimension: float = 0.0,
+    max_bbox_aspect_ratio: float = 0.0,
     target_faces: int = 0,
 ) -> Path:
     mesh = load_mesh(mesh_path)
@@ -369,6 +392,7 @@ def postprocess_mesh_for_stl(
         raise ValueError(f"Mesh postprocess input has no triangles: {mesh_path}")
     processed = _scale_to_max_dimension(mesh, float(target_max_dimension or 0.0))
     processed = _enforce_min_bbox_dimension(processed, float(min_bbox_dimension or 0.0))
+    processed = _clamp_bbox_aspect_ratio(processed, float(max_bbox_aspect_ratio or 0.0))
     processed = _simplify_to_face_count(processed, int(target_faces or 0))
     processed.remove_unreferenced_vertices()
     output_path.parent.mkdir(parents=True, exist_ok=True)

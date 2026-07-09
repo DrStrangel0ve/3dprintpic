@@ -240,7 +240,12 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
             shutil.copy2(output_mesh, raw_output_mesh)
         output_mesh = repair_mesh_for_printable_stl(raw_output_mesh, args.output_mesh, args.mesh_repair)
 
-    if args.mesh_target_max_dimension > 0 or args.mesh_min_bbox_dimension > 0 or args.mesh_target_faces > 0:
+    if (
+        args.mesh_target_max_dimension > 0
+        or args.mesh_min_bbox_dimension > 0
+        or args.mesh_max_bbox_aspect_ratio > 0
+        or args.mesh_target_faces > 0
+    ):
         if args.raw_output_mesh and args.mesh_repair == "none" and output_mesh.resolve() != args.raw_output_mesh.resolve():
             args.raw_output_mesh.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(output_mesh, args.raw_output_mesh)
@@ -249,6 +254,7 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
             args.output_mesh,
             target_max_dimension=args.mesh_target_max_dimension,
             min_bbox_dimension=args.mesh_min_bbox_dimension,
+            max_bbox_aspect_ratio=args.mesh_max_bbox_aspect_ratio,
             target_faces=args.mesh_target_faces,
         )
 
@@ -309,6 +315,15 @@ def main() -> None:
         help=(
             "If positive, anisotropically thicken any bounding-box axis below this dimension after max-size "
             "scaling. This is an opt-in printable-compactness probe and may distort shape."
+        ),
+    )
+    parser.add_argument(
+        "--mesh-max-bbox-aspect-ratio",
+        type=float,
+        default=0.0,
+        help=(
+            "If positive, anisotropically thicken small bounding-box axes until max_axis/min_axis is at most "
+            "this ratio after size scaling. This is an opt-in STL calibration probe and may distort shape."
         ),
     )
     parser.add_argument(

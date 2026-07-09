@@ -35,6 +35,7 @@ def image_to_mesh_command(
     raw_output_ext: str = "obj",
     mesh_target_max_dimension: float = 0.0,
     mesh_min_bbox_dimension: float = 0.0,
+    mesh_max_bbox_aspect_ratio: float = 0.0,
     mesh_target_faces: int = 0,
     output_extra: list[str] | None = None,
 ) -> str:
@@ -66,6 +67,8 @@ def image_to_mesh_command(
         command.extend(["--mesh-target-max-dimension", str(mesh_target_max_dimension)])
     if mesh_min_bbox_dimension > 0:
         command.extend(["--mesh-min-bbox-dimension", str(mesh_min_bbox_dimension)])
+    if mesh_max_bbox_aspect_ratio > 0:
+        command.extend(["--mesh-max-bbox-aspect-ratio", str(mesh_max_bbox_aspect_ratio)])
     if mesh_target_faces > 0:
         command.extend(["--mesh-target-faces", str(mesh_target_faces)])
     command.extend(output_extra or [])
@@ -84,6 +87,7 @@ def triposr_api_command(args: argparse.Namespace, repaired: bool) -> str:
         raw_output_ext="obj",
         mesh_target_max_dimension=getattr(args, "mesh_target_max_dimension", 0.0),
         mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0),
+        mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
         mesh_target_faces=getattr(args, "mesh_target_faces", 0),
         output_extra=["--chunk-size", str(args.chunk_size), "--mc-resolution", str(args.mc_resolution)],
     )
@@ -101,6 +105,7 @@ def hunyuan3d_command(args: argparse.Namespace, repaired: bool) -> str:
         raw_output_ext="glb",
         mesh_target_max_dimension=getattr(args, "mesh_target_max_dimension", 0.0),
         mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0),
+        mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
         mesh_target_faces=getattr(args, "mesh_target_faces", 0),
     )
 
@@ -389,6 +394,12 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.0,
         help="If positive, thicken direct provider mesh bbox axes below this STL-space dimension.",
+    )
+    parser.add_argument(
+        "--mesh-max-bbox-aspect-ratio",
+        type=float,
+        default=0.0,
+        help="If positive, thicken direct provider mesh bbox axes until max_axis/min_axis is below this ratio.",
     )
     parser.add_argument(
         "--mesh-target-faces",

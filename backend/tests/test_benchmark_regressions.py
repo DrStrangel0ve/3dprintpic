@@ -783,6 +783,31 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
 
+    def test_mesh_postprocess_can_clamp_bbox_aspect_for_stl_objective(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_mesh = root / "skinny_box.ply"
+            output_mesh = root / "aspect_clamped.stl"
+            trimesh.creation.box(extents=(2.0, 1.0, 0.1)).export(input_mesh)
+
+            postprocess_mesh_for_stl(
+                input_mesh,
+                output_mesh,
+                target_max_dimension=96.0,
+                min_bbox_dimension=12.0,
+                max_bbox_aspect_ratio=4.0,
+            )
+
+            diagnostics = stl_diagnostics(output_mesh)
+
+        self.assertAlmostEqual(diagnostics["stl_bbox_max_dimension"], 96.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_min_dimension"], 24.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_aspect_ratio"], 4.0, places=4)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
+
     def test_image_to_mesh_provider_wrapper_can_repair_unprintable_mesh(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -905,6 +930,8 @@ class StlExportRegressionTests(unittest.TestCase):
                     "96",
                     "--mesh-min-bbox-dimension",
                     "12",
+                    "--mesh-max-bbox-aspect-ratio",
+                    "4",
                 ],
             ):
                 run_image_to_mesh_provider_main()
@@ -916,8 +943,8 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(raw_output_mesh_exists)
         self.assertAlmostEqual(raw_diagnostics["stl_bbox_max_dimension"], 2.0, places=4)
         self.assertAlmostEqual(diagnostics["stl_bbox_max_dimension"], 96.0, places=4)
-        self.assertAlmostEqual(diagnostics["stl_bbox_min_dimension"], 12.0, places=4)
-        self.assertAlmostEqual(diagnostics["stl_bbox_aspect_ratio"], 8.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_min_dimension"], 24.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_aspect_ratio"], 4.0, places=4)
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
 
@@ -1059,6 +1086,7 @@ class StlExportRegressionTests(unittest.TestCase):
             mesh_repair="printable",
             mesh_target_max_dimension=96.0,
             mesh_min_bbox_dimension=12.0,
+            mesh_max_bbox_aspect_ratio=2.25,
             mesh_target_faces=512,
             direct_mesh_timeout=123,
         )
@@ -1074,6 +1102,7 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("--mesh-repair printable", by_name["triposr_api_mirror_prefill_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("--mesh-target-max-dimension 96.0", by_name["triposr_api_mirror_prefill_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("--mesh-min-bbox-dimension 12.0", by_name["triposr_api_mirror_prefill_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--mesh-max-bbox-aspect-ratio 2.25", by_name["triposr_api_mirror_prefill_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("--mesh-target-faces 512", by_name["triposr_api_mirror_prefill_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertEqual(by_name["triposr_api_biharmonic_prefill_repaired_direct_mesh"]["direct_mesh_input"], "biharmonic")
         self.assertIn("--mesh-repair printable", by_name["triposr_api_biharmonic_prefill_repaired_direct_mesh"]["direct_mesh_command"])
