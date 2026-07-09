@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import argparse
 import base64
+import gzip
 import hashlib
 import io
 import json
 import shlex
 import tarfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator
 
 from backend.benchmark.rank_methods import SCORE_PROFILES
 
@@ -32,6 +34,7 @@ DEFAULT_EXTRACT_ROOT = "/content/3dprintpic_colab_inputs"
 DEFAULT_REPO_REMOTE = "https://github.com/DrStrangel0ve/3dprintpic.git"
 DEFAULT_REPO_REF = "codex/3d-completion-benchmark-g4"
 DEFAULT_INLINE_B64_CHUNK_SIZE = 76_000
+DETERMINISTIC_TAR_MTIME = 0
 
 
 def repo_root() -> Path:
@@ -44,6 +47,30 @@ def file_sha256(path: Path) -> str:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def write_utf8_lf(path: Path, text: str) -> None:
+    path.write_bytes(text.encode("utf-8"))
+
+
+def deterministic_tar_info(archive_name: str, *, size: int, mode: int = 0o644) -> tarfile.TarInfo:
+    info = tarfile.TarInfo(archive_name)
+    info.size = size
+    info.mode = mode
+    info.mtime = DETERMINISTIC_TAR_MTIME
+    info.uid = 0
+    info.gid = 0
+    info.uname = ""
+    info.gname = ""
+    return info
+
+
+@contextmanager
+def open_deterministic_tar_gz(output: Path) -> Iterator[tarfile.TarFile]:
+    with output.open("wb") as raw_file:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw_file, mtime=DETERMINISTIC_TAR_MTIME) as gzip_file:
+            with tarfile.open(fileobj=gzip_file, mode="w") as tar:
+                yield tar
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -98,7 +125,11 @@ def add_file_once(tar: tarfile.TarFile, source: Path, archive_name: Path, added:
         return
     if not source.exists():
         raise FileNotFoundError(f"Referenced file does not exist: {source}")
-    tar.add(source, arcname=archive_name.as_posix())
+    stat = source.stat()
+    mode = 0o755 if stat.st_mode & 0o111 else 0o644
+    info = deterministic_tar_info(archive_name.as_posix(), size=stat.st_size, mode=mode)
+    with source.open("rb") as file:
+        tar.addfile(info, fileobj=file)
     added.add(resolved)
 
 
@@ -146,18 +177,15 @@ def rewrite_manifest_rows(
 
 def write_rewritten_manifest(tar: tarfile.TarFile, rows: list[dict]) -> Path:
     manifest_text = "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows)
-    manifest_info = tarfile.TarInfo("inputs/manifest.jsonl")
     manifest_bytes = manifest_text.encode("utf-8")
-    manifest_info.size = len(manifest_bytes)
+    manifest_info = deterministic_tar_info("inputs/manifest.jsonl", size=len(manifest_bytes))
     tar.addfile(manifest_info, fileobj=io.BytesIO(manifest_bytes))
     return Path("inputs/manifest.jsonl")
 
 
 def add_text_file(tar: tarfile.TarFile, archive_name: str, text: str, mode: int = 0o644) -> None:
     encoded = text.encode("utf-8")
-    info = tarfile.TarInfo(archive_name)
-    info.mode = mode
-    info.size = len(encoded)
+    info = deterministic_tar_info(archive_name, size=len(encoded), mode=mode)
     tar.addfile(info, fileobj=io.BytesIO(encoded))
 
 
@@ -667,6 +695,46 @@ def build_fetch_colab_launcher(
     )
 
 
+def build_colab_notebook_launcher(*, launcher_text: str, title: str) -> str:
+    if not launcher_text.strip():
+        raise ValueError("launcher_text must not be empty")
+    notebook = {
+        "nbformat": 4,
+        "nbformat_minor": 5,
+        "metadata": {
+            "kernelspec": {
+                "name": "python3",
+                "display_name": "Python 3",
+            },
+            "language_info": {
+                "name": "python",
+            },
+            "colab": {
+                "provenance": [],
+            },
+        },
+        "cells": [
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    f"# {title}\n",
+                    "\n",
+                    "Run the code cell below in Colab to download, verify, and launch the packaged benchmark.\n",
+                ],
+            },
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "execution_count": None,
+                "outputs": [],
+                "source": launcher_text.splitlines(keepends=True),
+            },
+        ],
+    }
+    return json.dumps(notebook, indent=2) + "\n"
+
+
 def package_inputs(
     *,
     manifest: Path,
@@ -714,6 +782,7 @@ def package_inputs(
     inline_colab_launcher_path: Path | None = None,
     inline_colab_chunk_size: int = DEFAULT_INLINE_B64_CHUNK_SIZE,
     fetch_colab_launcher_path: Path | None = None,
+    fetch_colab_notebook_path: Path | None = None,
     fetch_colab_payload_url: str | None = None,
 ) -> dict:
     if not manifest.exists():
@@ -724,8 +793,10 @@ def package_inputs(
         raise ValueError("--inline-colab-launcher requires --include-run-script")
     if fetch_colab_launcher_path and not include_run_script:
         raise ValueError("--fetch-colab-launcher requires --include-run-script")
-    if fetch_colab_launcher_path and not fetch_colab_payload_url:
-        raise ValueError("--fetch-colab-payload-url is required when writing --fetch-colab-launcher")
+    if fetch_colab_notebook_path and not include_run_script:
+        raise ValueError("--fetch-colab-notebook requires --include-run-script")
+    if (fetch_colab_launcher_path or fetch_colab_notebook_path) and not fetch_colab_payload_url:
+        raise ValueError("--fetch-colab-payload-url is required when writing a fetch Colab launcher")
     if inline_colab_chunk_size <= 0:
         raise ValueError("--inline-colab-chunk-size must be positive")
     rows = load_jsonl(manifest)
@@ -740,7 +811,7 @@ def package_inputs(
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     added: set[Path] = set()
-    with tarfile.open(output, "w:gz") as tar:
+    with open_deterministic_tar_gz(output) as tar:
         manifest_archive_path = write_rewritten_manifest(tar, rewritten_rows)
         for source_resolved, archive_name in sorted(source_to_archive.items(), key=lambda item: item[1].as_posix()):
             add_file_once(tar, source_resolved, archive_name, added)
@@ -831,7 +902,7 @@ def package_inputs(
     report_path = report_path or output.with_name(output.name + ".report.json")
     report["report"] = str(report_path)
     if run_script_path and include_run_script:
-        run_script_path.write_text(run_script_text, encoding="utf-8")
+        write_utf8_lf(run_script_path, run_script_text)
         report["run_script"] = str(run_script_path)
     if inline_colab_launcher_path:
         launcher_text, launcher_meta = build_inline_colab_launcher(
@@ -843,11 +914,11 @@ def package_inputs(
             chunk_size=inline_colab_chunk_size,
         )
         inline_colab_launcher_path.parent.mkdir(parents=True, exist_ok=True)
-        inline_colab_launcher_path.write_text(launcher_text, encoding="utf-8")
+        write_utf8_lf(inline_colab_launcher_path, launcher_text)
         report["inline_colab_launcher"] = str(inline_colab_launcher_path)
         report["inline_colab_launcher_sha256"] = file_sha256(inline_colab_launcher_path)
         report.update(launcher_meta)
-    if fetch_colab_launcher_path:
+    if fetch_colab_launcher_path or fetch_colab_notebook_path:
         fetch_launcher_text = build_fetch_colab_launcher(
             payload_url=fetch_colab_payload_url or "",
             colab_archive_path=colab_archive_path or f"/content/{output.name}",
@@ -855,13 +926,23 @@ def package_inputs(
             expected_sha256=output_sha256,
             expected_size=output_size,
         )
+    if fetch_colab_launcher_path:
         fetch_colab_launcher_path.parent.mkdir(parents=True, exist_ok=True)
-        fetch_colab_launcher_path.write_text(fetch_launcher_text, encoding="utf-8")
+        write_utf8_lf(fetch_colab_launcher_path, fetch_launcher_text)
         report["fetch_colab_launcher"] = str(fetch_colab_launcher_path)
         report["fetch_colab_launcher_sha256"] = file_sha256(fetch_colab_launcher_path)
         report["fetch_colab_payload_url"] = fetch_colab_payload_url or ""
         report["fetch_colab_expected_size"] = output_size
-    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if fetch_colab_notebook_path:
+        notebook_text = build_colab_notebook_launcher(
+            launcher_text=fetch_launcher_text,
+            title=f"{run_name} Colab Launcher",
+        )
+        fetch_colab_notebook_path.parent.mkdir(parents=True, exist_ok=True)
+        write_utf8_lf(fetch_colab_notebook_path, notebook_text)
+        report["fetch_colab_notebook"] = str(fetch_colab_notebook_path)
+        report["fetch_colab_notebook_sha256"] = file_sha256(fetch_colab_notebook_path)
+    write_utf8_lf(report_path, json.dumps(report, indent=2, sort_keys=True) + "\n")
     return report
 
 
@@ -928,6 +1009,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Write a pasteable Colab Python cell that downloads the archive from --fetch-colab-payload-url, verifies it, extracts run_colab_eval.sh, and launches it.",
     )
+    parser.add_argument(
+        "--fetch-colab-notebook",
+        default=None,
+        help="Write a Colab .ipynb with the fetch launcher preloaded as a code cell.",
+    )
     parser.add_argument("--fetch-colab-payload-url", default=None)
     return parser.parse_args()
 
@@ -981,6 +1067,7 @@ def main() -> None:
         inline_colab_launcher_path=Path(args.inline_colab_launcher) if args.inline_colab_launcher else None,
         inline_colab_chunk_size=args.inline_colab_chunk_size,
         fetch_colab_launcher_path=Path(args.fetch_colab_launcher) if args.fetch_colab_launcher else None,
+        fetch_colab_notebook_path=Path(args.fetch_colab_notebook) if args.fetch_colab_notebook else None,
         fetch_colab_payload_url=args.fetch_colab_payload_url,
     )
     print(json.dumps(report, indent=2, sort_keys=True))

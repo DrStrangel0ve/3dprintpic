@@ -2,6 +2,7 @@ import csv
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tarfile
@@ -2540,6 +2541,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
             )
             archive = root / "fetch_bundle.tar.gz"
             launcher = root / "fetch_colab.py"
+            notebook = root / "fetch_colab.ipynb"
             payload_url = "https://raw.githubusercontent.com/example/repo/commit/fetch_bundle.tar.gz"
 
             report = package_inputs(
@@ -2550,24 +2552,84 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                 include_run_script=True,
                 colab_archive_path="/content/fetch_bundle.tar.gz",
                 fetch_colab_launcher_path=launcher,
+                fetch_colab_notebook_path=notebook,
                 fetch_colab_payload_url=payload_url,
                 run_name="g4_fetch_test",
                 eval_starts=[0],
                 eval_limit=1,
             )
             launcher_text = launcher.read_text(encoding="utf-8")
+            notebook_bytes = notebook.read_bytes()
+            notebook_json = json.loads(notebook_bytes.decode("utf-8"))
+            notebook_source = "".join(notebook_json["cells"][1]["source"])
 
         self.assertEqual(report["fetch_colab_launcher"], str(launcher))
+        self.assertEqual(report["fetch_colab_notebook"], str(notebook))
         self.assertEqual(report["fetch_colab_payload_url"], payload_url)
         self.assertEqual(report["fetch_colab_expected_size"], report["output_size"])
         self.assertIn("fetch_colab_launcher_sha256", report)
+        self.assertIn("fetch_colab_notebook_sha256", report)
+        self.assertEqual(report["fetch_colab_notebook_sha256"], hashlib.sha256(notebook_bytes).hexdigest())
+        self.assertNotIn(b"\r\n", notebook_bytes)
         self.assertIn(payload_url, launcher_text)
         self.assertIn(report["output_sha256"], launcher_text)
+        self.assertEqual(notebook_json["nbformat"], 4)
+        self.assertEqual(notebook_json["metadata"]["kernelspec"]["name"], "python3")
+        self.assertIn(payload_url, notebook_source)
+        self.assertIn(report["output_sha256"], notebook_source)
+        self.assertIn("subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)", notebook_source)
         self.assertIn("urllib.request.urlopen(PAYLOAD_URL)", launcher_text)
         self.assertIn("EXPECTED_SIZE", launcher_text)
         self.assertIn("env['EXTRACT_ROOT'] = str(EXTRACT_ROOT)", launcher_text)
         self.assertIn("env['EXPECTED_SHA256'] = EXPECTED_SHA256", launcher_text)
         self.assertIn("subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)", launcher_text)
+
+    def test_package_inputs_writes_deterministic_archive(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image = root / "image.png"
+            mask = root / "mask.png"
+            manifest = root / "manifest.jsonl"
+            image.write_bytes(b"image")
+            mask.write_bytes(b"mask")
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "id": "sample",
+                        "full_image": str(image.relative_to(root)),
+                        "masked_image": str(image.relative_to(root)),
+                        "mask": str(mask.relative_to(root)),
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            output = root / "bundle.tar.gz"
+            first = package_inputs(
+                manifest=manifest,
+                output=output,
+                extract_root="/content/inputs/deterministic",
+                root=root,
+                include_run_script=True,
+                run_name="deterministic_test",
+                eval_starts=[0],
+                eval_limit=1,
+            )
+            os.utime(image, (1_900_000_000, 1_900_000_000))
+            os.utime(mask, (1_900_000_000, 1_900_000_000))
+            second = package_inputs(
+                manifest=manifest,
+                output=output,
+                extract_root="/content/inputs/deterministic",
+                root=root,
+                include_run_script=True,
+                run_name="deterministic_test",
+                eval_starts=[0],
+                eval_limit=1,
+            )
+
+        self.assertEqual(first["output_size"], second["output_size"])
+        self.assertEqual(first["output_sha256"], second["output_sha256"])
 
     def test_build_fetch_colab_launcher_materializes_stub_package(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2638,6 +2700,15 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                     root=root,
                     include_run_script=True,
                     fetch_colab_launcher_path=root / "fetch_colab.py",
+                )
+            with self.assertRaisesRegex(ValueError, "--fetch-colab-notebook requires --include-run-script"):
+                package_inputs(
+                    manifest=manifest,
+                    output=root / "bundle.tar.gz",
+                    extract_root="/content/inputs/fetch",
+                    root=root,
+                    fetch_colab_notebook_path=root / "fetch_colab.ipynb",
+                    fetch_colab_payload_url="https://example.invalid/bundle.tar.gz",
                 )
 
     def test_package_inputs_can_write_modern_provider_launcher_without_lora(self):
