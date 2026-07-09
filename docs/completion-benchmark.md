@@ -930,6 +930,24 @@ The resumed `cache,eval,combine` pass completed on the same G4 runtime for held-
 
 Selector decision: `hold` for `dreamshaper_weighted_lora_object-surface_s20_scale0.75` against current `mirror`. Failed checks were paired win rate versus current (`0.625`, threshold `>= 0.8`) and paired CI95 low versus current (`-1.1505`, threshold `> 0`). This is positive evidence that metric-weighted training can beat mirror on a small procedural object-surface aggregate, but it is not a default-promotion result.
 
+Local 3080 Ti ModelNet10 held-out probe:
+
+```powershell
+.\backend\.venv\Scripts\python -m backend.benchmark.colab_g4_orchestrator --use-current-repo --run-name local_3080ti_dreamshaper_probe_s48_s50_n2 --stage eval --stage combine --manifest backend\output\completion-benchmark\modelnet10_60_balanced_s256_seed4040\manifest.jsonl --existing-lora-weights backend\output\completion-benchmark\lora\modelnet10_train40_weighted_surface_s20 --modern-config backend\benchmark\experiment_configs\local_dreamshaper_weighted_probe.json --eval-start 48 --eval-start 50 --eval-limit 2 --score-profile object-surface --train-steps 20 --eval-steps 12 --eval-inpaint-max-dimension 256 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --stl-target-dimension 96 --min-paired-n 2 --allow-missing-split-audit --contact-sheet-max-samples 4
+```
+
+This reuses the Colab G4 orchestration path on a 12 GB RTX 3080 Ti while the Colab G4 runtime is disconnected. The local config keeps the base DreamShaper branch at `12` steps and `256` pixels, then compares it with `masked`, `mirror`, `biharmonic`, and the already trained weighted DreamShaper LoRA on two held-out slices (`4` total ModelNet10 rows). The run completed with `0` failures and kept the current `mirror` default:
+
+| method | n | score | object surface Chamfer L1 med | object depth MAE med | silhouette IoU med |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| mirror | 4 | 3.8332 | 0.0777 | 0.1476 | 0.3055 |
+| biharmonic | 4 | 2.7402 | 0.1529 | 0.2317 | 0.2685 |
+| dreamshaper_weighted_lora_modelnet10_train40_weighted_surface_s20_scale0.75 | 4 | 2.5992 | 0.1391 | 0.2513 | 0.2885 |
+| dreamshaper_base_s12_s256 | 4 | 1.4371 | 0.2247 | 0.4099 | 0.2903 |
+| masked | 4 | 0.0000 | 0.3624 | 0.5607 | 0.2677 |
+
+Interpretation: the weighted LoRA beats base DreamShaper on the object-surface and object-depth metrics, so metric-weighted training is improving the downstream geometry signal. It still trails `mirror` on the held-out objective and has weak object RGB fidelity (`object MAE` median `0.4462`), so this is not a promotion result. The practical next step is to run the same package on the G4 notebook for the full `20` held-out ModelNet10 rows, then spend tuning time on geometry-conditioned supervision or a stronger mask-native provider rather than another small DreamShaper prompt sweep.
+
 Local regression coverage for the G4 resume lane:
 
 ```powershell
