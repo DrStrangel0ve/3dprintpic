@@ -3270,6 +3270,8 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("importlib.import_module(name)", archive_run_script)
         self.assertIn("'diso'", archive_run_script)
         self.assertIn("diso==0.1.4", archive_run_script)
+        self.assertIn("packaging ninja", archive_run_script)
+        self.assertIn("pip install --no-build-isolation diso==0.1.4", archive_run_script)
         self.assertIn("triposg.pipelines.pipeline_triposg", archive_run_script)
         self.assertIn("/tmp/triposg_requirements_colab.txt", archive_run_script)
         self.assertIn("numpy==2.0.2", archive_run_script)
