@@ -169,11 +169,7 @@ def run_cli_provider(args: argparse.Namespace) -> Path:
 
 
 def run_hunyuan_shape(args: argparse.Namespace) -> Path:
-    provider_dir_value = args.provider_dir or os.environ.get("HUNYUAN3D_DIR")
-    if provider_dir_value:
-        provider_dir = Path(provider_dir_value)
-        sys.path.insert(0, str(provider_dir))
-        sys.path.insert(0, str(provider_dir / "hy3dshape"))
+    add_hunyuan_provider_paths(args)
     import torch
     from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
 
@@ -199,6 +195,47 @@ def run_hunyuan_shape(args: argparse.Namespace) -> Path:
     args.output_mesh.parent.mkdir(parents=True, exist_ok=True)
     mesh.export(args.output_mesh)
     return args.output_mesh
+
+
+def add_hunyuan_provider_paths(args: argparse.Namespace) -> None:
+    provider_dir_value = args.provider_dir or os.environ.get("HUNYUAN3D_DIR")
+    if provider_dir_value:
+        provider_dir = Path(provider_dir_value)
+        sys.path.insert(0, str(provider_dir))
+        sys.path.insert(0, str(provider_dir / "hy3dshape"))
+
+
+def prefetch_hunyuan_shape(args: argparse.Namespace) -> tuple[Path, Path]:
+    add_hunyuan_provider_paths(args)
+    from hy3dshape.utils.utils import smart_load_model
+
+    model_name = args.model_name or DEFAULT_HUNYUAN3D_MODEL
+    config_path, ckpt_path = smart_load_model(
+        model_name,
+        subfolder="hunyuan3d-dit-v2-1",
+        use_safetensors=False,
+        variant="fp16",
+    )
+    config_path = Path(config_path)
+    ckpt_path = Path(ckpt_path)
+    if config_path.exists() and ckpt_path.exists():
+        return config_path, ckpt_path
+    cleaned = clean_incomplete_hunyuan_cache(FileNotFoundError(f"Model file {ckpt_path} not found"))
+    if not cleaned:
+        missing = [str(path) for path in (config_path, ckpt_path) if not path.exists()]
+        raise FileNotFoundError(f"Hunyuan3D prefetch did not produce required files: {', '.join(missing)}")
+    config_path, ckpt_path = smart_load_model(
+        model_name,
+        subfolder="hunyuan3d-dit-v2-1",
+        use_safetensors=False,
+        variant="fp16",
+    )
+    config_path = Path(config_path)
+    ckpt_path = Path(ckpt_path)
+    if not config_path.exists() or not ckpt_path.exists():
+        missing = [str(path) for path in (config_path, ckpt_path) if not path.exists()]
+        raise FileNotFoundError(f"Hunyuan3D prefetch did not produce required files after retry: {', '.join(missing)}")
+    return config_path, ckpt_path
 
 
 def clean_incomplete_hunyuan_cache(exc: FileNotFoundError) -> bool:
@@ -334,8 +371,8 @@ def main() -> None:
         description="Run an external single-image-to-mesh provider and normalize its output for the benchmark."
     )
     parser.add_argument("--provider", choices=PROVIDERS, required=True)
-    parser.add_argument("--input-image", required=True)
-    parser.add_argument("--output-mesh", required=True)
+    parser.add_argument("--input-image", default=None)
+    parser.add_argument("--output-mesh", default=None)
     parser.add_argument("--output-stl", default=None)
     parser.add_argument("--raw-output-mesh", default=None)
     parser.add_argument("--provider-dir", default=None)
@@ -411,7 +448,21 @@ def main() -> None:
     )
     parser.add_argument("--provider-arg", action="append", default=[])
     parser.add_argument("--model-name", default=None)
+    parser.add_argument(
+        "--prefetch-only",
+        action="store_true",
+        help="For providers that support it, download/check required model files and exit before inference.",
+    )
     args = parser.parse_args()
+    if args.prefetch_only:
+        if args.provider != HUNYUAN3D_SHAPE_PROVIDER:
+            raise ValueError("--prefetch-only is currently supported only for hunyuan3d-shape")
+        config_path, ckpt_path = prefetch_hunyuan_shape(args)
+        print(f"config={config_path}")
+        print(f"checkpoint={ckpt_path}")
+        return
+    if not args.input_image or not args.output_mesh:
+        raise ValueError("--input-image and --output-mesh are required unless --prefetch-only is set")
     output_mesh, output_stl = run_provider(args)
     print(f"mesh={output_mesh}")
     if output_stl is not None:

@@ -237,6 +237,9 @@ def build_hunyuan3d_setup_prelude() -> str:
         "    importlib.import_module(name)\n"
         "PY\n"
         "fi\n"
+        "if [[ \"${HUNYUAN3D_PREFETCH:-1}\" == \"1\" ]]; then\n"
+        "  \"$HUNYUAN3D_VENV/bin/python\" -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-shape --provider-dir \"$HUNYUAN3D_DIR\" --model-name \"${HUNYUAN3D_MODEL:-tencent/Hunyuan3D-2.1}\" --prefetch-only\n"
+        "fi\n"
     )
 
 

@@ -1243,6 +1243,8 @@ When regenerating the checked package artifact, also pass `--report C:\Users\arn
 
 Local Hunyuan setup smoke on the 3080 Ti validated the narrow sparse checkout and `hy3dshape.pipelines` import path after installing the same shape-runtime dependency family (`einops`, `omegaconf`, `opencv-python`, `pymeshlab`, `timm`, `torchdiffeq`). The actual unauthenticated checkpoint download stalled locally at `model.fp16.ckpt` with a 0-byte incomplete file, so the first full Hunyuan quality comparison is still assigned to G4. The provider wrapper now cleans that exact interrupted Hunyuan cache shape and retries once when `from_pretrained` finds `config.yaml` but no checkpoint file.
 
+The Hunyuan setup preflight now runs `run_image_to_mesh_provider --provider hunyuan3d-shape --prefetch-only` after dependency probes. That downloads/checks the shape checkpoint before `colab_g4_orchestrator` starts consuming benchmark rows, so download/auth failures are visible as setup failures instead of repeated per-sample provider failures. Set `HUNYUAN3D_PREFETCH=0` only when deliberately testing the setup without downloading weights.
+
 Promotion-sized runs should use held-out slices large enough for paired evidence and should explicitly name the direct-mesh candidate being challenged:
 
 ```bash

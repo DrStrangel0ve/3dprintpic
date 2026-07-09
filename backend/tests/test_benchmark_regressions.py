@@ -1462,6 +1462,55 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(output_stl_exists)
         self.assertTrue(diagnostics["stl_is_watertight"])
 
+    def test_hunyuan3d_shape_provider_prefetch_only_downloads_without_image_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            provider_dir = root / "fake_hunyuan"
+            utils_dir = provider_dir / "hy3dshape" / "hy3dshape" / "utils"
+            utils_dir.mkdir(parents=True)
+            (provider_dir / "hy3dshape" / "hy3dshape" / "__init__.py").write_text("", encoding="utf-8")
+            (utils_dir / "__init__.py").write_text("", encoding="utf-8")
+            model_root = root / ".cache" / "hy3dgen"
+            (utils_dir / "utils.py").write_text(
+                "from pathlib import Path\n"
+                f"MODEL_ROOT = Path({str(model_root)!r})\n"
+                "\n"
+                "def smart_load_model(model_path, subfolder, use_safetensors, variant):\n"
+                "    model_dir = MODEL_ROOT / model_path / subfolder\n"
+                "    model_dir.mkdir(parents=True, exist_ok=True)\n"
+                "    config = model_dir / 'config.yaml'\n"
+                "    ckpt = model_dir / 'model.fp16.ckpt'\n"
+                "    config.write_text('ok')\n"
+                "    ckpt.write_text('weights')\n"
+                "    return str(config), str(ckpt)\n",
+                encoding="utf-8",
+            )
+
+            for module_name in list(sys.modules):
+                if module_name == "hy3dshape" or module_name.startswith("hy3dshape."):
+                    sys.modules.pop(module_name, None)
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_image_to_mesh_provider",
+                    "--provider",
+                    "hunyuan3d-shape",
+                    "--provider-dir",
+                    str(provider_dir),
+                    "--model-name",
+                    "unit/hunyuan",
+                    "--prefetch-only",
+                ],
+            ):
+                run_image_to_mesh_provider_main()
+
+            config_exists = (model_root / "unit" / "hunyuan" / "hunyuan3d-dit-v2-1" / "config.yaml").exists()
+            ckpt_exists = (model_root / "unit" / "hunyuan" / "hunyuan3d-dit-v2-1" / "model.fp16.ckpt").exists()
+
+        self.assertTrue(config_exists)
+        self.assertTrue(ckpt_exists)
+
     def test_triposr_repair_smoke_config_compares_raw_and_repaired_outputs(self):
         args = SimpleNamespace(
             triposr_python="/content/triposr-venv/bin/python",
@@ -2411,6 +2460,8 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("'hy3dshape.pipelines'", archive_run_script)
         self.assertIn("'pymeshlab'", archive_run_script)
         self.assertIn("timm torchdiffeq pymeshlab", archive_run_script)
+        self.assertIn("HUNYUAN3D_PREFETCH:-1", archive_run_script)
+        self.assertIn("--prefetch-only", archive_run_script)
         self.assertIn("diffusers==0.30.0", archive_run_script)
         self.assertIn("transformers==4.46.0", archive_run_script)
         self.assertIn("--candidate-method hunyuan3d_shape_masked_repaired_stl_scaled_compact_direct_mesh", archive_run_script)
