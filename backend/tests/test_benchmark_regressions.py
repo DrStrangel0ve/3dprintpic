@@ -40,6 +40,7 @@ from backend.benchmark.make_artifact_contact_sheet import (
 from backend.benchmark.metrics import mesh_surface_distance_metrics, surface_distance_metrics
 from backend.benchmark.report_run import baseline_delta_rows, paired_baseline_delta_rows, paired_objective_rows, render_report
 from backend.benchmark.rank_methods import parse_weights, rank_summary_rows
+from backend.benchmark.run_image_to_mesh_provider import main as run_image_to_mesh_provider_main
 from backend.benchmark.run_completion_benchmark import evaluate_sample, run_one, stl_diagnostics, summarize, write_split_audit
 from backend.benchmark.select_completion_candidate import evaluate_selection, json_safe
 from backend.benchmark.train_inpainting_lora import InpaintPairDataset, collate, dry_run, read_metadata, weighted_mse_loss
@@ -298,6 +299,7 @@ class StlExportRegressionTests(unittest.TestCase):
                         "import sys",
                         "import trimesh",
                         "trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(sys.argv[1])",
+                        "trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(sys.argv[2])",
                     ]
                 ),
                 encoding="utf-8",
@@ -318,7 +320,7 @@ class StlExportRegressionTests(unittest.TestCase):
                 encoding="utf-8",
             )
             output_dir = root / "run"
-            command = f'"{sys.executable}" "{script_path}" "{{output_mesh}}"'
+            command = f'"{sys.executable}" "{script_path}" "{{output_mesh}}" "{{output_stl}}"'
 
             with patch.object(
                 sys,
@@ -353,6 +355,69 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("output_model.stl", rows[0]["stl_model"])
         self.assertIn("output_mesh.ply", rows[0]["direct_mesh_output_mesh"])
         self.assertAlmostEqual(float(rows[0]["mesh_surface_chamfer_l1"]), 0.0)
+
+    def test_image_to_mesh_provider_wrapper_normalizes_repo_output(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            provider_dir = root / "fake_spar3d"
+            provider_dir.mkdir()
+            input_image = root / "input.png"
+            output_mesh = root / "normalized.glb"
+            output_stl = root / "normalized.stl"
+            Image.new("RGB", (12, 12), (120, 80, 160)).save(input_image)
+            (provider_dir / "run.py").write_text(
+                "\n".join(
+                    [
+                        "import argparse",
+                        "from pathlib import Path",
+                        "import trimesh",
+                        "parser = argparse.ArgumentParser()",
+                        "parser.add_argument('input_image')",
+                        "parser.add_argument('--output-dir', required=True)",
+                        "parser.add_argument('--low-vram-mode', action='store_true')",
+                        "parser.add_argument('--remesh_option', default=None)",
+                        "parser.add_argument('--device', default=None)",
+                        "args = parser.parse_args()",
+                        "Path(args.output_dir).mkdir(parents=True, exist_ok=True)",
+                        "trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(Path(args.output_dir) / 'result.glb')",
+                        "trimesh.PointCloud([[0, 0, 0], [1, 1, 1]]).export(Path(args.output_dir) / 'points.ply')",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_image_to_mesh_provider",
+                    "--provider",
+                    "spar3d",
+                    "--provider-dir",
+                    str(provider_dir),
+                    "--input-image",
+                    str(input_image),
+                    "--output-mesh",
+                    str(output_mesh),
+                    "--output-stl",
+                    str(output_stl),
+                    "--low-vram",
+                    "--provider-device",
+                    "cuda",
+                    "--remesh-option",
+                    "triangle",
+                ],
+            ):
+                run_image_to_mesh_provider_main()
+
+            diagnostics = stl_diagnostics(output_stl)
+            output_mesh_exists = output_mesh.exists()
+            output_stl_exists = output_stl.exists()
+
+        self.assertTrue(output_mesh_exists)
+        self.assertTrue(output_stl_exists)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
 
     def test_depth_export_rejects_no_valid_cells(self):
         depth = np.array(

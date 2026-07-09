@@ -95,13 +95,14 @@ def run_direct_mesh(sample: dict, method: str, output_dir: Path, args) -> tuple[
             check=True,
             timeout=max(1, int(getattr(args, "direct_mesh_timeout", 1800))),
         )
-        if stl_path.exists():
+        if not mesh_output_path.exists() and stl_path.exists():
             return input_image, stl_path, stl_path
         if not mesh_output_path.exists():
             raise FileNotFoundError(
                 f"External image-to-mesh command produced neither {mesh_output_path} nor {stl_path}"
             )
-        convert_mesh_to_stl(mesh_output_path, stl_path)
+        if not stl_path.exists():
+            convert_mesh_to_stl(mesh_output_path, stl_path)
         return input_image, mesh_output_path, stl_path
 
     raise ValueError(f"Unsupported direct mesh method: {method}")

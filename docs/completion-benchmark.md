@@ -154,6 +154,34 @@ This run compares the existing depth-to-STL relief path with a direct source-mes
 
 Use `external-image-to-mesh` to plug in a real image-to-3D backend. The command template receives `{input_image}`, `{masked_image}`, `{full_image}`, `{mask}`, `{output_mesh}`, `{output_stl}`, `{output_dir}`, `{sample_id}`, and `{method}`. The external process may write either `{output_stl}` directly or a mesh at `{output_mesh}`; the harness converts a mesh output to STL before scoring.
 
+SPAR3D is the first direct mesh provider target for the G4 lane. It is a modern feed-forward single-image mesh reconstructor that improves the hidden/back side of meshes with point-cloud conditioning, emits GLB through its official `run.py`, and fits comfortably on the Colab G4 VRAM budget. The model is gated on Hugging Face, so accept the model license and log in before running this branch. TripoSR is the no-gate fallback if SPAR3D access is unavailable.
+
+One-time Colab setup:
+
+```bash
+cd /content
+git clone https://github.com/Stability-AI/stable-point-aware-3d /content/stable-point-aware-3d
+cd /content/stable-point-aware-3d
+pip install -U setuptools==69.5.1 wheel
+pip install -r requirements.txt
+huggingface-cli login
+export SPAR3D_DIR=/content/stable-point-aware-3d
+```
+
+SPAR3D direct-STL smoke:
+
+```bash
+python -m backend.benchmark.optimize_completion --manifest backend/output/completion-benchmark/modelnet10_60_balanced_s256_seed4040/manifest.jsonl --output-dir backend/output/completion-benchmark/experiments/modelnet10_60_balanced_stl_quality_spar3d_direct_mesh_s40_n2 --config backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_spar3d_direct_mesh_smoke.json --start-index 40 --limit 2 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --device auto --emit-stl --stl-target-dimension 96 --score-mode baseline-delta --score-profile stl-quality --baseline-method masked --contact-sheet --contact-sheet-methods masked,mirror,biharmonic,spar3d_direct_mesh --contact-sheet-max-samples 2 --resume --continue-on-error
+```
+
+The config uses `backend.benchmark.run_image_to_mesh_provider` as a thin adapter around SPAR3D's official CLI:
+
+```bash
+python -m backend.benchmark.run_image_to_mesh_provider --provider spar3d --input-image "{input_image}" --output-mesh "{output_mesh}" --output-stl "{output_stl}" --timeout 3600 --provider-device cuda --remesh-option none
+```
+
+The smoke config uses `--remesh-option none` so it works with the base SPAR3D install. Install SPAR3D's optional remesh dependencies before switching the config to `triangle` or `quad`. The same wrapper can also normalize `stable-fast-3d`, `triposr`, or shape-only `hunyuan3d-shape` outputs into the benchmark's mesh/STL artifact names. Set `SPAR3D_DIR`, `SF3D_DIR`, or `TRIPOSR_DIR`, or pass `--provider-dir`, when the provider repo is not in a default `/content/...` location.
+
 Learned inpainting smoke with `dreamshaper-inpaint`:
 
 ```bash
