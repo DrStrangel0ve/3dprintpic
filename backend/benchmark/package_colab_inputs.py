@@ -171,20 +171,32 @@ def build_colab_run_script(
     archive_filename: str,
     extract_root: str,
     manifest_path: str,
-    lora_path: str,
+    lora_path: str | None,
     colab_archive_path: str | None,
     colab_repo_dir: str,
     repo_remote: str,
     repo_ref: str,
     run_name: str,
+    modern_config: str | None,
+    cache_providers: Iterable[str],
+    cache_full: bool,
     eval_starts: Iterable[int],
     eval_limit: int,
+    eval_steps: int | None,
+    eval_guidance: float | None,
+    eval_inpaint_max_dimension: int | None,
+    depth_provider: str | None,
+    depth_model: str | None,
+    stl_target_dimension: int | None,
     score_profile: str,
     train_steps: int,
     require_modern_cache: bool,
     cache_download_mode: str,
     cache_max_workers: int,
     min_paired_n: int,
+    allow_missing_split_audit: bool,
+    contact_sheet_methods: str | None,
+    contact_sheet_max_samples: int | None,
 ) -> str:
     archive_default = colab_archive_path or f"/content/{archive_filename}"
     command = [
@@ -203,10 +215,6 @@ def build_colab_run_script(
         "combine",
         "--manifest",
         manifest_path,
-        "--existing-lora-weights",
-        lora_path,
-        "--train-steps",
-        str(train_steps),
         "--eval-limit",
         str(eval_limit),
         "--score-profile",
@@ -218,13 +226,39 @@ def build_colab_run_script(
         "--min-paired-n",
         str(min_paired_n),
     ]
+    if lora_path:
+        command.extend(["--existing-lora-weights", lora_path, "--train-steps", str(train_steps)])
+    if modern_config:
+        command.extend(["--modern-config", modern_config])
+    for provider in cache_providers:
+        command.extend(["--cache-provider", provider])
+    if cache_full:
+        command.append("--cache-full")
+    if eval_steps is not None:
+        command.extend(["--eval-steps", str(eval_steps)])
+    if eval_guidance is not None:
+        command.extend(["--eval-guidance", str(eval_guidance)])
+    if eval_inpaint_max_dimension is not None:
+        command.extend(["--eval-inpaint-max-dimension", str(eval_inpaint_max_dimension)])
+    if depth_provider:
+        command.extend(["--depth-provider", depth_provider])
+    if depth_model:
+        command.extend(["--depth-model", depth_model])
+    if stl_target_dimension is not None:
+        command.extend(["--stl-target-dimension", str(stl_target_dimension)])
     for start in eval_starts:
         command.extend(["--eval-start", str(start)])
     if require_modern_cache:
         command.append("--require-modern-cache")
+    if allow_missing_split_audit:
+        command.append("--allow-missing-split-audit")
+    if contact_sheet_methods:
+        command.extend(["--contact-sheet-methods", contact_sheet_methods])
+    if contact_sheet_max_samples is not None:
+        command.extend(["--contact-sheet-max-samples", str(contact_sheet_max_samples)])
 
-    lora_adapter_path = colab_path(lora_path, Path("pytorch_lora_weights.safetensors"))
-    lora_report_path = colab_path(lora_path, Path("training_report.json"))
+    lora_adapter_path = colab_path(lora_path, Path("pytorch_lora_weights.safetensors")) if lora_path else ""
+    lora_report_path = colab_path(lora_path, Path("training_report.json")) if lora_path else ""
     preflight_path = colab_path(extract_root, Path("launch_preflight.json"))
     results_summary_path = colab_path(extract_root, Path("results_summary.json"))
     run_log_path = colab_path(extract_root, Path("run_colab_eval.log"))
@@ -243,7 +277,7 @@ def build_colab_run_script(
         f"RESULTS_SUMMARY=\"${{RESULTS_SUMMARY:-{results_summary_path}}}\"\n"
         f"RESULTS_ARCHIVE=\"${{RESULTS_ARCHIVE:-{results_archive_path}}}\"\n"
         f"MANIFEST_PATH={shell_join([manifest_path])}\n"
-        f"LORA_PATH={shell_join([lora_path])}\n"
+        f"LORA_PATH={shell_join([lora_path or ''])}\n"
         f"LORA_ADAPTER_PATH={shell_join([lora_adapter_path])}\n"
         f"LORA_REPORT_PATH={shell_join([lora_report_path])}\n"
         f"PREFLIGHT_PATH={shell_join([preflight_path])}\n"
@@ -258,8 +292,10 @@ def build_colab_run_script(
         "fi\n"
         "tar -xzf \"$ARCHIVE_PATH\" -C \"$EXTRACT_ROOT\"\n"
         "test -s \"$MANIFEST_PATH\"\n"
-        "test -s \"$LORA_ADAPTER_PATH\"\n"
-        "test -s \"$LORA_REPORT_PATH\"\n"
+        "if [[ -n \"$LORA_PATH\" ]]; then\n"
+        "  test -s \"$LORA_ADAPTER_PATH\"\n"
+        "  test -s \"$LORA_REPORT_PATH\"\n"
+        "fi\n"
         "manifest_rows=\"$(python - <<'PY'\n"
         "import os, pathlib\n"
         "manifest = pathlib.Path(os.environ['MANIFEST_PATH'])\n"
@@ -292,9 +328,10 @@ def build_colab_run_script(
         "    'extract_root': os.environ['EXTRACT_ROOT'],\n"
         "    'manifest': str(manifest),\n"
         "    'manifest_rows': sum(1 for line in manifest.read_text().splitlines() if line.strip()),\n"
-        "    'lora_path': os.environ['LORA_PATH'],\n"
-        "    'lora_adapter': os.environ['LORA_ADAPTER_PATH'],\n"
         "}\n"
+        "if os.environ.get('LORA_PATH'):\n"
+        "    payload['lora_path'] = os.environ['LORA_PATH']\n"
+        "    payload['lora_adapter'] = os.environ['LORA_ADAPTER_PATH']\n"
         "print(json.dumps(payload, indent=2, sort_keys=True))\n"
         "PY\n"
         "set +e\n"
@@ -361,20 +398,33 @@ def package_inputs(
     repo_remote: str = DEFAULT_REPO_REMOTE,
     repo_ref: str = DEFAULT_REPO_REF,
     run_name: str = "g4_modelnet10_weighted_surface_eval_s20",
+    modern_config: str | None = None,
+    cache_providers: Iterable[str] = (),
+    cache_full: bool = False,
     eval_starts: Iterable[int] = (40, 50),
     eval_limit: int = 10,
+    eval_steps: int | None = None,
+    eval_guidance: float | None = None,
+    eval_inpaint_max_dimension: int | None = None,
+    depth_provider: str | None = None,
+    depth_model: str | None = None,
+    stl_target_dimension: int | None = None,
     score_profile: str = "object-surface",
     train_steps: int = 20,
     require_modern_cache: bool = True,
     cache_download_mode: str = "snapshot",
     cache_max_workers: int = 8,
     min_paired_n: int = 5,
+    allow_missing_split_audit: bool = False,
+    contact_sheet_methods: str | None = None,
+    contact_sheet_max_samples: int | None = None,
     report_path: Path | None = None,
 ) -> dict:
     if not manifest.exists():
         raise FileNotFoundError(f"--manifest does not exist: {manifest}")
     rows = load_jsonl(manifest)
     selected = select_rows(rows, start_index, limit)
+    cache_provider_list = list(cache_providers)
     rewritten_rows, source_to_archive = rewrite_manifest_rows(
         selected,
         manifest_dir=manifest.parent,
@@ -391,26 +441,36 @@ def package_inputs(
         lora_archive_path = add_lora(tar, lora_weights, root, added) if lora_weights else None
         run_script_text = ""
         if include_run_script:
-            if lora_archive_path is None:
-                raise ValueError("--include-run-script requires --lora-weights")
             run_script_text = build_colab_run_script(
                 archive_filename=output.name,
                 extract_root=extract_root,
                 manifest_path=colab_path(extract_root, manifest_archive_path),
-                lora_path=colab_path(extract_root, lora_archive_path),
+                lora_path=colab_path(extract_root, lora_archive_path) if lora_archive_path else None,
                 colab_archive_path=colab_archive_path,
                 colab_repo_dir=colab_repo_dir,
                 repo_remote=repo_remote,
                 repo_ref=repo_ref,
                 run_name=run_name,
+                modern_config=modern_config,
+                cache_providers=cache_provider_list,
+                cache_full=cache_full,
                 eval_starts=eval_starts,
                 eval_limit=eval_limit,
+                eval_steps=eval_steps,
+                eval_guidance=eval_guidance,
+                eval_inpaint_max_dimension=eval_inpaint_max_dimension,
+                depth_provider=depth_provider,
+                depth_model=depth_model,
+                stl_target_dimension=stl_target_dimension,
                 score_profile=score_profile,
                 train_steps=train_steps,
                 require_modern_cache=require_modern_cache,
                 cache_download_mode=cache_download_mode,
                 cache_max_workers=cache_max_workers,
                 min_paired_n=min_paired_n,
+                allow_missing_split_audit=allow_missing_split_audit,
+                contact_sheet_methods=contact_sheet_methods,
+                contact_sheet_max_samples=contact_sheet_max_samples,
             )
             add_text_file(tar, "run_colab_eval.sh", run_script_text, mode=0o755)
 
@@ -431,6 +491,18 @@ def package_inputs(
         "path_fields": list(path_fields),
         "lora_weights": str(lora_weights) if lora_weights else "",
         "rewritten_lora_weights": colab_path(extract_root, lora_archive_path) if lora_archive_path else "",
+        "modern_config": modern_config or "",
+        "cache_providers": cache_provider_list,
+        "cache_full": cache_full,
+        "eval_steps": eval_steps,
+        "eval_guidance": eval_guidance,
+        "eval_inpaint_max_dimension": eval_inpaint_max_dimension,
+        "depth_provider": depth_provider or "",
+        "depth_model": depth_model or "",
+        "stl_target_dimension": stl_target_dimension,
+        "allow_missing_split_audit": allow_missing_split_audit,
+        "contact_sheet_methods": contact_sheet_methods or "",
+        "contact_sheet_max_samples": contact_sheet_max_samples,
         "run_script_in_archive": "run_colab_eval.sh" if include_run_script else "",
     }
     report_path = report_path or output.with_name(output.name + ".report.json")
@@ -459,14 +531,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repo-remote", default=DEFAULT_REPO_REMOTE)
     parser.add_argument("--repo-ref", default=DEFAULT_REPO_REF)
     parser.add_argument("--run-name", default="g4_modelnet10_weighted_surface_eval_s20")
+    parser.add_argument("--modern-config", default=None)
+    parser.add_argument("--cache-provider", action="append", default=None)
+    parser.add_argument("--cache-full", action="store_true")
     parser.add_argument("--eval-start", type=int, action="append", default=None)
     parser.add_argument("--eval-limit", type=int, default=10)
+    parser.add_argument("--eval-steps", type=int, default=None)
+    parser.add_argument("--eval-guidance", type=float, default=None)
+    parser.add_argument("--eval-inpaint-max-dimension", type=int, default=None)
+    parser.add_argument("--depth-provider", default=None)
+    parser.add_argument("--depth-model", default=None)
+    parser.add_argument("--stl-target-dimension", type=int, default=None)
     parser.add_argument("--score-profile", choices=("default", "object-surface"), default="object-surface")
     parser.add_argument("--train-steps", type=int, default=20)
     parser.add_argument("--no-require-modern-cache", action="store_true")
     parser.add_argument("--cache-download-mode", choices=("files", "snapshot"), default="snapshot")
     parser.add_argument("--cache-max-workers", type=int, default=8)
     parser.add_argument("--min-paired-n", type=int, default=5)
+    parser.add_argument("--allow-missing-split-audit", action="store_true")
+    parser.add_argument("--contact-sheet-methods", default=None)
+    parser.add_argument("--contact-sheet-max-samples", type=int, default=None)
     parser.add_argument("--report", default=None)
     return parser.parse_args()
 
@@ -490,14 +574,26 @@ def main() -> None:
         repo_remote=args.repo_remote,
         repo_ref=args.repo_ref,
         run_name=args.run_name,
+        modern_config=args.modern_config,
+        cache_providers=args.cache_provider or [],
+        cache_full=args.cache_full,
         eval_starts=args.eval_start or [40, 50],
         eval_limit=args.eval_limit,
+        eval_steps=args.eval_steps,
+        eval_guidance=args.eval_guidance,
+        eval_inpaint_max_dimension=args.eval_inpaint_max_dimension,
+        depth_provider=args.depth_provider,
+        depth_model=args.depth_model,
+        stl_target_dimension=args.stl_target_dimension,
         score_profile=args.score_profile,
         train_steps=args.train_steps,
         require_modern_cache=not args.no_require_modern_cache,
         cache_download_mode=args.cache_download_mode,
         cache_max_workers=args.cache_max_workers,
         min_paired_n=args.min_paired_n,
+        allow_missing_split_audit=args.allow_missing_split_audit,
+        contact_sheet_methods=args.contact_sheet_methods,
+        contact_sheet_max_samples=args.contact_sheet_max_samples,
         report_path=Path(args.report) if args.report else None,
     )
     print(json.dumps(report, indent=2, sort_keys=True))

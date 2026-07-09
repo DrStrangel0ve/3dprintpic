@@ -594,6 +594,77 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("--manifest /content/inputs/modelnet/inputs/manifest.jsonl", archive_run_script)
         self.assertIn("--existing-lora-weights /content/inputs/modelnet/lora/weighted_surface", archive_run_script)
 
+    def test_package_inputs_can_write_modern_provider_launcher_without_lora(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dataset = root / "dataset"
+            dataset.mkdir()
+            full = dataset / "full.png"
+            masked = dataset / "masked.png"
+            mask = dataset / "mask.png"
+            for path in (full, masked, mask):
+                path.write_bytes(b"asset")
+            manifest = dataset / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "id": "sample",
+                        "full_image": str(full.relative_to(root)),
+                        "masked_image": str(masked.relative_to(root)),
+                        "mask": str(mask.relative_to(root)),
+                        "category": "chair",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            archive = root / "qwen_bundle.tar.gz"
+
+            report = package_inputs(
+                manifest=manifest,
+                output=archive,
+                extract_root="/content/inputs/qwen",
+                root=root,
+                include_run_script=True,
+                colab_archive_path="/content/qwen_bundle.tar.gz",
+                run_name="g4_qwen_sanity",
+                modern_config="backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_g4_depth_stl.json",
+                cache_providers=["qwen-image-edit"],
+                cache_full=True,
+                eval_starts=[40, 50],
+                eval_limit=2,
+                eval_steps=20,
+                eval_inpaint_max_dimension=512,
+                depth_provider="depth-anything-v2",
+                depth_model="depth-anything/Depth-Anything-V2-Small-hf",
+                stl_target_dimension=96,
+                min_paired_n=2,
+                allow_missing_split_audit=True,
+                contact_sheet_methods="masked,mirror,biharmonic,qwen_edit_s20_s512",
+            )
+            with tarfile.open(archive, "r:gz") as tar:
+                archive_run_script = tar.extractfile("run_colab_eval.sh").read().decode("utf-8")
+
+        self.assertEqual(report["rewritten_lora_weights"], "")
+        self.assertEqual(report["cache_providers"], ["qwen-image-edit"])
+        self.assertTrue(report["cache_full"])
+        self.assertIn("--run-name g4_qwen_sanity", archive_run_script)
+        self.assertIn("--modern-config backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_g4_depth_stl.json", archive_run_script)
+        self.assertIn("--cache-provider qwen-image-edit", archive_run_script)
+        self.assertIn("--cache-full", archive_run_script)
+        self.assertIn("--eval-limit 2", archive_run_script)
+        self.assertIn("--eval-steps 20", archive_run_script)
+        self.assertIn("--eval-inpaint-max-dimension 512", archive_run_script)
+        self.assertIn("--depth-provider depth-anything-v2", archive_run_script)
+        self.assertIn("--stl-target-dimension 96", archive_run_script)
+        self.assertIn("--min-paired-n 2", archive_run_script)
+        self.assertIn("--allow-missing-split-audit", archive_run_script)
+        self.assertIn("--contact-sheet-methods masked,mirror,biharmonic,qwen_edit_s20_s512", archive_run_script)
+        self.assertIn("--manifest /content/inputs/qwen/inputs/manifest.jsonl", archive_run_script)
+        self.assertIn("LORA_PATH=''", archive_run_script)
+        self.assertIn('if [[ -n "$LORA_PATH" ]]; then', archive_run_script)
+        self.assertNotIn("--existing-lora-weights", archive_run_script)
+
 
 class TrainingProvenanceRegressionTests(unittest.TestCase):
     def write_tiny_manifest(self, root: Path) -> Path:
