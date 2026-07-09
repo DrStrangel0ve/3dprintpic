@@ -1069,7 +1069,37 @@ The procedural G4 sanity version of this sweep ran in the notebook on commit `61
 | `qwen_edit_symmetry_depth_s20_s512` | -5.0894 |
 | `qwen_edit_checker_region_s20_s512` | -5.2982 |
 
-Interpretation: prompt-only and mask-presentation-only Qwen edits did not improve the tiny procedural objective. The baseline Qwen prompt remains the least bad measured Qwen setting, but still trails deterministic `mirror` by `5.7167` score points and `biharmonic` by `3.8045`. The config now adds mirror-prefill and biharmonic-prefill Qwen variants as a stronger conditioning change; those geometry-prefill variants should be the next tiny G4 check before any full ModelNet20 run.
+Interpretation: prompt-only and mask-presentation-only Qwen edits did not improve the tiny procedural objective. The baseline Qwen prompt remained the least bad measured Qwen setting, but still trailed deterministic `mirror` by `5.7167` score points and `biharmonic` by `3.8045`, so the next check changed the actual edit input with geometry-prefill cues instead of only changing prompt text.
+
+The geometry-prefill follow-up ran in the same notebook on commit `cef3154` as `g4_qwen_geometry_prefill_procedural_s0_n2` (`dataset-count=4`, `eval-start=0`, `eval-limit=2`, full Qwen snapshot cache, `20` steps, `512` max dimension, `--max-method-failures 2`). It completed in about `14m`, wrote `/content/g4_qwen_geometry_prefill_procedural_s0_n2_results.tar.gz` (`12 MB`) inside the runtime, and the runtime was then disconnected/deleted. The object-surface baseline-delta ranking was:
+
+| method | score |
+| --- | ---: |
+| `mirror` | 3.3505 |
+| `biharmonic` | 1.4383 |
+| `masked` | 0.0000 |
+| `qwen_edit_baseline_s20_s512` | -2.3662 |
+| `qwen_edit_lowcfg_shape_s20_s512` | -2.4132 |
+| `qwen_edit_center_seam_single_object_s20_s512` | -2.4916 |
+| `qwen_edit_strict_white_region_s20_s512` | -3.8060 |
+| `qwen_edit_mirror_prefill_refine_s20_s512` | -3.8660 |
+| `qwen_edit_checker_region_s20_s512` | -4.2327 |
+| `qwen_edit_symmetry_depth_s20_s512` | -5.0894 |
+| `qwen_edit_biharmonic_prefill_refine_s20_s512` | -8.4653 |
+
+Interpretation: geometry-prefilling the Qwen edit input did not rescue this provider on the tiny procedural objective. Mirror-prefill was slightly worse than strict-white prompting and `1.4998` score points below the baseline Qwen prompt; biharmonic-prefill was the worst tested variant. Do not spend the packaged held-out ModelNet prompt sweep on these Qwen variants without first inspecting artifacts and identifying a specific edit-conditioning fix. The next learned-method lane should pivot to a stronger mask-native provider or to training/evaluating geometry-conditioned supervision that directly targets object-surface and hidden-object depth metrics.
+
+STL-first next phase:
+
+The end product is a printable STL, not a better-looking 3D preview. Keep the current depth/inpaint benchmark as the fast baseline, but compare it against STL-native branches by emitting STLs and ranking or optimizing with `--score-profile stl-quality`. This profile ranks final STL validity, mesh quality, complexity, and available surface/depth agreement metrics. Each emitted STL now records `stl_is_volume`, `stl_winding_consistent`, `stl_single_component`, `stl_component_excess`, `stl_bbox_has_volume`, bounding-box dimensions/aspect, and log-scaled face-density proxies in addition to watertightness, positive volume, face count, surface area, and volume.
+
+Next experiment lanes:
+
+- Fast 2.5D relief: current completion/depth/STL path with `--emit-stl`, then rank or optimize the run with `--score-profile stl-quality`; this remains the baseline and should stay cheap.
+- Single-image mesh: add direct image-to-3D candidates that emit mesh/STL artifacts, such as Hunyuan3D/TripoSR/SV3D-style paths where practical, then rank them with the same STL diagnostics rather than visual preview quality.
+- Video or multiview mesh: reconstruct from selected or every frames with camera/keypoint matching and object masks/crops; Gaussian splatting or NeRF should be optional intermediate backends only when the final extracted mesh/STL improves.
+
+Promotion should require STL-facing evidence: watertightness, manifold/volume status, winding consistency, body count, printable thickness or bounding-box sanity, hole/degeneracy checks when available, mesh complexity, and surface Chamfer/visual-depth agreement when ground truth exists.
 
 ## Kaggle
 

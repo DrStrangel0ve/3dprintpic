@@ -100,10 +100,46 @@ class StlExportRegressionTests(unittest.TestCase):
 
         self.assertTrue(diagnostics["stl_exists"])
         self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_is_volume"])
+        self.assertTrue(diagnostics["stl_winding_consistent"])
         self.assertTrue(diagnostics["stl_positive_volume"])
+        self.assertEqual(diagnostics["stl_component_count"], 1)
         self.assertGreater(diagnostics["stl_volume"], 0)
         self.assertEqual(diagnostics["stl_faces"], 12)
         self.assertGreater(diagnostics["stl_z_range"], 0)
+        self.assertGreater(diagnostics["stl_bbox_min_dimension"], 0)
+        self.assertGreaterEqual(diagnostics["stl_bbox_aspect_ratio"], 1.0)
+        self.assertGreater(diagnostics["stl_faces_per_bbox_volume"], 0)
+        self.assertGreater(diagnostics["stl_faces_per_bbox_volume_log1p"], 0)
+
+    def test_stl_diagnostics_flags_flat_bbox_as_non_printable(self):
+        import warnings
+
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            stl_path = Path(temp_dir) / "flat.stl"
+            mesh = trimesh.Trimesh(
+                vertices=np.array(
+                    [
+                        [0.0, 0.0, 0.0],
+                        [1.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0],
+                        [1.0, 1.0, 0.0],
+                    ]
+                ),
+                faces=np.array([[0, 1, 2], [1, 3, 2]]),
+                process=False,
+            )
+            mesh.export(stl_path)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                diagnostics = stl_diagnostics(stl_path)
+
+        self.assertEqual(diagnostics["stl_bbox_min_dimension"], 0.0)
+        self.assertFalse(diagnostics["stl_bbox_has_volume"])
+        self.assertTrue(np.isinf(diagnostics["stl_bbox_aspect_ratio"]))
+        self.assertFalse(diagnostics["stl_is_volume"])
 
     def test_depth_export_rejects_no_valid_cells(self):
         depth = np.array(
@@ -2502,6 +2538,59 @@ class RankMethodRegressionTests(unittest.TestCase):
         self.assertNotIn("masked_mae_median", used_metrics)
         self.assertGreater(scores["surface_good_rgb_bad"], scores["rgb_good_surface_bad"])
         self.assertGreater(scores["surface_good_rgb_bad"], scores["masked"])
+
+    def test_stl_quality_profile_uses_printability_metrics(self):
+        weights = parse_weights([], profile="stl-quality")
+        rows = [
+            {
+                "method": "masked",
+                "object_surface_chamfer_l1_median": "0.80",
+                "stl_is_watertight_median": "0.0",
+                "stl_is_volume_median": "0.0",
+                "stl_winding_consistent_median": "0.0",
+                "stl_positive_volume_median": "0.0",
+                "stl_single_component_median": "0.0",
+                "stl_component_count_median": "3",
+                "stl_component_excess_median": "2",
+                "stl_bbox_has_volume_median": "0.0",
+                "stl_bbox_aspect_ratio_median": "12",
+                "stl_faces_per_bbox_volume_median": "1000",
+                "stl_faces_per_bbox_volume_log1p_median": "6.9",
+            },
+            {
+                "method": "direct_mesh_good",
+                "object_surface_chamfer_l1_median": "0.20",
+                "stl_is_watertight_median": "1.0",
+                "stl_is_volume_median": "1.0",
+                "stl_winding_consistent_median": "1.0",
+                "stl_positive_volume_median": "1.0",
+                "stl_single_component_median": "1.0",
+                "stl_component_count_median": "1",
+                "stl_component_excess_median": "0",
+                "stl_bbox_has_volume_median": "1.0",
+                "stl_bbox_aspect_ratio_median": "2",
+                "stl_faces_per_bbox_volume_median": "20",
+                "stl_faces_per_bbox_volume_log1p_median": "3.0",
+            },
+        ]
+
+        ranked, used_metrics = rank_summary_rows(
+            rows,
+            weights,
+            score_mode="baseline-delta",
+            baseline_method="masked",
+        )
+        scores = {row["method"]: row["rank_score"] for row in ranked}
+
+        self.assertIn("stl_is_volume_median", used_metrics)
+        self.assertIn("stl_winding_consistent_median", used_metrics)
+        self.assertIn("stl_single_component_median", used_metrics)
+        self.assertIn("stl_component_excess_median", used_metrics)
+        self.assertIn("stl_bbox_has_volume_median", used_metrics)
+        self.assertIn("stl_faces_per_bbox_volume_log1p_median", used_metrics)
+        self.assertNotIn("stl_component_count_median", used_metrics)
+        self.assertNotIn("stl_faces_per_bbox_volume_median", used_metrics)
+        self.assertGreater(scores["direct_mesh_good"], scores["masked"])
 
 
 class SelectionRegressionTests(unittest.TestCase):

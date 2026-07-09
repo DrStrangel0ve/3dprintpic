@@ -862,13 +862,14 @@ def depth_data_to_3d_model(npy_file, output_stl_path='output_3d_model.stl', targ
                 v2_bottom = [x[i, j+1], y[i, j+1], 0]
                 v3_bottom = [x[i+1, j+1], y[i+1, j+1], 0]
 
-                # Top surface
-                _add_triangle(faces, v0, v1, v2)
-                _add_triangle(faces, v1, v3, v2)
+                # Top and bottom are wound outward so trimesh recognizes the
+                # exported relief as a valid volume, not merely watertight.
+                _add_triangle(faces, v0, v2, v1)
+                _add_triangle(faces, v1, v2, v3)
 
                 # Bottom surface
-                _add_triangle(faces, v2_bottom, v1_bottom, v0_bottom)
-                _add_triangle(faces, v2_bottom, v3_bottom, v1_bottom)
+                _add_triangle(faces, v2_bottom, v0_bottom, v1_bottom)
+                _add_triangle(faces, v2_bottom, v1_bottom, v3_bottom)
 
                 # Front boundary
                 if i == 0 or not valid_cells[i - 1, j]:

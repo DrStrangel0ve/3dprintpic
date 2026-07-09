@@ -54,7 +54,16 @@ REPORT_METRICS = [
     ("object_surface_hausdorff95_median", "Object Surface Hausdorff95"),
     ("silhouette_iou_masked_median", "Silhouette IoU"),
     ("stl_is_watertight_median", "STL Watertight"),
+    ("stl_is_volume_median", "STL Volume Mesh"),
+    ("stl_winding_consistent_median", "STL Winding"),
     ("stl_positive_volume_median", "STL Positive Volume"),
+    ("stl_single_component_median", "STL Single Body"),
+    ("stl_component_count_median", "STL Bodies"),
+    ("stl_component_excess_median", "STL Body Excess"),
+    ("stl_bbox_min_dimension_median", "STL Min Dimension"),
+    ("stl_bbox_has_volume_median", "STL 3D BBox"),
+    ("stl_bbox_aspect_ratio_median", "STL Aspect"),
+    ("stl_faces_per_bbox_volume_log1p_median", "STL Face Density log1p"),
 ]
 
 
