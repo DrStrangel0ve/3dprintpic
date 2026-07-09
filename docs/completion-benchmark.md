@@ -185,16 +185,23 @@ The smoke config uses `--remesh-option none` so it works with the base SPAR3D in
 
 Direct mesh inputs can now be `masked`, `full`, `mirror`, or `biharmonic`. The `mirror` and `biharmonic` modes write `direct_mesh_input_<mode>.png` beside the provider outputs before calling the image-to-mesh backend, which makes it possible to test whether a cheap geometry prefill helps a single-image mesh model reconstruct the hidden side. After the raw masked SPAR3D smoke is healthy, run `backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_spar3d_prefill_direct_mesh_smoke.json` on the same slice to compare `spar3d_masked_direct_mesh`, `spar3d_mirror_prefill_direct_mesh`, and `spar3d_biharmonic_prefill_direct_mesh` under the same STL-quality score.
 
-Colab G4 SPAR3D install note: the July 9, 2026 Python 3.12 runtime reached repo commit `90891e8`, initialized the `texture_baker` submodule, and had `torchao 0.17.0+cu128`, but `pip install -r /content/stable-point-aware-3d/requirements.txt` still failed while building `git+https://github.com/SunzeY/AlphaCLIP.git`. The import probe showed `spar3d ok` and `gradio_app ModuleNotFoundError: gradio_litmodel3d`, so treat SPAR3D as provider-install-blocked on that runtime until its dependency path is fixed. Use the TripoSR smoke config as the no-gate direct mesh fallback:
+Colab G4 SPAR3D install note: the July 9, 2026 Python 3.12 runtime reached repo commit `90891e8`, initialized the `texture_baker` submodule, and had `torchao 0.17.0+cu128`, but `pip install -r /content/stable-point-aware-3d/requirements.txt` still failed while building `git+https://github.com/SunzeY/AlphaCLIP.git`. The import probe showed `spar3d ok` and `gradio_app ModuleNotFoundError: gradio_litmodel3d`, so treat SPAR3D as provider-install-blocked on that runtime until the AlphaCLIP/gradio dependency path is fixed.
+
+Use the TripoSR venv smoke config as the no-gate direct mesh fallback. Keep TripoSR isolated from the main backend environment: TripoSR pins `transformers==4.35.0`, while the Depth Anything V2 backend path needs the newer backend requirements. The July 9, 2026 G4 probe showed that installing TripoSR into the main environment broke the depth baselines; restoring backend requirements then let `run.py --help` pass after `numpy==2.0.2`, `onnxruntime`, and `rembg` imports were healthy, but TripoSR model loading failed under the newer `transformers` stack. The wrapper now accepts `--provider-python` so provider CLIs can run in their own venv.
 
 ```bash
 git clone https://github.com/VAST-AI-Research/TripoSR /content/TripoSR
-cd /content/TripoSR
-pip install -r requirements.txt
+python -m venv --system-site-packages /content/triposr-venv
+/content/triposr-venv/bin/python -m pip install -U pip setuptools wheel
+/content/triposr-venv/bin/python -m pip install -r /content/TripoSR/requirements.txt
+/content/triposr-venv/bin/python -m pip install numpy==2.0.2 onnxruntime
 export TRIPOSR_DIR=/content/TripoSR
 cd /content/3dprintpic
-python -m backend.benchmark.optimize_completion --manifest backend/output/completion-benchmark/modelnet10_60_balanced_s256_seed4040/manifest.jsonl --output-dir backend/output/completion-benchmark/experiments/modelnet10_60_balanced_stl_quality_triposr_direct_mesh_s40_n2 --config backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_triposr_direct_mesh_smoke.json --start-index 40 --limit 2 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --device auto --emit-stl --stl-target-dimension 96 --score-mode baseline-delta --score-profile stl-quality --baseline-method masked --contact-sheet --contact-sheet-methods masked,mirror,biharmonic,triposr_direct_mesh --contact-sheet-max-samples 2 --resume --continue-on-error
+python -m pip install -r backend/requirements-cuda.txt
+python -m backend.benchmark.optimize_completion --manifest backend/output/completion-benchmark/modelnet10_60_balanced_s256_seed4040/manifest.jsonl --output-dir backend/output/completion-benchmark/experiments/modelnet10_60_balanced_stl_quality_triposr_venv_prefill_direct_mesh_s40_n2 --config backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_triposr_venv_prefill_direct_mesh_smoke.json --start-index 40 --limit 2 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --device auto --emit-stl --stl-target-dimension 96 --score-mode baseline-delta --score-profile stl-quality --baseline-method masked --contact-sheet --contact-sheet-methods masked,mirror,biharmonic,triposr_masked_direct_mesh,triposr_mirror_prefill_direct_mesh,triposr_biharmonic_prefill_direct_mesh --contact-sheet-max-samples 2 --resume --continue-on-error
 ```
+
+Avoid `onnxruntime-gpu` on the current G4 image: the `1.27.0` wheel probed on July 9, 2026 attempted to load CUDA 13 runtime libraries on the CUDA 12.8 Colab image. CPU `onnxruntime` is enough for TripoSR's background-removal path; the TripoSR model itself still runs on CUDA through PyTorch.
 
 Learned inpainting smoke with `dreamshaper-inpaint`:
 

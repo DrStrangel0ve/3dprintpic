@@ -178,7 +178,13 @@ def main() -> None:
     parser.add_argument("--output-stl", default=None)
     parser.add_argument("--provider-dir", default=None)
     parser.add_argument("--provider-output-dir", type=Path, default=None)
-    parser.add_argument("--python", default=sys.executable)
+    parser.add_argument(
+        "--python",
+        "--provider-python",
+        dest="python",
+        default=sys.executable,
+        help="Python executable used to launch CLI provider repos. Use this to isolate provider dependencies in a venv.",
+    )
     parser.add_argument("--timeout", type=int, default=1800)
     parser.add_argument("--low-vram", action="store_true")
     parser.add_argument("--provider-device", default=None)
