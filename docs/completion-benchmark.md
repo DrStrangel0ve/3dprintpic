@@ -236,6 +236,18 @@ Colab G4 repaired TripoSR smoke result: the notebook ran commit `dfff7e7` on Jul
 
 Interpretation: `--mesh-repair printable` materially improved the direct TripoSR artifact: raw output had `4` components, `584` non-manifold edges, and failed watertight/volume checks; the repaired output became watertight, positive-volume, winding-consistent, and single-component with slightly better surface Chamfer. It still did not promote because `stl_is_manifold=False` from remaining degenerate faces and because face density stayed very high. The repair gate now checks non-manifold and degenerate face counts before accepting a basic repair, so the next G4 smoke should rerun this same slice and verify whether repaired TripoSR becomes fully manifold or falls back to a simpler printable hull/remesh.
 
+Colab G4 repaired TripoSR rerun after the stricter printable gate: the notebook reran the launcher on commit `f232c45` as `g4_triposr_repaired_s0_n1_v3` and completed in `35.91s`. This validated the one-command launcher plus the repaired mesh gate on the G4 runtime.
+
+| method | n | stl-quality score vs masked | mesh surface Chamfer med | STL watertight med | STL volume med | STL manifold med | STL components med | STL faces med |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `mirror` | 1 | 1.2772 | 0.1529 | 1.0 | 1.0 | 1.0 | 1 | 29580 |
+| `biharmonic` | 1 | 0.2522 | 0.1777 | 1.0 | 1.0 | 1.0 | 1 | 29580 |
+| `masked` | 1 | 0.0000 | 0.1924 | 1.0 | 1.0 | 1.0 | 1 | 29580 |
+| `triposr_api_masked_repaired_direct_mesh` | 1 | -0.8642 | 0.1518 | 1.0 | 1.0 | 1.0 | 1 | 2508 |
+| `triposr_api_masked_direct_mesh` | 1 | -16.1202 | 0.1861 | 0.0 | 0.0 | 0.0 | 4 | 147468 |
+
+Interpretation: the tightened gate fixed the remaining printability failure. Raw TripoSR still emitted `584` non-manifold edges, `3` degenerate faces, `4` components, and a `147468`-face STL. The repaired candidate became watertight, volume-valid, manifold, single-component, and zero-degenerate with only `2508` faces, while improving mesh-surface Chamfer to `0.1518`. It still ranks behind `mirror` because the STL-quality profile also penalizes hull-like simplification and rewards the depth-relief baseline's strong silhouette agreement on this one procedural sample. The next direct mesh test should use the repaired path by default and compare it on a larger held-out mesh slice rather than spending more time on raw TripoSR.
+
 Learned inpainting smoke with `dreamshaper-inpaint`:
 
 ```bash
@@ -1202,6 +1214,33 @@ Next experiment lanes:
 - Video or multiview mesh: reconstruct from selected or every frames with camera/keypoint matching and object masks/crops; Gaussian splatting or NeRF should be optional intermediate backends only when the final extracted mesh/STL improves.
 
 Promotion should require STL-facing evidence: watertightness, manifold/volume status, winding consistency, body count, printable thickness or bounding-box sanity, hole/degeneracy checks when available, mesh complexity, and surface Chamfer/visual-depth agreement when ground truth exists.
+
+The STL-first harness now has a one-command launcher:
+
+```powershell
+.\backend\.venv\Scripts\python -m backend.benchmark.run_stl_first_smoke --repo-dir . --output-dir backend/output/completion-benchmark/experiments/stl_first_reconstruction_smoke_local_s0_n1 --dataset-count 1 --limit 1 --size 128 --stl-target-dimension 64 --contact-sheet-max-samples 1 --no-include-triposr-api --no-include-hunyuan3d-shape
+```
+
+By default, it writes `stl_first_reconstruction_config.json`, generates a tiny rendered dataset when `--manifest` is not supplied, runs `optimize_completion`, ranks with `--score-mode baseline-delta --score-profile stl-quality --baseline-method masked`, writes a contact sheet, and summarizes the run in `stl_first_summary.json`. The default local candidate set is `masked`, `mirror`, `biharmonic`, and `source_mesh_oracle`; add `--include-triposr-api`, `--include-hunyuan3d-shape`, or `--multiview-command '...'` when the corresponding provider environment is ready.
+
+For manual or Colab runs, `backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_reconstruction_candidates.json` keeps the same relief baselines, adds `source_mesh_oracle`, and includes repaired TripoSR API plus repaired Hunyuan3D shape candidates. Run it with the same STL-quality command shape:
+
+```bash
+python -m backend.benchmark.optimize_completion --manifest backend/output/completion-benchmark/modelnet10_60_balanced_s256_seed4040/manifest.jsonl --output-dir backend/output/completion-benchmark/experiments/modelnet10_60_balanced_stl_quality_reconstruction_candidates_s40_n2 --config backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_reconstruction_candidates.json --start-index 40 --limit 2 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --device auto --emit-stl --stl-target-dimension 96 --score-mode baseline-delta --score-profile stl-quality --baseline-method masked --contact-sheet --contact-sheet-methods masked,mirror,biharmonic,source_mesh_oracle,triposr_api_masked_repaired_direct_mesh,hunyuan3d_shape_masked_repaired_direct_mesh --contact-sheet-max-samples 2 --resume --continue-on-error
+```
+
+Multiview/video backends should use the new `external-multiview-to-mesh` method. The benchmark writes `{input_bundle}` as `multiview_input.json` beside the provider outputs, with `primary_image`, `masked_image`, `full_image`, `mask`, `camera`, optional `video_path`/`frames_dir`, and a `views` list containing sibling images, masks, cameras, and view ids. `generate_rendered_dataset --views-per-asset N` now annotates rows that share an `asset_key` with `multiview_images`, `multiview_masks`, `multiview_cameras`, `multiview_view_ids`, and `multiview_primary_index`; `package_colab_inputs` carries those list-valued paths into Colab bundles.
+
+Local STL-first launcher smoke (`stl_first_reconstruction_smoke_local_s0_n1`, `dataset-count=1`, `size=128`, `stl-target-dimension=64`) completed successfully in `82.91s` for the benchmark stage. Ranking:
+
+| method | n | stl-quality score vs masked |
+| --- | ---: | ---: |
+| `source_mesh_oracle` | 1 | 1.4656 |
+| `mirror` | 1 | 1.4008 |
+| `biharmonic` | 1 | 0.0691 |
+| `masked` | 1 | 0.0000 |
+
+This is a launcher integration smoke, not a model-quality conclusion. It confirms that the STL-first orchestration path can generate data, emit relief STLs, evaluate direct mesh outputs, rank final STL artifacts, and write the expected summary/report files.
 
 Cheap baseline command for the next STL-quality run:
 

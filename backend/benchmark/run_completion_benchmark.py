@@ -66,7 +66,15 @@ METADATA_FIELDS = {
     "lora_weights",
     "lora_scale",
     "direct_mesh_input_image",
+    "direct_mesh_input_bundle",
     "direct_mesh_output_mesh",
+    "multiview_images",
+    "multiview_masks",
+    "multiview_cameras",
+    "multiview_view_ids",
+    "multiview_primary_index",
+    "video_path",
+    "frames_dir",
 }
 
 DEFAULT_PROMPT_TEMPLATE = (
@@ -156,6 +164,13 @@ def sample_artifact_fields(sample):
         "asset_source_split": sample.get("asset_source_split", ""),
         "asset_key": sample.get("asset_key", ""),
         "view_index": sample.get("view_index", ""),
+        "multiview_images": sample.get("multiview_images", ""),
+        "multiview_masks": sample.get("multiview_masks", ""),
+        "multiview_cameras": sample.get("multiview_cameras", ""),
+        "multiview_view_ids": sample.get("multiview_view_ids", ""),
+        "multiview_primary_index": sample.get("multiview_primary_index", ""),
+        "video_path": sample.get("video_path", ""),
+        "frames_dir": sample.get("frames_dir", ""),
     }
 
 
@@ -554,7 +569,7 @@ def stl_and_mesh_metrics(sample, stl_path, max_points=4096):
 
 
 def evaluate_direct_mesh_sample(sample, method, output_dir, args):
-    input_image, output_mesh, stl_path = run_direct_mesh(sample, method, output_dir, args)
+    input_image, output_mesh, stl_path, input_bundle = run_direct_mesh(sample, method, output_dir, args)
     row = {
         **experiment_key(sample, method, args),
         "sample_id": sample["id"],
@@ -562,6 +577,7 @@ def evaluate_direct_mesh_sample(sample, method, output_dir, args):
         "raw_completed_image": str(input_image),
         "completed_image": str(input_image),
         "direct_mesh_input_image": str(input_image),
+        "direct_mesh_input_bundle": str(input_bundle or ""),
         "direct_mesh_output_mesh": str(output_mesh),
         **sample_artifact_fields(sample),
     }

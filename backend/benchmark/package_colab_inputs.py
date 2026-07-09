@@ -22,6 +22,10 @@ DEFAULT_PATH_FIELDS = (
     "silhouette",
     "mesh",
     "asset_path",
+    "multiview_images",
+    "multiview_masks",
+    "video_path",
+    "frames_dir",
 )
 DEFAULT_EXTRACT_ROOT = "/content/3dprintpic_colab_inputs"
 DEFAULT_REPO_REMOTE = "https://github.com/DrStrangel0ve/3dprintpic.git"
@@ -121,12 +125,19 @@ def rewrite_manifest_rows(
             value = row.get(field)
             if not value:
                 continue
-            source = resolve_input_path(str(value), manifest_dir, root)
-            archive_name = source_to_archive.get(source.resolve())
-            if archive_name is None:
-                archive_name = archive_path_for(source, root, "inputs/files")
-                source_to_archive[source.resolve()] = archive_name
-            rewritten[field] = colab_path(extract_root, archive_name)
+
+            def rewrite_one(item) -> str:
+                source = resolve_input_path(str(item), manifest_dir, root)
+                archive_name = source_to_archive.get(source.resolve())
+                if archive_name is None:
+                    archive_name = archive_path_for(source, root, "inputs/files")
+                    source_to_archive[source.resolve()] = archive_name
+                return colab_path(extract_root, archive_name)
+
+            if isinstance(value, list):
+                rewritten[field] = [rewrite_one(item) for item in value if item]
+            else:
+                rewritten[field] = rewrite_one(value)
         rewritten_rows.append(rewritten)
     return rewritten_rows, source_to_archive
 

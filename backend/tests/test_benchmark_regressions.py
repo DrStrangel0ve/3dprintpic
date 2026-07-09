@@ -20,6 +20,7 @@ from backend.benchmark.combine_optimize_runs import combine_runs
 from backend.benchmark.compare_optimize_runs import add_score_deltas, compare_run, render_markdown
 from backend.benchmark.direct_mesh import direct_mesh_input_path, mesh_is_printable_volume, repair_mesh_for_printable_stl
 from backend.benchmark.export_training_pairs import main as export_training_pairs_main
+from backend.benchmark.generate_rendered_dataset import attach_multiview_fields
 from backend.benchmark.package_colab_inputs import package_inputs
 from backend.benchmark.optimize_completion import (
     annotate_per_sample_metrics,
@@ -42,6 +43,7 @@ from backend.benchmark.metrics import mesh_surface_distance_metrics, surface_dis
 from backend.benchmark.report_run import baseline_delta_rows, paired_baseline_delta_rows, paired_objective_rows, render_report
 from backend.benchmark.rank_methods import parse_weights, rank_summary_rows
 from backend.benchmark.run_image_to_mesh_provider import main as run_image_to_mesh_provider_main
+from backend.benchmark.run_stl_first_smoke import build_experiments as build_stl_first_experiments, build_optimize_command as build_stl_first_optimize_command
 from backend.benchmark.run_triposr_repair_smoke import build_experiments, rows_from_csv
 from backend.benchmark.run_completion_benchmark import evaluate_sample, run_one, stl_diagnostics, summarize, write_split_audit
 from backend.benchmark.select_completion_candidate import evaluate_selection, json_safe
@@ -364,6 +366,101 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("output_mesh.ply", rows[0]["direct_mesh_output_mesh"])
         self.assertAlmostEqual(float(rows[0]["mesh_surface_chamfer_l1"]), 0.0)
 
+    def test_external_multiview_to_mesh_command_receives_bundle(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            full = root / "full.png"
+            view2 = root / "view2.png"
+            masked = root / "masked.png"
+            mask = root / "mask.png"
+            mask2 = root / "mask2.png"
+            mesh_path = root / "reference_box.ply"
+            script_path = root / "fake_multiview_to_mesh.py"
+            Image.new("RGB", (12, 12), (80, 120, 160)).save(full)
+            Image.new("RGB", (12, 12), (90, 130, 170)).save(view2)
+            Image.new("RGB", (12, 12), (255, 255, 255)).save(masked)
+            Image.fromarray(np.zeros((12, 12), dtype=np.uint8)).save(mask)
+            Image.fromarray(np.ones((12, 12), dtype=np.uint8) * 255).save(mask2)
+            trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(mesh_path)
+            script_path.write_text(
+                "\n".join(
+                    [
+                        "import json, sys",
+                        "from pathlib import Path",
+                        "import trimesh",
+                        "bundle = json.loads(Path(sys.argv[1]).read_text())",
+                        "assert bundle['sample_id'] == 'box'",
+                        "assert len(bundle['views']) == 2",
+                        "assert bundle['views'][1]['camera']['azimuth_deg'] == 45",
+                        "trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(sys.argv[2])",
+                        "trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(sys.argv[3])",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            manifest_path = root / "manifest.jsonl"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "id": "box",
+                        "full_image": str(full),
+                        "masked_image": str(masked),
+                        "mask": str(mask),
+                        "mesh": str(mesh_path),
+                        "source": "unit",
+                        "multiview_images": [str(full), str(view2)],
+                        "multiview_masks": [str(mask), str(mask2)],
+                        "multiview_cameras": [{"azimuth_deg": 0}, {"azimuth_deg": 45}],
+                        "multiview_view_ids": ["box_v0", "box_v1"],
+                        "multiview_primary_index": 0,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            output_dir = root / "run"
+            command = f'"{sys.executable}" "{script_path}" "{{input_bundle}}" "{{output_mesh}}" "{{output_stl}}"'
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_completion_benchmark",
+                    "--manifest",
+                    str(manifest_path),
+                    "--output-dir",
+                    str(output_dir),
+                    "--methods",
+                    "external-multiview-to-mesh",
+                    "--limit",
+                    "1",
+                    "--skip-depth",
+                    "--emit-stl",
+                    "--direct-mesh-command",
+                    command,
+                    "--direct-mesh-output-ext",
+                    "ply",
+                    "--mesh-surface-max-points",
+                    "128",
+                ],
+            ):
+                run_completion_benchmark.main()
+
+            with (output_dir / "per_sample_metrics.csv").open(newline="", encoding="utf-8") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+            bundle_path = Path(rows[0]["direct_mesh_input_bundle"])
+            bundle_exists = bundle_path.exists()
+            bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(rows[0]["method"], "external-multiview-to-mesh")
+        self.assertEqual(rows[0]["stl_exists"], "True")
+        self.assertTrue(bundle_exists)
+        self.assertEqual(len(bundle["views"]), 2)
+        self.assertEqual(bundle["views"][1]["sample_id"], "box_v1")
+        self.assertAlmostEqual(float(rows[0]["mesh_surface_chamfer_l1"]), 0.0)
+
     def test_direct_mesh_input_can_use_geometry_prefill(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -390,6 +487,77 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertEqual(prefilled.name, "direct_mesh_input_mirror.png")
         self.assertEqual(image.getpixel((6, 1)), (10, 20, 30))
         self.assertNotEqual(image.getpixel((6, 1)), (255, 255, 255))
+
+    def test_rendered_dataset_attaches_multiview_fields_by_asset(self):
+        rows = [
+            {
+                "id": "asset_v1",
+                "asset_key": "asset",
+                "view_index": 1,
+                "full_image": "v1.png",
+                "gt_silhouette": "v1_mask.png",
+                "camera": {"azimuth_deg": 90},
+            },
+            {
+                "id": "asset_v0",
+                "asset_key": "asset",
+                "view_index": 0,
+                "full_image": "v0.png",
+                "gt_silhouette": "v0_mask.png",
+                "camera": {"azimuth_deg": 0},
+            },
+            {
+                "id": "solo",
+                "asset_key": "solo",
+                "view_index": 0,
+                "full_image": "solo.png",
+                "camera": {},
+            },
+        ]
+
+        attach_multiview_fields(rows)
+
+        self.assertEqual(rows[0]["multiview_images"], ["v0.png", "v1.png"])
+        self.assertEqual(rows[0]["multiview_masks"], ["v0_mask.png", "v1_mask.png"])
+        self.assertEqual(rows[0]["multiview_cameras"][1]["azimuth_deg"], 90)
+        self.assertEqual(rows[0]["multiview_primary_index"], 1)
+        self.assertNotIn("multiview_images", rows[2])
+
+    def test_package_inputs_rewrites_multiview_path_lists(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for name in ("full.png", "masked.png", "mask.png", "view0.png", "view1.png", "view0_mask.png", "view1_mask.png"):
+                Image.new("RGB", (4, 4), (1, 2, 3)).save(root / name)
+            manifest = root / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "id": "sample",
+                        "full_image": str(root / "full.png"),
+                        "masked_image": str(root / "masked.png"),
+                        "mask": str(root / "mask.png"),
+                        "multiview_images": [str(root / "view0.png"), str(root / "view1.png")],
+                        "multiview_masks": [str(root / "view0_mask.png"), str(root / "view1_mask.png")],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            output = root / "bundle.tar.gz"
+
+            report = package_inputs(
+                manifest=manifest,
+                output=output,
+                extract_root="/content/test_bundle",
+                root=root,
+            )
+            with tarfile.open(output, "r:gz") as tar:
+                rewritten = json.loads(tar.extractfile("inputs/manifest.jsonl").read().decode("utf-8").strip())
+
+        self.assertEqual(report["referenced_files"], 7)
+        self.assertEqual(len(rewritten["multiview_images"]), 2)
+        self.assertTrue(rewritten["multiview_images"][0].startswith("/content/test_bundle/inputs/files/"))
+        self.assertTrue(rewritten["multiview_masks"][1].startswith("/content/test_bundle/inputs/files/"))
 
     def test_image_to_mesh_provider_wrapper_normalizes_repo_output(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -697,6 +865,67 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("{output_dir}/output_mesh_raw.obj", repaired_command)
         self.assertIn("--mesh-repair printable", repaired_command)
         self.assertEqual(by_name["triposr_api_masked_repaired_direct_mesh"]["direct_mesh_timeout"], 456)
+
+    def test_stl_first_smoke_builds_direct_and_multiview_candidates(self):
+        args = SimpleNamespace(
+            include_source_oracle=True,
+            include_triposr_api=True,
+            include_raw_direct_mesh=False,
+            include_hunyuan3d_shape=True,
+            multiview_command='python mv.py "{input_bundle}" "{output_mesh}" "{output_stl}"',
+            multiview_name="mv_recon",
+            multiview_primary_input="masked",
+            multiview_output_ext="ply",
+            provider_python="python",
+            provider_device="cuda",
+            triposr_python="/content/triposr-venv/bin/python",
+            triposr_dir="/content/TripoSR",
+            hunyuan3d_dir="/content/Hunyuan3D",
+            chunk_size=256,
+            mc_resolution=64,
+            mesh_repair="printable",
+            direct_mesh_timeout=123,
+        )
+
+        experiments = build_stl_first_experiments(args)
+        by_name = {experiment["name"]: experiment for experiment in experiments}
+
+        self.assertEqual([experiment["name"] for experiment in experiments[:3]], ["masked", "mirror", "biharmonic"])
+        self.assertEqual(by_name["source_mesh_oracle"]["method"], "source-mesh-oracle")
+        self.assertIn("--provider triposr-api", by_name["triposr_api_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--provider hunyuan3d-shape", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("{output_dir}/output_mesh_raw.glb", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertEqual(by_name["mv_recon"]["method"], "external-multiview-to-mesh")
+        self.assertIn("{input_bundle}", by_name["mv_recon"]["direct_mesh_command"])
+
+    def test_stl_first_smoke_optimize_command_uses_stl_quality_profile(self):
+        args = SimpleNamespace(
+            start_index=4,
+            limit=2,
+            depth_provider="depth-anything-v2",
+            depth_model="depth-anything/Depth-Anything-V2-Small-hf",
+            device="auto",
+            stl_target_dimension=96,
+            contact_sheet_max_samples=2,
+            continue_on_error=True,
+            resume=True,
+        )
+        experiments = [{"name": "masked"}, {"name": "mv_recon"}]
+
+        command = build_stl_first_optimize_command(
+            args,
+            Path("manifest.jsonl"),
+            Path("experiment"),
+            Path("config.json"),
+            experiments,
+        )
+
+        self.assertIn("--score-profile", command)
+        self.assertIn("stl-quality", command)
+        self.assertIn("--baseline-method", command)
+        self.assertIn("masked", command)
+        self.assertIn("--emit-stl", command)
+        self.assertIn("masked,mv_recon", command)
 
     def test_triposr_repair_smoke_reads_missing_or_present_csv_rows(self):
         with tempfile.TemporaryDirectory() as temp_dir:

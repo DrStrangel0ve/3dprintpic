@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -12,7 +13,7 @@ from backend.benchmark.mesh_rendering import load_mesh, mesh_in_render_frame
 from backend.pic_to_3d import _masked_edit_image
 
 
-DIRECT_MESH_METHODS = {"source-mesh-oracle", "external-image-to-mesh"}
+DIRECT_MESH_METHODS = {"source-mesh-oracle", "external-image-to-mesh", "external-multiview-to-mesh"}
 DIRECT_MESH_INPUT_MODES = ("masked", "full", "mirror", "biharmonic")
 MESH_REPAIR_MODES = ("none", "basic", "convex-hull", "printable")
 
@@ -60,6 +61,72 @@ def direct_mesh_input_path(sample: dict, mode: str = "masked", output_dir: Path 
     if path is None:
         raise FileNotFoundError(f"Missing {key} for sample {sample.get('id', '')}: {sample.get(key, '')}")
     return path
+
+
+def _jsonish_list(value) -> list:
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                return [value]
+            return parsed if isinstance(parsed, list) else [parsed]
+        return [item.strip() for item in text.split(",") if item.strip()]
+    return [value]
+
+
+def _path_text(value) -> str:
+    if value in (None, ""):
+        return ""
+    resolved = resolve_existing_path(str(value))
+    return str(resolved or value)
+
+
+def write_multiview_input_bundle(sample: dict, primary_image: Path, output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    images = _jsonish_list(sample.get("multiview_images"))
+    masks = _jsonish_list(sample.get("multiview_masks"))
+    cameras = _jsonish_list(sample.get("multiview_cameras"))
+    view_ids = _jsonish_list(sample.get("multiview_view_ids"))
+    if not images:
+        images = [sample.get("full_image") or primary_image]
+    views = []
+    for index, image in enumerate(images):
+        views.append(
+            {
+                "index": index,
+                "sample_id": str(view_ids[index]) if index < len(view_ids) else "",
+                "image": _path_text(image),
+                "mask": _path_text(masks[index]) if index < len(masks) else "",
+                "camera": cameras[index] if index < len(cameras) else {},
+            }
+        )
+    bundle = {
+        "sample_id": str(sample.get("id", "")),
+        "asset_key": str(sample.get("asset_key", "")),
+        "primary_image": str(primary_image),
+        "masked_image": _path_text(sample.get("masked_image")),
+        "full_image": _path_text(sample.get("full_image")),
+        "mask": _path_text(sample.get("mask")),
+        "camera": sample.get("camera", {}),
+        "primary_view_index": sample.get("view_index", ""),
+        "multiview_primary_index": sample.get("multiview_primary_index", ""),
+        "video_path": _path_text(sample.get("video_path")),
+        "frames_dir": _path_text(sample.get("frames_dir")),
+        "views": views,
+    }
+    bundle_path = output_dir / "multiview_input.json"
+    bundle_path.write_text(json.dumps(bundle, indent=2) + "\n", encoding="utf-8")
+    return bundle_path
 
 
 def convert_mesh_to_stl(mesh_path: Path, stl_path: Path) -> Path:
@@ -226,9 +293,10 @@ def repair_mesh_for_printable_stl(mesh_path: Path, output_path: Path, mode: str 
     return output_path
 
 
-def run_direct_mesh(sample: dict, method: str, output_dir: Path, args) -> tuple[Path, Path, Path]:
+def run_direct_mesh(sample: dict, method: str, output_dir: Path, args) -> tuple[Path, Path, Path, Path | None]:
     output_dir.mkdir(parents=True, exist_ok=True)
     input_image = direct_mesh_input_path(sample, getattr(args, "direct_mesh_input", "masked"), output_dir)
+    input_bundle = write_multiview_input_bundle(sample, input_image, output_dir) if method == "external-multiview-to-mesh" else None
     stl_path = output_dir / "output_model.stl"
     output_ext = str(getattr(args, "direct_mesh_output_ext", "glb") or "glb").lstrip(".")
     mesh_output_path = output_dir / f"output_mesh.{output_ext}"
@@ -244,14 +312,15 @@ def run_direct_mesh(sample: dict, method: str, output_dir: Path, args) -> tuple[
         else:
             shutil.copy2(source_path, mesh_output_path)
         convert_mesh_to_stl(mesh_output_path, stl_path)
-        return input_image, mesh_output_path, stl_path
+        return input_image, mesh_output_path, stl_path, input_bundle
 
-    if method == "external-image-to-mesh":
+    if method in ("external-image-to-mesh", "external-multiview-to-mesh"):
         command_template = getattr(args, "direct_mesh_command", None)
         if not command_template:
-            raise ValueError("--direct-mesh-command is required for external-image-to-mesh")
+            raise ValueError(f"--direct-mesh-command is required for {method}")
         values = {
             "input_image": str(input_image),
+            "input_bundle": str(input_bundle or ""),
             "masked_image": str(direct_mesh_input_path(sample, "masked")),
             "full_image": str(direct_mesh_input_path(sample, "full")),
             "mask": str(resolve_existing_path(sample.get("mask")) or ""),
@@ -269,13 +338,13 @@ def run_direct_mesh(sample: dict, method: str, output_dir: Path, args) -> tuple[
             timeout=max(1, int(getattr(args, "direct_mesh_timeout", 1800))),
         )
         if not mesh_output_path.exists() and stl_path.exists():
-            return input_image, stl_path, stl_path
+            return input_image, stl_path, stl_path, input_bundle
         if not mesh_output_path.exists():
             raise FileNotFoundError(
                 f"External image-to-mesh command produced neither {mesh_output_path} nor {stl_path}"
             )
         if not stl_path.exists():
             convert_mesh_to_stl(mesh_output_path, stl_path)
-        return input_image, mesh_output_path, stl_path
+        return input_image, mesh_output_path, stl_path, input_bundle
 
     raise ValueError(f"Unsupported direct mesh method: {method}")

@@ -96,6 +96,28 @@ def asset_key_for_path(asset_path: Path, asset_root: Path) -> str:
         return asset_path.as_posix()
 
 
+def attach_multiview_fields(rows: list[dict]) -> None:
+    by_asset: dict[str, list[dict]] = {}
+    for row in rows:
+        key = str(row.get("asset_key") or row.get("asset_id") or row.get("id"))
+        by_asset.setdefault(key, []).append(row)
+
+    for group in by_asset.values():
+        if len(group) <= 1:
+            continue
+        ordered = sorted(group, key=lambda item: (int(item.get("view_index") or 0), str(item.get("id", ""))))
+        images = [item.get("full_image", "") for item in ordered]
+        masks = [item.get("gt_silhouette") or item.get("silhouette") or "" for item in ordered]
+        cameras = [item.get("camera", {}) for item in ordered]
+        view_ids = [item.get("id", "") for item in ordered]
+        for index, row in enumerate(ordered):
+            row["multiview_images"] = images
+            row["multiview_masks"] = masks
+            row["multiview_cameras"] = cameras
+            row["multiview_view_ids"] = view_ids
+            row["multiview_primary_index"] = index
+
+
 def generate_dataset(
     *,
     output_dir: Path,
@@ -186,6 +208,8 @@ def generate_dataset(
                 break
     else:
         raise ValueError(f"Unsupported source: {source}")
+
+    attach_multiview_fields(rows)
 
     manifest_path = output_dir / "manifest.jsonl"
     with manifest_path.open("w", encoding="utf-8") as manifest_file:
