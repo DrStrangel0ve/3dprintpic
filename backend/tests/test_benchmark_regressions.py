@@ -3076,6 +3076,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn('export PYTHONPATH="$HUNYUAN3D_DEPS:$HUNYUAN3D_DIR/hy3dshape:$HUNYUAN3D_DIR:${PYTHONPATH:-}"', archive_run_script)
         self.assertIn('exec python "$@"', archive_run_script)
         self.assertIn('mv -f "$HUNYUAN3D_WRAPPER_TMP" "$HUNYUAN3D_VENV/bin/python"', archive_run_script)
+        self.assertIn("Hunyuan3D setup checkpoint: target wrapper ready", archive_run_script)
         self.assertIn(
             'HUNYUAN3D_PIP_INSTALL=(python -m pip install --upgrade --target "$HUNYUAN3D_DEPS" --no-deps)',
             archive_run_script,
@@ -3096,8 +3097,15 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("Installing Hunyuan3D Python deps: pymeshlab", archive_run_script)
         self.assertIn('"${HUNYUAN3D_PIP_INSTALL[@]}" timm torchdiffeq', archive_run_script)
         self.assertIn('"${HUNYUAN3D_PIP_INSTALL[@]}" pymeshlab==2023.12.post3', archive_run_script)
+        self.assertIn("Hunyuan3D setup checkpoint: Python deps importable", archive_run_script)
         self.assertIn("HUNYUAN3D_PREFETCH:-1", archive_run_script)
         self.assertIn("--prefetch-only", archive_run_script)
+        self.assertIn("Hunyuan3D setup checkpoint: shape weights prefetched", archive_run_script)
+        self.assertIn("COLAB_PROVIDER_SETUP_ONLY", archive_run_script)
+        self.assertIn("HUNYUAN3D_SETUP_ONLY", archive_run_script)
+        self.assertIn("TRIPOSR_SETUP_ONLY", archive_run_script)
+        self.assertIn("Provider setup only requested; skipping benchmark stages", archive_run_script)
+        self.assertIn("'provider_setup_only'", archive_run_script)
         self.assertIn("diffusers==0.30.0", archive_run_script)
         self.assertIn("transformers==4.46.0", archive_run_script)
         self.assertIn("--candidate-method hunyuan3d_shape_masked_repaired_stl_mirror_bbox_direct_mesh", archive_run_script)
