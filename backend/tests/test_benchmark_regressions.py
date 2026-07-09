@@ -18,7 +18,12 @@ from backend.benchmark.backfill_lora_provenance import backfill_lora_root, backf
 from backend.benchmark import colab_g4_orchestrator, run_completion_benchmark
 from backend.benchmark.combine_optimize_runs import combine_runs
 from backend.benchmark.compare_optimize_runs import add_score_deltas, compare_run, render_markdown
-from backend.benchmark.direct_mesh import direct_mesh_input_path, mesh_is_printable_volume, repair_mesh_for_printable_stl
+from backend.benchmark.direct_mesh import (
+    direct_mesh_input_path,
+    mesh_is_printable_volume,
+    postprocess_mesh_for_stl,
+    repair_mesh_for_printable_stl,
+)
 from backend.benchmark.explain_rank_score import contribution_rows, explain, markdown_report, summarize_contributions
 from backend.benchmark.export_training_pairs import main as export_training_pairs_main
 from backend.benchmark.generate_rendered_dataset import attach_multiview_fields
@@ -750,6 +755,30 @@ class StlExportRegressionTests(unittest.TestCase):
 
         self.assertFalse(mesh_is_printable_volume(mesh))
 
+    def test_mesh_postprocess_scales_and_compacts_bbox_for_stl_objective(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_mesh = root / "skinny_box.ply"
+            output_mesh = root / "scaled_compact.stl"
+            trimesh.creation.box(extents=(2.0, 1.0, 0.1)).export(input_mesh)
+
+            postprocess_mesh_for_stl(
+                input_mesh,
+                output_mesh,
+                target_max_dimension=96.0,
+                min_bbox_dimension=12.0,
+            )
+
+            diagnostics = stl_diagnostics(output_mesh)
+
+        self.assertAlmostEqual(diagnostics["stl_bbox_max_dimension"], 96.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_min_dimension"], 12.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_aspect_ratio"], 8.0, places=4)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
+
     def test_image_to_mesh_provider_wrapper_can_repair_unprintable_mesh(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -820,6 +849,72 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(diagnostics["stl_is_manifold"])
         self.assertEqual(diagnostics["stl_degenerate_face_count"], 0)
         self.assertTrue(diagnostics["stl_single_component"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
+
+    def test_image_to_mesh_provider_wrapper_can_scale_and_compact_provider_mesh(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            provider_dir = root / "fake_spar3d"
+            provider_dir.mkdir()
+            input_image = root / "input.png"
+            output_mesh = root / "normalized.ply"
+            raw_output_mesh = root / "raw_provider_mesh.ply"
+            output_stl = root / "normalized.stl"
+            Image.new("RGB", (12, 12), (120, 80, 160)).save(input_image)
+            (provider_dir / "run.py").write_text(
+                "\n".join(
+                    [
+                        "import argparse",
+                        "from pathlib import Path",
+                        "import trimesh",
+                        "parser = argparse.ArgumentParser()",
+                        "parser.add_argument('input_image')",
+                        "parser.add_argument('--output-dir', required=True)",
+                        "args = parser.parse_args()",
+                        "Path(args.output_dir).mkdir(parents=True, exist_ok=True)",
+                        "trimesh.creation.box(extents=(2.0, 1.0, 0.1)).export(Path(args.output_dir) / 'result.ply')",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_image_to_mesh_provider",
+                    "--provider",
+                    "spar3d",
+                    "--provider-dir",
+                    str(provider_dir),
+                    "--input-image",
+                    str(input_image),
+                    "--output-mesh",
+                    str(output_mesh),
+                    "--raw-output-mesh",
+                    str(raw_output_mesh),
+                    "--output-stl",
+                    str(output_stl),
+                    "--provider-python",
+                    sys.executable,
+                    "--mesh-target-max-dimension",
+                    "96",
+                    "--mesh-min-bbox-dimension",
+                    "12",
+                ],
+            ):
+                run_image_to_mesh_provider_main()
+
+            diagnostics = stl_diagnostics(output_stl)
+            raw_diagnostics = stl_diagnostics(raw_output_mesh)
+            raw_output_mesh_exists = raw_output_mesh.exists()
+
+        self.assertTrue(raw_output_mesh_exists)
+        self.assertAlmostEqual(raw_diagnostics["stl_bbox_max_dimension"], 2.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_max_dimension"], 96.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_min_dimension"], 12.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_aspect_ratio"], 8.0, places=4)
+        self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
 
     def test_triposr_api_provider_uses_preprocessed_input_without_rembg(self):
@@ -958,6 +1053,9 @@ class StlExportRegressionTests(unittest.TestCase):
             chunk_size=256,
             mc_resolution=64,
             mesh_repair="printable",
+            mesh_target_max_dimension=96.0,
+            mesh_min_bbox_dimension=12.0,
+            mesh_target_faces=512,
             direct_mesh_timeout=123,
         )
 
@@ -970,10 +1068,14 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("--provider triposr-api", by_name["triposr_api_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertEqual(by_name["triposr_api_mirror_prefill_repaired_direct_mesh"]["direct_mesh_input"], "mirror")
         self.assertIn("--mesh-repair printable", by_name["triposr_api_mirror_prefill_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--mesh-target-max-dimension 96.0", by_name["triposr_api_mirror_prefill_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--mesh-min-bbox-dimension 12.0", by_name["triposr_api_mirror_prefill_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--mesh-target-faces 512", by_name["triposr_api_mirror_prefill_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertEqual(by_name["triposr_api_biharmonic_prefill_repaired_direct_mesh"]["direct_mesh_input"], "biharmonic")
         self.assertIn("--mesh-repair printable", by_name["triposr_api_biharmonic_prefill_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("--provider hunyuan3d-shape", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("{output_dir}/output_mesh_raw.glb", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--mesh-target-max-dimension 96.0", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertEqual(by_name["mv_recon"]["method"], "external-multiview-to-mesh")
         self.assertIn("{input_bundle}", by_name["mv_recon"]["direct_mesh_command"])
 

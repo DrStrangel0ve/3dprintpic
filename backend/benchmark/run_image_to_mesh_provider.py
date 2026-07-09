@@ -12,7 +12,12 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from backend.benchmark.direct_mesh import MESH_REPAIR_MODES, convert_mesh_to_stl, repair_mesh_for_printable_stl
+from backend.benchmark.direct_mesh import (
+    MESH_REPAIR_MODES,
+    convert_mesh_to_stl,
+    postprocess_mesh_for_stl,
+    repair_mesh_for_printable_stl,
+)
 from backend.benchmark.mesh_rendering import load_mesh
 
 
@@ -235,6 +240,18 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
             shutil.copy2(output_mesh, raw_output_mesh)
         output_mesh = repair_mesh_for_printable_stl(raw_output_mesh, args.output_mesh, args.mesh_repair)
 
+    if args.mesh_target_max_dimension > 0 or args.mesh_min_bbox_dimension > 0 or args.mesh_target_faces > 0:
+        if args.raw_output_mesh and args.mesh_repair == "none" and output_mesh.resolve() != args.raw_output_mesh.resolve():
+            args.raw_output_mesh.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(output_mesh, args.raw_output_mesh)
+        output_mesh = postprocess_mesh_for_stl(
+            output_mesh,
+            args.output_mesh,
+            target_max_dimension=args.mesh_target_max_dimension,
+            min_bbox_dimension=args.mesh_min_bbox_dimension,
+            target_faces=args.mesh_target_faces,
+        )
+
     output_stl = None
     if args.output_stl:
         output_stl = convert_mesh_to_stl(output_mesh, args.output_stl)
@@ -274,6 +291,33 @@ def main() -> None:
             "Postprocess the provider mesh before STL export. 'basic' keeps the largest connected body and "
             "runs Trimesh cleanup; 'convex-hull' forces a watertight hull; 'printable' tries basic repair and "
             "falls back to a hull only if watertight/volume/single-component checks still fail."
+        ),
+    )
+    parser.add_argument(
+        "--mesh-target-max-dimension",
+        type=float,
+        default=0.0,
+        help=(
+            "If positive, center and uniformly scale the provider mesh so its longest bounding-box side "
+            "matches this STL-space dimension before STL export."
+        ),
+    )
+    parser.add_argument(
+        "--mesh-min-bbox-dimension",
+        type=float,
+        default=0.0,
+        help=(
+            "If positive, anisotropically thicken any bounding-box axis below this dimension after max-size "
+            "scaling. This is an opt-in printable-compactness probe and may distort shape."
+        ),
+    )
+    parser.add_argument(
+        "--mesh-target-faces",
+        type=int,
+        default=0,
+        help=(
+            "If positive, attempt quadric decimation to this face count after scaling. Environments without "
+            "the optional Trimesh simplification backend leave the mesh unchanged."
         ),
     )
     parser.add_argument("--provider-arg", action="append", default=[])

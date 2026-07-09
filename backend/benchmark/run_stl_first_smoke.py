@@ -33,6 +33,9 @@ def image_to_mesh_command(
     output_mesh_repair: str = "none",
     output_mesh_raw: bool = False,
     raw_output_ext: str = "obj",
+    mesh_target_max_dimension: float = 0.0,
+    mesh_min_bbox_dimension: float = 0.0,
+    mesh_target_faces: int = 0,
     output_extra: list[str] | None = None,
 ) -> str:
     command = [
@@ -59,6 +62,12 @@ def image_to_mesh_command(
         command.extend(["--raw-output-mesh", f'"{{output_dir}}/output_mesh_raw.{raw_ext}"'])
     if output_mesh_repair != "none":
         command.extend(["--mesh-repair", output_mesh_repair])
+    if mesh_target_max_dimension > 0:
+        command.extend(["--mesh-target-max-dimension", str(mesh_target_max_dimension)])
+    if mesh_min_bbox_dimension > 0:
+        command.extend(["--mesh-min-bbox-dimension", str(mesh_min_bbox_dimension)])
+    if mesh_target_faces > 0:
+        command.extend(["--mesh-target-faces", str(mesh_target_faces)])
     command.extend(output_extra or [])
     return " ".join(command)
 
@@ -73,6 +82,9 @@ def triposr_api_command(args: argparse.Namespace, repaired: bool) -> str:
         output_mesh_repair=args.mesh_repair if repaired else "none",
         output_mesh_raw=repaired,
         raw_output_ext="obj",
+        mesh_target_max_dimension=getattr(args, "mesh_target_max_dimension", 0.0),
+        mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0),
+        mesh_target_faces=getattr(args, "mesh_target_faces", 0),
         output_extra=["--chunk-size", str(args.chunk_size), "--mc-resolution", str(args.mc_resolution)],
     )
 
@@ -87,6 +99,9 @@ def hunyuan3d_command(args: argparse.Namespace, repaired: bool) -> str:
         output_mesh_repair=args.mesh_repair if repaired else "none",
         output_mesh_raw=repaired,
         raw_output_ext="glb",
+        mesh_target_max_dimension=getattr(args, "mesh_target_max_dimension", 0.0),
+        mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0),
+        mesh_target_faces=getattr(args, "mesh_target_faces", 0),
     )
 
 
@@ -363,6 +378,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-size", type=int, default=8192)
     parser.add_argument("--mc-resolution", type=int, default=256)
     parser.add_argument("--mesh-repair", choices=("basic", "convex-hull", "printable"), default="printable")
+    parser.add_argument(
+        "--mesh-target-max-dimension",
+        type=float,
+        default=0.0,
+        help="If positive, scale direct provider meshes to this STL-space max bbox side before export.",
+    )
+    parser.add_argument(
+        "--mesh-min-bbox-dimension",
+        type=float,
+        default=0.0,
+        help="If positive, thicken direct provider mesh bbox axes below this STL-space dimension.",
+    )
+    parser.add_argument(
+        "--mesh-target-faces",
+        type=int,
+        default=0,
+        help="If positive, attempt Trimesh quadric decimation on provider meshes before export.",
+    )
     parser.add_argument("--direct-mesh-timeout", type=int, default=3600)
     parser.add_argument("--multiview-command", default=None)
     parser.add_argument("--multiview-name", default="external_multiview_reconstruction")

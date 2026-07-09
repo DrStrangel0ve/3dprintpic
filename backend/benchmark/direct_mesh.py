@@ -293,6 +293,89 @@ def repair_mesh_for_printable_stl(mesh_path: Path, output_path: Path, mode: str 
     return output_path
 
 
+def _valid_extents(mesh) -> np.ndarray | None:
+    extents = np.asarray(mesh.extents, dtype=np.float64)
+    if extents.shape != (3,) or not np.all(np.isfinite(extents)) or not np.all(extents > 0):
+        return None
+    return extents
+
+
+def _center_mesh_on_origin(mesh):
+    centered = mesh.copy()
+    bounds = np.asarray(centered.bounds, dtype=np.float64)
+    if bounds.shape == (2, 3) and np.all(np.isfinite(bounds)):
+        centered.apply_translation(-bounds.mean(axis=0))
+    return centered
+
+
+def _scale_to_max_dimension(mesh, target_max_dimension: float):
+    if target_max_dimension <= 0:
+        return mesh
+    extents = _valid_extents(mesh)
+    if extents is None:
+        return mesh
+    max_extent = float(np.max(extents))
+    if max_extent <= 0 or not math.isfinite(max_extent):
+        return mesh
+    scaled = _center_mesh_on_origin(mesh)
+    scaled.apply_scale(float(target_max_dimension) / max_extent)
+    return scaled
+
+
+def _enforce_min_bbox_dimension(mesh, min_bbox_dimension: float):
+    if min_bbox_dimension <= 0:
+        return mesh
+    extents = _valid_extents(mesh)
+    if extents is None:
+        return mesh
+    factors = np.ones(3, dtype=np.float64)
+    small = extents < float(min_bbox_dimension)
+    if not np.any(small):
+        return mesh
+    factors[small] = float(min_bbox_dimension) / extents[small]
+    compacted = mesh.copy()
+    bounds = np.asarray(compacted.bounds, dtype=np.float64)
+    center = bounds.mean(axis=0) if bounds.shape == (2, 3) and np.all(np.isfinite(bounds)) else np.zeros(3)
+    compacted.vertices = (np.asarray(compacted.vertices, dtype=np.float64) - center) * factors + center
+    return compacted
+
+
+def _simplify_to_face_count(mesh, target_faces: int):
+    target_faces = int(target_faces or 0)
+    if target_faces <= 0 or len(mesh.faces) <= target_faces:
+        return mesh
+    simplify = getattr(mesh, "simplify_quadric_decimation", None)
+    if simplify is None:
+        return mesh
+    try:
+        simplified = simplify(face_count=target_faces)
+    except Exception:
+        return mesh
+    if not len(simplified.vertices) or not len(simplified.faces):
+        return mesh
+    return simplified
+
+
+def postprocess_mesh_for_stl(
+    mesh_path: Path,
+    output_path: Path,
+    *,
+    target_max_dimension: float = 0.0,
+    min_bbox_dimension: float = 0.0,
+    target_faces: int = 0,
+) -> Path:
+    mesh = load_mesh(mesh_path)
+    if not len(mesh.vertices) or not len(mesh.faces):
+        raise ValueError(f"Mesh postprocess input has no triangles: {mesh_path}")
+    processed = _scale_to_max_dimension(mesh, float(target_max_dimension or 0.0))
+    processed = _enforce_min_bbox_dimension(processed, float(min_bbox_dimension or 0.0))
+    processed = _simplify_to_face_count(processed, int(target_faces or 0))
+    processed.remove_unreferenced_vertices()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    processed.export(output_path)
+    return output_path
+
+
 def run_direct_mesh(sample: dict, method: str, output_dir: Path, args) -> tuple[Path, Path, Path, Path | None]:
     output_dir.mkdir(parents=True, exist_ok=True)
     input_image = direct_mesh_input_path(sample, getattr(args, "direct_mesh_input", "masked"), output_dir)
