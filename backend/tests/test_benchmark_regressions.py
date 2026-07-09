@@ -373,6 +373,54 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertEqual(rows[0]["stl_single_component"], "True")
         self.assertEqual(rows[0]["stl_positive_volume"], "True")
 
+    def test_run_completion_benchmark_limit_zero_writes_empty_outputs_without_running(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "manifest.jsonl"
+            manifest_path.write_text(
+                "\n".join(
+                    [
+                        json.dumps({"id": "sample_0", "masked_image": "missing.png"}),
+                        json.dumps({"id": "sample_1", "masked_image": "missing.png"}),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            output_dir = root / "run"
+
+            with patch.object(run_completion_benchmark, "run_one", side_effect=AssertionError("run_one should not execute")):
+                with patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "run_completion_benchmark",
+                        "--manifest",
+                        str(manifest_path),
+                        "--output-dir",
+                        str(output_dir),
+                        "--methods",
+                        "masked",
+                        "--limit",
+                        "0",
+                    ],
+                ):
+                    run_completion_benchmark.main()
+
+            with (output_dir / "split_audit.json").open(encoding="utf-8") as audit_file:
+                audit = json.load(audit_file)
+            with (output_dir / "per_sample_metrics.csv").open(newline="", encoding="utf-8") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+            with (output_dir / "summary_metrics.csv").open(newline="", encoding="utf-8") as csv_file:
+                summary = list(csv.DictReader(csv_file))
+
+        self.assertEqual(audit["limit"], 0)
+        self.assertEqual(audit["eval_n"], 0)
+        self.assertEqual(rows, [])
+        self.assertEqual(summary[0]["method"], "masked")
+        self.assertEqual(summary[0]["attempted_n"], "0")
+        self.assertEqual(summary[0]["n"], "0")
+
     def test_external_image_to_mesh_command_emits_stl_without_depth(self):
         import trimesh
 
@@ -1259,6 +1307,66 @@ class StlExportRegressionTests(unittest.TestCase):
                     "32",
                     "--model-name",
                     "unit/triposr",
+                ],
+            ):
+                run_image_to_mesh_provider_main()
+
+            diagnostics = stl_diagnostics(output_stl)
+            output_mesh_exists = output_mesh.exists()
+            output_stl_exists = output_stl.exists()
+
+        self.assertTrue(output_mesh_exists)
+        self.assertTrue(output_stl_exists)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
+
+    def test_hunyuan3d_shape_provider_exports_mesh_from_repo_pipeline(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            provider_dir = root / "fake_hunyuan"
+            package_dir = provider_dir / "hy3dshape" / "hy3dshape"
+            package_dir.mkdir(parents=True)
+            (package_dir / "__init__.py").write_text("", encoding="utf-8")
+            (package_dir / "pipelines.py").write_text(
+                "import trimesh\n"
+                "\n"
+                "class Hunyuan3DDiTFlowMatchingPipeline:\n"
+                "    @classmethod\n"
+                "    def from_pretrained(cls, model_name, device='cuda', dtype=None):\n"
+                "        assert model_name == 'unit/hunyuan'\n"
+                "        assert str(device) == 'cpu'\n"
+                "        assert 'float32' in str(dtype)\n"
+                "        return cls()\n"
+                "\n"
+                "    def __call__(self, image):\n"
+                "        assert image.endswith('input.png')\n"
+                "        return [trimesh.creation.box(extents=(1.0, 0.75, 0.5))]\n",
+                encoding="utf-8",
+            )
+            input_image = root / "input.png"
+            output_mesh = root / "hunyuan.glb"
+            output_stl = root / "hunyuan.stl"
+            Image.new("RGB", (8, 8), (127, 127, 127)).save(input_image)
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_image_to_mesh_provider",
+                    "--provider",
+                    "hunyuan3d-shape",
+                    "--provider-dir",
+                    str(provider_dir),
+                    "--input-image",
+                    str(input_image),
+                    "--output-mesh",
+                    str(output_mesh),
+                    "--output-stl",
+                    str(output_stl),
+                    "--provider-device",
+                    "cpu",
+                    "--model-name",
+                    "unit/hunyuan",
                 ],
             ):
                 run_image_to_mesh_provider_main()
@@ -2163,6 +2271,62 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("transformers==4.35.0", archive_run_script)
         self.assertIn("git+https://github.com/tatsy/torchmcubes.git", archive_run_script)
         self.assertIn("--candidate-method triposr_api_masked_repaired_stl_mirror_bbox_direct_mesh", archive_run_script)
+
+    def test_package_inputs_can_embed_hunyuan3d_provider_setup(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dataset = root / "dataset"
+            dataset.mkdir()
+            full = dataset / "full.png"
+            masked = dataset / "masked.png"
+            mask = dataset / "mask.png"
+            for path in (full, masked, mask):
+                path.write_bytes(b"asset")
+            manifest = dataset / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "id": "sample",
+                        "full_image": str(full.relative_to(root)),
+                        "masked_image": str(masked.relative_to(root)),
+                        "mask": str(mask.relative_to(root)),
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            archive = root / "hunyuan_bundle.tar.gz"
+
+            report = package_inputs(
+                manifest=manifest,
+                output=archive,
+                extract_root="/content/inputs/hunyuan",
+                root=root,
+                include_run_script=True,
+                colab_archive_path="/content/hunyuan_bundle.tar.gz",
+                run_name="g4_hunyuan_setup",
+                modern_config="backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_hunyuan3d_shape_candidate.json",
+                skip_cache=True,
+                eval_starts=[0],
+                eval_limit=1,
+                score_profile="stl-quality",
+                candidate_method="hunyuan3d_shape_masked_repaired_stl_scaled_compact_direct_mesh",
+                current_method="mirror",
+                include_hunyuan3d_setup=True,
+            )
+            with tarfile.open(archive, "r:gz") as tar:
+                archive_run_script = tar.extractfile("run_colab_eval.sh").read().decode("utf-8")
+
+        self.assertTrue(report["include_hunyuan3d_setup"])
+        self.assertIn("https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1", archive_run_script)
+        self.assertIn('HUNYUAN3D_VENV="${HUNYUAN3D_VENV:-/content/hunyuan3d-venv}"', archive_run_script)
+        self.assertIn('export PYTHONPATH="$HUNYUAN3D_DIR/hy3dshape:$HUNYUAN3D_DIR:${PYTHONPATH:-}"', archive_run_script)
+        self.assertIn("'hy3dshape.pipelines'", archive_run_script)
+        self.assertIn("'pymeshlab'", archive_run_script)
+        self.assertIn("timm torchdiffeq pymeshlab", archive_run_script)
+        self.assertIn("diffusers==0.30.0", archive_run_script)
+        self.assertIn("transformers==4.46.0", archive_run_script)
+        self.assertIn("--candidate-method hunyuan3d_shape_masked_repaired_stl_scaled_compact_direct_mesh", archive_run_script)
 
 
 class TrainingProvenanceRegressionTests(unittest.TestCase):

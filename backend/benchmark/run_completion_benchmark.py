@@ -918,6 +918,8 @@ def main():
         raise ValueError("--emit-stl requires depth generation for non-direct-mesh methods; remove --skip-depth")
     if args.start_index < 0:
         raise ValueError("--start-index must be non-negative")
+    if args.limit < 0:
+        raise ValueError("--limit must be non-negative")
     if args.max_method_failures < 0:
         raise ValueError("--max-method-failures must be non-negative")
     if args.mesh_surface_max_points <= 0:
@@ -934,6 +936,8 @@ def main():
     samples = []
     with open(args.manifest, encoding="utf-8") as manifest_file:
         for manifest_index, line in enumerate(manifest_file):
+            if args.limit == 0:
+                break
             if manifest_index < args.start_index:
                 continue
             samples.append(json.loads(line))
@@ -1000,7 +1004,7 @@ def main():
             writer.writerows(rows)
     else:
         failures = load_jsonl(failures_path)
-        if not args.continue_on_error or not failures:
+        if samples and (not args.continue_on_error or not failures):
             raise ValueError("No benchmark rows produced")
         with per_sample_path.open("w", newline="", encoding="utf-8") as csv_file:
             writer = csv.DictWriter(csv_file, fieldnames=["sample_id", "method"])
@@ -1009,7 +1013,7 @@ def main():
     failures = load_jsonl(failures_path)
     summary = (
         summarize(rows, methods=methods, attempted_n=len(samples), failures=failures)
-        if rows
+        if rows or not failures
         else summarize_failures(failures, methods=methods, attempted_n=len(samples))
     )
     summary_path = output_dir / "summary_metrics.csv"

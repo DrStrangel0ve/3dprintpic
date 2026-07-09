@@ -25,6 +25,7 @@ from backend.benchmark.mesh_rendering import load_mesh
 MESH_EXTENSIONS = (".glb", ".gltf", ".obj", ".ply", ".stl")
 MESH_EXTENSION_PRIORITY = {".glb": 5, ".gltf": 4, ".obj": 3, ".ply": 2, ".stl": 1}
 TRIPOSR_API_PROVIDER = "triposr-api"
+HUNYUAN3D_SHAPE_PROVIDER = "hunyuan3d-shape"
 DEFAULT_TRIPOSR_MODEL = "stabilityai/TripoSR"
 DEFAULT_HUNYUAN3D_MODEL = "tencent/Hunyuan3D-2.1"
 
@@ -52,7 +53,7 @@ CLI_PROVIDERS = {
     },
 }
 
-PROVIDERS = tuple(sorted((*CLI_PROVIDERS, TRIPOSR_API_PROVIDER, "hunyuan3d-shape")))
+PROVIDERS = tuple(sorted((*CLI_PROVIDERS, TRIPOSR_API_PROVIDER, HUNYUAN3D_SHAPE_PROVIDER)))
 
 
 def parse_bbox_extents(value: str) -> tuple[float, float, float] | None:
@@ -167,14 +168,27 @@ def run_cli_provider(args: argparse.Namespace) -> Path:
 
 
 def run_hunyuan_shape(args: argparse.Namespace) -> Path:
-    if args.provider_dir:
-        provider_dir = Path(args.provider_dir)
+    provider_dir_value = args.provider_dir or os.environ.get("HUNYUAN3D_DIR")
+    if provider_dir_value:
+        provider_dir = Path(provider_dir_value)
         sys.path.insert(0, str(provider_dir))
         sys.path.insert(0, str(provider_dir / "hy3dshape"))
+    import torch
     from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
 
-    pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(args.model_name or DEFAULT_HUNYUAN3D_MODEL)
-    mesh = pipeline(image=str(args.input_image))[0]
+    device = args.provider_device or "cuda"
+    if str(device).startswith("cuda") and not torch.cuda.is_available():
+        device = "cpu"
+    dtype = torch.float16 if str(device).startswith("cuda") else torch.float32
+    pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
+        args.model_name or DEFAULT_HUNYUAN3D_MODEL,
+        device=device,
+        dtype=dtype,
+    )
+    if args.low_vram and str(device).startswith("cuda") and hasattr(pipeline, "enable_model_cpu_offload"):
+        pipeline.enable_model_cpu_offload(device=device)
+    with torch.no_grad():
+        mesh = pipeline(image=str(args.input_image))[0]
     args.output_mesh.parent.mkdir(parents=True, exist_ok=True)
     mesh.export(args.output_mesh)
     return args.output_mesh
@@ -243,7 +257,7 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
         output_mesh = export_mesh(provider_mesh, args.output_mesh)
     elif args.provider == TRIPOSR_API_PROVIDER:
         output_mesh = run_triposr_api(args)
-    elif args.provider == "hunyuan3d-shape":
+    elif args.provider == HUNYUAN3D_SHAPE_PROVIDER:
         output_mesh = run_hunyuan_shape(args)
     else:
         raise ValueError(f"Unsupported provider: {args.provider}")
