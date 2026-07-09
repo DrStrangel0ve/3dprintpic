@@ -160,8 +160,9 @@ One-time Colab setup:
 
 ```bash
 cd /content
-git clone https://github.com/Stability-AI/stable-point-aware-3d /content/stable-point-aware-3d
+git clone --recurse-submodules https://github.com/Stability-AI/stable-point-aware-3d /content/stable-point-aware-3d
 cd /content/stable-point-aware-3d
+git submodule update --init --recursive
 pip install -U setuptools==69.5.1 wheel
 pip install -r requirements.txt
 huggingface-cli login
