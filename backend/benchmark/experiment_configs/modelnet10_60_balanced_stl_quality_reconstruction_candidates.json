@@ -1,19 +1,23 @@
 [
   {
     "name": "masked",
-    "method": "masked"
+    "method": "masked",
+    "stl_mode": "depth-relief"
   },
   {
     "name": "mirror",
-    "method": "mirror"
+    "method": "mirror",
+    "stl_mode": "depth-relief"
   },
   {
     "name": "biharmonic",
-    "method": "biharmonic"
+    "method": "biharmonic",
+    "stl_mode": "depth-relief"
   },
   {
     "name": "source_mesh_oracle",
     "method": "source-mesh-oracle",
+    "stl_mode": "source-mesh-oracle",
     "skip_depth": true,
     "emit_stl": true,
     "direct_mesh_input": "full",
@@ -23,6 +27,7 @@
   {
     "name": "triposr_api_masked_repaired_direct_mesh",
     "method": "external-image-to-mesh",
+    "stl_mode": "single-image-mesh",
     "skip_depth": true,
     "emit_stl": true,
     "direct_mesh_input": "masked",
@@ -33,6 +38,7 @@
   {
     "name": "triposr_api_masked_repaired_stl_scaled_compact_direct_mesh",
     "method": "external-image-to-mesh",
+    "stl_mode": "single-image-mesh",
     "skip_depth": true,
     "emit_stl": true,
     "direct_mesh_input": "masked",
@@ -43,6 +49,7 @@
   {
     "name": "triposr_api_masked_repaired_stl_aspect_clamped2p25_direct_mesh",
     "method": "external-image-to-mesh",
+    "stl_mode": "single-image-mesh",
     "skip_depth": true,
     "emit_stl": true,
     "direct_mesh_input": "masked",
@@ -53,6 +60,7 @@
   {
     "name": "hunyuan3d_shape_masked_repaired_direct_mesh",
     "method": "external-image-to-mesh",
+    "stl_mode": "single-image-mesh",
     "skip_depth": true,
     "emit_stl": true,
     "direct_mesh_input": "masked",

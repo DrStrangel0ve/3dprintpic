@@ -292,6 +292,7 @@ class StlExportRegressionTests(unittest.TestCase):
                 summary = list(csv.DictReader(csv_file))
 
         self.assertEqual(rows[0]["method"], "source-mesh-oracle")
+        self.assertEqual(rows[0]["stl_mode"], "source-mesh-oracle")
         self.assertEqual(rows[0]["stl_exists"], "True")
         self.assertEqual(rows[0]["stl_is_volume"], "True")
         self.assertEqual(rows[0]["stl_single_component"], "True")
@@ -447,6 +448,7 @@ class StlExportRegressionTests(unittest.TestCase):
                 rows = list(csv.DictReader(csv_file))
 
         self.assertEqual(rows[0]["method"], "external-image-to-mesh")
+        self.assertEqual(rows[0]["stl_mode"], "single-image-mesh")
         self.assertEqual(rows[0]["stl_exists"], "True")
         self.assertIn("output_model.stl", rows[0]["stl_model"])
         self.assertIn("output_mesh.ply", rows[0]["direct_mesh_output_mesh"])
@@ -1327,8 +1329,11 @@ class StlExportRegressionTests(unittest.TestCase):
         by_name = {experiment["name"]: experiment for experiment in experiments}
 
         self.assertEqual([experiment["name"] for experiment in experiments[:3]], ["masked", "mirror", "biharmonic"])
+        self.assertEqual(by_name["masked"]["stl_mode"], "depth-relief")
         self.assertEqual(by_name["source_mesh_oracle"]["method"], "source-mesh-oracle")
+        self.assertEqual(by_name["source_mesh_oracle"]["stl_mode"], "source-mesh-oracle")
         self.assertEqual(by_name["source_mesh_oracle"]["source_mesh_repair"], "printable")
+        self.assertEqual(by_name["triposr_api_masked_repaired_direct_mesh"]["stl_mode"], "single-image-mesh")
         self.assertIn("--provider triposr-api", by_name["triposr_api_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertEqual(by_name["triposr_api_mirror_prefill_repaired_direct_mesh"]["direct_mesh_input"], "mirror")
         self.assertIn("--mesh-repair printable", by_name["triposr_api_mirror_prefill_repaired_direct_mesh"]["direct_mesh_command"])
@@ -1342,6 +1347,7 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("{output_dir}/output_mesh_raw.glb", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("--mesh-target-max-dimension 96.0", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertEqual(by_name["mv_recon"]["method"], "external-multiview-to-mesh")
+        self.assertEqual(by_name["mv_recon"]["stl_mode"], "multiview-mesh")
         self.assertIn("{input_bundle}", by_name["mv_recon"]["direct_mesh_command"])
 
     def test_stl_first_smoke_optimize_command_uses_stl_quality_profile(self):
@@ -2663,6 +2669,31 @@ class OptimizeCompletionRegressionTests(unittest.TestCase):
         self.assertEqual(experiment_metadata(modern, default_edit_mask_fill="mirror")["edit_mask_fill"], "mirror")
         self.assertEqual(experiment_metadata(modern, default_edit_mask_fill="input")["edit_mask_fill"], "")
         self.assertEqual(experiment_metadata(deterministic, default_edit_mask_fill="mirror")["edit_mask_fill"], "")
+
+    def test_experiment_metadata_records_stl_mode(self):
+        self.assertEqual(
+            experiment_metadata({"name": "mirror", "method": "mirror"}, default_emit_stl=True)["stl_mode"],
+            "depth-relief",
+        )
+        self.assertEqual(
+            experiment_metadata({"name": "triposr", "method": "external-image-to-mesh"})["stl_mode"],
+            "single-image-mesh",
+        )
+        self.assertEqual(
+            experiment_metadata({"name": "mv", "method": "external-multiview-to-mesh"})["stl_mode"],
+            "multiview-mesh",
+        )
+
+    def test_load_experiments_rejects_unknown_stl_mode(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "bad_stl_mode.json"
+            config_path.write_text(
+                json.dumps([{"name": "bad", "method": "mirror", "stl_mode": "preview-only"}]),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "Unknown stl_mode"):
+                load_experiments(str(config_path))
 
     def test_modern_cache_preflight_fails_fast_for_missing_files(self):
         def fake_planner(provider, full, revision, local_dir, model_name=None):

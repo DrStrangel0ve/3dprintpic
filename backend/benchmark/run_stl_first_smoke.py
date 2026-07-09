@@ -9,6 +9,13 @@ import sys
 import time
 from pathlib import Path
 
+from backend.benchmark.stl_modes import (
+    STL_MODE_DEPTH_RELIEF,
+    STL_MODE_MULTIVIEW_MESH,
+    STL_MODE_SINGLE_IMAGE_MESH,
+    STL_MODE_SOURCE_MESH_ORACLE,
+)
+
 
 DEFAULT_DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Small-hf"
 DEFAULT_TRIPOSR_PYTHON = "/content/triposr-venv/bin/python"
@@ -112,15 +119,16 @@ def hunyuan3d_command(args: argparse.Namespace, repaired: bool) -> str:
 
 def build_experiments(args: argparse.Namespace) -> list[dict]:
     experiments = [
-        {"name": "masked", "method": "masked"},
-        {"name": "mirror", "method": "mirror"},
-        {"name": "biharmonic", "method": "biharmonic"},
+        {"name": "masked", "method": "masked", "stl_mode": STL_MODE_DEPTH_RELIEF},
+        {"name": "mirror", "method": "mirror", "stl_mode": STL_MODE_DEPTH_RELIEF},
+        {"name": "biharmonic", "method": "biharmonic", "stl_mode": STL_MODE_DEPTH_RELIEF},
     ]
     if args.include_source_oracle:
         experiments.append(
             {
                 "name": "source_mesh_oracle",
                 "method": "source-mesh-oracle",
+                "stl_mode": STL_MODE_SOURCE_MESH_ORACLE,
                 "skip_depth": True,
                 "emit_stl": True,
                 "direct_mesh_input": "full",
@@ -134,6 +142,7 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                 {
                     "name": "triposr_api_masked_direct_mesh",
                     "method": "external-image-to-mesh",
+                    "stl_mode": STL_MODE_SINGLE_IMAGE_MESH,
                     "skip_depth": True,
                     "emit_stl": True,
                     "direct_mesh_input": "masked",
@@ -148,6 +157,7 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                 {
                     "name": f"triposr_api_{input_suffix}_repaired_direct_mesh",
                     "method": "external-image-to-mesh",
+                    "stl_mode": STL_MODE_SINGLE_IMAGE_MESH,
                     "skip_depth": True,
                     "emit_stl": True,
                     "direct_mesh_input": direct_input,
@@ -161,6 +171,7 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
             {
                 "name": "hunyuan3d_shape_masked_repaired_direct_mesh",
                 "method": "external-image-to-mesh",
+                "stl_mode": STL_MODE_SINGLE_IMAGE_MESH,
                 "skip_depth": True,
                 "emit_stl": True,
                 "direct_mesh_input": "masked",
@@ -174,6 +185,7 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
             {
                 "name": args.multiview_name,
                 "method": "external-multiview-to-mesh",
+                "stl_mode": STL_MODE_MULTIVIEW_MESH,
                 "skip_depth": True,
                 "emit_stl": True,
                 "direct_mesh_input": args.multiview_primary_input,

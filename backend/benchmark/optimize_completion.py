@@ -28,6 +28,7 @@ from backend.benchmark.rank_methods import (
     parse_weights,
     rank_summary_rows,
 )
+from backend.benchmark.stl_modes import experiment_stl_mode, validate_stl_mode
 from backend.benchmark.select_completion_candidate import decision_markdown, evaluate_selection, json_safe
 from backend.pic_to_3d import MODERN_INPAINT_MODELS
 
@@ -100,6 +101,7 @@ def load_experiments(path: str | None, include_baselines: bool = False) -> list[
     for index, experiment in enumerate(data):
         if "method" not in experiment:
             raise ValueError(f"Experiment {index} is missing required field 'method'")
+        validate_stl_mode(experiment.get("stl_mode", ""))
         experiment.setdefault("name", experiment["method"])
     return data
 
@@ -258,7 +260,12 @@ def run_experiment(args, experiment: dict, output_dir: Path) -> Path:
         append_optional(command, "--max-method-failures", max_method_failures)
 
     run(command)
-    annotate_per_sample_metrics(experiment, experiment_dir, default_start_index=args.start_index)
+    annotate_per_sample_metrics(
+        experiment,
+        experiment_dir,
+        default_start_index=args.start_index,
+        default_emit_stl=args.emit_stl,
+    )
     return experiment_dir / "summary_metrics.csv"
 
 
@@ -317,10 +324,16 @@ def experiment_edit_mask_fill(experiment: dict, default_edit_mask_fill="") -> st
     return "" if value in (None, "", "input") else value
 
 
-def experiment_metadata(experiment: dict, default_start_index=0, default_edit_mask_fill="") -> dict[str, object]:
+def experiment_metadata(
+    experiment: dict,
+    default_start_index=0,
+    default_edit_mask_fill="",
+    default_emit_stl=False,
+) -> dict[str, object]:
     metadata = {
         "method": experiment["name"],
         "base_method": experiment["method"],
+        "stl_mode": experiment_stl_mode(experiment, default_emit_stl=default_emit_stl),
         "prompt": experiment.get("prompt", ""),
         "steps": experiment.get("steps", ""),
         "guidance": experiment.get("guidance", ""),
@@ -337,16 +350,22 @@ def experiment_metadata(experiment: dict, default_start_index=0, default_edit_ma
     return metadata
 
 
-def per_sample_metadata(experiment: dict, default_start_index=0) -> dict[str, object]:
+def per_sample_metadata(experiment: dict, default_start_index=0, default_emit_stl=False) -> dict[str, object]:
     return {
         "method": experiment["name"],
         "base_method": experiment["method"],
+        "stl_mode": experiment_stl_mode(experiment, default_emit_stl=default_emit_stl),
         "source_mesh_repair": experiment.get("source_mesh_repair", ""),
         "start_index": experiment.get("start_index", default_start_index),
     }
 
 
-def annotate_per_sample_metrics(experiment: dict, experiment_dir: Path, default_start_index=0) -> None:
+def annotate_per_sample_metrics(
+    experiment: dict,
+    experiment_dir: Path,
+    default_start_index=0,
+    default_emit_stl=False,
+) -> None:
     per_sample_path = experiment_dir / "per_sample_metrics.csv"
     if not per_sample_path.exists():
         return
@@ -358,7 +377,11 @@ def annotate_per_sample_metrics(experiment: dict, experiment_dir: Path, default_
     if not rows:
         return
 
-    metadata = per_sample_metadata(experiment, default_start_index=default_start_index)
+    metadata = per_sample_metadata(
+        experiment,
+        default_start_index=default_start_index,
+        default_emit_stl=default_emit_stl,
+    )
     for row in rows:
         row["base_method"] = row.get("base_method") or row.get("method", "") or experiment["method"]
         row.update(metadata)
@@ -377,7 +400,11 @@ def annotate_per_sample_metrics(experiment: dict, experiment_dir: Path, default_
 
 
 def aggregate_summaries(
-    summaries: list[tuple[dict, Path]], output_dir: Path, default_start_index=0, default_edit_mask_fill=""
+    summaries: list[tuple[dict, Path]],
+    output_dir: Path,
+    default_start_index=0,
+    default_edit_mask_fill="",
+    default_emit_stl=False,
 ) -> Path:
     rows = []
     fieldnames = []
@@ -389,6 +416,7 @@ def aggregate_summaries(
                         experiment,
                         default_start_index=default_start_index,
                         default_edit_mask_fill=default_edit_mask_fill,
+                        default_emit_stl=default_emit_stl,
                     )
                 )
                 rows.append(row)
@@ -517,6 +545,7 @@ def write_resolved_config(args, experiments: list[dict], output_dir: Path) -> Pa
             "depth_model": args.depth_model,
             "device": args.device,
             "emit_stl": args.emit_stl,
+            "stl_mode": experiment_stl_mode({"method": "", "emit_stl": args.emit_stl}),
             "stl_target_dimension": args.stl_target_dimension,
             "stl_z_scale": args.stl_z_scale,
             "stl_sigma": args.stl_sigma,
@@ -614,6 +643,7 @@ def write_experiment_report(
             [
                 experiment.get("name", experiment.get("method", "")),
                 experiment.get("method", ""),
+                experiment_stl_mode(experiment, default_emit_stl=args.emit_stl),
                 experiment.get("steps", args.steps),
                 experiment.get("guidance", args.guidance),
                 experiment.get("seed", args.seed),
@@ -774,6 +804,7 @@ def write_experiment_report(
                 [
                     "Name",
                     "Base Method",
+                    "STL Mode",
                     "Steps",
                     "Guidance",
                     "Seed",
@@ -1039,6 +1070,7 @@ def main() -> None:
         output_dir,
         default_start_index=args.start_index,
         default_edit_mask_fill=args.edit_mask_fill,
+        default_emit_stl=args.emit_stl,
     )
 
     ranked_path = output_dir / "ranked_experiments.csv"

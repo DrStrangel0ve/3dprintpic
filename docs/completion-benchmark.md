@@ -152,9 +152,11 @@ This run compares the existing depth-to-STL relief path with a direct source-mes
 | mirror | 2 | -0.0366 | 0.1856 | 0.4749 | 1.0 | 1.0 | 1 | 0 |
 | source_mesh_oracle | 2 | -7.9074 | 0.0000 | 0.0000 | 0.0 | 0.0 | 198 | 4.0202 |
 
-Use `external-image-to-mesh` to plug in a real image-to-3D backend. The command template receives `{input_image}`, `{masked_image}`, `{full_image}`, `{mask}`, `{output_mesh}`, `{output_stl}`, `{output_dir}`, `{sample_id}`, and `{method}`. The external process may write either `{output_stl}` directly or a mesh at `{output_mesh}`; the harness converts a mesh output to STL before scoring. Provider meshes can opt into STL-space postprocess before export with `--mesh-target-max-dimension`, `--mesh-min-bbox-dimension`, and `--mesh-target-faces` on `backend.benchmark.run_image_to_mesh_provider`.
+Use `external-image-to-mesh` to plug in a real image-to-3D backend. The command template receives `{input_image}`, `{input_bundle}`, `{masked_image}`, `{full_image}`, `{mask}`, `{output_mesh}`, `{output_stl}`, `{output_dir}`, `{sample_id}`, and `{method}`. The external process may write either `{output_stl}` directly or a mesh at `{output_mesh}`; the harness converts a mesh output to STL before scoring. Provider meshes can opt into STL-space postprocess before export with `--mesh-target-max-dimension`, `--mesh-min-bbox-dimension`, and `--mesh-target-faces` on `backend.benchmark.run_image_to_mesh_provider`.
 
-SPAR3D is the first direct mesh provider target for the G4 lane. It is a modern feed-forward single-image mesh reconstructor that improves the hidden/back side of meshes with point-cloud conditioning, emits GLB through its official `run.py`, and fits comfortably on the Colab G4 VRAM budget. The model is gated on Hugging Face, so accept the model license and log in before running this branch. TripoSR is the no-gate fallback if SPAR3D access is unavailable.
+STL-first configs and reports now label each architecture with `stl_mode`: `depth-relief` for the existing completion/depth/STL baseline, `single-image-mesh` for direct image-to-mesh providers such as TripoSR or Hunyuan3D shape, `multiview-mesh` for video/multiview reconstruction providers, and `source-mesh-oracle` for ground-truth diagnostic runs. `optimize_completion` infers the mode when a config omits it, but explicit labels make JSON configs and aggregate reports easier to audit.
+
+Provider priority for the G4 lane is now: TripoSR API as the permissive smoke-test baseline, Hunyuan3D shape-only as the next quality candidate, then InstantMesh/TRELLIS/SF3D-style candidates if setup and license constraints are acceptable. SV3D/VGGT/COLMAP/OpenMVS-style methods belong in the `external-multiview-to-mesh` lane because they synthesize views, cameras, depths, or point clouds before any final STL-producing mesh stage. SPAR3D remains documented below as an attempted direct mesh provider, but the current Colab image hit install friction and it should not block TripoSR/Hunyuan iteration.
 
 One-time Colab setup:
 
@@ -1206,6 +1208,8 @@ Interpretation: geometry-prefilling the Qwen edit input did not rescue this prov
 STL-first next phase:
 
 The end product is a printable STL, not a better-looking 3D preview. Keep the current depth/inpaint benchmark as the fast baseline, but compare it against STL-native branches by emitting STLs and ranking or optimizing with `--score-profile stl-quality`. This profile ranks final STL validity, mesh quality, complexity, and available surface/depth agreement metrics. Each emitted STL now records `stl_is_volume`, `stl_winding_consistent`, `stl_single_component`, `stl_component_excess`, `stl_bbox_has_volume`, bounding-box dimensions/aspect, and log-scaled face-density proxies in addition to watertightness, positive volume, face count, surface area, and volume.
+
+Use `stl_mode` in configs and reports to keep comparisons honest: `depth-relief` for the current image completion plus depth relief STL, `single-image-mesh` for direct image-to-mesh providers, `multiview-mesh` for video/multiview reconstruction providers, and `source-mesh-oracle` only for ground-truth diagnostics. The runner infers these labels for old configs, but new STL-first configs should set them explicitly.
 
 Next experiment lanes:
 

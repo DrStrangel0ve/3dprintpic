@@ -1,15 +1,18 @@
 [
   {
     "name": "masked",
-    "method": "masked"
+    "method": "masked",
+    "stl_mode": "depth-relief"
   },
   {
     "name": "mirror",
-    "method": "mirror"
+    "method": "mirror",
+    "stl_mode": "depth-relief"
   },
   {
     "name": "triposr_api_masked_repaired_stl_mirror_bbox_direct_mesh",
     "method": "external-image-to-mesh",
+    "stl_mode": "single-image-mesh",
     "skip_depth": true,
     "emit_stl": true,
     "direct_mesh_input": "masked",
