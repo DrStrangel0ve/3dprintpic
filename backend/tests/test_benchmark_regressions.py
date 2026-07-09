@@ -458,6 +458,96 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
 
+    def test_triposr_api_provider_uses_preprocessed_input_without_rembg(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            provider_dir = root / "fake_triposr"
+            package_dir = provider_dir / "tsr"
+            package_dir.mkdir(parents=True)
+            input_image = root / "input.png"
+            output_mesh = root / "triposr.obj"
+            output_stl = root / "triposr.stl"
+            (package_dir / "__init__.py").write_text("", encoding="utf-8")
+            (package_dir / "system.py").write_text(
+                "\n".join(
+                    [
+                        "import sys",
+                        "import trimesh",
+                        "assert 'rembg' in sys.modules",
+                        "class Renderer:",
+                        "    def __init__(self):",
+                        "        self.chunk_size = None",
+                        "    def set_chunk_size(self, chunk_size):",
+                        "        self.chunk_size = chunk_size",
+                        "class FakeMesh:",
+                        "    def export(self, path):",
+                        "        trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(path)",
+                        "class TSR:",
+                        "    def __init__(self):",
+                        "        self.renderer = Renderer()",
+                        "    @classmethod",
+                        "    def from_pretrained(cls, model_name, config_name, weight_name):",
+                        "        assert model_name == 'unit/triposr'",
+                        "        assert config_name == 'config.yaml'",
+                        "        assert weight_name == 'model.ckpt'",
+                        "        return cls()",
+                        "    def to(self, device):",
+                        "        self.device = device",
+                        "    def __call__(self, images, device):",
+                        "        assert device == 'cpu'",
+                        "        assert len(images) == 1",
+                        "        assert images[0].mode == 'RGB'",
+                        "        assert images[0].getpixel((0, 0)) == (191, 63, 63)",
+                        "        assert self.renderer.chunk_size == 123",
+                        "        return ['scene']",
+                        "    def extract_mesh(self, scene_codes, has_vertex_color, resolution):",
+                        "        assert scene_codes == ['scene']",
+                        "        assert has_vertex_color is True",
+                        "        assert resolution == 32",
+                        "        return [FakeMesh()]",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            rgba = Image.new("RGBA", (4, 4), (255, 0, 0, 128))
+            rgba.save(input_image)
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_image_to_mesh_provider",
+                    "--provider",
+                    "triposr-api",
+                    "--provider-dir",
+                    str(provider_dir),
+                    "--input-image",
+                    str(input_image),
+                    "--output-mesh",
+                    str(output_mesh),
+                    "--output-stl",
+                    str(output_stl),
+                    "--provider-device",
+                    "cpu",
+                    "--chunk-size",
+                    "123",
+                    "--mc-resolution",
+                    "32",
+                    "--model-name",
+                    "unit/triposr",
+                ],
+            ):
+                run_image_to_mesh_provider_main()
+
+            diagnostics = stl_diagnostics(output_stl)
+            output_mesh_exists = output_mesh.exists()
+            output_stl_exists = output_stl.exists()
+
+        self.assertTrue(output_mesh_exists)
+        self.assertTrue(output_stl_exists)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
+
     def test_depth_export_rejects_no_valid_cells(self):
         depth = np.array(
             [

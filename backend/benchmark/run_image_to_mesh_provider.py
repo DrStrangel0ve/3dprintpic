@@ -6,7 +6,11 @@ import shutil
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
+
+import numpy as np
+from PIL import Image
 
 from backend.benchmark.direct_mesh import convert_mesh_to_stl
 from backend.benchmark.mesh_rendering import load_mesh
@@ -14,6 +18,9 @@ from backend.benchmark.mesh_rendering import load_mesh
 
 MESH_EXTENSIONS = (".glb", ".gltf", ".obj", ".ply", ".stl")
 MESH_EXTENSION_PRIORITY = {".glb": 5, ".gltf": 4, ".obj": 3, ".ply": 2, ".stl": 1}
+TRIPOSR_API_PROVIDER = "triposr-api"
+DEFAULT_TRIPOSR_MODEL = "stabilityai/TripoSR"
+DEFAULT_HUNYUAN3D_MODEL = "tencent/Hunyuan3D-2.1"
 
 CLI_PROVIDERS = {
     "spar3d": {
@@ -39,14 +46,18 @@ CLI_PROVIDERS = {
     },
 }
 
-PROVIDERS = tuple(sorted((*CLI_PROVIDERS, "hunyuan3d-shape")))
+PROVIDERS = tuple(sorted((*CLI_PROVIDERS, TRIPOSR_API_PROVIDER, "hunyuan3d-shape")))
+
+
+def provider_dir_config_key(provider: str) -> str:
+    return "triposr" if provider == TRIPOSR_API_PROVIDER else provider
 
 
 def resolve_provider_dir(provider: str, explicit: str | None) -> Path:
     candidates = []
     if explicit:
         candidates.append(Path(explicit))
-    config = CLI_PROVIDERS.get(provider, {})
+    config = CLI_PROVIDERS.get(provider_dir_config_key(provider), {})
     env_name = config.get("env")
     if env_name and os.environ.get(env_name):
         candidates.append(Path(os.environ[env_name]))
@@ -140,10 +151,60 @@ def run_hunyuan_shape(args: argparse.Namespace) -> Path:
         sys.path.insert(0, str(provider_dir / "hy3dshape"))
     from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
 
-    pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(args.model_name)
+    pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(args.model_name or DEFAULT_HUNYUAN3D_MODEL)
     mesh = pipeline(image=str(args.input_image))[0]
     args.output_mesh.parent.mkdir(parents=True, exist_ok=True)
     mesh.export(args.output_mesh)
+    return args.output_mesh
+
+
+def install_rembg_stub() -> None:
+    if "rembg" in sys.modules:
+        return
+    rembg = types.ModuleType("rembg")
+
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("rembg is unavailable in triposr-api mode; pass preprocessed RGB/RGBA input instead")
+
+    rembg.remove = unavailable
+    rembg.new_session = unavailable
+    sys.modules["rembg"] = rembg
+
+
+def triposr_input_image(path: Path) -> Image.Image:
+    image = Image.open(path)
+    if image.mode == "RGBA":
+        rgba = np.asarray(image).astype(np.float32) / 255.0
+        rgb = rgba[..., :3] * rgba[..., 3:4] + (1.0 - rgba[..., 3:4]) * 0.5
+        return Image.fromarray((rgb * 255.0).astype(np.uint8)).convert("RGB")
+    return image.convert("RGB")
+
+
+def run_triposr_api(args: argparse.Namespace) -> Path:
+    provider_dir = resolve_provider_dir(TRIPOSR_API_PROVIDER, args.provider_dir)
+    sys.path.insert(0, str(provider_dir))
+    install_rembg_stub()
+
+    import torch
+    from tsr.system import TSR
+
+    device = args.provider_device or "cuda:0"
+    if device.startswith("cuda") and not torch.cuda.is_available():
+        device = "cpu"
+    model = TSR.from_pretrained(
+        args.model_name or DEFAULT_TRIPOSR_MODEL,
+        config_name="config.yaml",
+        weight_name="model.ckpt",
+    )
+    model.renderer.set_chunk_size(args.chunk_size)
+    model.to(device)
+
+    image = triposr_input_image(args.input_image)
+    with torch.no_grad():
+        scene_codes = model([image], device=device)
+        meshes = model.extract_mesh(scene_codes, True, resolution=args.mc_resolution)
+    args.output_mesh.parent.mkdir(parents=True, exist_ok=True)
+    meshes[0].export(args.output_mesh)
     return args.output_mesh
 
 
@@ -157,6 +218,8 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
     if args.provider in CLI_PROVIDERS:
         provider_mesh = run_cli_provider(args)
         output_mesh = export_mesh(provider_mesh, args.output_mesh)
+    elif args.provider == TRIPOSR_API_PROVIDER:
+        output_mesh = run_triposr_api(args)
     elif args.provider == "hunyuan3d-shape":
         output_mesh = run_hunyuan_shape(args)
     else:
@@ -188,10 +251,12 @@ def main() -> None:
     parser.add_argument("--timeout", type=int, default=1800)
     parser.add_argument("--low-vram", action="store_true")
     parser.add_argument("--provider-device", default=None)
+    parser.add_argument("--chunk-size", type=int, default=8192)
+    parser.add_argument("--mc-resolution", type=int, default=256)
     parser.add_argument("--texture-resolution", type=int, default=None)
     parser.add_argument("--remesh-option", choices=("none", "triangle", "quad"), default=None)
     parser.add_argument("--provider-arg", action="append", default=[])
-    parser.add_argument("--model-name", default="tencent/Hunyuan3D-2.1")
+    parser.add_argument("--model-name", default=None)
     args = parser.parse_args()
     output_mesh, output_stl = run_provider(args)
     print(f"mesh={output_mesh}")

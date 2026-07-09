@@ -1,0 +1,44 @@
+[
+  {
+    "name": "masked",
+    "method": "masked"
+  },
+  {
+    "name": "mirror",
+    "method": "mirror"
+  },
+  {
+    "name": "biharmonic",
+    "method": "biharmonic"
+  },
+  {
+    "name": "triposr_api_masked_direct_mesh",
+    "method": "external-image-to-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "masked",
+    "direct_mesh_output_ext": "obj",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/triposr-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider triposr-api --provider-dir /content/TripoSR --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --chunk-size 8192 --mc-resolution 256"
+  },
+  {
+    "name": "triposr_api_mirror_prefill_direct_mesh",
+    "method": "external-image-to-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "mirror",
+    "direct_mesh_output_ext": "obj",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/triposr-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider triposr-api --provider-dir /content/TripoSR --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --chunk-size 8192 --mc-resolution 256"
+  },
+  {
+    "name": "triposr_api_biharmonic_prefill_direct_mesh",
+    "method": "external-image-to-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "biharmonic",
+    "direct_mesh_output_ext": "obj",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/triposr-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider triposr-api --provider-dir /content/TripoSR --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --chunk-size 8192 --mc-resolution 256"
+  }
+]
