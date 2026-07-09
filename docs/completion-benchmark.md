@@ -1024,7 +1024,7 @@ For a cheap live sanity check before the full held-out `20`, change both `--eval
 
 Colab G4 Qwen procedural sanity:
 
-The notebook `https://colab.research.google.com/drive/1SuilhFuF5L3ELkEy2rnEsTmKAL19ob60` ran commit `2ccf589` on the G4 runtime with `Qwen/Qwen-Image-Edit` cached and evaluated a tiny procedural slice (`dataset-count=4`, `eval-start=0`, `eval-limit=2`, `eval-steps=20`, `inpaint_max_dimension=512`, object-surface score). The run completed and wrote `/content/g4_qwen_procedural_sanity_s0_n2_results.tar.gz` (`4.2 MB`) plus the orchestrator output directory `/content/3dprintpic/backend/output/completion-benchmark/colab_g4/g4_qwen_procedural_sanity_s0_n2`.
+The notebook `https://colab.research.google.com/drive/1SuilhFuF5L3ELkEy2rnEsTmKAL19ob60` ran commit `2ccf589` on the G4 runtime with `Qwen/Qwen-Image-Edit` cached and evaluated a tiny procedural slice (`dataset-count=4`, `eval-start=0`, `eval-limit=2`, `eval-steps=20`, `inpaint_max_dimension=512`, object-surface score). The run completed and wrote `/content/g4_qwen_procedural_sanity_s0_n2_results.tar.gz` (`4.2 MB`) plus the orchestrator output directory `/content/3dprintpic/backend/output/completion-benchmark/colab_g4/g4_qwen_procedural_sanity_s0_n2`; the idle runtime was then disconnected/deleted, so rerun the launcher when runtime-local artifacts are needed for contact-sheet inspection.
 
 | method | score |
 | --- | ---: |
