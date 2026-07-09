@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import re
@@ -20,13 +21,14 @@ from backend.benchmark.direct_mesh import (
     postprocess_mesh_for_stl,
     repair_mesh_for_printable_stl,
 )
-from backend.benchmark.mesh_rendering import load_mesh
+from backend.benchmark.mesh_rendering import load_mesh, mesh_in_render_frame
 
 
 MESH_EXTENSIONS = (".glb", ".gltf", ".obj", ".ply", ".stl")
 MESH_EXTENSION_PRIORITY = {".glb": 5, ".gltf": 4, ".obj": 3, ".ply": 2, ".stl": 1}
 TRIPOSR_API_PROVIDER = "triposr-api"
 HUNYUAN3D_SHAPE_PROVIDER = "hunyuan3d-shape"
+SOURCE_MESH_BUNDLE_ORACLE_PROVIDER = "source-mesh-bundle-oracle"
 DEFAULT_TRIPOSR_MODEL = "stabilityai/TripoSR"
 DEFAULT_HUNYUAN3D_MODEL = "tencent/Hunyuan3D-2.1"
 
@@ -54,7 +56,9 @@ CLI_PROVIDERS = {
     },
 }
 
-PROVIDERS = tuple(sorted((*CLI_PROVIDERS, TRIPOSR_API_PROVIDER, HUNYUAN3D_SHAPE_PROVIDER)))
+PROVIDERS = tuple(
+    sorted((*CLI_PROVIDERS, TRIPOSR_API_PROVIDER, HUNYUAN3D_SHAPE_PROVIDER, SOURCE_MESH_BUNDLE_ORACLE_PROVIDER))
+)
 
 
 def parse_bbox_extents(value: str) -> tuple[float, float, float] | None:
@@ -197,6 +201,35 @@ def run_hunyuan_shape(args: argparse.Namespace) -> Path:
     return args.output_mesh
 
 
+def resolve_bundle_mesh_path(bundle: dict, bundle_path: Path) -> Path:
+    value = bundle.get("source_mesh") or bundle.get("mesh") or bundle.get("asset_path")
+    if not value:
+        raise FileNotFoundError(f"Multiview bundle has no source_mesh/mesh/asset_path field: {bundle_path}")
+    raw = Path(str(value))
+    candidates = [raw] if raw.is_absolute() else [bundle_path.parent / raw, Path.cwd() / raw, raw]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(f"Multiview bundle source mesh does not exist: {value}")
+
+
+def run_source_mesh_bundle_oracle(args: argparse.Namespace) -> Path:
+    if not args.input_bundle:
+        raise ValueError("--input-bundle is required for source-mesh-bundle-oracle")
+    bundle_path = Path(args.input_bundle)
+    if not bundle_path.exists():
+        raise FileNotFoundError(f"Input bundle does not exist: {bundle_path}")
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    source_path = resolve_bundle_mesh_path(bundle, bundle_path)
+    mesh = load_mesh(source_path)
+    camera = bundle.get("camera") or {}
+    if camera:
+        mesh = mesh_in_render_frame(mesh, camera)
+    args.output_mesh.parent.mkdir(parents=True, exist_ok=True)
+    mesh.export(args.output_mesh)
+    return args.output_mesh
+
+
 def add_hunyuan_provider_paths(args: argparse.Namespace) -> None:
     provider_dir_value = args.provider_dir or os.environ.get("HUNYUAN3D_DIR")
     if provider_dir_value:
@@ -318,6 +351,7 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
     args.output_mesh = Path(args.output_mesh)
     args.output_stl = Path(args.output_stl) if args.output_stl else None
     args.raw_output_mesh = Path(args.raw_output_mesh) if args.raw_output_mesh else None
+    args.input_bundle = Path(args.input_bundle) if args.input_bundle else None
     if not args.input_image.exists():
         raise FileNotFoundError(f"Input image does not exist: {args.input_image}")
 
@@ -328,6 +362,8 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
         output_mesh = run_triposr_api(args)
     elif args.provider == HUNYUAN3D_SHAPE_PROVIDER:
         output_mesh = run_hunyuan_shape(args)
+    elif args.provider == SOURCE_MESH_BUNDLE_ORACLE_PROVIDER:
+        output_mesh = run_source_mesh_bundle_oracle(args)
     else:
         raise ValueError(f"Unsupported provider: {args.provider}")
 
@@ -368,10 +404,11 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run an external single-image-to-mesh provider and normalize its output for the benchmark."
+        description="Run an external image/multiview-to-mesh provider and normalize its output for the benchmark."
     )
     parser.add_argument("--provider", choices=PROVIDERS, required=True)
     parser.add_argument("--input-image", default=None)
+    parser.add_argument("--input-bundle", default=None)
     parser.add_argument("--output-mesh", default=None)
     parser.add_argument("--output-stl", default=None)
     parser.add_argument("--raw-output-mesh", default=None)

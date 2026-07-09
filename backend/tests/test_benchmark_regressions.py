@@ -30,7 +30,7 @@ from backend.benchmark.explain_paired_objective import (
     paired_sample_rows,
 )
 from backend.benchmark.export_training_pairs import main as export_training_pairs_main
-from backend.benchmark.generate_rendered_dataset import attach_multiview_fields
+from backend.benchmark.generate_rendered_dataset import attach_multiview_fields, generate_dataset
 from backend.benchmark.package_colab_inputs import package_inputs
 from backend.benchmark.optimize_completion import (
     annotate_per_sample_metrics,
@@ -54,7 +54,12 @@ from backend.benchmark.metrics import mesh_surface_distance_metrics, surface_dis
 from backend.benchmark.report_run import baseline_delta_rows, paired_baseline_delta_rows, paired_objective_rows, render_report
 from backend.benchmark.rank_methods import parse_weights, rank_summary_rows
 from backend.benchmark.run_image_to_mesh_provider import main as run_image_to_mesh_provider_main
-from backend.benchmark.run_stl_first_smoke import build_experiments as build_stl_first_experiments, build_optimize_command as build_stl_first_optimize_command
+from backend.benchmark.run_stl_first_smoke import (
+    build_experiments as build_stl_first_experiments,
+    build_optimize_command as build_stl_first_optimize_command,
+    method_failure_rows,
+    shell_token as stl_first_shell_token,
+)
 from backend.benchmark.run_triposr_repair_smoke import build_experiments, rows_from_csv
 from backend.benchmark.run_completion_benchmark import evaluate_sample, run_one, stl_diagnostics, summarize, write_split_audit
 from backend.benchmark.select_completion_candidate import evaluate_selection, json_safe
@@ -737,6 +742,7 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertEqual(rows[0]["method"], "external-multiview-to-mesh")
         self.assertEqual(rows[0]["stl_exists"], "True")
         self.assertTrue(bundle_exists)
+        self.assertEqual(bundle["source_mesh"], str(mesh_path))
         self.assertEqual(len(bundle["views"]), 2)
         self.assertEqual(bundle["views"][1]["sample_id"], "box_v1")
         self.assertAlmostEqual(float(rows[0]["mesh_surface_chamfer_l1"]), 0.0)
@@ -802,6 +808,24 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertEqual(rows[0]["multiview_cameras"][1]["azimuth_deg"], 90)
         self.assertEqual(rows[0]["multiview_primary_index"], 1)
         self.assertNotIn("multiview_images", rows[2])
+
+    def test_procedural_rendered_dataset_can_emit_multiview_groups(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest_path = generate_dataset(
+                output_dir=Path(temp_dir),
+                source="procedural",
+                count=4,
+                size=32,
+                seed=123,
+                views_per_asset=2,
+            )
+            rows = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(rows[0]["asset_key"], rows[1]["asset_key"])
+        self.assertEqual(len(rows[0]["multiview_images"]), 2)
+        self.assertEqual(rows[1]["multiview_primary_index"], 1)
+        self.assertNotEqual(rows[0]["camera"], rows[1]["camera"])
 
     def test_package_inputs_rewrites_multiview_path_lists(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1383,6 +1407,61 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
 
+    def test_source_mesh_bundle_oracle_exports_stl_from_multiview_bundle(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source_mesh = root / "source_box.ply"
+            input_image = root / "primary.png"
+            bundle_path = root / "multiview_input.json"
+            output_mesh = root / "oracle.ply"
+            output_stl = root / "oracle.stl"
+            trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(source_mesh)
+            Image.new("RGB", (8, 8), (127, 127, 127)).save(input_image)
+            bundle_path.write_text(
+                json.dumps(
+                    {
+                        "sample_id": "box",
+                        "source_mesh": str(source_mesh),
+                        "primary_image": str(input_image),
+                        "views": [{"image": str(input_image), "camera": {"azimuth_deg": 0}}],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_image_to_mesh_provider",
+                    "--provider",
+                    "source-mesh-bundle-oracle",
+                    "--input-image",
+                    str(input_image),
+                    "--input-bundle",
+                    str(bundle_path),
+                    "--output-mesh",
+                    str(output_mesh),
+                    "--output-stl",
+                    str(output_stl),
+                    "--mesh-repair",
+                    "printable",
+                ],
+            ):
+                run_image_to_mesh_provider_main()
+
+            diagnostics = stl_diagnostics(output_stl)
+            output_mesh_exists = output_mesh.exists()
+            output_stl_exists = output_stl.exists()
+
+        self.assertTrue(output_mesh_exists)
+        self.assertTrue(output_stl_exists)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
+
     def test_hunyuan3d_shape_provider_retries_after_partial_model_cache(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1545,6 +1624,7 @@ class StlExportRegressionTests(unittest.TestCase):
             include_raw_direct_mesh=False,
             triposr_direct_inputs=["masked", "mirror", "biharmonic"],
             include_hunyuan3d_shape=True,
+            include_source_multiview_oracle=True,
             multiview_command='python mv.py "{input_bundle}" "{output_mesh}" "{output_stl}"',
             multiview_name="mv_recon",
             multiview_primary_input="masked",
@@ -1585,9 +1665,33 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("--provider hunyuan3d-shape", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("{output_dir}/output_mesh_raw.glb", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("--mesh-target-max-dimension 96.0", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertEqual(by_name["source_mesh_bundle_multiview_oracle"]["method"], "external-multiview-to-mesh")
+        self.assertEqual(by_name["source_mesh_bundle_multiview_oracle"]["stl_mode"], "multiview-mesh")
+        self.assertIn("--provider source-mesh-bundle-oracle", by_name["source_mesh_bundle_multiview_oracle"]["direct_mesh_command"])
+        self.assertIn("--input-bundle \"{input_bundle}\"", by_name["source_mesh_bundle_multiview_oracle"]["direct_mesh_command"])
         self.assertEqual(by_name["mv_recon"]["method"], "external-multiview-to-mesh")
         self.assertEqual(by_name["mv_recon"]["stl_mode"], "multiview-mesh")
         self.assertIn("{input_bundle}", by_name["mv_recon"]["direct_mesh_command"])
+
+    def test_stl_first_smoke_shell_token_matches_current_platform(self):
+        token = stl_first_shell_token(Path("C:/Program Files/Python/python.exe"))
+
+        if sys.platform == "win32":
+            self.assertTrue(token.startswith('"'))
+            self.assertTrue(token.endswith('"'))
+            self.assertNotIn("'", token)
+        else:
+            self.assertEqual(token, "'C:/Program Files/Python/python.exe'")
+
+    def test_stl_first_smoke_flags_candidate_failures(self):
+        failures = method_failure_rows(
+            [
+                {"method": "ok", "error_count": "0", "logged_failure_count": "0", "last_error": ""},
+                {"method": "bad", "error_count": "1", "logged_failure_count": "0", "last_error": "boom"},
+            ]
+        )
+
+        self.assertEqual([failure["method"] for failure in failures], ["bad"])
 
     def test_stl_first_smoke_optimize_command_uses_stl_quality_profile(self):
         args = SimpleNamespace(
@@ -2441,7 +2545,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                 eval_starts=[0],
                 eval_limit=1,
                 score_profile="stl-quality",
-                candidate_method="hunyuan3d_shape_masked_repaired_stl_scaled_compact_direct_mesh",
+                candidate_method="hunyuan3d_shape_masked_repaired_stl_mirror_bbox_direct_mesh",
                 current_method="mirror",
                 include_hunyuan3d_setup=True,
             )
@@ -2464,7 +2568,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("--prefetch-only", archive_run_script)
         self.assertIn("diffusers==0.30.0", archive_run_script)
         self.assertIn("transformers==4.46.0", archive_run_script)
-        self.assertIn("--candidate-method hunyuan3d_shape_masked_repaired_stl_scaled_compact_direct_mesh", archive_run_script)
+        self.assertIn("--candidate-method hunyuan3d_shape_masked_repaired_stl_mirror_bbox_direct_mesh", archive_run_script)
 
 
 class TrainingProvenanceRegressionTests(unittest.TestCase):

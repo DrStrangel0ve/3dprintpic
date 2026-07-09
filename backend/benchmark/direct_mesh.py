@@ -113,6 +113,8 @@ def write_multiview_input_bundle(sample: dict, primary_image: Path, output_dir: 
     bundle = {
         "sample_id": str(sample.get("id", "")),
         "asset_key": str(sample.get("asset_key", "")),
+        "source_mesh": str(sample_mesh_path(sample) or ""),
+        "asset_path": _path_text(sample.get("asset_path")),
         "primary_image": str(primary_image),
         "masked_image": _path_text(sample.get("masked_image")),
         "full_image": _path_text(sample.get("full_image")),

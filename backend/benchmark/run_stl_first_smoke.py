@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -20,6 +21,7 @@ from backend.benchmark.stl_modes import (
 DEFAULT_DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Small-hf"
 DEFAULT_TRIPOSR_PYTHON = "/content/triposr-venv/bin/python"
 DEFAULT_TRIPOSR_DIR = "/content/TripoSR"
+SOURCE_MULTIVIEW_ORACLE_NAME = "source_mesh_bundle_multiview_oracle"
 
 
 def utc_now() -> str:
@@ -27,6 +29,8 @@ def utc_now() -> str:
 
 
 def shell_token(value: str | Path) -> str:
+    if os.name == "nt":
+        return subprocess.list2cmdline([str(value)])
     return shlex.quote(str(value))
 
 
@@ -117,6 +121,24 @@ def hunyuan3d_command(args: argparse.Namespace, repaired: bool) -> str:
     )
 
 
+def source_multiview_oracle_command(args: argparse.Namespace) -> str:
+    return image_to_mesh_command(
+        python=args.provider_python,
+        provider="source-mesh-bundle-oracle",
+        provider_dir=None,
+        provider_device=args.provider_device,
+        timeout=args.direct_mesh_timeout,
+        output_mesh_repair=args.mesh_repair,
+        output_mesh_raw=True,
+        raw_output_ext="ply",
+        mesh_target_max_dimension=getattr(args, "mesh_target_max_dimension", 0.0),
+        mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0),
+        mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
+        mesh_target_faces=getattr(args, "mesh_target_faces", 0),
+        output_extra=["--input-bundle", '"{input_bundle}"'],
+    )
+
+
 def build_experiments(args: argparse.Namespace) -> list[dict]:
     experiments = [
         {"name": "masked", "method": "masked", "stl_mode": STL_MODE_DEPTH_RELIEF},
@@ -180,6 +202,20 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                 "direct_mesh_command": hunyuan3d_command(args, repaired=True),
             }
         )
+    if getattr(args, "include_source_multiview_oracle", False):
+        experiments.append(
+            {
+                "name": SOURCE_MULTIVIEW_ORACLE_NAME,
+                "method": "external-multiview-to-mesh",
+                "stl_mode": STL_MODE_MULTIVIEW_MESH,
+                "skip_depth": True,
+                "emit_stl": True,
+                "direct_mesh_input": args.multiview_primary_input,
+                "direct_mesh_output_ext": "ply",
+                "direct_mesh_timeout": args.direct_mesh_timeout,
+                "direct_mesh_command": source_multiview_oracle_command(args),
+            }
+        )
     if args.multiview_command:
         experiments.append(
             {
@@ -209,6 +245,33 @@ def read_json(path: Path) -> dict:
         return {}
     with path.open(encoding="utf-8") as json_file:
         return json.load(json_file)
+
+
+def _intish(value) -> int:
+    if value in (None, ""):
+        return 0
+    return int(float(value))
+
+
+def method_failure_rows(rows: list[dict]) -> list[dict]:
+    failures = []
+    for row in rows:
+        if (
+            _intish(row.get("error_count")) > 0
+            or _intish(row.get("logged_failure_count")) > 0
+            or row.get("last_error_type")
+            or row.get("last_error")
+        ):
+            failures.append(
+                {
+                    "method": row.get("method", ""),
+                    "error_count": row.get("error_count", ""),
+                    "logged_failure_count": row.get("logged_failure_count", ""),
+                    "last_error_type": row.get("last_error_type", ""),
+                    "last_error": row.get("last_error", ""),
+                }
+            )
+    return failures
 
 
 def run_command(command: list[str], cwd: Path, timeout: int) -> dict:
@@ -345,6 +408,7 @@ def run_smoke(args: argparse.Namespace) -> dict:
     optimize_command = build_optimize_command(args, manifest_path, experiment_dir, config_path, experiments)
     summary["benchmark"] = run_command(optimize_command, repo_dir, timeout=args.benchmark_timeout)
     summary["aggregate_summary"] = rows_from_csv(experiment_dir / "aggregate_summary.csv")
+    summary["method_failures"] = method_failure_rows(summary["aggregate_summary"])
     summary["ranked_experiments"] = rows_from_csv(experiment_dir / "ranked_experiments.csv")
     summary["selection_decision"] = read_json(experiment_dir / "selection_decision.json")
     if (experiment_dir / "selection_decision.md").exists():
@@ -370,9 +434,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--asset-root", default=None)
     parser.add_argument("--asset-glob", default="**/*.glb")
-    parser.add_argument("--views-per-asset", type=int, default=1)
+    parser.add_argument("--views-per-asset", type=int, default=2)
     parser.add_argument("--mesh-sample-strategy", choices=("random", "balanced"), default="balanced")
     parser.add_argument("--include-source-oracle", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--include-source-multiview-oracle", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--include-triposr-api", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--include-hunyuan3d-shape", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--include-raw-direct-mesh", action=argparse.BooleanOptionalAction, default=False)
@@ -451,7 +516,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     summary = run_smoke(parse_args())
     print(json.dumps(summary, indent=2))
-    if summary.get("dataset", {}).get("returncode") or summary.get("benchmark", {}).get("returncode"):
+    if (
+        summary.get("dataset", {}).get("returncode")
+        or summary.get("benchmark", {}).get("returncode")
+        or summary.get("method_failures")
+    ):
         raise SystemExit(1)
 
 

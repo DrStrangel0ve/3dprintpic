@@ -139,23 +139,35 @@ def generate_dataset(
         failures_path.unlink()
 
     if source == "procedural":
-        for index in range(count):
-            rows.append(
-                write_sample(
-                    index=index,
-                    mesh=make_procedural_mesh(index),
-                    output_dir=output_dir,
-                    config=config,
-                    source="procedural_mesh",
-                    asset_id=f"procedural_{index:04d}",
-                    asset_path=None,
-                    asset_category="procedural",
-                    asset_source_split="procedural",
-                    asset_key=f"procedural:{index:04d}",
-                    view_index=0,
-                    seed=seed,
+        asset_limit = max(1, int(np.ceil(count / max(1, views_per_asset))))
+        sample_index = 0
+        for asset_index in range(asset_limit):
+            mesh = make_procedural_mesh(asset_index)
+            for view_index in range(views_per_asset):
+                if sample_index >= count:
+                    break
+                rows.append(
+                    write_sample(
+                        index=asset_index,
+                        mesh=mesh,
+                        output_dir=output_dir,
+                        config=config,
+                        source="procedural_mesh",
+                        asset_id=f"procedural_{asset_index:04d}",
+                        asset_path=None,
+                        asset_category="procedural",
+                        asset_source_split="procedural",
+                        asset_key=f"procedural:{asset_index:04d}",
+                        view_index=view_index,
+                        seed=seed,
+                        sample_id=(
+                            f"procedural_mesh_{asset_index:04d}_v{view_index:02d}"
+                            if views_per_asset > 1
+                            else None
+                        ),
+                    )
                 )
-            )
+                sample_index += 1
     elif source == "mesh-dir":
         if asset_root is None:
             raise ValueError("--asset-root is required when --source mesh-dir")
