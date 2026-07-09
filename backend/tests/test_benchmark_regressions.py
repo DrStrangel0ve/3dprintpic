@@ -47,6 +47,7 @@ from backend.pic_to_3d import (
     _diagnostic_signed_volume,
     _force_positive_stl_volume,
     _inpaint_torch_dtype,
+    _masked_edit_image,
     complete_image,
     depth_data_to_3d_model,
 )
@@ -1605,6 +1606,18 @@ class CompletionMethodRegressionTests(unittest.TestCase):
         self.assertEqual(_inpaint_torch_dtype("qwen-image-edit", "cuda"), torch.bfloat16)
         self.assertEqual(_inpaint_torch_dtype("sdxl-inpaint", "cuda"), torch.float16)
         self.assertEqual(_inpaint_torch_dtype("dreamshaper-inpaint", "cpu"), torch.float32)
+
+    def test_masked_edit_image_can_mark_missing_region_without_touching_visible_pixels(self):
+        image = Image.new("RGB", (8, 4), (10, 20, 30))
+        mask = Image.new("L", (8, 4), 0)
+        mask_data = np.zeros((4, 8), dtype=np.uint8)
+        mask_data[:, 4:] = 255
+        mask = Image.fromarray(mask_data, mode="L")
+
+        edited = np.asarray(_masked_edit_image(image, mask, "checker"))
+
+        self.assertTrue(np.all(edited[:, :4] == [10, 20, 30]))
+        self.assertFalse(np.all(edited[:, 4:] == [10, 20, 30]))
 
     def test_mirror_seam_repair_provider_runs_without_visible_pixel_drift(self):
         with tempfile.TemporaryDirectory() as temp_dir:

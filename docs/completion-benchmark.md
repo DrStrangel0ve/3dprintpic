@@ -1035,6 +1035,23 @@ The notebook `https://colab.research.google.com/drive/1SuilhFuF5L3ELkEy2rnEsTmKA
 
 Interpretation: this is an integration sanity result, not a model-quality conclusion. It proves the G4 path can cache and run Qwen Image Edit end-to-end through completion, depth, STL artifact generation, ranking, and tarball packaging. On this small procedural slice, the generic Qwen edit prompt underperformed the deterministic mirror baseline badly enough that the next Qwen iteration should inspect the contact sheet/depth outputs and adjust the edit prompt or mask presentation before spending a full held-out ModelNet20 run.
 
+Next Qwen prompt sweep:
+
+`backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_prompt_sweep_g4_depth_stl.json` keeps `masked`, `mirror`, and `biharmonic`, then compares six Qwen Image Edit prompt/guidance/mask-presentation variants on the same cached model:
+
+- `qwen_edit_baseline_s20_s512`: the original generic white-region prompt.
+- `qwen_edit_strict_white_region_s20_s512`: explicitly treats pure white pixels as the only edit region and forbids duplicate objects or blank output.
+- `qwen_edit_symmetry_depth_s20_s512`: asks for a seam-continuous symmetric outline and smooth depth surface for downstream 3D reconstruction.
+- `qwen_edit_lowcfg_shape_s20_s512`: lowers true CFG to `2.0` and emphasizes one continuous 3D object.
+- `qwen_edit_center_seam_single_object_s20_s512`: gives the center seam as the edit boundary and forbids duplicate objects.
+- `qwen_edit_checker_region_s20_s512`: replaces the white missing region with a checkerboard edit cue before Qwen Image Edit so the model is less likely to treat pure white as background.
+
+Package a no-LoRA prompt-sweep launcher with:
+
+```powershell
+.\backend\.venv\Scripts\python -m backend.benchmark.package_colab_inputs --manifest backend\output\completion-benchmark\modelnet10_60_balanced_s256_seed4040\manifest.jsonl --output C:\Users\arnav\Documents\Codex\2026-07-09\jennyzzt-3dprintpic-https-github-com-jennyzzt\outputs\modelnet10_60_qwen_edit_prompt_sweep_colab_inputs.tar.gz --extract-root /content/3dprintpic_colab_inputs/modelnet10_60_qwen_edit_prompt_sweep --include-run-script --run-script C:\Users\arnav\Documents\Codex\2026-07-09\jennyzzt-3dprintpic-https-github-com-jennyzzt\outputs\modelnet10_60_qwen_edit_prompt_sweep_run_colab_eval.sh --colab-archive-path /content/modelnet10_60_qwen_edit_prompt_sweep_colab_inputs.tar.gz --run-name g4_modelnet10_qwen_edit_prompt_sweep_s20_s512 --modern-config backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_prompt_sweep_g4_depth_stl.json --cache-provider qwen-image-edit --cache-full --eval-start 40 --eval-start 50 --eval-limit 2 --score-profile object-surface --eval-steps 20 --eval-inpaint-max-dimension 512 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --stl-target-dimension 96 --min-paired-n 2 --allow-missing-split-audit --contact-sheet-methods masked,mirror,biharmonic,qwen_edit_baseline_s20_s512,qwen_edit_strict_white_region_s20_s512,qwen_edit_symmetry_depth_s20_s512,qwen_edit_lowcfg_shape_s20_s512,qwen_edit_center_seam_single_object_s20_s512,qwen_edit_checker_region_s20_s512
+```
+
 ## Kaggle
 
 A GPU-enabled Kaggle kernel scaffold lives in `backend/benchmark/kaggle`.

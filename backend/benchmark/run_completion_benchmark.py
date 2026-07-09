@@ -58,6 +58,7 @@ METADATA_FIELDS = {
     "guidance",
     "seed",
     "inpaint_max_dimension",
+    "edit_mask_fill",
     "model_name",
     "lora_weights",
     "lora_scale",
@@ -99,6 +100,8 @@ def render_prompt(sample, prompt_template):
 
 def experiment_key(sample, method, args):
     is_modern = method in MODERN_INPAINT_MODELS
+    edit_mask_fill_arg = getattr(args, "edit_mask_fill", "input")
+    edit_mask_fill = "" if edit_mask_fill_arg in (None, "", "input") else edit_mask_fill_arg
     return {
         "sample_id": sample["id"],
         "method": method,
@@ -107,6 +110,7 @@ def experiment_key(sample, method, args):
         "guidance": args.guidance if is_modern else "",
         "seed": args.seed if is_modern else "",
         "inpaint_max_dimension": args.inpaint_max_dimension if is_modern else "",
+        "edit_mask_fill": edit_mask_fill if is_modern else "",
         "model_name": (args.model_name or "") if is_modern else "",
         "lora_weights": (args.lora_weights or "") if is_modern else "",
         "lora_scale": (args.lora_scale if args.lora_scale is not None else "") if is_modern else "",
@@ -125,6 +129,7 @@ def key_tuple(row):
         text(row.get("guidance", "")),
         text(row.get("seed", "")),
         text(row.get("inpaint_max_dimension", "")),
+        text(row.get("edit_mask_fill", "")),
         text(row.get("model_name", "")),
         text(row.get("lora_weights", "")),
         text(row.get("lora_scale", "")),
@@ -344,7 +349,7 @@ def run_biharmonic(sample, output_dir):
     return str(out)
 
 
-def run_modern(sample, output_dir, method, prompt, steps, seed, guidance, inpaint_max_dimension, model_name, lora_weights, lora_scale):
+def run_modern(sample, output_dir, method, prompt, steps, seed, guidance, inpaint_max_dimension, edit_mask_fill, model_name, lora_weights, lora_scale):
     rendered_prompt = render_prompt(sample, prompt)
     completed_path, _ = complete_image(
         sample["masked_image"],
@@ -357,6 +362,7 @@ def run_modern(sample, output_dir, method, prompt, steps, seed, guidance, inpain
         seed=seed,
         guidance_scale=guidance,
         inpaint_max_dimension=inpaint_max_dimension,
+        edit_mask_fill=edit_mask_fill,
         lora_weights=lora_weights,
         lora_scale=lora_scale,
     )
@@ -583,6 +589,7 @@ def run_one(sample, method, output_dir, args):
             args.seed,
             args.guidance,
             args.inpaint_max_dimension,
+            getattr(args, "edit_mask_fill", "input"),
             args.model_name,
             args.lora_weights,
             args.lora_scale,
@@ -675,6 +682,12 @@ def main():
     parser.add_argument("--guidance", type=float, default=None)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--inpaint-max-dimension", type=int, default=768)
+    parser.add_argument(
+        "--edit-mask-fill",
+        choices=("input", "white", "gray", "checker"),
+        default="input",
+        help="For edit-only providers, optionally replace the masked region before generation.",
+    )
     parser.add_argument("--model-name", default=None, help="Optional base model override for modern completion providers.")
     parser.add_argument("--lora-weights", default=None, help="Optional Diffusers LoRA adapter directory or safetensors file.")
     parser.add_argument("--lora-scale", type=float, default=None)

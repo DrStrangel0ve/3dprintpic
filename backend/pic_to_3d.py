@@ -56,6 +56,7 @@ def complete_image(
     inpaint_max_dimension=768,
     lora_weights=None,
     lora_scale=1.0,
+    edit_mask_fill=None,
 ):
     if mode in (None, "", "none"):
         return input_image_path, None
@@ -81,6 +82,7 @@ def complete_image(
             inpaint_max_dimension=inpaint_max_dimension,
             lora_weights=lora_weights,
             lora_scale=lora_scale,
+            edit_mask_fill=edit_mask_fill,
         )
 
     raise ValueError(f"Unsupported completion provider: {provider}")
@@ -184,6 +186,7 @@ def complete_image_with_modern_inpaint(
     inpaint_max_dimension=768,
     lora_weights=None,
     lora_scale=1.0,
+    edit_mask_fill=None,
 ):
     import torch
     from PIL import Image
@@ -197,9 +200,13 @@ def complete_image_with_modern_inpaint(
 
     mask_path = os.path.join(output_dir, "completion_mask.png")
     masked_input_path = os.path.join(output_dir, "masked_input.png")
+    edit_input_path = os.path.join(output_dir, "edit_input.png")
     completed_path = os.path.join(output_dir, "completed_input.png")
     mask.save(mask_path)
     _save_masked_preview(image, hard_mask, masked_input_path)
+    edit_image = _masked_edit_image(image, hard_mask, edit_mask_fill)
+    if edit_image is not image:
+        edit_image.save(edit_input_path)
 
     prompt = prompt or (
         "Complete the missing half of the subject naturally. Keep the original identity, "
@@ -283,9 +290,9 @@ def complete_image_with_modern_inpaint(
         result = pipe(
             prompt=edit_prompt,
             negative_prompt=negative_prompt,
-            image=image,
-            height=image.height,
-            width=image.width,
+            image=edit_image,
+            height=edit_image.height,
+            width=edit_image.width,
             num_inference_steps=num_inference_steps,
             true_cfg_scale=guidance_scale if guidance_scale is not None else 4.0,
             generator=generator,
@@ -332,6 +339,27 @@ def _save_masked_preview(image, mask, output_path):
     fill = Image.new("RGB", image.size, (255, 255, 255))
     preview = Image.composite(fill, preview, mask)
     preview.save(output_path)
+
+
+def _masked_edit_image(image, mask, fill_mode):
+    if not fill_mode or fill_mode == "input":
+        return image
+
+    from PIL import Image
+
+    if fill_mode == "white":
+        fill = Image.new("RGB", image.size, (255, 255, 255))
+    elif fill_mode == "gray":
+        fill = Image.new("RGB", image.size, (192, 192, 192))
+    elif fill_mode == "checker":
+        tile = 16
+        yy, xx = np.indices((image.height, image.width))
+        checker = ((xx // tile + yy // tile) % 2).astype(np.uint8)
+        values = np.where(checker[..., None] == 0, 216, 152).astype(np.uint8)
+        fill = Image.fromarray(np.repeat(values, 3, axis=2), mode="RGB")
+    else:
+        raise ValueError(f"Unsupported edit mask fill mode: {fill_mode}")
+    return Image.composite(fill, image, mask)
 
 
 def _resize_for_inpaint(image, max_dimension=768, multiple=16, min_dimension=None):

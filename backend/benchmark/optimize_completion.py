@@ -217,6 +217,7 @@ def run_experiment(args, experiment: dict, output_dir: Path) -> Path:
     append_optional(command, "--guidance", experiment.get("guidance", args.guidance))
     append_optional(command, "--seed", experiment.get("seed", args.seed))
     append_optional(command, "--inpaint-max-dimension", experiment.get("inpaint_max_dimension", args.inpaint_max_dimension))
+    append_optional(command, "--edit-mask-fill", experiment.get("edit_mask_fill", getattr(args, "edit_mask_fill", "input")))
     append_optional(command, "--model-name", experiment.get("model_name", args.model_name))
     append_optional(command, "--lora-weights", experiment.get("lora_weights", args.lora_weights))
     append_optional(command, "--lora-scale", experiment.get("lora_scale", args.lora_scale))
@@ -286,6 +287,7 @@ def experiment_metadata(experiment: dict, default_start_index=0) -> dict[str, ob
         "guidance": experiment.get("guidance", ""),
         "seed": experiment.get("seed", ""),
         "inpaint_max_dimension": experiment.get("inpaint_max_dimension", ""),
+        "edit_mask_fill": experiment.get("edit_mask_fill", ""),
         "model_name": experiment.get("model_name", ""),
         "lora_weights": experiment.get("lora_weights", ""),
         "lora_scale": experiment.get("lora_scale", ""),
@@ -475,6 +477,7 @@ def write_resolved_config(args, experiments: list[dict], output_dir: Path) -> Pa
             "guidance": args.guidance,
             "seed": args.seed,
             "inpaint_max_dimension": args.inpaint_max_dimension,
+            "edit_mask_fill": getattr(args, "edit_mask_fill", "input"),
             "model_name": args.model_name,
             "lora_weights": args.lora_weights,
             "lora_scale": args.lora_scale,
@@ -548,6 +551,7 @@ def write_experiment_report(
                 experiment.get("guidance", args.guidance),
                 experiment.get("seed", args.seed),
                 experiment.get("inpaint_max_dimension", args.inpaint_max_dimension),
+                experiment.get("edit_mask_fill", getattr(args, "edit_mask_fill", "input")),
                 experiment.get("model_name", args.model_name),
                 experiment.get("lora_weights", args.lora_weights),
                 experiment.get("lora_scale", args.lora_scale),
@@ -692,7 +696,7 @@ def write_experiment_report(
             "## Experiment Config",
             "",
             markdown_table(
-                ["Name", "Base Method", "Steps", "Guidance", "Seed", "Max Dim", "Model", "LoRA", "LoRA Scale", "Start", "Skip Depth", "Emit STL", "Prompt"],
+                ["Name", "Base Method", "Steps", "Guidance", "Seed", "Max Dim", "Edit Fill", "Model", "LoRA", "LoRA Scale", "Start", "Skip Depth", "Emit STL", "Prompt"],
                 config_rows,
             ),
             "",
@@ -818,6 +822,7 @@ def main() -> None:
     parser.add_argument("--guidance", type=float, default=None)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--inpaint-max-dimension", type=int, default=768)
+    parser.add_argument("--edit-mask-fill", choices=("input", "white", "gray", "checker"), default="input")
     parser.add_argument("--model-name", default=None, help="Optional base model override for modern completion providers.")
     parser.add_argument("--lora-weights", default=None, help="Optional Diffusers LoRA adapter directory or safetensors file.")
     parser.add_argument("--lora-scale", type=float, default=None)
