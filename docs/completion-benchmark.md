@@ -203,6 +203,17 @@ python -m backend.benchmark.optimize_completion --manifest backend/output/comple
 
 Avoid `onnxruntime-gpu` on the current G4 image: the `1.27.0` wheel probed on July 9, 2026 attempted to load CUDA 13 runtime libraries on the CUDA 12.8 Colab image. The preferred `triposr-api` path skips ONNX background removal entirely; CPU `onnxruntime` is only needed if you deliberately fall back to TripoSR's official `run.py`. Also avoid installing TripoSR requirements into the main backend interpreter; TripoSR's old `trimesh==4.0.5` breaks procedural dataset rendering under NumPy 2.0, while the backend now requires `trimesh>=4.12.2`.
 
+Colab G4 TripoSR API smoke result: the notebook ran commit `0294097` on July 9, 2026 with backend `numpy 2.0.2`, `trimesh 4.12.2`, `transformers 5.13.0`, and provider venv `torch 2.11.0+cu128`, `transformers 4.35.0`, and `torchmcubes`. The standalone `triposr-api` provider emitted OBJ and STL from an RGBA probe image. The one-sample procedural STL-quality benchmark also completed, but direct TripoSR was not printable enough to promote:
+
+| method | n | stl-quality score vs masked | mesh surface Chamfer med | STL watertight med | STL volume med | STL manifold med | STL components med | STL faces med |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `mirror` | 1 | 1.2558 | 0.1541 | 1.0 | 1.0 | 1.0 | 1 | 29580 |
+| `biharmonic` | 1 | 0.1515 | 0.1806 | 1.0 | 1.0 | 1.0 | 1 | 29580 |
+| `masked` | 1 | 0.0000 | 0.1911 | 1.0 | 1.0 | 1.0 | 1 | 29580 |
+| `triposr_api_masked_direct_mesh` | 1 | -14.4972 | 0.1698 | 0.0 | 0.0 | 0.0 | 2 | 36950 |
+
+Interpretation: the direct API integration works, but raw TripoSR output needs a mesh-repair/remesh postprocess before it can beat the existing depth-to-STL relief baseline on printable STL quality. The next STL-first direct-mesh iteration should add a repair candidate around `triposr-api`, then rerun the same smoke with `masked`, `mirror`, `biharmonic`, raw TripoSR, and repaired TripoSR.
+
 Learned inpainting smoke with `dreamshaper-inpaint`:
 
 ```bash
