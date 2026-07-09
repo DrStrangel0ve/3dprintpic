@@ -2103,6 +2103,61 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn('if [[ -n "$LORA_PATH" ]]; then', archive_run_script)
         self.assertNotIn("--existing-lora-weights", archive_run_script)
 
+    def test_package_inputs_can_embed_triposr_provider_setup(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dataset = root / "dataset"
+            dataset.mkdir()
+            full = dataset / "full.png"
+            masked = dataset / "masked.png"
+            mask = dataset / "mask.png"
+            for path in (full, masked, mask):
+                path.write_bytes(b"asset")
+            manifest = dataset / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "id": "sample",
+                        "full_image": str(full.relative_to(root)),
+                        "masked_image": str(masked.relative_to(root)),
+                        "mask": str(mask.relative_to(root)),
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            archive = root / "triposr_bundle.tar.gz"
+
+            report = package_inputs(
+                manifest=manifest,
+                output=archive,
+                extract_root="/content/inputs/triposr",
+                root=root,
+                include_run_script=True,
+                colab_archive_path="/content/triposr_bundle.tar.gz",
+                run_name="g4_triposr_setup",
+                modern_config="backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_triposr_mirror_bbox_candidate.json",
+                skip_cache=True,
+                eval_starts=[0],
+                eval_limit=1,
+                score_profile="stl-quality",
+                candidate_method="triposr_api_masked_repaired_stl_mirror_bbox_direct_mesh",
+                current_method="mirror",
+                include_triposr_setup=True,
+            )
+            with tarfile.open(archive, "r:gz") as tar:
+                archive_run_script = tar.extractfile("run_colab_eval.sh").read().decode("utf-8")
+
+        self.assertTrue(report["include_triposr_setup"])
+        self.assertIn("https://github.com/VAST-AI-Research/TripoSR", archive_run_script)
+        self.assertIn('TRIPOSR_VENV="${TRIPOSR_VENV:-/content/triposr-venv}"', archive_run_script)
+        self.assertIn("python -m virtualenv --system-site-packages", archive_run_script)
+        self.assertIn('export PYTHONPATH="$TRIPOSR_DIR:${PYTHONPATH:-}"', archive_run_script)
+        self.assertIn("import torchmcubes", archive_run_script)
+        self.assertIn("transformers==4.35.0", archive_run_script)
+        self.assertIn("git+https://github.com/tatsy/torchmcubes.git", archive_run_script)
+        self.assertIn("--candidate-method triposr_api_masked_repaired_stl_mirror_bbox_direct_mesh", archive_run_script)
+
 
 class TrainingProvenanceRegressionTests(unittest.TestCase):
     def write_tiny_manifest(self, root: Path) -> Path:

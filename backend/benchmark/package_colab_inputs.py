@@ -214,6 +214,7 @@ def build_colab_run_script(
     allow_missing_split_audit: bool,
     contact_sheet_methods: str | None,
     contact_sheet_max_samples: int | None,
+    include_triposr_setup: bool = False,
 ) -> str:
     archive_default = colab_archive_path or f"/content/{archive_filename}"
     command = [
@@ -282,6 +283,33 @@ def build_colab_run_script(
     if contact_sheet_max_samples is not None:
         command.extend(["--contact-sheet-max-samples", str(contact_sheet_max_samples)])
 
+    triposr_setup = ""
+    if include_triposr_setup:
+        triposr_setup = (
+            "TRIPOSR_DIR=\"${TRIPOSR_DIR:-/content/TripoSR}\"\n"
+            "TRIPOSR_VENV=\"${TRIPOSR_VENV:-/content/triposr-venv}\"\n"
+            "export TRIPOSR_DIR TRIPOSR_VENV\n"
+            "if [[ ! -d \"$TRIPOSR_DIR/.git\" ]]; then\n"
+            "  rm -rf \"$TRIPOSR_DIR\"\n"
+            "  git clone --filter=blob:none https://github.com/VAST-AI-Research/TripoSR \"$TRIPOSR_DIR\"\n"
+            "fi\n"
+            "python -m pip install -q virtualenv\n"
+            "if [[ ! -x \"$TRIPOSR_VENV/bin/python\" ]]; then\n"
+            "  python -m virtualenv --system-site-packages \"$TRIPOSR_VENV\"\n"
+            "fi\n"
+            "export PYTHONPATH=\"$TRIPOSR_DIR:${PYTHONPATH:-}\"\n"
+            "if ! \"$TRIPOSR_VENV/bin/python\" - <<'PY'\n"
+            "import importlib\n"
+            "for name in ('torch', 'transformers', 'trimesh', 'tsr'):\n"
+            "    importlib.import_module(name)\n"
+            "import torchmcubes\n"
+            "PY\n"
+            "then\n"
+            "  \"$TRIPOSR_VENV/bin/python\" -m pip install -U pip setuptools wheel\n"
+            "  \"$TRIPOSR_VENV/bin/python\" -m pip install numpy==2.0.2 omegaconf==2.3.0 Pillow==10.1.0 einops==0.7.0 transformers==4.35.0 trimesh==4.12.2 huggingface-hub imageio git+https://github.com/tatsy/torchmcubes.git\n"
+            "fi\n"
+        )
+
     lora_adapter_path = colab_path(lora_path, Path("pytorch_lora_weights.safetensors")) if lora_path else ""
     lora_report_path = colab_path(lora_path, Path("training_report.json")) if lora_path else ""
     preflight_path = colab_path(extract_root, Path("launch_preflight.json"))
@@ -339,6 +367,7 @@ def build_colab_run_script(
         "git fetch \"$REPO_REMOTE\" \"$REPO_REF\"\n"
         "git reset --hard FETCH_HEAD\n"
         "resolved_commit=\"$(git rev-parse HEAD)\"\n"
+        f"{triposr_setup}"
         "python - <<'PY' > \"$PREFLIGHT_PATH\"\n"
         "import json, os, pathlib, subprocess\n"
         "archive = pathlib.Path(os.environ['ARCHIVE_PATH'])\n"
@@ -495,6 +524,7 @@ def package_inputs(
     allow_missing_split_audit: bool = False,
     contact_sheet_methods: str | None = None,
     contact_sheet_max_samples: int | None = None,
+    include_triposr_setup: bool = False,
     report_path: Path | None = None,
 ) -> dict:
     if not manifest.exists():
@@ -554,6 +584,7 @@ def package_inputs(
                 allow_missing_split_audit=allow_missing_split_audit,
                 contact_sheet_methods=contact_sheet_methods,
                 contact_sheet_max_samples=contact_sheet_max_samples,
+                include_triposr_setup=include_triposr_setup,
             )
             add_text_file(tar, "run_colab_eval.sh", run_script_text, mode=0o755)
 
@@ -592,6 +623,7 @@ def package_inputs(
         "allow_missing_split_audit": allow_missing_split_audit,
         "contact_sheet_methods": contact_sheet_methods or "",
         "contact_sheet_max_samples": contact_sheet_max_samples,
+        "include_triposr_setup": include_triposr_setup,
         "run_script_in_archive": "run_colab_eval.sh" if include_run_script else "",
     }
     report_path = report_path or output.with_name(output.name + ".report.json")
@@ -644,6 +676,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--allow-missing-split-audit", action="store_true")
     parser.add_argument("--contact-sheet-methods", default=None)
     parser.add_argument("--contact-sheet-max-samples", type=int, default=None)
+    parser.add_argument(
+        "--include-triposr-setup",
+        action="store_true",
+        help="Embed a Colab setup prelude for /content/TripoSR and /content/triposr-venv before running eval.",
+    )
     parser.add_argument("--report", default=None)
     return parser.parse_args()
 
@@ -691,6 +728,7 @@ def main() -> None:
         allow_missing_split_audit=args.allow_missing_split_audit,
         contact_sheet_methods=args.contact_sheet_methods,
         contact_sheet_max_samples=args.contact_sheet_max_samples,
+        include_triposr_setup=args.include_triposr_setup,
         report_path=Path(args.report) if args.report else None,
     )
     print(json.dumps(report, indent=2, sort_keys=True))

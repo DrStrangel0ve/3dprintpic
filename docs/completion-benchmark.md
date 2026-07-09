@@ -1370,6 +1370,8 @@ Deployable mirror-bbox calibration is now wired for optimize sweeps. `optimize_c
 
 Run it on the same held-out 10 as `g4_stl_first_triposr_mirror_bbox_s40_n10` with `triposr_api_masked_repaired_stl_mirror_bbox_direct_mesh` as the candidate and `mirror` as the current method. This is the deployable follow-up to compare against the source-bbox oracle upper bound.
 
+For fresh Colab runtimes, package this run with `package_colab_inputs --include-run-script --include-triposr-setup`. The generated `run_colab_eval.sh` now embeds the `/content/TripoSR` clone, `/content/triposr-venv` creation, TripoSR API dependency install/probe, and `PYTHONPATH` setup before launching the benchmark, so deleting an idle G4 runtime no longer leaves the next direct-mesh run missing provider dependencies.
+
 Multiview/video backends should use the new `external-multiview-to-mesh` method. The benchmark writes `{input_bundle}` as `multiview_input.json` beside the provider outputs, with `primary_image`, `masked_image`, `full_image`, `mask`, `camera`, optional `video_path`/`frames_dir`, and a `views` list containing sibling images, masks, cameras, and view ids. `generate_rendered_dataset --views-per-asset N` now annotates rows that share an `asset_key` with `multiview_images`, `multiview_masks`, `multiview_cameras`, `multiview_view_ids`, and `multiview_primary_index`; `package_colab_inputs` carries those list-valued paths into Colab bundles.
 
 Local STL-first launcher smoke (`stl_first_reconstruction_smoke_local_s0_n1`, `dataset-count=1`, `size=128`, `stl-target-dimension=64`) completed successfully in `82.91s` for the benchmark stage. Ranking:
