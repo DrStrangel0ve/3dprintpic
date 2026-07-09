@@ -19,6 +19,7 @@ from backend.benchmark import colab_g4_orchestrator, run_completion_benchmark
 from backend.benchmark.combine_optimize_runs import combine_runs
 from backend.benchmark.compare_optimize_runs import add_score_deltas, compare_run, render_markdown
 from backend.benchmark.direct_mesh import direct_mesh_input_path, mesh_is_printable_volume, repair_mesh_for_printable_stl
+from backend.benchmark.explain_rank_score import contribution_rows, explain, markdown_report, summarize_contributions
 from backend.benchmark.export_training_pairs import main as export_training_pairs_main
 from backend.benchmark.generate_rendered_dataset import attach_multiview_fields
 from backend.benchmark.package_colab_inputs import package_inputs
@@ -3556,6 +3557,84 @@ class RankMethodRegressionTests(unittest.TestCase):
         self.assertNotIn("stl_component_excess_median", used_metrics)
         self.assertNotIn("stl_faces_per_bbox_volume_median", used_metrics)
         self.assertGreater(scores["direct_mesh_good"], scores["masked"])
+
+    def test_score_explainer_matches_baseline_delta_and_shows_metric_tradeoffs(self):
+        weights = {
+            "mesh_surface_chamfer_l1_median": -4.0,
+            "stl_bbox_aspect_ratio_median": -0.5,
+        }
+        rows = [
+            {
+                "method": "masked",
+                "mesh_surface_chamfer_l1_median": "0.20",
+                "stl_bbox_aspect_ratio_median": "2.0",
+            },
+            {
+                "method": "direct_mesh",
+                "mesh_surface_chamfer_l1_median": "0.10",
+                "stl_bbox_aspect_ratio_median": "8.0",
+            },
+        ]
+
+        ranked, _ = rank_summary_rows(
+            rows,
+            weights,
+            score_mode="baseline-delta",
+            baseline_method="masked",
+        )
+        contributions, used_metrics = contribution_rows(
+            rows,
+            weights,
+            score_mode="baseline-delta",
+            baseline_method="masked",
+        )
+        summary = summarize_contributions(contributions)
+        score_by_method = {row["method"]: row["rank_score"] for row in ranked}
+        explained_score_by_method = {row["method"]: row["rank_score"] for row in summary}
+        direct_contributions = {
+            row["metric"]: row["contribution"] for row in contributions if row["method"] == "direct_mesh"
+        }
+
+        self.assertEqual(used_metrics, ["mesh_surface_chamfer_l1_median", "stl_bbox_aspect_ratio_median"])
+        self.assertAlmostEqual(explained_score_by_method["direct_mesh"], score_by_method["direct_mesh"])
+        self.assertAlmostEqual(direct_contributions["mesh_surface_chamfer_l1_median"], 0.4)
+        self.assertAlmostEqual(direct_contributions["stl_bbox_aspect_ratio_median"], -3.0)
+        self.assertLess(explained_score_by_method["direct_mesh"], 0)
+
+        report = markdown_report(
+            summary=summary,
+            contributions=contributions,
+            used_metrics=used_metrics,
+            score_profile="stl-quality",
+            score_mode="baseline-delta",
+            baseline_method="masked",
+            focus_methods=["direct_mesh"],
+            top_n=3,
+        )
+
+        self.assertIn("## `direct_mesh`", report)
+        self.assertIn("mesh_surface_chamfer_l1_median", report)
+        self.assertIn("stl_bbox_aspect_ratio_median", report)
+
+    def test_score_explainer_accepts_utf8_sig_csv(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            summary_path = Path(temp_dir) / "summary.csv"
+            summary_path.write_text(
+                "method,masked_mae_median\nmasked,0.5\nmirror,0.2\n",
+                encoding="utf-8-sig",
+            )
+
+            summary, _, used_metrics = explain(
+                summary_path,
+                score_profile="default",
+                weight_overrides=["masked_mae_median=-4.0"],
+                score_mode="baseline-delta",
+                baseline_method="masked",
+            )
+            scores = {row["method"]: row["rank_score"] for row in summary}
+
+        self.assertEqual(used_metrics, ["masked_mae_median"])
+        self.assertAlmostEqual(scores["mirror"], 1.2)
 
 
 class SelectionRegressionTests(unittest.TestCase):

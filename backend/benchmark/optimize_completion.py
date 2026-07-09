@@ -1036,6 +1036,25 @@ def main() -> None:
     for weight in args.weight or []:
         rank_command.extend(["--weight", weight])
     run(rank_command)
+    explanation_dir = output_dir / "rank_score_explanation"
+    explanation_command = [
+        sys.executable,
+        "-m",
+        "backend.benchmark.explain_rank_score",
+        "--summary",
+        str(aggregate_path),
+        "--output-dir",
+        str(explanation_dir),
+        "--score-mode",
+        args.score_mode,
+        "--score-profile",
+        args.score_profile,
+        "--baseline-method",
+        args.baseline_method,
+    ]
+    for weight in args.weight or []:
+        explanation_command.extend(["--weight", weight])
+    run(explanation_command)
     contact_sheet_path = None
     if args.contact_sheet:
         contact_sheet_path = Path(args.contact_sheet_output) if args.contact_sheet_output else output_dir / "artifact_contact_sheet.png"
@@ -1063,6 +1082,7 @@ def main() -> None:
         print(selection_md)
     print(aggregate_path)
     print(report_path)
+    print(explanation_dir / "rank_score_explanation.md")
     if contact_sheet_path:
         print(contact_sheet_path)
 
