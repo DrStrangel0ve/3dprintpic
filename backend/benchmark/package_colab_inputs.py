@@ -192,6 +192,7 @@ def build_colab_run_script(
     run_name: str,
     modern_config: str | None,
     cache_providers: Iterable[str],
+    skip_cache: bool,
     cache_full: bool,
     eval_starts: Iterable[int],
     eval_limit: int,
@@ -202,6 +203,8 @@ def build_colab_run_script(
     depth_model: str | None,
     stl_target_dimension: int | None,
     score_profile: str,
+    candidate_method: str | None,
+    current_method: str | None,
     train_steps: int,
     require_modern_cache: bool,
     cache_download_mode: str,
@@ -248,6 +251,8 @@ def build_colab_run_script(
         command.extend(["--modern-config", modern_config])
     for provider in cache_providers:
         command.extend(["--cache-provider", provider])
+    if skip_cache:
+        command.append("--skip-cache")
     if cache_full:
         command.append("--cache-full")
     if eval_steps is not None:
@@ -262,6 +267,10 @@ def build_colab_run_script(
         command.extend(["--depth-model", depth_model])
     if stl_target_dimension is not None:
         command.extend(["--stl-target-dimension", str(stl_target_dimension)])
+    if candidate_method:
+        command.extend(["--candidate-method", candidate_method])
+    if current_method:
+        command.extend(["--current-method", current_method])
     for start in eval_starts:
         command.extend(["--eval-start", str(start)])
     if require_modern_cache:
@@ -464,6 +473,7 @@ def package_inputs(
     run_name: str = "g4_modelnet10_weighted_surface_eval_s20",
     modern_config: str | None = None,
     cache_providers: Iterable[str] = (),
+    skip_cache: bool = False,
     cache_full: bool = False,
     eval_starts: Iterable[int] = (40, 50),
     eval_limit: int = 10,
@@ -474,6 +484,8 @@ def package_inputs(
     depth_model: str | None = None,
     stl_target_dimension: int | None = None,
     score_profile: str = "object-surface",
+    candidate_method: str | None = None,
+    current_method: str | None = "mirror",
     train_steps: int = 20,
     require_modern_cache: bool = True,
     cache_download_mode: str = "snapshot",
@@ -520,6 +532,7 @@ def package_inputs(
                 run_name=run_name,
                 modern_config=modern_config,
                 cache_providers=cache_provider_list,
+                skip_cache=skip_cache,
                 cache_full=cache_full,
                 eval_starts=eval_starts,
                 eval_limit=eval_limit,
@@ -530,6 +543,8 @@ def package_inputs(
                 depth_model=depth_model,
                 stl_target_dimension=stl_target_dimension,
                 score_profile=score_profile,
+                candidate_method=candidate_method,
+                current_method=current_method,
                 train_steps=train_steps,
                 require_modern_cache=require_modern_cache,
                 cache_download_mode=cache_download_mode,
@@ -561,6 +576,7 @@ def package_inputs(
         "rewritten_lora_weights": colab_path(extract_root, lora_archive_path) if lora_archive_path else "",
         "modern_config": modern_config or "",
         "cache_providers": cache_provider_list,
+        "skip_cache": skip_cache,
         "cache_full": cache_full,
         "cache_download_mode": cache_download_mode,
         "cache_max_workers": cache_max_workers,
@@ -571,6 +587,8 @@ def package_inputs(
         "depth_provider": depth_provider or "",
         "depth_model": depth_model or "",
         "stl_target_dimension": stl_target_dimension,
+        "candidate_method": candidate_method or "",
+        "current_method": current_method or "",
         "allow_missing_split_audit": allow_missing_split_audit,
         "contact_sheet_methods": contact_sheet_methods or "",
         "contact_sheet_max_samples": contact_sheet_max_samples,
@@ -604,6 +622,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-name", default="g4_modelnet10_weighted_surface_eval_s20")
     parser.add_argument("--modern-config", default=None)
     parser.add_argument("--cache-provider", action="append", default=None)
+    parser.add_argument("--skip-cache", action="store_true")
     parser.add_argument("--cache-full", action="store_true")
     parser.add_argument("--eval-start", type=int, action="append", default=None)
     parser.add_argument("--eval-limit", type=int, default=10)
@@ -614,6 +633,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--depth-model", default=None)
     parser.add_argument("--stl-target-dimension", type=int, default=None)
     parser.add_argument("--score-profile", choices=tuple(SCORE_PROFILES), default="object-surface")
+    parser.add_argument("--candidate-method", default=None)
+    parser.add_argument("--current-method", default="mirror")
     parser.add_argument("--train-steps", type=int, default=20)
     parser.add_argument("--no-require-modern-cache", action="store_true")
     parser.add_argument("--cache-download-mode", choices=("files", "snapshot"), default="snapshot")
@@ -648,6 +669,7 @@ def main() -> None:
         run_name=args.run_name,
         modern_config=args.modern_config,
         cache_providers=args.cache_provider or [],
+        skip_cache=args.skip_cache,
         cache_full=args.cache_full,
         eval_starts=args.eval_start or [40, 50],
         eval_limit=args.eval_limit,
@@ -658,6 +680,8 @@ def main() -> None:
         depth_model=args.depth_model,
         stl_target_dimension=args.stl_target_dimension,
         score_profile=args.score_profile,
+        candidate_method=args.candidate_method,
+        current_method=args.current_method,
         train_steps=args.train_steps,
         require_modern_cache=not args.no_require_modern_cache,
         cache_download_mode=args.cache_download_mode,

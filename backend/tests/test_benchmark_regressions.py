@@ -1349,6 +1349,10 @@ class ColabG4OrchestratorRegressionTests(unittest.TestCase):
                     "2",
                     "--eval-limit",
                     "1",
+                    "--candidate-method",
+                    "triposr_api_masked_repaired_direct_mesh",
+                    "--current-method",
+                    "mirror",
                     "--allow-missing-split-audit",
                 ],
             ):
@@ -1362,8 +1366,23 @@ class ColabG4OrchestratorRegressionTests(unittest.TestCase):
         self.assertEqual(len(self.matching_commands(commands, "backend.benchmark.optimize_completion")), 2)
         self.assertEqual(len(self.matching_commands(commands, "backend.benchmark.combine_optimize_runs")), 1)
         first_eval_command = self.matching_commands(commands, "backend.benchmark.optimize_completion")[0]["command"]
+        combine_command = self.matching_commands(commands, "backend.benchmark.combine_optimize_runs")[0]["command"]
         self.assertIn("--max-method-failures", first_eval_command)
         self.assertEqual(first_eval_command[first_eval_command.index("--max-method-failures") + 1], "2")
+        self.assertIn("--candidate-method", first_eval_command)
+        self.assertEqual(
+            first_eval_command[first_eval_command.index("--candidate-method") + 1],
+            "triposr_api_masked_repaired_direct_mesh",
+        )
+        self.assertIn("--current-method", first_eval_command)
+        self.assertEqual(first_eval_command[first_eval_command.index("--current-method") + 1], "mirror")
+        self.assertIn("--candidate-method", combine_command)
+        self.assertEqual(
+            combine_command[combine_command.index("--candidate-method") + 1],
+            "triposr_api_masked_repaired_direct_mesh",
+        )
+        self.assertIn("--current-method", combine_command)
+        self.assertEqual(combine_command[combine_command.index("--current-method") + 1], "mirror")
         self.assertFalse(self.matching_commands(commands, "backend.benchmark.export_training_pairs"))
         self.assertFalse(self.matching_commands(commands, "backend.benchmark.weight_training_pairs"))
         self.assertFalse(self.matching_commands(commands, "backend.benchmark.train_inpainting_lora"))
@@ -1575,6 +1594,8 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                 run_name="g4_test_eval",
                 eval_starts=[40, 50],
                 eval_limit=10,
+                candidate_method="dreamshaper_weighted_lora",
+                current_method="mirror",
             )
             with tarfile.open(archive, "r:gz") as tar:
                 names = set(tar.getnames())
@@ -1589,6 +1610,8 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertEqual(report["run_script_in_archive"], "run_colab_eval.sh")
         self.assertEqual(report["run_script"], str(run_script))
         self.assertEqual(report["max_method_failures"], 2)
+        self.assertEqual(report["candidate_method"], "dreamshaper_weighted_lora")
+        self.assertEqual(report["current_method"], "mirror")
         self.assertIn("inputs/files/backend/output/completion-benchmark/modelnet/sample_full.png", names)
         self.assertIn("inputs/files/data/modelnet10/chair.off", names)
         self.assertIn("lora/weighted_surface/pytorch_lora_weights.safetensors", names)
@@ -1618,6 +1641,8 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("--eval-start 40", archive_run_script)
         self.assertIn("--eval-start 50", archive_run_script)
         self.assertIn("--max-method-failures 2", archive_run_script)
+        self.assertIn("--candidate-method dreamshaper_weighted_lora", archive_run_script)
+        self.assertIn("--current-method mirror", archive_run_script)
         self.assertIn("--manifest /content/inputs/modelnet/inputs/manifest.jsonl", archive_run_script)
         self.assertIn("--existing-lora-weights /content/inputs/modelnet/lora/weighted_surface", archive_run_script)
 
@@ -1657,6 +1682,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                 run_name="g4_qwen_sanity",
                 modern_config="backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_g4_depth_stl.json",
                 cache_providers=["qwen-image-edit"],
+                skip_cache=True,
                 cache_full=True,
                 eval_starts=[40, 50],
                 eval_limit=2,
@@ -1666,6 +1692,8 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                 depth_model="depth-anything/Depth-Anything-V2-Small-hf",
                 stl_target_dimension=96,
                 score_profile="stl-quality",
+                candidate_method="triposr_api_masked_repaired_direct_mesh",
+                current_method="mirror",
                 min_paired_n=2,
                 allow_missing_split_audit=True,
                 contact_sheet_methods="masked,mirror,biharmonic,qwen_edit_s20_s512",
@@ -1675,11 +1703,13 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
 
         self.assertEqual(report["rewritten_lora_weights"], "")
         self.assertEqual(report["cache_providers"], ["qwen-image-edit"])
+        self.assertTrue(report["skip_cache"])
         self.assertTrue(report["cache_full"])
         self.assertEqual(report["max_method_failures"], 2)
         self.assertIn("--run-name g4_qwen_sanity", archive_run_script)
         self.assertIn("--modern-config backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_g4_depth_stl.json", archive_run_script)
         self.assertIn("--cache-provider qwen-image-edit", archive_run_script)
+        self.assertIn("--skip-cache", archive_run_script)
         self.assertIn("--cache-full", archive_run_script)
         self.assertIn("--eval-limit 2", archive_run_script)
         self.assertIn("--eval-steps 20", archive_run_script)
@@ -1687,6 +1717,10 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("--depth-provider depth-anything-v2", archive_run_script)
         self.assertIn("--stl-target-dimension 96", archive_run_script)
         self.assertIn("--score-profile stl-quality", archive_run_script)
+        self.assertEqual(report["candidate_method"], "triposr_api_masked_repaired_direct_mesh")
+        self.assertEqual(report["current_method"], "mirror")
+        self.assertIn("--candidate-method triposr_api_masked_repaired_direct_mesh", archive_run_script)
+        self.assertIn("--current-method mirror", archive_run_script)
         self.assertIn("--min-paired-n 2", archive_run_script)
         self.assertIn("--max-method-failures 2", archive_run_script)
         self.assertIn("--allow-missing-split-audit", archive_run_script)

@@ -592,8 +592,6 @@ def run_eval_slices(
                 "--baseline-method",
                 "masked",
                 "--select-candidate",
-                "--current-method",
-                "mirror",
                 "--min-paired-n",
                 str(args.min_paired_n),
                 "--max-method-failures",
@@ -606,6 +604,10 @@ def run_eval_slices(
             ],
             args.python,
         )
+        if args.candidate_method:
+            command.extend(["--candidate-method", args.candidate_method])
+        if args.current_method:
+            command.extend(["--current-method", args.current_method])
         if args.contact_sheet_methods:
             command.extend(["--contact-sheet-methods", args.contact_sheet_methods])
         if args.require_modern_cache:
@@ -640,13 +642,15 @@ def combine_eval_slices(
             "--baseline-method",
             "masked",
             "--select-candidate",
-            "--current-method",
-            "mirror",
             "--min-paired-n",
             str(args.min_paired_n),
         ],
         args.python,
     )
+    if args.candidate_method:
+        command.extend(["--candidate-method", args.candidate_method])
+    if args.current_method:
+        command.extend(["--current-method", args.current_method])
     for eval_dir in eval_dirs:
         command.extend(["--run", f"{eval_dir.name}={eval_dir}"])
     logger.run(command, cwd=repo_root)
@@ -733,6 +737,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--depth-provider", default="depth-anything-v2")
     parser.add_argument("--depth-model", default=DEFAULT_DEPTH_MODEL)
     parser.add_argument("--stl-target-dimension", type=int, default=96)
+    parser.add_argument("--candidate-method", default=None)
+    parser.add_argument("--current-method", default="mirror")
     parser.add_argument("--min-paired-n", type=int, default=5)
     parser.add_argument(
         "--max-method-failures",
