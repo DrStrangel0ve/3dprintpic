@@ -281,7 +281,14 @@ def training_metadata(experiment: dict) -> dict[str, object]:
     }
 
 
-def experiment_metadata(experiment: dict, default_start_index=0) -> dict[str, object]:
+def experiment_edit_mask_fill(experiment: dict, default_edit_mask_fill="") -> str:
+    if experiment.get("method") not in MODERN_INPAINT_MODELS:
+        return ""
+    value = experiment.get("edit_mask_fill", default_edit_mask_fill)
+    return "" if value in (None, "", "input") else value
+
+
+def experiment_metadata(experiment: dict, default_start_index=0, default_edit_mask_fill="") -> dict[str, object]:
     metadata = {
         "method": experiment["name"],
         "base_method": experiment["method"],
@@ -290,7 +297,7 @@ def experiment_metadata(experiment: dict, default_start_index=0) -> dict[str, ob
         "guidance": experiment.get("guidance", ""),
         "seed": experiment.get("seed", ""),
         "inpaint_max_dimension": experiment.get("inpaint_max_dimension", ""),
-        "edit_mask_fill": experiment.get("edit_mask_fill", ""),
+        "edit_mask_fill": experiment_edit_mask_fill(experiment, default_edit_mask_fill),
         "model_name": experiment.get("model_name", ""),
         "lora_weights": experiment.get("lora_weights", ""),
         "lora_scale": experiment.get("lora_scale", ""),
@@ -338,13 +345,21 @@ def annotate_per_sample_metrics(experiment: dict, experiment_dir: Path, default_
         writer.writerows(rows)
 
 
-def aggregate_summaries(summaries: list[tuple[dict, Path]], output_dir: Path, default_start_index=0) -> Path:
+def aggregate_summaries(
+    summaries: list[tuple[dict, Path]], output_dir: Path, default_start_index=0, default_edit_mask_fill=""
+) -> Path:
     rows = []
     fieldnames = []
     for experiment, summary_path in summaries:
         with summary_path.open(encoding="utf-8") as file:
             for row in csv.DictReader(file):
-                row.update(experiment_metadata(experiment, default_start_index=default_start_index))
+                row.update(
+                    experiment_metadata(
+                        experiment,
+                        default_start_index=default_start_index,
+                        default_edit_mask_fill=default_edit_mask_fill,
+                    )
+                )
                 rows.append(row)
                 for key in row:
                     if key not in fieldnames:
@@ -825,7 +840,7 @@ def main() -> None:
     parser.add_argument("--guidance", type=float, default=None)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--inpaint-max-dimension", type=int, default=768)
-    parser.add_argument("--edit-mask-fill", choices=("input", "white", "gray", "checker"), default="input")
+    parser.add_argument("--edit-mask-fill", choices=("input", "white", "gray", "checker", "mirror", "biharmonic"), default="input")
     parser.add_argument("--model-name", default=None, help="Optional base model override for modern completion providers.")
     parser.add_argument("--lora-weights", default=None, help="Optional Diffusers LoRA adapter directory or safetensors file.")
     parser.add_argument("--lora-scale", type=float, default=None)
@@ -898,7 +913,12 @@ def main() -> None:
     if args.require_modern_cache:
         write_modern_cache_preflight(args, experiments, output_dir)
     summaries = [(experiment, run_experiment(args, experiment, output_dir)) for experiment in experiments]
-    aggregate_path = aggregate_summaries(summaries, output_dir, default_start_index=args.start_index)
+    aggregate_path = aggregate_summaries(
+        summaries,
+        output_dir,
+        default_start_index=args.start_index,
+        default_edit_mask_fill=args.edit_mask_fill,
+    )
 
     ranked_path = output_dir / "ranked_experiments.csv"
     rank_command = [

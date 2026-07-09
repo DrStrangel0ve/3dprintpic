@@ -22,6 +22,7 @@ from backend.benchmark.export_training_pairs import main as export_training_pair
 from backend.benchmark.package_colab_inputs import package_inputs
 from backend.benchmark.optimize_completion import (
     annotate_per_sample_metrics,
+    experiment_metadata,
     load_experiments,
     training_metadata,
     write_experiment_report,
@@ -48,6 +49,7 @@ from backend.pic_to_3d import (
     _force_positive_stl_volume,
     _inpaint_torch_dtype,
     _masked_edit_image,
+    _qwen_edit_prompt,
     complete_image,
     depth_data_to_3d_model,
 )
@@ -1237,6 +1239,20 @@ class OptimizeCompletionRegressionTests(unittest.TestCase):
         self.assertEqual(fieldnames.count("base_method"), 1)
         self.assertLess(fieldnames.index("method"), fieldnames.index("base_method"))
 
+    def test_experiment_metadata_records_inherited_modern_edit_fill(self):
+        modern = {
+            "name": "qwen_mirror_prefill",
+            "method": "qwen-image-edit",
+        }
+        deterministic = {
+            "name": "mirror",
+            "method": "mirror",
+        }
+
+        self.assertEqual(experiment_metadata(modern, default_edit_mask_fill="mirror")["edit_mask_fill"], "mirror")
+        self.assertEqual(experiment_metadata(modern, default_edit_mask_fill="input")["edit_mask_fill"], "")
+        self.assertEqual(experiment_metadata(deterministic, default_edit_mask_fill="mirror")["edit_mask_fill"], "")
+
     def test_modern_cache_preflight_fails_fast_for_missing_files(self):
         def fake_planner(provider, full, revision, local_dir, model_name=None):
             return {
@@ -1697,6 +1713,35 @@ class CompletionMethodRegressionTests(unittest.TestCase):
 
         self.assertTrue(np.all(edited[:, :4] == [10, 20, 30]))
         self.assertFalse(np.all(edited[:, 4:] == [10, 20, 30]))
+
+    def test_masked_edit_image_can_prefill_missing_region_from_geometry(self):
+        left = np.zeros((4, 4, 3), dtype=np.uint8)
+        left[:, 0] = [10, 20, 30]
+        left[:, 1] = [40, 50, 60]
+        left[:, 2] = [70, 80, 90]
+        left[:, 3] = [100, 110, 120]
+        image_data = np.concatenate([left, np.full((4, 4, 3), 255, dtype=np.uint8)], axis=1)
+        image = Image.fromarray(image_data)
+        mask = Image.fromarray(np.pad(np.full((4, 4), 255, dtype=np.uint8), ((0, 0), (4, 0))), mode="L")
+
+        mirrored = np.asarray(_masked_edit_image(image, mask, "mirror"))
+        biharmonic = np.asarray(_masked_edit_image(image, mask, "biharmonic"))
+
+        self.assertTrue(np.array_equal(mirrored[:, :4], image_data[:, :4]))
+        self.assertTrue(np.array_equal(mirrored[:, 4], image_data[:, 3]))
+        self.assertTrue(np.array_equal(mirrored[:, 7], image_data[:, 0]))
+        self.assertTrue(np.array_equal(biharmonic[:, :4], image_data[:, :4]))
+        self.assertFalse(np.all(biharmonic[:, 4:] == 255))
+
+    def test_qwen_edit_prompt_matches_edit_fill_cue(self):
+        base_prompt = "Complete the object."
+
+        self.assertIn("white blank region", _qwen_edit_prompt(base_prompt, "white"))
+        self.assertIn("checkerboard region", _qwen_edit_prompt(base_prompt, "checker"))
+        self.assertIn("mirrored prefilled half", _qwen_edit_prompt(base_prompt, "mirror"))
+        self.assertIn("smooth prefilled half", _qwen_edit_prompt(base_prompt, "biharmonic"))
+        self.assertNotIn("white blank region", _qwen_edit_prompt(base_prompt, "mirror"))
+        self.assertNotIn("white blank region", _qwen_edit_prompt(base_prompt, "biharmonic"))
 
     def test_mirror_seam_repair_provider_runs_without_visible_pixel_drift(self):
         with tempfile.TemporaryDirectory() as temp_dir:

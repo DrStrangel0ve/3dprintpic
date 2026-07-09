@@ -284,9 +284,7 @@ def complete_image_with_modern_inpaint(
             generator=generator,
         )
     elif provider == "qwen-image-edit":
-        edit_prompt = (
-            f"{prompt} Treat the white blank region as the area to fill. Do not alter the visible half."
-        )
+        edit_prompt = _qwen_edit_prompt(prompt, edit_mask_fill)
         result = pipe(
             prompt=edit_prompt,
             negative_prompt=negative_prompt,
@@ -357,9 +355,67 @@ def _masked_edit_image(image, mask, fill_mode):
         checker = ((xx // tile + yy // tile) % 2).astype(np.uint8)
         values = np.where(checker[..., None] == 0, 216, 152).astype(np.uint8)
         fill = Image.fromarray(np.repeat(values, 3, axis=2), mode="RGB")
+    elif fill_mode == "mirror":
+        fill = _mirror_prefill_image(image, mask)
+    elif fill_mode == "biharmonic":
+        fill = _biharmonic_prefill_image(image, mask)
     else:
         raise ValueError(f"Unsupported edit mask fill mode: {fill_mode}")
     return Image.composite(fill, image, mask)
+
+
+def _qwen_edit_prompt(prompt, edit_mask_fill):
+    suffixes = {
+        "checker": "Treat the checkerboard region as the area to fill. Do not alter the visible half.",
+        "gray": "Treat the gray region as the area to fill. Do not alter the visible half.",
+        "mirror": "Treat the mirrored prefilled half as the only area to refine. Do not alter the visible original half.",
+        "biharmonic": "Treat the smooth prefilled half as the only area to refine. Do not alter the visible original half.",
+        "white": "Treat the white blank region as the area to fill. Do not alter the visible half.",
+        "input": "Treat the white blank region as the area to fill. Do not alter the visible half.",
+    }
+    fill_mode = edit_mask_fill or "input"
+    suffix = suffixes.get(fill_mode, suffixes["input"])
+    return " ".join(part for part in (prompt.strip(), suffix) if part)
+
+
+def _masked_half(mask):
+    data = np.asarray(mask.convert("L")) > 127
+    if not np.any(data):
+        return None
+    midpoint = data.shape[1] // 2
+    left_count = int(np.count_nonzero(data[:, :midpoint]))
+    right_count = int(np.count_nonzero(data[:, midpoint:]))
+    return "left" if left_count > right_count else "right"
+
+
+def _mirror_prefill_image(image, mask):
+    from PIL import Image
+
+    half = _masked_half(mask)
+    if half is None:
+        return image.copy()
+    width, height = image.size
+    midpoint = width // 2
+    output = image.copy()
+    if half == "right":
+        source = image.crop((0, 0, midpoint, height)).transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        output.paste(source.resize((width - midpoint, height)), (midpoint, 0))
+    else:
+        source = image.crop((midpoint, 0, width, height)).transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        output.paste(source.resize((midpoint, height)), (0, 0))
+    return output
+
+
+def _biharmonic_prefill_image(image, mask):
+    from PIL import Image
+    from skimage.restoration import inpaint_biharmonic
+
+    data = np.asarray(image, dtype=np.float32) / 255.0
+    mask_data = np.asarray(mask.convert("L")) > 127
+    if not np.any(mask_data):
+        return image.copy()
+    filled = inpaint_biharmonic(data, mask_data, channel_axis=-1)
+    return Image.fromarray(np.clip(filled * 255, 0, 255).astype(np.uint8), mode="RGB")
 
 
 def _resize_for_inpaint(image, max_dimension=768, multiple=16, min_dimension=None):

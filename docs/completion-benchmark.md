@@ -576,6 +576,7 @@ The benchmark now accepts adapter-aware modern completion flags:
 - `--model-name`: base Diffusers model override, for example `Lykon/dreamshaper-8-inpainting`.
 - `--lora-weights`: local Diffusers LoRA adapter directory or safetensors file.
 - `--lora-scale`: optional adapter weight; omitted means Diffusers default scale.
+- `--edit-mask-fill`: for edit-only providers, replace the masked region with `white`, `gray`, `checker`, `mirror`, or `biharmonic` before generation; `mirror` and `biharmonic` are geometry-prefill cues for refinement sweeps.
 
 Every benchmark run writes `split_audit.json`. For LoRA runs with a `training_report.json`, it records eval/train category coverage, eval/train source-split coverage, train/eval asset counts, `train_eval_asset_overlap_count`, loss recipe, train metadata/pair-export hashes, adapter hash, prompt family, and whether the training prompt family matches the evaluation prompt template. Treat `train_eval_asset_overlap_count == 0` and `prompt_family_matches_eval == true` as required gates for held-out LoRA promotion claims.
 
@@ -1037,10 +1038,12 @@ Interpretation: this is an integration sanity result, not a model-quality conclu
 
 Next Qwen prompt sweep:
 
-`backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_prompt_sweep_g4_depth_stl.json` keeps `masked`, `mirror`, and `biharmonic`, then compares six Qwen Image Edit prompt/guidance/mask-presentation variants on the same cached model:
+`backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_prompt_sweep_g4_depth_stl.json` keeps `masked`, `mirror`, and `biharmonic`, then compares eight Qwen Image Edit prompt/guidance/mask-presentation variants on the same cached model:
 
 - `qwen_edit_baseline_s20_s512`: the original generic white-region prompt.
 - `qwen_edit_strict_white_region_s20_s512`: explicitly treats pure white pixels as the only edit region and forbids duplicate objects or blank output.
+- `qwen_edit_mirror_prefill_refine_s20_s512`: gives Qwen a mirrored geometry prefill in the missing half and asks it to refine that side.
+- `qwen_edit_biharmonic_prefill_refine_s20_s512`: gives Qwen a smooth biharmonic prefill in the missing half and asks it to refine that side.
 - `qwen_edit_symmetry_depth_s20_s512`: asks for a seam-continuous symmetric outline and smooth depth surface for downstream 3D reconstruction.
 - `qwen_edit_lowcfg_shape_s20_s512`: lowers true CFG to `2.0` and emphasizes one continuous 3D object.
 - `qwen_edit_center_seam_single_object_s20_s512`: gives the center seam as the edit boundary and forbids duplicate objects.
@@ -1049,7 +1052,7 @@ Next Qwen prompt sweep:
 Package a no-LoRA prompt-sweep launcher with:
 
 ```powershell
-.\backend\.venv\Scripts\python -m backend.benchmark.package_colab_inputs --manifest backend\output\completion-benchmark\modelnet10_60_balanced_s256_seed4040\manifest.jsonl --output C:\Users\arnav\Documents\Codex\2026-07-09\jennyzzt-3dprintpic-https-github-com-jennyzzt\outputs\modelnet10_60_qwen_edit_prompt_sweep_colab_inputs.tar.gz --extract-root /content/3dprintpic_colab_inputs/modelnet10_60_qwen_edit_prompt_sweep --include-run-script --run-script C:\Users\arnav\Documents\Codex\2026-07-09\jennyzzt-3dprintpic-https-github-com-jennyzzt\outputs\modelnet10_60_qwen_edit_prompt_sweep_run_colab_eval.sh --colab-archive-path /content/modelnet10_60_qwen_edit_prompt_sweep_colab_inputs.tar.gz --run-name g4_modelnet10_qwen_edit_prompt_sweep_s20_s512 --modern-config backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_prompt_sweep_g4_depth_stl.json --cache-provider qwen-image-edit --cache-full --eval-start 40 --eval-start 50 --eval-limit 2 --score-profile object-surface --eval-steps 20 --eval-inpaint-max-dimension 512 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --stl-target-dimension 96 --min-paired-n 2 --max-method-failures 2 --allow-missing-split-audit --contact-sheet-methods masked,mirror,biharmonic,qwen_edit_baseline_s20_s512,qwen_edit_strict_white_region_s20_s512,qwen_edit_symmetry_depth_s20_s512,qwen_edit_lowcfg_shape_s20_s512,qwen_edit_center_seam_single_object_s20_s512,qwen_edit_checker_region_s20_s512
+.\backend\.venv\Scripts\python -m backend.benchmark.package_colab_inputs --manifest backend\output\completion-benchmark\modelnet10_60_balanced_s256_seed4040\manifest.jsonl --output C:\Users\arnav\Documents\Codex\2026-07-09\jennyzzt-3dprintpic-https-github-com-jennyzzt\outputs\modelnet10_60_qwen_edit_prompt_sweep_colab_inputs.tar.gz --extract-root /content/3dprintpic_colab_inputs/modelnet10_60_qwen_edit_prompt_sweep --include-run-script --run-script C:\Users\arnav\Documents\Codex\2026-07-09\jennyzzt-3dprintpic-https-github-com-jennyzzt\outputs\modelnet10_60_qwen_edit_prompt_sweep_run_colab_eval.sh --colab-archive-path /content/modelnet10_60_qwen_edit_prompt_sweep_colab_inputs.tar.gz --run-name g4_modelnet10_qwen_edit_prompt_sweep_s20_s512 --modern-config backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_prompt_sweep_g4_depth_stl.json --cache-provider qwen-image-edit --cache-full --eval-start 40 --eval-start 50 --eval-limit 2 --score-profile object-surface --eval-steps 20 --eval-inpaint-max-dimension 512 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --stl-target-dimension 96 --min-paired-n 2 --max-method-failures 2 --allow-missing-split-audit --contact-sheet-methods masked,mirror,biharmonic,qwen_edit_baseline_s20_s512,qwen_edit_strict_white_region_s20_s512,qwen_edit_mirror_prefill_refine_s20_s512,qwen_edit_biharmonic_prefill_refine_s20_s512,qwen_edit_symmetry_depth_s20_s512,qwen_edit_lowcfg_shape_s20_s512,qwen_edit_center_seam_single_object_s20_s512,qwen_edit_checker_region_s20_s512
 ```
 
 The procedural G4 sanity version of this sweep ran in the notebook on commit `61ad905` as `g4_qwen_prompt_sweep_procedural_s0_n2` (`dataset-count=4`, `eval-start=0`, `eval-limit=2`, full Qwen snapshot cache, `20` steps, `512` max dimension). It completed in about `11m42s` and wrote `/content/g4_qwen_prompt_sweep_procedural_s0_n2_results.tar.gz` (`9.1 MB`) inside the Colab runtime. The object-surface baseline-delta ranking was:
@@ -1066,7 +1069,7 @@ The procedural G4 sanity version of this sweep ran in the notebook on commit `61
 | `qwen_edit_symmetry_depth_s20_s512` | -5.0894 |
 | `qwen_edit_checker_region_s20_s512` | -5.2982 |
 
-Interpretation: prompt-only and mask-presentation-only Qwen edits did not improve the tiny procedural objective. The baseline Qwen prompt remains the least bad Qwen setting, but still trails deterministic `mirror` by `5.7167` score points and `biharmonic` by `3.8045`. Do not spend a full ModelNet20 run on these Qwen variants without artifact inspection or a stronger conditioning change.
+Interpretation: prompt-only and mask-presentation-only Qwen edits did not improve the tiny procedural objective. The baseline Qwen prompt remains the least bad measured Qwen setting, but still trails deterministic `mirror` by `5.7167` score points and `biharmonic` by `3.8045`. The config now adds mirror-prefill and biharmonic-prefill Qwen variants as a stronger conditioning change; those geometry-prefill variants should be the next tiny G4 check before any full ModelNet20 run.
 
 ## Kaggle
 

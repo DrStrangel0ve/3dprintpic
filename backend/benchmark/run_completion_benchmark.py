@@ -700,7 +700,7 @@ def main():
     parser.add_argument("--inpaint-max-dimension", type=int, default=768)
     parser.add_argument(
         "--edit-mask-fill",
-        choices=("input", "white", "gray", "checker"),
+        choices=("input", "white", "gray", "checker", "mirror", "biharmonic"),
         default="input",
         help="For edit-only providers, optionally replace the masked region before generation.",
     )

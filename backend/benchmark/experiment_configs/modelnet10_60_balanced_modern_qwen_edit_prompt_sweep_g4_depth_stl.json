@@ -34,6 +34,30 @@
     "modern_cache_full": true
   },
   {
+    "name": "qwen_edit_mirror_prefill_refine_s20_s512",
+    "method": "qwen-image-edit",
+    "model_name": "Qwen/Qwen-Image-Edit",
+    "prompt": "The missing half has been prefilled with a mirrored geometry guess from the visible half. Refine only that prefilled half so the {category} becomes one continuous plausible 3D object with consistent silhouette, shading, viewpoint, and background. Keep the visible original half unchanged.",
+    "steps": 20,
+    "guidance": 4.0,
+    "seed": 1234,
+    "inpaint_max_dimension": 512,
+    "edit_mask_fill": "mirror",
+    "modern_cache_full": true
+  },
+  {
+    "name": "qwen_edit_biharmonic_prefill_refine_s20_s512",
+    "method": "qwen-image-edit",
+    "model_name": "Qwen/Qwen-Image-Edit",
+    "prompt": "The missing half has been prefilled with a smooth interpolation guess. Refine only that prefilled half into the missing side of the same {category}, preserving one continuous silhouette, consistent depth, lighting, viewpoint, and background. Keep the visible original half unchanged.",
+    "steps": 20,
+    "guidance": 4.0,
+    "seed": 1234,
+    "inpaint_max_dimension": 512,
+    "edit_mask_fill": "biharmonic",
+    "modern_cache_full": true
+  },
+  {
     "name": "qwen_edit_symmetry_depth_s20_s512",
     "method": "qwen-image-edit",
     "model_name": "Qwen/Qwen-Image-Edit",
