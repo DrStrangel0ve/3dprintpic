@@ -18,6 +18,7 @@ from backend.benchmark.backfill_lora_provenance import backfill_lora_root, backf
 from backend.benchmark import colab_g4_orchestrator, run_completion_benchmark
 from backend.benchmark.combine_optimize_runs import combine_runs
 from backend.benchmark.compare_optimize_runs import add_score_deltas, compare_run, render_markdown
+from backend.benchmark.direct_mesh import direct_mesh_input_path
 from backend.benchmark.export_training_pairs import main as export_training_pairs_main
 from backend.benchmark.package_colab_inputs import package_inputs
 from backend.benchmark.optimize_completion import (
@@ -102,6 +103,10 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(diagnostics["stl_exists"])
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_is_volume"])
+        self.assertTrue(diagnostics["stl_is_manifold"])
+        self.assertEqual(diagnostics["stl_nonmanifold_edge_count"], 0)
+        self.assertEqual(diagnostics["stl_degenerate_face_count"], 0)
+        self.assertEqual(diagnostics["stl_degenerate_face_ratio"], 0.0)
         self.assertTrue(diagnostics["stl_winding_consistent"])
         self.assertTrue(diagnostics["stl_positive_volume"])
         self.assertEqual(diagnostics["stl_component_count"], 1)
@@ -141,6 +146,8 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertFalse(diagnostics["stl_bbox_has_volume"])
         self.assertTrue(np.isinf(diagnostics["stl_bbox_aspect_ratio"]))
         self.assertFalse(diagnostics["stl_is_volume"])
+        self.assertFalse(diagnostics["stl_is_manifold"])
+        self.assertGreater(diagnostics["stl_nonmanifold_edge_count"], 0)
 
     def test_mesh_surface_distance_is_zero_for_same_mesh(self):
         import trimesh
@@ -355,6 +362,33 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("output_model.stl", rows[0]["stl_model"])
         self.assertIn("output_mesh.ply", rows[0]["direct_mesh_output_mesh"])
         self.assertAlmostEqual(float(rows[0]["mesh_surface_chamfer_l1"]), 0.0)
+
+    def test_direct_mesh_input_can_use_geometry_prefill(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            full = root / "full.png"
+            masked = root / "masked.png"
+            mask = root / "mask.png"
+            Image.new("RGB", (8, 4), (10, 20, 30)).save(full)
+            masked_image = Image.new("RGB", (8, 4), (10, 20, 30))
+            masked_image.paste(Image.new("RGB", (4, 4), (255, 255, 255)), (4, 0))
+            masked_image.save(masked)
+            mask_array = np.zeros((4, 8), dtype=np.uint8)
+            mask_array[:, 4:] = 255
+            Image.fromarray(mask_array, mode="L").save(mask)
+
+            sample = {
+                "id": "prefill",
+                "full_image": str(full),
+                "masked_image": str(masked),
+                "mask": str(mask),
+            }
+            prefilled = direct_mesh_input_path(sample, "mirror", root / "direct")
+            image = Image.open(prefilled).convert("RGB")
+
+        self.assertEqual(prefilled.name, "direct_mesh_input_mirror.png")
+        self.assertEqual(image.getpixel((6, 1)), (10, 20, 30))
+        self.assertNotEqual(image.getpixel((6, 1)), (255, 255, 255))
 
     def test_image_to_mesh_provider_wrapper_normalizes_repo_output(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.benchmark.cache_provider import provider_plan
-from backend.benchmark.direct_mesh import is_direct_mesh_method
+from backend.benchmark.direct_mesh import DIRECT_MESH_INPUT_MODES, is_direct_mesh_method
 from backend.benchmark.make_artifact_contact_sheet import make_contact_sheet, parse_csv_arg
 from backend.benchmark.report_run import (
     baseline_delta_rows,
@@ -884,7 +884,7 @@ def main() -> None:
     parser.add_argument("--stl-z-scale", type=float, default=50.0)
     parser.add_argument("--stl-sigma", type=float, default=4.0)
     parser.add_argument("--mesh-surface-max-points", type=int, default=4096)
-    parser.add_argument("--direct-mesh-input", choices=("masked", "full"), default="masked")
+    parser.add_argument("--direct-mesh-input", choices=DIRECT_MESH_INPUT_MODES, default="masked")
     parser.add_argument("--direct-mesh-command", default=None)
     parser.add_argument("--direct-mesh-output-ext", default="glb")
     parser.add_argument("--direct-mesh-timeout", type=int, default=1800)

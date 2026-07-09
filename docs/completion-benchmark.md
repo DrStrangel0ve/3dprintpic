@@ -183,6 +183,19 @@ python -m backend.benchmark.run_image_to_mesh_provider --provider spar3d --input
 
 The smoke config uses `--remesh-option none` so it works with the base SPAR3D install. Install SPAR3D's optional remesh dependencies before switching the config to `triangle` or `quad`. The same wrapper can also normalize `stable-fast-3d`, `triposr`, or shape-only `hunyuan3d-shape` outputs into the benchmark's mesh/STL artifact names. Set `SPAR3D_DIR`, `SF3D_DIR`, or `TRIPOSR_DIR`, or pass `--provider-dir`, when the provider repo is not in a default `/content/...` location.
 
+Direct mesh inputs can now be `masked`, `full`, `mirror`, or `biharmonic`. The `mirror` and `biharmonic` modes write `direct_mesh_input_<mode>.png` beside the provider outputs before calling the image-to-mesh backend, which makes it possible to test whether a cheap geometry prefill helps a single-image mesh model reconstruct the hidden side. After the raw masked SPAR3D smoke is healthy, run `backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_spar3d_prefill_direct_mesh_smoke.json` on the same slice to compare `spar3d_masked_direct_mesh`, `spar3d_mirror_prefill_direct_mesh`, and `spar3d_biharmonic_prefill_direct_mesh` under the same STL-quality score.
+
+Colab G4 SPAR3D install note: the July 9, 2026 Python 3.12 runtime reached repo commit `90891e8`, initialized the `texture_baker` submodule, and had `torchao 0.17.0+cu128`, but `pip install -r /content/stable-point-aware-3d/requirements.txt` still failed while building `git+https://github.com/SunzeY/AlphaCLIP.git`. The import probe showed `spar3d ok` and `gradio_app ModuleNotFoundError: gradio_litmodel3d`, so treat SPAR3D as provider-install-blocked on that runtime until its dependency path is fixed. Use the TripoSR smoke config as the no-gate direct mesh fallback:
+
+```bash
+git clone https://github.com/VAST-AI-Research/TripoSR /content/TripoSR
+cd /content/TripoSR
+pip install -r requirements.txt
+export TRIPOSR_DIR=/content/TripoSR
+cd /content/3dprintpic
+python -m backend.benchmark.optimize_completion --manifest backend/output/completion-benchmark/modelnet10_60_balanced_s256_seed4040/manifest.jsonl --output-dir backend/output/completion-benchmark/experiments/modelnet10_60_balanced_stl_quality_triposr_direct_mesh_s40_n2 --config backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_triposr_direct_mesh_smoke.json --start-index 40 --limit 2 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --device auto --emit-stl --stl-target-dimension 96 --score-mode baseline-delta --score-profile stl-quality --baseline-method masked --contact-sheet --contact-sheet-methods masked,mirror,biharmonic,triposr_direct_mesh --contact-sheet-max-samples 2 --resume --continue-on-error
+```
+
 Learned inpainting smoke with `dreamshaper-inpaint`:
 
 ```bash
@@ -415,7 +428,7 @@ Per sample/method:
 - optional `surface_chamfer_l1`, `surface_chamfer_rmse`, `surface_rmse`, `surface_hausdorff95`, `surface_point_count`
 - optional `object_surface_chamfer_l1`, `object_surface_chamfer_rmse`, `object_surface_rmse`, `object_surface_hausdorff95`, `object_surface_point_count`
 - optional `silhouette_iou_masked`
-- optional `stl_exists`, `stl_is_watertight`, `stl_is_volume`, `stl_winding_consistent`, `stl_positive_volume`, `stl_single_component`, `stl_component_count`, `stl_component_excess_log1p`, `stl_bbox_has_volume`, `stl_bbox_aspect_ratio`, `stl_faces_per_bbox_volume_log1p`, `stl_faces`, `stl_z_range`
+- optional `stl_exists`, `stl_is_watertight`, `stl_is_volume`, `stl_is_manifold`, `stl_nonmanifold_edge_count`, `stl_nonmanifold_edge_count_log1p`, `stl_degenerate_face_count`, `stl_degenerate_face_ratio`, `stl_winding_consistent`, `stl_positive_volume`, `stl_single_component`, `stl_component_count`, `stl_component_excess_log1p`, `stl_bbox_has_volume`, `stl_bbox_aspect_ratio`, `stl_faces_per_bbox_volume_log1p`, `stl_faces`, `stl_z_range`
 - optional `mesh_surface_chamfer_l1`, `mesh_surface_chamfer_rmse`, `mesh_surface_hausdorff95`, `mesh_surface_point_count`
 
 Depth metrics align predicted relative depth to ground truth using scale + shift fit on the visible half. Object-depth metrics restrict fit/evaluation to saved silhouette pixels, which prevents background from dominating the score.

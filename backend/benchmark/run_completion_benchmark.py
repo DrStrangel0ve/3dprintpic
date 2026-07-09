@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image
 from skimage.restoration import inpaint_biharmonic
 
-from backend.benchmark.direct_mesh import is_direct_mesh_method, run_direct_mesh, sample_mesh_path
+from backend.benchmark.direct_mesh import DIRECT_MESH_INPUT_MODES, is_direct_mesh_method, run_direct_mesh, sample_mesh_path
 from backend.benchmark.metrics import (
     align_depth,
     depth_metrics,
@@ -463,6 +463,20 @@ def stl_diagnostics(stl_path):
         component_count = len(mesh.split(only_watertight=False))
     except Exception:
         component_count = math.nan
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    if len(faces):
+        face_edges = np.vstack((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]))
+        face_edges = np.sort(face_edges, axis=1)
+        _, edge_counts = np.unique(face_edges, axis=0, return_counts=True)
+        nonmanifold_edge_count = int(np.count_nonzero(edge_counts != 2))
+        face_areas = np.asarray(mesh.area_faces, dtype=np.float64)
+        degenerate_face_count = int(np.count_nonzero((~np.isfinite(face_areas)) | (face_areas <= 1e-12)))
+        degenerate_face_ratio = float(degenerate_face_count / len(faces))
+    else:
+        nonmanifold_edge_count = 0
+        degenerate_face_count = 0
+        degenerate_face_ratio = math.nan
+    is_manifold = bool(len(faces) > 0 and nonmanifold_edge_count == 0 and degenerate_face_count == 0)
     component_excess = abs(component_count - 1) if np.isfinite(component_count) else math.nan
     faces_per_bbox_volume = (
         float(len(mesh.faces) / bbox_volume) if np.isfinite(bbox_volume) and bbox_volume > 0 else math.nan
@@ -473,6 +487,11 @@ def stl_diagnostics(stl_path):
             "stl_faces": int(len(mesh.faces)),
             "stl_is_watertight": bool(mesh.is_watertight),
             "stl_is_volume": bool(mesh.is_volume),
+            "stl_is_manifold": is_manifold,
+            "stl_nonmanifold_edge_count": nonmanifold_edge_count,
+            "stl_nonmanifold_edge_count_log1p": float(math.log1p(nonmanifold_edge_count)),
+            "stl_degenerate_face_count": degenerate_face_count,
+            "stl_degenerate_face_ratio": degenerate_face_ratio,
             "stl_winding_consistent": bool(mesh.is_winding_consistent),
             "stl_component_count": component_count,
             "stl_single_component": bool(component_count == 1) if np.isfinite(component_count) else False,
@@ -806,9 +825,9 @@ def main():
     )
     parser.add_argument(
         "--direct-mesh-input",
-        choices=("masked", "full"),
+        choices=DIRECT_MESH_INPUT_MODES,
         default="masked",
-        help="Input image passed to direct image-to-mesh methods.",
+        help="Input image passed to direct image-to-mesh methods. Use mirror/biharmonic for cheap prefilled half-image cues.",
     )
     parser.add_argument(
         "--direct-mesh-command",

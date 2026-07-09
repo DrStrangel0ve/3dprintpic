@@ -4,10 +4,14 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from PIL import Image
+
 from backend.benchmark.mesh_rendering import load_mesh, mesh_in_render_frame
+from backend.pic_to_3d import _masked_edit_image
 
 
 DIRECT_MESH_METHODS = {"source-mesh-oracle", "external-image-to-mesh"}
+DIRECT_MESH_INPUT_MODES = ("masked", "full", "mirror", "biharmonic")
 
 
 def is_direct_mesh_method(method: str) -> bool:
@@ -29,11 +33,24 @@ def sample_mesh_path(sample: dict) -> Path | None:
     return resolve_existing_path(sample.get("mesh") or sample.get("asset_path"))
 
 
-def direct_mesh_input_path(sample: dict, mode: str = "masked") -> Path:
+def direct_mesh_input_path(sample: dict, mode: str = "masked", output_dir: Path | None = None) -> Path:
     if mode == "full":
         key = "full_image"
     elif mode == "masked":
         key = "masked_image"
+    elif mode in ("mirror", "biharmonic"):
+        if output_dir is None:
+            raise ValueError(f"direct mesh input mode {mode!r} requires an output directory")
+        masked_path = direct_mesh_input_path(sample, "masked")
+        mask_path = resolve_existing_path(sample.get("mask"))
+        if mask_path is None:
+            raise FileNotFoundError(f"Missing mask for sample {sample.get('id', '')}: {sample.get('mask', '')}")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        prefill_path = output_dir / f"direct_mesh_input_{mode}.png"
+        image = Image.open(masked_path).convert("RGB")
+        mask = Image.open(mask_path).convert("L")
+        _masked_edit_image(image, mask, mode).save(prefill_path)
+        return prefill_path
     else:
         raise ValueError(f"Unsupported direct mesh input mode: {mode}")
     path = resolve_existing_path(sample.get(key))
@@ -55,7 +72,7 @@ def convert_mesh_to_stl(mesh_path: Path, stl_path: Path) -> Path:
 
 def run_direct_mesh(sample: dict, method: str, output_dir: Path, args) -> tuple[Path, Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    input_image = direct_mesh_input_path(sample, getattr(args, "direct_mesh_input", "masked"))
+    input_image = direct_mesh_input_path(sample, getattr(args, "direct_mesh_input", "masked"), output_dir)
     stl_path = output_dir / "output_model.stl"
     output_ext = str(getattr(args, "direct_mesh_output_ext", "glb") or "glb").lstrip(".")
     mesh_output_path = output_dir / f"output_mesh.{output_ext}"
