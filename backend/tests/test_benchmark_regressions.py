@@ -390,6 +390,7 @@ class StlExportRegressionTests(unittest.TestCase):
                     [
                         "import sys",
                         "import trimesh",
+                        "assert sys.argv[3] == '96,72,48', sys.argv[3]",
                         "trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(sys.argv[1])",
                         "trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(sys.argv[2])",
                     ]
@@ -412,7 +413,7 @@ class StlExportRegressionTests(unittest.TestCase):
                 encoding="utf-8",
             )
             output_dir = root / "run"
-            command = f'"{sys.executable}" "{script_path}" "{{output_mesh}}" "{{output_stl}}"'
+            command = f'"{sys.executable}" "{script_path}" "{{output_mesh}}" "{{output_stl}}" "{{source_bbox_extents}}"'
 
             with patch.object(
                 sys,
@@ -429,6 +430,8 @@ class StlExportRegressionTests(unittest.TestCase):
                     "1",
                     "--skip-depth",
                     "--emit-stl",
+                    "--stl-target-dimension",
+                    "96",
                     "--direct-mesh-command",
                     command,
                     "--direct-mesh-output-ext",
@@ -808,6 +811,30 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
 
+    def test_mesh_postprocess_can_match_target_bbox_extents_for_stl_objective(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_mesh = root / "skinny_box.ply"
+            output_mesh = root / "target_extents.stl"
+            trimesh.creation.box(extents=(2.0, 1.0, 0.1)).export(input_mesh)
+
+            postprocess_mesh_for_stl(
+                input_mesh,
+                output_mesh,
+                target_bbox_extents=(96.0, 48.0, 24.0),
+            )
+
+            diagnostics = stl_diagnostics(output_mesh)
+
+        self.assertAlmostEqual(diagnostics["stl_bbox_x"], 96.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_y"], 48.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_z"], 24.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_aspect_ratio"], 4.0, places=4)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
+
     def test_image_to_mesh_provider_wrapper_can_repair_unprintable_mesh(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -944,6 +971,66 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertAlmostEqual(raw_diagnostics["stl_bbox_max_dimension"], 2.0, places=4)
         self.assertAlmostEqual(diagnostics["stl_bbox_max_dimension"], 96.0, places=4)
         self.assertAlmostEqual(diagnostics["stl_bbox_min_dimension"], 24.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_aspect_ratio"], 4.0, places=4)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
+
+    def test_image_to_mesh_provider_wrapper_can_match_target_bbox_extents(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            provider_dir = root / "fake_spar3d"
+            provider_dir.mkdir()
+            input_image = root / "input.png"
+            output_mesh = root / "normalized.ply"
+            output_stl = root / "normalized.stl"
+            Image.new("RGB", (12, 12), (120, 80, 160)).save(input_image)
+            (provider_dir / "run.py").write_text(
+                "\n".join(
+                    [
+                        "import argparse",
+                        "import sys",
+                        "from pathlib import Path",
+                        "import trimesh",
+                        "assert '--mesh-target-bbox-extents' not in sys.argv",
+                        "parser = argparse.ArgumentParser()",
+                        "parser.add_argument('input_image')",
+                        "parser.add_argument('--output-dir', required=True)",
+                        "args = parser.parse_args()",
+                        "Path(args.output_dir).mkdir(parents=True, exist_ok=True)",
+                        "trimesh.creation.box(extents=(2.0, 1.0, 0.1)).export(Path(args.output_dir) / 'result.ply')",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_image_to_mesh_provider",
+                    "--provider",
+                    "spar3d",
+                    "--provider-dir",
+                    str(provider_dir),
+                    "--input-image",
+                    str(input_image),
+                    "--output-mesh",
+                    str(output_mesh),
+                    "--output-stl",
+                    str(output_stl),
+                    "--provider-python",
+                    sys.executable,
+                    "--mesh-target-bbox-extents",
+                    "96,48,24",
+                ],
+            ):
+                run_image_to_mesh_provider_main()
+
+            diagnostics = stl_diagnostics(output_stl)
+
+        self.assertAlmostEqual(diagnostics["stl_bbox_x"], 96.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_y"], 48.0, places=4)
+        self.assertAlmostEqual(diagnostics["stl_bbox_z"], 24.0, places=4)
         self.assertAlmostEqual(diagnostics["stl_bbox_aspect_ratio"], 4.0, places=4)
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])

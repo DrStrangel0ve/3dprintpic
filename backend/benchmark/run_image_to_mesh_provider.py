@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import shutil
 import subprocess
@@ -52,6 +53,22 @@ CLI_PROVIDERS = {
 }
 
 PROVIDERS = tuple(sorted((*CLI_PROVIDERS, TRIPOSR_API_PROVIDER, "hunyuan3d-shape")))
+
+
+def parse_bbox_extents(value: str) -> tuple[float, float, float] | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parts = text.replace(",", " ").split()
+    if len(parts) != 3:
+        raise argparse.ArgumentTypeError("--mesh-target-bbox-extents expects three positive numbers")
+    try:
+        extents = tuple(float(part) for part in parts)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--mesh-target-bbox-extents expects numeric values") from exc
+    if not all(math.isfinite(extent) and extent > 0 for extent in extents):
+        raise argparse.ArgumentTypeError("--mesh-target-bbox-extents values must be finite and positive")
+    return extents
 
 
 def provider_dir_config_key(provider: str) -> str:
@@ -244,6 +261,7 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
         args.mesh_target_max_dimension > 0
         or args.mesh_min_bbox_dimension > 0
         or args.mesh_max_bbox_aspect_ratio > 0
+        or args.mesh_target_bbox_extents is not None
         or args.mesh_target_faces > 0
     ):
         if args.raw_output_mesh and args.mesh_repair == "none" and output_mesh.resolve() != args.raw_output_mesh.resolve():
@@ -255,6 +273,7 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
             target_max_dimension=args.mesh_target_max_dimension,
             min_bbox_dimension=args.mesh_min_bbox_dimension,
             max_bbox_aspect_ratio=args.mesh_max_bbox_aspect_ratio,
+            target_bbox_extents=args.mesh_target_bbox_extents,
             target_faces=args.mesh_target_faces,
         )
 
@@ -324,6 +343,15 @@ def main() -> None:
         help=(
             "If positive, anisotropically thicken small bounding-box axes until max_axis/min_axis is at most "
             "this ratio after size scaling. This is an opt-in STL calibration probe and may distort shape."
+        ),
+    )
+    parser.add_argument(
+        "--mesh-target-bbox-extents",
+        type=parse_bbox_extents,
+        default=None,
+        help=(
+            "Optional comma- or space-separated X,Y,Z STL-space bbox extents. When set, the normalized "
+            "provider mesh is anisotropically scaled to these exact final extents before STL export."
         ),
     )
     parser.add_argument(

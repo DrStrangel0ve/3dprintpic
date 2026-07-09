@@ -300,6 +300,82 @@ def _valid_extents(mesh) -> np.ndarray | None:
     return extents
 
 
+def _target_extents_array(target_bbox_extents) -> np.ndarray | None:
+    if target_bbox_extents is None:
+        return None
+    if isinstance(target_bbox_extents, str) and not target_bbox_extents.strip():
+        return None
+    extents = np.asarray(target_bbox_extents, dtype=np.float64)
+    if extents.shape != (3,) or not np.all(np.isfinite(extents)) or not np.all(extents > 0):
+        return None
+    return extents
+
+
+def _scale_extents_to_max_dimension(extents: np.ndarray | None, target_max_dimension: float) -> np.ndarray | None:
+    if extents is None:
+        return None
+    target = float(target_max_dimension or 0.0)
+    if target <= 0:
+        return extents
+    max_extent = float(np.max(extents))
+    if max_extent <= 0 or not math.isfinite(max_extent):
+        return None
+    return extents * (target / max_extent)
+
+
+def _format_bbox_extents(extents: np.ndarray | None) -> str:
+    if extents is None:
+        return ""
+    return ",".join(f"{float(value):.10g}" for value in extents)
+
+
+def _bbox_placeholder_values(prefix: str, extents: np.ndarray | None) -> dict[str, str]:
+    values = {
+        f"{prefix}_bbox_extents": _format_bbox_extents(extents),
+        f"{prefix}_bbox_x": "",
+        f"{prefix}_bbox_y": "",
+        f"{prefix}_bbox_z": "",
+    }
+    if extents is not None:
+        values[f"{prefix}_bbox_x"] = f"{float(extents[0]):.10g}"
+        values[f"{prefix}_bbox_y"] = f"{float(extents[1]):.10g}"
+        values[f"{prefix}_bbox_z"] = f"{float(extents[2]):.10g}"
+    return values
+
+
+def source_mesh_bbox_extents(sample: dict, target_max_dimension: float = 0.0) -> np.ndarray | None:
+    source_path = sample_mesh_path(sample)
+    if source_path is None:
+        return None
+    source_mesh = load_mesh(source_path)
+    if sample.get("camera"):
+        source_mesh = mesh_in_render_frame(source_mesh, sample.get("camera"))
+    return _scale_extents_to_max_dimension(_valid_extents(source_mesh), target_max_dimension)
+
+
+def stl_file_bbox_extents(path: Path | None) -> np.ndarray | None:
+    if path is None or not path.exists():
+        return None
+    try:
+        return _valid_extents(load_mesh(path))
+    except Exception:
+        return None
+
+
+def direct_mesh_bbox_placeholders(sample: dict, output_dir: Path, args) -> dict[str, str]:
+    stl_target_dimension = float(getattr(args, "stl_target_dimension", 0.0) or 0.0)
+    source_extents = source_mesh_bbox_extents(sample, stl_target_dimension)
+    mirror_stl = output_dir.parent / "mirror" / "output_model.stl"
+    mirror_extents = stl_file_bbox_extents(mirror_stl)
+    values = {
+        "stl_target_dimension": f"{stl_target_dimension:.10g}" if stl_target_dimension > 0 else "",
+        "mirror_stl": str(mirror_stl) if mirror_stl.exists() else "",
+    }
+    values.update(_bbox_placeholder_values("source", source_extents))
+    values.update(_bbox_placeholder_values("mirror", mirror_extents))
+    return values
+
+
 def _center_mesh_on_origin(mesh):
     centered = mesh.copy()
     bounds = np.asarray(centered.bounds, dtype=np.float64)
@@ -362,6 +438,20 @@ def _clamp_bbox_aspect_ratio(mesh, max_bbox_aspect_ratio: float):
     return clamped
 
 
+def _match_bbox_extents(mesh, target_bbox_extents):
+    target = _target_extents_array(target_bbox_extents)
+    if target is None:
+        return mesh
+    extents = _valid_extents(mesh)
+    if extents is None:
+        return mesh
+    matched = mesh.copy()
+    bounds = np.asarray(matched.bounds, dtype=np.float64)
+    center = bounds.mean(axis=0) if bounds.shape == (2, 3) and np.all(np.isfinite(bounds)) else np.zeros(3)
+    matched.vertices = (np.asarray(matched.vertices, dtype=np.float64) - center) * (target / extents) + center
+    return matched
+
+
 def _simplify_to_face_count(mesh, target_faces: int):
     target_faces = int(target_faces or 0)
     if target_faces <= 0 or len(mesh.faces) <= target_faces:
@@ -385,6 +475,7 @@ def postprocess_mesh_for_stl(
     target_max_dimension: float = 0.0,
     min_bbox_dimension: float = 0.0,
     max_bbox_aspect_ratio: float = 0.0,
+    target_bbox_extents=None,
     target_faces: int = 0,
 ) -> Path:
     mesh = load_mesh(mesh_path)
@@ -393,6 +484,7 @@ def postprocess_mesh_for_stl(
     processed = _scale_to_max_dimension(mesh, float(target_max_dimension or 0.0))
     processed = _enforce_min_bbox_dimension(processed, float(min_bbox_dimension or 0.0))
     processed = _clamp_bbox_aspect_ratio(processed, float(max_bbox_aspect_ratio or 0.0))
+    processed = _match_bbox_extents(processed, target_bbox_extents)
     processed = _simplify_to_face_count(processed, int(target_faces or 0))
     processed.remove_unreferenced_vertices()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -450,6 +542,7 @@ def run_direct_mesh(sample: dict, method: str, output_dir: Path, args) -> tuple[
             "sample_id": str(sample.get("id", "")),
             "method": method,
         }
+        values.update(direct_mesh_bbox_placeholders(sample, output_dir, args))
         command = command_template.format(**values)
         subprocess.run(
             command,
