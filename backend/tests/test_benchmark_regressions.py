@@ -28,6 +28,7 @@ from backend.benchmark.optimize_completion import (
     write_modern_cache_preflight,
     write_selection_decision,
 )
+from backend.benchmark.preflight_modern_providers import provider_rows
 from backend.benchmark.make_artifact_contact_sheet import (
     depth_error_image,
     filter_rows,
@@ -1318,6 +1319,60 @@ class OptimizeCompletionRegressionTests(unittest.TestCase):
         self.assertEqual(decision["score_profile"], "object-surface")
         self.assertIn("- Score profile: `object-surface`", markdown)
         self.assertGreater(decision["candidate_rank_score"], decision["current_rank_score"])
+
+
+class ModernProviderPreflightRegressionTests(unittest.TestCase):
+    def test_provider_rows_reports_auth_override_and_import_readiness(self):
+        class FakeApi:
+            def model_info(self, model_id, files_metadata=True):
+                tags_by_model = {
+                    "black-forest-labs/FLUX.1-Fill-dev": [
+                        "license:other",
+                        "diffusers:FluxFillPipeline",
+                    ],
+                    "Qwen/Qwen-Image-Edit": [
+                        "license:apache-2.0",
+                        "diffusers:QwenImageEditPipeline",
+                    ],
+                    "diffusers/stable-diffusion-xl-1.0-inpainting-0.1": [
+                        "license:openrail++",
+                        "diffusers:StableDiffusionXLInpaintPipeline",
+                    ],
+                }
+                return SimpleNamespace(
+                    private=False,
+                    gated="auto" if model_id == "black-forest-labs/FLUX.1-Fill-dev" else False,
+                    disabled=False,
+                    siblings=[SimpleNamespace(size=1024), SimpleNamespace(size=2048)],
+                    tags=tags_by_model[model_id],
+                )
+
+        def fake_model_index(model_id):
+            if model_id == "black-forest-labs/FLUX.1-Fill-dev":
+                return "", "GatedRepoError: 401 Client Error"
+            if model_id == "Qwen/Qwen-Image-Edit":
+                return "QwenImageEditPipeline", ""
+            return "StableDiffusionXLInpaintPipeline", ""
+
+        def fake_import(class_name):
+            if class_name == "StableDiffusionXLInpaintPipeline":
+                return False, "missing"
+            return True, ""
+
+        rows = provider_rows(
+            ["flux-fill", "qwen-image-inpaint", "sdxl-inpaint"],
+            api=FakeApi(),
+            model_index_lookup=fake_model_index,
+            pipeline_import_lookup=fake_import,
+        )
+        by_provider = {row["provider"]: row for row in rows}
+
+        self.assertEqual(by_provider["flux-fill"]["readiness"], "auth-required")
+        self.assertTrue(by_provider["flux-fill"]["class_matches_advertised"])
+        self.assertEqual(by_provider["qwen-image-inpaint"]["readiness"], "pipeline-override")
+        self.assertFalse(by_provider["qwen-image-inpaint"]["class_matches_advertised"])
+        self.assertEqual(by_provider["sdxl-inpaint"]["readiness"], "pipeline-missing")
+        self.assertFalse(by_provider["sdxl-inpaint"]["pipeline_import_available"])
 
 
 class CompareOptimizeRunsRegressionTests(unittest.TestCase):

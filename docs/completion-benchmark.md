@@ -279,19 +279,19 @@ FLUX/Qwen inference is intentionally benchmark-driven: run them on 10-20 rendere
 Provider preflight:
 
 ```bash
-.\backend\.venv\Scripts\python -m backend.benchmark.preflight_modern_providers --output backend/output/completion-benchmark/modern_provider_preflight_v4.jsonl
+.\backend\.venv\Scripts\python -m backend.benchmark.preflight_modern_providers --output backend/output/completion-benchmark/modern_provider_preflight_live_readiness.jsonl
 ```
 
-Current preflight results:
+Current preflight results now separate local pipeline importability from model-card access and advertised pipeline class. `pipeline-override` means the Diffusers class imports locally, but the model card or `model_index.json` advertises a different pipeline; keep those candidates benchmark-gated and do not promote them from metadata alone.
 
-| provider | model | gated | license | approx size |
-| --- | --- | --- | --- | ---: |
-| `sdxl-inpaint` | `diffusers/stable-diffusion-xl-1.0-inpainting-0.1` | false | openrail++ | 19.39 GB total; fp16 cache plan is 6.47 GB |
-| `dreamshaper-inpaint` | `Lykon/dreamshaper-8-inpainting` | false | creativeml-openrail-m | 7.66 GB total; fp16 cache plan is 1.99 GB and is cached locally |
-| `amused-inpaint` | `amused/amused-512` | false | openrail++ | 4.93 GB total; fp16 cache plan is 1.64 GB and is cached locally |
-| `flux-fill` | `black-forest-labs/FLUX.1-Fill-dev` | `auto`; model index gated without auth | other | 54.07 GB |
-| `qwen-image-inpaint` | `Qwen/Qwen-Image-Edit` | false; uses non-advertised inpaint pipeline override | Apache-2.0 | 53.76 GB |
-| `qwen-image-edit` | `Qwen/Qwen-Image-Edit` | false; advertised `QwenImageEditPipeline` | Apache-2.0 | 53.76 GB |
+| provider | model | readiness | gated | license | approx size |
+| --- | --- | --- | --- | --- | ---: |
+| `sdxl-inpaint` | `diffusers/stable-diffusion-xl-1.0-inpainting-0.1` | `ready` | false | openrail++ | 19.39 GB total; fp16 cache plan is 6.47 GB |
+| `dreamshaper-inpaint` | `Lykon/dreamshaper-8-inpainting` | `ready` | false | creativeml-openrail-m | 7.66 GB total; fp16 cache plan is 1.99 GB and is cached locally |
+| `amused-inpaint` | `amused/amused-512` | `pipeline-override` | false | openrail++ | 4.93 GB total; fp16 cache plan is 1.64 GB and is cached locally |
+| `flux-fill` | `black-forest-labs/FLUX.1-Fill-dev` | `auth-required` | `auto`; model index gated without auth | other | 54.07 GB |
+| `qwen-image-inpaint` | `Qwen/Qwen-Image-Edit` | `pipeline-override` | false | Apache-2.0 | 53.76 GB |
+| `qwen-image-edit` | `Qwen/Qwen-Image-Edit` | `ready` | false | Apache-2.0 | 53.76 GB |
 
 Because these modern providers are large, cache weights separately before a scored benchmark. For SDXL, the provider cache utility plans a smaller fp16 download:
 
@@ -946,7 +946,25 @@ This reuses the Colab G4 orchestration path on a 12 GB RTX 3080 Ti while the Col
 | dreamshaper_base_s12_s256 | 4 | 1.4371 | 0.2247 | 0.4099 | 0.2903 |
 | masked | 4 | 0.0000 | 0.3624 | 0.5607 | 0.2677 |
 
-Interpretation: this is a directional smoke, not a robust held-out claim: it covers two `eval-limit=2` slices, and the weighted LoRA's paired objective against `masked` wins only `2/4` with CI95 `[-0.2637, 3.7965]`. The aggregate medians still show useful signal: the weighted LoRA beats base DreamShaper on object-surface and object-depth metrics, so metric-weighted training is improving downstream geometry. It still trails `mirror` on the held-out objective and has weak object RGB fidelity (`object MAE` median `0.4462`), so this is not a promotion result. The run emitted depth and STL artifacts, but the combined object-surface score above is driven by depth, surface, and silhouette metrics; STL validity is audited in per-sample rows rather than contributing to this score. Audit outputs are under `backend/output/completion-benchmark/colab_g4/local_3080ti_dreamshaper_probe_s48_s50_n2/combined/modern_weighted_object-surface_n4/`, with contact sheets in each `experiments/modern_weighted_eval_*_n2/` directory. The practical next step is to run the same package on the G4 notebook for the full `20` held-out ModelNet10 rows, then spend tuning time on geometry-conditioned supervision or a stronger mask-native provider rather than another small DreamShaper prompt sweep.
+Interpretation: this is a directional smoke, not a robust held-out claim: it covers two `eval-limit=2` slices, and the weighted LoRA's paired objective against `masked` wins only `2/4` with CI95 `[-0.2637, 3.7965]`. The aggregate medians still show useful signal: the weighted LoRA beats base DreamShaper on object-surface and object-depth metrics, so metric-weighted training is improving downstream geometry. It still trails `mirror` on the held-out objective and has weak object RGB fidelity (`object MAE` median `0.4462`), so this is not a promotion result. The run emitted depth and STL artifacts, but the combined object-surface score above is driven by depth, surface, and silhouette metrics; STL validity is audited in per-sample rows rather than contributing to this score. Audit outputs are under `backend/output/completion-benchmark/colab_g4/local_3080ti_dreamshaper_probe_s48_s50_n2/combined/modern_weighted_object-surface_n4/`, with contact sheets in each `experiments/modern_weighted_eval_*_n2/` directory.
+
+The same local 3080 Ti lane was then expanded to the full held-out `20` rows (`eval-start 40`, `eval-start 50`, `eval-limit 10`) while the Colab G4 runtime was disconnected:
+
+```powershell
+.\backend\.venv\Scripts\python -m backend.benchmark.colab_g4_orchestrator --use-current-repo --run-name local_3080ti_dreamshaper_full_heldout20_s40_s50 --stage eval --stage combine --manifest backend\output\completion-benchmark\modelnet10_60_balanced_s256_seed4040\manifest.jsonl --existing-lora-weights backend\output\completion-benchmark\lora\modelnet10_train40_weighted_surface_s20 --modern-config backend\benchmark\experiment_configs\local_dreamshaper_weighted_probe.json --eval-start 40 --eval-start 50 --eval-limit 10 --score-profile object-surface --train-steps 20 --eval-steps 12 --eval-inpaint-max-dimension 256 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --stl-target-dimension 96 --min-paired-n 10 --allow-missing-split-audit --contact-sheet-max-samples 6
+```
+
+Full held-out result:
+
+| method | n | score | object surface Chamfer L1 med | object depth MAE med | silhouette IoU med |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| mirror | 20 | 2.4490 | 0.1293 | 0.2768 | 0.3839 |
+| biharmonic | 20 | 1.8350 | 0.1825 | 0.2968 | 0.3158 |
+| dreamshaper_base_s12_s256 | 20 | 1.7280 | 0.1793 | 0.3959 | 0.3049 |
+| dreamshaper_weighted_lora_modelnet10_train40_weighted_surface_s20_scale0.75 | 20 | 1.6666 | 0.1701 | 0.3576 | 0.3208 |
+| masked | 20 | 0.0000 | 0.3325 | 0.5413 | 0.3158 |
+
+Selector decision: `hold` and keep current `mirror`. The full run completed `100/100` method-sample rows with `0` failures. `mirror` led the object-surface aggregate and had paired objective CI95 `[0.8513, 3.3124]` against `masked`, but only `15/20` wins (`0.75`, below the `0.8` gate). The weighted LoRA still improves some geometry medians versus base DreamShaper, including object-surface Chamfer (`0.1701` vs `0.1793`) and object-depth MAE (`0.3576` vs `0.3959`), but its combined score is lower and its paired objective against `masked` is not robust (`12/20`, CI95 `[-0.3314, 2.8452]`). The next useful training change is geometry-conditioned supervision or a stronger mask-native provider such as Qwen Image Edit / FLUX Fill on a large-memory runtime, not another small DreamShaper prompt or scale sweep.
 
 Local regression coverage for the G4 resume lane:
 

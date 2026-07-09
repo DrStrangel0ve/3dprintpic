@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 from pathlib import Path
+from typing import Callable
 
 from backend.pic_to_3d import MODERN_INPAINT_MODELS
 
@@ -22,27 +24,59 @@ def safe_model_index_class(model_id: str) -> tuple[str, str]:
         return "", f"{type(exc).__name__}: {exc}"
 
 
-def provider_rows(providers: list[str]) -> list[dict]:
-    from huggingface_hub import HfApi
+def pipeline_import_status(class_name: str) -> tuple[bool, str]:
+    try:
+        diffusers = importlib.import_module("diffusers")
+        if hasattr(diffusers, class_name):
+            return True, ""
+        return False, f"diffusers has no attribute {class_name}"
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
 
-    api = HfApi()
+
+def provider_readiness(row: dict) -> str:
+    if not row.get("ok"):
+        return "metadata-error"
+    if not row.get("pipeline_import_available"):
+        return "pipeline-missing"
+    if row.get("model_index_error") and "GatedRepoError" in str(row.get("model_index_error")):
+        return "auth-required"
+    if not row.get("class_matches_advertised"):
+        return "pipeline-override"
+    return "ready"
+
+
+def provider_rows(
+    providers: list[str],
+    api=None,
+    model_index_lookup: Callable[[str], tuple[str, str]] = safe_model_index_class,
+    pipeline_import_lookup: Callable[[str], tuple[bool, str]] = pipeline_import_status,
+) -> list[dict]:
+    if api is None:
+        from huggingface_hub import HfApi
+
+        api = HfApi()
     rows = []
     for provider in providers:
         if provider not in MODERN_INPAINT_MODELS:
             raise ValueError(f"Unsupported provider: {provider}")
         provider_config = MODERN_INPAINT_MODELS[provider]
         model_id = provider_config["model"]
+        pipeline_class = provider_config.get("pipeline_class", "")
+        pipeline_import_available, pipeline_import_error = pipeline_import_lookup(pipeline_class)
         row = {
             "provider": provider,
             "model": model_id,
-            "intended_pipeline_class": provider_config.get("pipeline_class", ""),
+            "intended_pipeline_class": pipeline_class,
+            "pipeline_import_available": pipeline_import_available,
+            "pipeline_import_error": pipeline_import_error,
         }
         try:
             info = api.model_info(model_id, files_metadata=True)
             total_size = sum((sibling.size or 0) for sibling in info.siblings or [])
             tags = info.tags or []
             diffusers_tags = [tag.split("diffusers:", 1)[1] for tag in tags if tag.startswith("diffusers:")]
-            advertised_class, model_index_error = safe_model_index_class(model_id)
+            advertised_class, model_index_error = model_index_lookup(model_id)
             advertised_classes = diffusers_tags + ([advertised_class] if advertised_class else [])
             row.update(
                 {
@@ -62,6 +96,7 @@ def provider_rows(providers: list[str]) -> list[dict]:
             )
         except Exception as exc:
             row.update({"ok": False, "error_type": type(exc).__name__, "error": str(exc)})
+        row["readiness"] = provider_readiness(row)
         rows.append(row)
     return rows
 
