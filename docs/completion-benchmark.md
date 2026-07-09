@@ -1312,6 +1312,26 @@ The first calibration candidate is now wired through `backend.benchmark.run_imag
 
 Use that method as the next `--candidate-method` against `mirror` on the same held-out rows. This is a calibration probe, not a default: it may improve the four elongated losses, but it can distort true thin objects, so promotion still has to pass paired STL-quality gates.
 
+Colab G4 aspect-clamp result: the notebook terminal ran commit `76a08a1` as `g4_stl_first_triposr_aspect_clamp_s40_n10`, reusing the same packaged held-out manifest and the isolated TripoSR API venv. It completed successfully and wrote `/content/g4_stl_first_triposr_aspect_clamp_s40_n10_results.tar.gz` (`25,172,098` bytes).
+
+| method | n | stl-quality score vs masked | mesh surface Chamfer med | mesh surface H95 med | bbox aspect med | success rate |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `triposr_api_masked_repaired_stl_aspect_clamped2p25_direct_mesh` | 10 | 0.4597 | 0.1446 | 0.3782 | 2.2500 | 1.0 |
+| `mirror` | 10 | 0.2199 | 0.1723 | 0.5056 | 1.7935 | 1.0 |
+| `masked` | 10 | 0.0000 | 0.1970 | 0.5226 | 1.7348 | 1.0 |
+
+Promotion decision: `hold`. The aspect clamp is a real improvement over the scaled/compact direct mesh: aggregate score rose from `0.2791` to `0.4597`, paired wins versus `mirror` improved from `6/10` to `7/10`, and the previous `mesh_dir_757e06b221_v00` loss became a win. It still fails promotion because the paired win-rate gate requires `>= 0.8` and the paired CI95 low versus `mirror` is slightly negative at `-0.0055`.
+
+Remaining losses versus `mirror`:
+
+| sample | score vs mirror | candidate/mirror bbox aspect | candidate/mirror Chamfer | candidate/mirror H95 |
+| --- | ---: | ---: | ---: | ---: |
+| `mesh_dir_49534574e1_v00` | -0.4474 | 2.2500 / 1.8269 | 0.2249 / 0.1669 | 0.5879 / 0.6401 |
+| `mesh_dir_1a13fc2246_v00` | -0.3360 | 2.2500 / 1.7378 | 0.1692 / 0.1690 | 0.5735 / 0.5291 |
+| `mesh_dir_92752051d0_v00` | -0.1578 | 2.2500 / 1.7196 | 0.1632 / 0.1704 | 0.4391 / 0.4438 |
+
+Interpretation: clamping fixed the worst elongation outlier without breaking STL validity, but a fixed `2.25` ratio over-penalizes relative bbox aspect against mirror on all three remaining losses. The next useful calibration should test either a softer clamp such as `2.75`/`3.0`, or a target-aspect mode derived from the 2.5D mirror relief bbox, instead of forcing every direct mesh to the same global aspect cap.
+
 Multiview/video backends should use the new `external-multiview-to-mesh` method. The benchmark writes `{input_bundle}` as `multiview_input.json` beside the provider outputs, with `primary_image`, `masked_image`, `full_image`, `mask`, `camera`, optional `video_path`/`frames_dir`, and a `views` list containing sibling images, masks, cameras, and view ids. `generate_rendered_dataset --views-per-asset N` now annotates rows that share an `asset_key` with `multiview_images`, `multiview_masks`, `multiview_cameras`, `multiview_view_ids`, and `multiview_primary_index`; `package_colab_inputs` carries those list-valued paths into Colab bundles.
 
 Local STL-first launcher smoke (`stl_first_reconstruction_smoke_local_s0_n1`, `dataset-count=1`, `size=128`, `stl-target-dimension=64`) completed successfully in `82.91s` for the benchmark stage. Ranking:
