@@ -1352,6 +1352,16 @@ The next calibration probe is per-sample bbox matching. External direct-mesh com
 
 This is not deployable because it uses the hidden source mesh. Its purpose is to answer whether per-sample geometry calibration can clear the remaining direct-mesh losses. If it passes, replace the oracle target with a deployable estimate from mirror/depth bbox statistics or multiview/video reconstruction metadata.
 
+Colab G4 source-bbox oracle calibration result: the notebook terminal ran commit `e3b0941` as `g4_stl_first_triposr_source_bbox_s40_n10`, using the same packaged held-out manifest and isolated TripoSR API venv. It completed successfully, wrote `/content/g4_stl_first_triposr_source_bbox_s40_n10_results.tar.gz` (`26,375,237` bytes), and the selector decision was `promote` for the oracle-calibrated candidate:
+
+| method | n | stl-quality score vs masked | mesh surface Chamfer med | mesh surface H95 med | bbox aspect med | success rate |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `triposr_api_masked_repaired_stl_source_bbox_direct_mesh` | 10 | 0.9007 | 0.1483 | 0.3655 | 1.3638 | 1.0 |
+| `mirror` | 10 | 0.2199 | 0.1723 | 0.5056 | 1.7935 | 1.0 |
+| `masked` | 10 | 0.0000 | 0.1970 | 0.5226 | 1.7484 | 1.0 |
+
+Selection gates passed with `10/10` wins versus `masked` and `10/10` wins versus current `mirror`; paired CI95 low versus mirror was `0.5299`, and there were no failed checks. This confirms the direct-mesh gap is largely scale/proportion calibration, not only model quality. Do not ship the source-bbox probe directly; the next implementation target is a deployable target-extents estimator from mirror relief/depth bbox statistics, then rerun the same held-out rows against this oracle upper bound.
+
 Multiview/video backends should use the new `external-multiview-to-mesh` method. The benchmark writes `{input_bundle}` as `multiview_input.json` beside the provider outputs, with `primary_image`, `masked_image`, `full_image`, `mask`, `camera`, optional `video_path`/`frames_dir`, and a `views` list containing sibling images, masks, cameras, and view ids. `generate_rendered_dataset --views-per-asset N` now annotates rows that share an `asset_key` with `multiview_images`, `multiview_masks`, `multiview_cameras`, `multiview_view_ids`, and `multiview_primary_index`; `package_colab_inputs` carries those list-valued paths into Colab bundles.
 
 Local STL-first launcher smoke (`stl_first_reconstruction_smoke_local_s0_n1`, `dataset-count=1`, `size=128`, `stl-target-dimension=64`) completed successfully in `82.91s` for the benchmark stage. Ranking:
