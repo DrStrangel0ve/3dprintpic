@@ -282,7 +282,7 @@ def build_hunyuan3d_setup_prelude() -> str:
         "fi\n"
         "HUNYUAN3D_PYTHON=\"$HUNYUAN3D_VENV/bin/python\"\n"
         "if [[ \"$HUNYUAN3D_VENV_BACKEND\" == \"target\" ]]; then\n"
-        "  HUNYUAN3D_PIP_INSTALL=(python -m pip install --upgrade --target \"$HUNYUAN3D_DEPS\")\n"
+        "  HUNYUAN3D_PIP_INSTALL=(python -m pip install --upgrade --target \"$HUNYUAN3D_DEPS\" --no-deps)\n"
         "else\n"
         "  HUNYUAN3D_PIP_INSTALL=(\"$HUNYUAN3D_PYTHON\" -m pip install)\n"
         "fi\n"

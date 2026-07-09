@@ -3076,7 +3076,10 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn('export PYTHONPATH="$HUNYUAN3D_DEPS:$HUNYUAN3D_DIR/hy3dshape:$HUNYUAN3D_DIR:${PYTHONPATH:-}"', archive_run_script)
         self.assertIn('exec python "$@"', archive_run_script)
         self.assertIn('mv -f "$HUNYUAN3D_WRAPPER_TMP" "$HUNYUAN3D_VENV/bin/python"', archive_run_script)
-        self.assertIn('HUNYUAN3D_PIP_INSTALL=(python -m pip install --upgrade --target "$HUNYUAN3D_DEPS")', archive_run_script)
+        self.assertIn(
+            'HUNYUAN3D_PIP_INSTALL=(python -m pip install --upgrade --target "$HUNYUAN3D_DEPS" --no-deps)',
+            archive_run_script,
+        )
         self.assertIn("Creating Hunyuan3D Python env with stdlib venv", archive_run_script)
         self.assertIn("python -m venv --system-site-packages", archive_run_script)
         self.assertIn("Creating Hunyuan3D Python env with virtualenv", archive_run_script)
