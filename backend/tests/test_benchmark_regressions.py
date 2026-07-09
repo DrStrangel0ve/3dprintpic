@@ -25,6 +25,10 @@ from backend.benchmark.direct_mesh import (
     repair_mesh_for_printable_stl,
 )
 from backend.benchmark.explain_rank_score import contribution_rows, explain, markdown_report, summarize_contributions
+from backend.benchmark.explain_paired_objective import (
+    explain as explain_paired_objective,
+    paired_sample_rows,
+)
 from backend.benchmark.export_training_pairs import main as export_training_pairs_main
 from backend.benchmark.generate_rendered_dataset import attach_multiview_fields
 from backend.benchmark.package_colab_inputs import package_inputs
@@ -3408,6 +3412,67 @@ class ReportRegressionTests(unittest.TestCase):
         self.assertAlmostEqual(mirror["ci95_low"], 1.4)
         self.assertAlmostEqual(mirror["ci95_high"], 1.4)
         self.assertAlmostEqual(mirror["mean_metric_count"], 2.0)
+
+    def test_paired_objective_explainer_lists_sample_losses_against_current(self):
+        rows = [
+            {"sample_id": "win", "method": "masked", "masked_mae": "0.60", "stl_faces_per_bbox_volume_log1p": "1.0"},
+            {"sample_id": "win", "method": "mirror", "masked_mae": "0.30", "stl_faces_per_bbox_volume_log1p": "1.0"},
+            {"sample_id": "win", "method": "direct", "masked_mae": "0.10", "stl_faces_per_bbox_volume_log1p": "0.5"},
+            {"sample_id": "loss", "method": "masked", "masked_mae": "0.60", "stl_faces_per_bbox_volume_log1p": "1.0"},
+            {"sample_id": "loss", "method": "mirror", "masked_mae": "0.20", "stl_faces_per_bbox_volume_log1p": "1.0"},
+            {"sample_id": "loss", "method": "direct", "masked_mae": "0.50", "stl_faces_per_bbox_volume_log1p": "0.5"},
+        ]
+
+        sample_rows, contribution_rows = paired_sample_rows(
+            rows,
+            candidate_method="direct",
+            baseline_method="masked",
+            current_method="mirror",
+            weights={"masked_mae_median": -4.0, "stl_faces_per_bbox_volume_log1p_median": -0.25},
+            top_n=2,
+        )
+
+        self.assertEqual([row["sample_id"] for row in sample_rows], ["loss", "win"])
+        self.assertLess(sample_rows[0]["score_vs_current"], 0)
+        self.assertFalse(sample_rows[0]["win_vs_current"])
+        self.assertIn("masked_mae", sample_rows[0]["top_hurts_vs_current"])
+        self.assertGreater(sample_rows[1]["score_vs_current"], 0)
+        self.assertTrue(sample_rows[1]["win_vs_current"])
+        self.assertEqual(
+            {(row["sample_id"], row["comparison_method"]) for row in contribution_rows},
+            {("win", "masked"), ("win", "mirror"), ("loss", "masked"), ("loss", "mirror")},
+        )
+
+    def test_paired_objective_explainer_writes_outputs_from_run_dir(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with (root / "per_sample_metrics.csv").open("w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=["sample_id", "method", "masked_mae"])
+                writer.writeheader()
+                writer.writerows(
+                    [
+                        {"sample_id": "a", "method": "masked", "masked_mae": "0.60"},
+                        {"sample_id": "a", "method": "mirror", "masked_mae": "0.20"},
+                        {"sample_id": "a", "method": "direct", "masked_mae": "0.10"},
+                        {"sample_id": "b", "method": "masked", "masked_mae": "0.60"},
+                        {"sample_id": "b", "method": "mirror", "masked_mae": "0.20"},
+                        {"sample_id": "b", "method": "direct", "masked_mae": "0.30"},
+                    ]
+                )
+
+            summary, sample_rows, contribution_rows = explain_paired_objective(
+                root,
+                candidate_method="direct",
+                baseline_method="masked",
+                current_method="mirror",
+                score_profile="default",
+                weight_overrides=["masked_mae_median=-4.0"],
+            )
+
+        self.assertEqual(summary["paired_n"], 2)
+        self.assertEqual(summary["wins_vs_current"], 1)
+        self.assertEqual(len(sample_rows), 2)
+        self.assertEqual(len(contribution_rows), 4)
 
     def test_render_report_emits_paired_objective_confidence_section(self):
         with tempfile.TemporaryDirectory() as temp_dir:
