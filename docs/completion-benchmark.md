@@ -1022,6 +1022,19 @@ python -m backend.benchmark.colab_g4_orchestrator --use-current-repo --run-name 
 
 For a cheap live sanity check before the full held-out `20`, change both `--eval-limit 10` and `--min-paired-n 10` to `2`. After Qwen finishes, repeat the same command with `--run-name g4_modelnet10_flux_fill_s20_s512`, `--modern-config backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_flux_fill_g4_depth_stl.json`, `--cache-provider flux-fill`, and contact-sheet method `flux_fill_s20_s512` if FLUX auth/access is ready.
 
+Colab G4 Qwen procedural sanity:
+
+The notebook `https://colab.research.google.com/drive/1SuilhFuF5L3ELkEy2rnEsTmKAL19ob60` ran commit `2ccf589` on the G4 runtime with `Qwen/Qwen-Image-Edit` cached and evaluated a tiny procedural slice (`dataset-count=4`, `eval-start=0`, `eval-limit=2`, `eval-steps=20`, `inpaint_max_dimension=512`, object-surface score). The run completed and wrote `/content/g4_qwen_procedural_sanity_s0_n2_results.tar.gz` (`4.2 MB`) plus the orchestrator output directory `/content/3dprintpic/backend/output/completion-benchmark/colab_g4/g4_qwen_procedural_sanity_s0_n2`.
+
+| method | score |
+| --- | ---: |
+| `mirror` | 3.3505 |
+| `biharmonic` | 1.4383 |
+| `masked` | 0.0000 |
+| `qwen_edit_s20_s512` | -2.3662 |
+
+Interpretation: this is an integration sanity result, not a model-quality conclusion. It proves the G4 path can cache and run Qwen Image Edit end-to-end through completion, depth, STL artifact generation, ranking, and tarball packaging. On this small procedural slice, the generic Qwen edit prompt underperformed the deterministic mirror baseline badly enough that the next Qwen iteration should inspect the contact sheet/depth outputs and adjust the edit prompt or mask presentation before spending a full held-out ModelNet20 run.
+
 ## Kaggle
 
 A GPU-enabled Kaggle kernel scaffold lives in `backend/benchmark/kaggle`.
