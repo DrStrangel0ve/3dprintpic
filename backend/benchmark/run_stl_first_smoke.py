@@ -122,18 +122,20 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                     "direct_mesh_command": triposr_api_command(args, repaired=False),
                 }
             )
-        experiments.append(
-            {
-                "name": "triposr_api_masked_repaired_direct_mesh",
-                "method": "external-image-to-mesh",
-                "skip_depth": True,
-                "emit_stl": True,
-                "direct_mesh_input": "masked",
-                "direct_mesh_output_ext": "obj",
-                "direct_mesh_timeout": args.direct_mesh_timeout,
-                "direct_mesh_command": triposr_api_command(args, repaired=True),
-            }
-        )
+        for direct_input in args.triposr_direct_inputs:
+            input_suffix = "masked" if direct_input == "masked" else f"{direct_input}_prefill"
+            experiments.append(
+                {
+                    "name": f"triposr_api_{input_suffix}_repaired_direct_mesh",
+                    "method": "external-image-to-mesh",
+                    "skip_depth": True,
+                    "emit_stl": True,
+                    "direct_mesh_input": direct_input,
+                    "direct_mesh_output_ext": "obj",
+                    "direct_mesh_timeout": args.direct_mesh_timeout,
+                    "direct_mesh_command": triposr_api_command(args, repaired=True),
+                }
+            )
     if args.include_hunyuan3d_shape:
         experiments.append(
             {
@@ -342,6 +344,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--include-triposr-api", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--include-hunyuan3d-shape", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--include-raw-direct-mesh", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--triposr-direct-input",
+        action="append",
+        choices=("masked", "full", "mirror", "biharmonic"),
+        dest="triposr_direct_inputs",
+        default=None,
+        help=(
+            "Direct image input mode for repaired TripoSR API candidates. Repeat to compare "
+            "masked, full, mirror-prefill, and biharmonic-prefill variants."
+        ),
+    )
     parser.add_argument("--provider-python", default=sys.executable)
     parser.add_argument("--provider-device", default="cuda")
     parser.add_argument("--triposr-python", default=DEFAULT_TRIPOSR_PYTHON)
@@ -374,7 +387,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--benchmark-timeout", type=int, default=7200)
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--continue-on-error", action=argparse.BooleanOptionalAction, default=True)
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.triposr_direct_inputs = args.triposr_direct_inputs or ["masked"]
+    return args
 
 
 def main() -> None:

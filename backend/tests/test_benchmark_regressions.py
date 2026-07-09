@@ -943,6 +943,7 @@ class StlExportRegressionTests(unittest.TestCase):
             include_source_oracle=True,
             include_triposr_api=True,
             include_raw_direct_mesh=False,
+            triposr_direct_inputs=["masked", "mirror", "biharmonic"],
             include_hunyuan3d_shape=True,
             multiview_command='python mv.py "{input_bundle}" "{output_mesh}" "{output_stl}"',
             multiview_name="mv_recon",
@@ -966,6 +967,10 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertEqual(by_name["source_mesh_oracle"]["method"], "source-mesh-oracle")
         self.assertEqual(by_name["source_mesh_oracle"]["source_mesh_repair"], "printable")
         self.assertIn("--provider triposr-api", by_name["triposr_api_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertEqual(by_name["triposr_api_mirror_prefill_repaired_direct_mesh"]["direct_mesh_input"], "mirror")
+        self.assertIn("--mesh-repair printable", by_name["triposr_api_mirror_prefill_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertEqual(by_name["triposr_api_biharmonic_prefill_repaired_direct_mesh"]["direct_mesh_input"], "biharmonic")
+        self.assertIn("--mesh-repair printable", by_name["triposr_api_biharmonic_prefill_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("--provider hunyuan3d-shape", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("{output_dir}/output_mesh_raw.glb", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertEqual(by_name["mv_recon"]["method"], "external-multiview-to-mesh")
