@@ -1258,6 +1258,20 @@ Colab G4 STL-first TripoSR promotion result: the notebook ran commit `2e69185` o
 
 Promotion decision: `hold`. Repaired TripoSR passed the STL printability gates on all 10 samples: watertight, volume-valid, manifold, winding-consistent, positive-volume, single-component, no non-manifold edges, no degenerate faces, acceptable bbox aspect, and acceptable face density. It still failed objective promotion with `0/10` paired wins, paired CI95 low `-2.6950`, score margin versus mirror `-2.1573`, `0/10` paired wins versus mirror, and paired-current CI95 low `-2.8486`. The useful signal is that repaired TripoSR is now printable and lower-complexity than the relief STL baseline while beating mirror on median mesh-surface Chamfer, but the full STL-quality objective still prefers the depth-relief path. The next direct mesh iteration should inspect the contact sheet and per-sample score components, then try mirror/biharmonic prefilled TripoSR or a properly installed Hunyuan3D/SV3D-style provider before changing the app default.
 
+Colab G4 repaired TripoSR prefill follow-up: the notebook ran commit `39f8d6c` on July 9, 2026 as `g4_stl_first_triposr_prefill_s40_n10`, verified archive SHA256 `3f6d5175260dfa5b2236298abb23992f1120fa29f884c5caae2f6356d3a6d38d`, and completed with `run_status=0`. This reran the same held-out rows with masked, mirror-prefilled, and biharmonic-prefilled repaired TripoSR candidates.
+
+| method | n | stl-quality score vs masked | mesh surface Chamfer med | mesh surface H95 med | STL watertight med | STL manifold med | STL faces med | success rate |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `source_mesh_oracle` | 10 | 0.6139 | 0.0746 | 0.2376 | 1.0 | 1.0 | 103 | 1.0 |
+| `mirror` | 10 | 0.2199 | 0.1723 | 0.5056 | 1.0 | 1.0 | 29580 | 1.0 |
+| `biharmonic` | 10 | 0.1335 | 0.1885 | 0.4950 | 1.0 | 1.0 | 29580 | 1.0 |
+| `masked` | 10 | 0.0000 | 0.1970 | 0.5226 | 1.0 | 1.0 | 29580 | 1.0 |
+| `triposr_api_masked_repaired_direct_mesh` | 10 | -1.9375 | 0.1524 | 0.4067 | 1.0 | 1.0 | 2312 | 1.0 |
+| `triposr_api_mirror_prefill_repaired_direct_mesh` | 10 | -2.2439 | 0.1501 | 0.4013 | 1.0 | 1.0 | 1841 | 1.0 |
+| `triposr_api_biharmonic_prefill_repaired_direct_mesh` | 10 | -2.3817 | 0.1412 | 0.3995 | 1.0 | 1.0 | 2883 | 1.0 |
+
+Promotion decision: `hold` for `triposr_api_mirror_prefill_repaired_direct_mesh`. All repaired TripoSR variants passed the printability gates on all 10 samples. Prefilling improved direct mesh surface metrics versus masked TripoSR, with biharmonic prefill giving the best median Chamfer and H95, but the full STL-quality objective still favored the depth-relief `mirror` baseline. The mirror-prefill candidate failed with `0/10` paired wins, paired CI95 low `-3.0241`, score margin versus mirror `-2.4638`, `0/10` paired wins versus mirror, and paired-current CI95 low `-3.1712`. The next useful iteration is to inspect per-sample score components and contact sheets to identify which non-Chamfer terms pull direct meshes below the relief baseline, then either tune the score profile for true full-mesh STL preference or try a stronger modern direct mesh backend.
+
 Multiview/video backends should use the new `external-multiview-to-mesh` method. The benchmark writes `{input_bundle}` as `multiview_input.json` beside the provider outputs, with `primary_image`, `masked_image`, `full_image`, `mask`, `camera`, optional `video_path`/`frames_dir`, and a `views` list containing sibling images, masks, cameras, and view ids. `generate_rendered_dataset --views-per-asset N` now annotates rows that share an `asset_key` with `multiview_images`, `multiview_masks`, `multiview_cameras`, `multiview_view_ids`, and `multiview_primary_index`; `package_colab_inputs` carries those list-valued paths into Colab bundles.
 
 Local STL-first launcher smoke (`stl_first_reconstruction_smoke_local_s0_n1`, `dataset-count=1`, `size=128`, `stl-target-dimension=64`) completed successfully in `82.91s` for the benchmark stage. Ranking:
