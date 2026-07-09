@@ -3095,7 +3095,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("Installing Hunyuan3D Python deps: model helpers", archive_run_script)
         self.assertIn("Installing Hunyuan3D Python deps: pymeshlab", archive_run_script)
         self.assertIn('"${HUNYUAN3D_PIP_INSTALL[@]}" timm torchdiffeq', archive_run_script)
-        self.assertIn('"${HUNYUAN3D_PIP_INSTALL[@]}" pymeshlab', archive_run_script)
+        self.assertIn('"${HUNYUAN3D_PIP_INSTALL[@]}" pymeshlab==2023.12.post3', archive_run_script)
         self.assertIn("HUNYUAN3D_PREFETCH:-1", archive_run_script)
         self.assertIn("--prefetch-only", archive_run_script)
         self.assertIn("diffusers==0.30.0", archive_run_script)

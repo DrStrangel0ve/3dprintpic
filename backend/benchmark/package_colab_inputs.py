@@ -312,7 +312,7 @@ def build_hunyuan3d_setup_prelude() -> str:
         "  echo \"Installing Hunyuan3D Python deps: model helpers\"\n"
         "  \"${HUNYUAN3D_PIP_INSTALL[@]}\" timm torchdiffeq\n"
         "  echo \"Installing Hunyuan3D Python deps: pymeshlab\"\n"
-        "  \"${HUNYUAN3D_PIP_INSTALL[@]}\" pymeshlab\n"
+        "  \"${HUNYUAN3D_PIP_INSTALL[@]}\" pymeshlab==2023.12.post3\n"
         "  \"$HUNYUAN3D_PYTHON\" - <<'PY'\n"
         "import importlib\n"
         "for name in ('torch', 'diffusers', 'transformers', 'accelerate', 'trimesh', 'pymeshlab', 'hy3dshape.pipelines'):\n"
