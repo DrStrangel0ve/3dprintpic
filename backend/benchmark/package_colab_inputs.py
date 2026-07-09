@@ -321,8 +321,6 @@ def build_colab_run_script(
         "--run-name",
         run_name,
         "--stage",
-        "setup",
-        "--stage",
         "cache",
         "--stage",
         "eval",
@@ -446,6 +444,12 @@ def build_colab_run_script(
         "git fetch \"$REPO_REMOTE\" \"$REPO_REF\"\n"
         "git reset --hard FETCH_HEAD\n"
         "resolved_commit=\"$(git rev-parse HEAD)\"\n"
+        "python -m pip install -U pip\n"
+        "if [[ -f backend/requirements-cuda.txt ]]; then\n"
+        "  python -m pip install -r backend/requirements-cuda.txt\n"
+        "else\n"
+        "  python -m pip install -r backend/requirements.txt\n"
+        "fi\n"
         f"{provider_setup}"
         "python - <<'PY' > \"$PREFLIGHT_PATH\"\n"
         "import json, os, pathlib, subprocess\n"
