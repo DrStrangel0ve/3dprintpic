@@ -191,7 +191,8 @@ Use the TripoSR API venv smoke config as the no-gate direct mesh fallback. Keep 
 
 ```bash
 git clone https://github.com/VAST-AI-Research/TripoSR /content/TripoSR
-python -m venv --system-site-packages /content/triposr-venv
+python -m pip install -q virtualenv
+python -m virtualenv --system-site-packages /content/triposr-venv
 /content/triposr-venv/bin/python -m pip install -U pip setuptools wheel
 /content/triposr-venv/bin/python -m pip install numpy==2.0.2 omegaconf==2.3.0 Pillow==10.1.0 einops==0.7.0 transformers==4.35.0 trimesh==4.0.5 huggingface-hub imageio git+https://github.com/tatsy/torchmcubes.git
 export TRIPOSR_DIR=/content/TripoSR
@@ -200,7 +201,7 @@ python -m pip install -r backend/requirements-cuda.txt
 python -m backend.benchmark.optimize_completion --manifest backend/output/completion-benchmark/modelnet10_60_balanced_s256_seed4040/manifest.jsonl --output-dir backend/output/completion-benchmark/experiments/modelnet10_60_balanced_stl_quality_triposr_api_venv_prefill_direct_mesh_s40_n2 --config backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_triposr_api_venv_prefill_direct_mesh_smoke.json --start-index 40 --limit 2 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --device auto --emit-stl --stl-target-dimension 96 --score-mode baseline-delta --score-profile stl-quality --baseline-method masked --contact-sheet --contact-sheet-methods masked,mirror,biharmonic,triposr_api_masked_direct_mesh,triposr_api_mirror_prefill_direct_mesh,triposr_api_biharmonic_prefill_direct_mesh --contact-sheet-max-samples 2 --resume --continue-on-error
 ```
 
-Avoid `onnxruntime-gpu` on the current G4 image: the `1.27.0` wheel probed on July 9, 2026 attempted to load CUDA 13 runtime libraries on the CUDA 12.8 Colab image. The preferred `triposr-api` path skips ONNX background removal entirely; CPU `onnxruntime` is only needed if you deliberately fall back to TripoSR's official `run.py`.
+Avoid `onnxruntime-gpu` on the current G4 image: the `1.27.0` wheel probed on July 9, 2026 attempted to load CUDA 13 runtime libraries on the CUDA 12.8 Colab image. The preferred `triposr-api` path skips ONNX background removal entirely; CPU `onnxruntime` is only needed if you deliberately fall back to TripoSR's official `run.py`. Also avoid installing TripoSR requirements into the main backend interpreter; TripoSR's old `trimesh==4.0.5` breaks procedural dataset rendering under NumPy 2.0, while the backend now requires `trimesh>=4.12.2`.
 
 Learned inpainting smoke with `dreamshaper-inpaint`:
 

@@ -18,6 +18,6 @@ peft==0.19.1
 torchao>=0.16.0
 datasets==5.0.0
 kaggle
-trimesh
+trimesh>=4.12.2
 scikit-image
 matplotlib
