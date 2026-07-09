@@ -1287,6 +1287,23 @@ Colab G4 STL-scale follow-up: the notebook reran the same held-out rows on commi
 
 Promotion decision: `hold` for `triposr_api_masked_repaired_stl_scaled_compact_direct_mesh`. The scale/compact postprocess preserved TripoSR's normalized mesh-surface gains and removed the face-density penalty, lifting the aggregate score above `mirror` by `+0.0593`. It still failed promotion gates with only `6/10` paired wins, CI95 low `-0.3477` versus masked, `6/10` paired wins versus mirror, and CI95 low `-0.5331` versus mirror. The next direct-mesh iteration should inspect the four losing samples and target per-sample consistency rather than basic STL scale: likely input selection/prefill choice, orientation/axis normalization, or a stronger direct mesh backend.
 
+The paired objective loss explainer added in commit `1f0caf1` was run in the same Colab notebook against the scaled/compact result after fetching `codex/3d-completion-benchmark-g4`. It writes `paired_objective_explanation.md/json/csv` beside the experiment and sorts the lowest per-sample score deltas first:
+
+```bash
+python -m backend.benchmark.explain_paired_objective /content/3dprintpic/backend/output/completion-benchmark/colab_g4/g4_stl_first_triposr_scaled_compact_reuse_s40_n10/experiment --candidate-method triposr_api_masked_repaired_stl_scaled_compact_direct_mesh --baseline-method masked --current-method mirror --score-profile stl-quality
+```
+
+The four direct-mesh losses versus `mirror` are dominated by `stl_bbox_aspect_ratio`, not topology invalidity:
+
+| sample | score vs mirror | top hurts | top helps | candidate Chamfer | mirror Chamfer | candidate bbox aspect | mirror bbox aspect |
+| --- | ---: | --- | --- | ---: | ---: | ---: | ---: |
+| `mesh_dir_92752051d0_v00` | -1.4547 | bbox aspect -1.2984; H95 -0.1434 | face density +0.0183 | 0.1734 | 0.1704 | 4.3165 | 1.7196 |
+| `mesh_dir_49534574e1_v00` | -0.9965 | bbox aspect -0.7481; Chamfer -0.2586 | H95 +0.1328 | 0.2316 | 0.1669 | 3.3230 | 1.8269 |
+| `mesh_dir_757e06b221_v00` | -0.6695 | bbox aspect -0.7829; H95 -0.0515 | Chamfer +0.0848; RMSE +0.0588 | 0.1472 | 0.1684 | 3.6206 | 2.0547 |
+| `mesh_dir_1a13fc2246_v00` | -0.3397 | bbox aspect -0.2619; H95 -0.0877 | face density +0.0189 | 0.1691 | 0.1690 | 2.2616 | 1.7378 |
+
+Interpretation: STL scaling fixed the earlier mesh-complexity penalty, but it did not fix occasional elongated or axis-misaligned TripoSR shapes. The next autonomous STL-first slice should add an aspect/orientation calibration candidate, for example a postprocess that aligns the direct mesh bbox to the source camera/mirror relief extent before STL export, then rerun the same held-out 10 rows before spending G4 time on larger Hunyuan3D/SV3D-style direct-mesh comparisons.
+
 Multiview/video backends should use the new `external-multiview-to-mesh` method. The benchmark writes `{input_bundle}` as `multiview_input.json` beside the provider outputs, with `primary_image`, `masked_image`, `full_image`, `mask`, `camera`, optional `video_path`/`frames_dir`, and a `views` list containing sibling images, masks, cameras, and view ids. `generate_rendered_dataset --views-per-asset N` now annotates rows that share an `asset_key` with `multiview_images`, `multiview_masks`, `multiview_cameras`, `multiview_view_ids`, and `multiview_primary_index`; `package_colab_inputs` carries those list-valued paths into Colab bundles.
 
 Local STL-first launcher smoke (`stl_first_reconstruction_smoke_local_s0_n1`, `dataset-count=1`, `size=128`, `stl-target-dimension=64`) completed successfully in `82.91s` for the benchmark stage. Ranking:
