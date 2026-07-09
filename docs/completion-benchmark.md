@@ -944,15 +944,17 @@ To move local rendered ModelNet assets and a trained adapter onto Colab without 
 .\backend\.venv\Scripts\python -m backend.benchmark.package_colab_inputs --manifest backend\output\completion-benchmark\modelnet10_60_balanced_s256_seed4040\manifest.jsonl --lora-weights backend\output\completion-benchmark\lora\modelnet10_train40_weighted_surface_s20 --output C:\Users\arnav\Documents\Codex\2026-07-09\jennyzzt-3dprintpic-https-github-com-jennyzzt\outputs\modelnet10_60_weighted_surface_s20_colab_inputs.tar.gz --extract-root /content/3dprintpic_colab_inputs/modelnet10_60_weighted_surface_s20 --include-run-script --run-script C:\Users\arnav\Documents\Codex\2026-07-09\jennyzzt-3dprintpic-https-github-com-jennyzzt\outputs\modelnet10_60_weighted_surface_s20_run_colab_eval.sh --colab-archive-path /content/modelnet10_60_weighted_surface_s20_colab_inputs.tar.gz --run-name g4_modelnet10_weighted_surface_eval_s20 --eval-start 40 --eval-start 50 --eval-limit 10 --score-profile object-surface --train-steps 20
 ```
 
-The bundle rewrites manifest paths to the chosen extraction root and includes the adapter directory plus training report. The current package report is `modelnet10_60_weighted_surface_s20_colab_inputs.tar.gz.report.json`: `60` rows, `420` referenced dataset files, `423` payload files plus the rewritten manifest and `run_colab_eval.sh`, and SHA256 `5385f3e60a1398d38c7551b6aef84ee702272bc48995bbdb1fe261cf2c93dd9b`.
+The bundle rewrites manifest paths to the chosen extraction root and includes the adapter directory plus training report. The current package report is `modelnet10_60_weighted_surface_s20_colab_inputs.tar.gz.report.json`: `60` rows, `420` referenced dataset files, `423` payload files plus the rewritten manifest and `run_colab_eval.sh`, and SHA256 `ff0528099fe0ec8c1d1f0f7801a30a8a7a24d7af9557c1fc5203f43453ec0e93`.
 
-After uploading the tarball to `/content/modelnet10_60_weighted_surface_s20_colab_inputs.tar.gz` in Colab, run the real ModelNet10 weighted-LoRA held-out gate with:
+After uploading the tarball to `/content/modelnet10_60_weighted_surface_s20_colab_inputs.tar.gz` in Colab, extract the launcher and run the real ModelNet10 weighted-LoRA held-out gate with:
 
 ```bash
 mkdir -p /content/3dprintpic_colab_inputs/modelnet10_60_weighted_surface_s20
-tar -xzf /content/modelnet10_60_weighted_surface_s20_colab_inputs.tar.gz -C /content/3dprintpic_colab_inputs/modelnet10_60_weighted_surface_s20
-bash /content/3dprintpic_colab_inputs/modelnet10_60_weighted_surface_s20/run_colab_eval.sh
+tar -xzf /content/modelnet10_60_weighted_surface_s20_colab_inputs.tar.gz -C /content/3dprintpic_colab_inputs/modelnet10_60_weighted_surface_s20 run_colab_eval.sh
+EXPECTED_SHA256=ff0528099fe0ec8c1d1f0f7801a30a8a7a24d7af9557c1fc5203f43453ec0e93 bash /content/3dprintpic_colab_inputs/modelnet10_60_weighted_surface_s20/run_colab_eval.sh
 ```
+
+The launcher verifies `EXPECTED_SHA256` when set, validates the rewritten manifest, adapter weights, and training report, clones `REPO_DIR` if a fresh Colab runtime does not already have the repo, then writes `launch_preflight.json` with the archive SHA, resolved git commit, manifest row count, and adapter path before model cache/eval work begins.
 
 ## Kaggle
 
