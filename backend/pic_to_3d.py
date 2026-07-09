@@ -224,6 +224,7 @@ def complete_image_with_modern_inpaint(
             width=image.width,
             num_inference_steps=num_inference_steps,
             guidance_scale=guidance_scale if guidance_scale is not None else 30.0,
+            max_sequence_length=512,
             generator=generator,
         )
     elif provider == "sdxl-inpaint":
@@ -361,15 +362,30 @@ def _resolve_torch_device(device):
     return device
 
 
-def _load_inpaint_pipeline(provider, model_name, device, lora_weights=None, lora_scale=1.0):
+def _inpaint_torch_dtype(provider, device):
     import torch
 
+    if device != "cuda":
+        return torch.float32
+    if provider in ("flux-fill", "qwen-image-inpaint", "qwen-image-edit"):
+        return torch.bfloat16
+    return torch.float16
+
+
+def _enable_inpaint_memory_savers(pipe):
+    for method_name in ("enable_attention_slicing", "enable_vae_slicing", "enable_vae_tiling"):
+        method = getattr(pipe, method_name, None)
+        if callable(method):
+            method()
+
+
+def _load_inpaint_pipeline(provider, model_name, device, lora_weights=None, lora_scale=1.0):
     normalized_lora_weights = os.path.abspath(lora_weights) if lora_weights else None
     cache_key = (provider, model_name, device, normalized_lora_weights, float(lora_scale or 1.0))
     if cache_key in _INPAINT_PIPELINE_CACHE:
         return _INPAINT_PIPELINE_CACHE[cache_key]
 
-    dtype = torch.float16 if device == "cuda" else torch.float32
+    dtype = _inpaint_torch_dtype(provider, device)
     if provider == "flux-fill":
         from diffusers import FluxFillPipeline
 
@@ -436,8 +452,7 @@ def _load_inpaint_pipeline(provider, model_name, device, lora_weights=None, lora
             pipe.enable_model_cpu_offload()
         else:
             pipe.to("cuda")
-        if hasattr(pipe, "enable_attention_slicing"):
-            pipe.enable_attention_slicing()
+        _enable_inpaint_memory_savers(pipe)
     else:
         pipe.to("cpu")
 

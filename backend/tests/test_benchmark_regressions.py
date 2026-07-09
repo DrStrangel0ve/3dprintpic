@@ -46,6 +46,7 @@ from backend.benchmark.weight_training_pairs import weight_metadata_rows
 from backend.pic_to_3d import (
     _diagnostic_signed_volume,
     _force_positive_stl_volume,
+    _inpaint_torch_dtype,
     complete_image,
     depth_data_to_3d_model,
 )
@@ -1527,6 +1528,13 @@ class CombineOptimizeRunsRegressionTests(unittest.TestCase):
 
 
 class CompletionMethodRegressionTests(unittest.TestCase):
+    def test_large_modern_providers_use_bfloat16_on_cuda(self):
+        self.assertEqual(_inpaint_torch_dtype("flux-fill", "cuda"), torch.bfloat16)
+        self.assertEqual(_inpaint_torch_dtype("qwen-image-inpaint", "cuda"), torch.bfloat16)
+        self.assertEqual(_inpaint_torch_dtype("qwen-image-edit", "cuda"), torch.bfloat16)
+        self.assertEqual(_inpaint_torch_dtype("sdxl-inpaint", "cuda"), torch.float16)
+        self.assertEqual(_inpaint_torch_dtype("dreamshaper-inpaint", "cpu"), torch.float32)
+
     def test_mirror_seam_repair_provider_runs_without_visible_pixel_drift(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

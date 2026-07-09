@@ -293,6 +293,12 @@ Current preflight results now separate local pipeline importability from model-c
 | `qwen-image-inpaint` | `Qwen/Qwen-Image-Edit` | `pipeline-override` | false | Apache-2.0 | 53.76 GB |
 | `qwen-image-edit` | `Qwen/Qwen-Image-Edit` | `ready` | false | Apache-2.0 | 53.76 GB |
 
+Large-provider runtime notes:
+
+- The Qwen Image Edit model card uses BF16 for Diffusers CUDA inference (`https://huggingface.co/Qwen/Qwen-Image-Edit`), so the harness loads `qwen-image-edit` and `qwen-image-inpaint` as `torch.bfloat16` on CUDA.
+- The FLUX.1 Fill model card uses BF16, `guidance_scale=30`, `num_inference_steps=50`, and `max_sequence_length=512` (`https://huggingface.co/black-forest-labs/FLUX.1-Fill-dev`). The harness now loads `flux-fill` as BF16 on CUDA and passes `max_sequence_length=512`.
+- For these large providers, the loader enables attention slicing, VAE slicing, and VAE tiling when the pipeline exposes those hooks. The Colab G4 runtime has enough VRAM for the first scored pass, but the memory savers make the same config more resilient across runtime images.
+
 Because these modern providers are large, cache weights separately before a scored benchmark. For SDXL, the provider cache utility plans a smaller fp16 download:
 
 ```bash
@@ -305,6 +311,15 @@ Because these modern providers are large, cache weights separately before a scor
 ```
 
 Use `--model-name` with `cache_provider` when an experiment overrides the provider's default Hugging Face model id. For scored sweeps, add `--require-modern-cache` to `optimize_completion`; it checks every modern provider in the config, records selected/cached/missing files in `modern_cache_preflight.json`, and stops before any sample work when the cache is incomplete. This prevents partial SDXL-style downloads from producing a misleading `n=0` benchmark. The local SDXL fp16 cache is now complete (`18 / 18` selected files, `6.465 GB`, `0` missing); the final UNet file was recovered with a resumable curl download and verified against SHA256 `6470840731e98cc16713ddf3ac7ee458c9fdbcb881a98c6727cd4a938f227d3f`.
+
+For the next G4 pass, keep Qwen Image Edit and FLUX Fill in separate configs so a gated FLUX auth issue cannot block the ready Qwen run:
+
+```bash
+python -m backend.benchmark.cache_provider qwen-image-edit --full --download --download-mode snapshot --max-workers 8 --output backend/output/completion-benchmark/qwen_edit_cache_plan.json
+python -m backend.benchmark.cache_provider flux-fill --full --download --download-mode snapshot --max-workers 8 --output backend/output/completion-benchmark/flux_fill_cache_plan.json
+```
+
+Use `backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_g4_depth_stl.json` first. Use `backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_flux_fill_g4_depth_stl.json` only after Hugging Face login and FLUX access acceptance; the preflight currently reports `auth-required` for that model without auth.
 
 The first local SDXL smoke reached the model-fetch stage and stalled with only about 397 MB cached after a bounded 30-minute attempt. The blocked state was captured as a benchmark failure report:
 
@@ -991,6 +1006,15 @@ EXPECTED_SHA256=f6f56bb753c110ed205963f60293f36aff916b9aced489853a7b3a35ff302cab
 ```
 
 The launcher verifies `EXPECTED_SHA256` when set, validates the rewritten manifest, adapter weights, and training report, clones `REPO_DIR` if a fresh Colab runtime does not already have the repo, then writes `launch_preflight.json` with the archive SHA, resolved git commit, manifest row count, and adapter path before model cache/eval work begins. It also tees the G4 run to `run_colab_eval.log` and always writes `/content/g4_modelnet10_weighted_surface_eval_s20_results.tar.gz` containing the log, preflight, `results_summary.json`, and the orchestrator output directory when present.
+
+Next large-provider G4 slice, using the same packaged ModelNet10 manifest after the archive has been extracted:
+
+```bash
+cd /content/3dprintpic
+python -m backend.benchmark.colab_g4_orchestrator --use-current-repo --run-name g4_modelnet10_qwen_edit_s20_s512 --stage cache --stage eval --stage combine --manifest /content/3dprintpic_colab_inputs/modelnet10_60_weighted_surface_s20/manifest.jsonl --modern-config backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_g4_depth_stl.json --cache-provider qwen-image-edit --cache-full --cache-download-mode snapshot --cache-max-workers 8 --eval-start 40 --eval-start 50 --eval-limit 10 --score-profile object-surface --eval-steps 20 --eval-inpaint-max-dimension 512 --depth-provider depth-anything-v2 --depth-model depth-anything/Depth-Anything-V2-Small-hf --stl-target-dimension 96 --min-paired-n 10 --allow-missing-split-audit --require-modern-cache --contact-sheet-methods masked,mirror,biharmonic,qwen_edit_s20_s512
+```
+
+For a cheap live sanity check before the full held-out `20`, change both `--eval-limit 10` and `--min-paired-n 10` to `2`. After Qwen finishes, repeat the same command with `--run-name g4_modelnet10_flux_fill_s20_s512`, `--modern-config backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_flux_fill_g4_depth_stl.json`, `--cache-provider flux-fill`, and contact-sheet method `flux_fill_s20_s512` if FLUX auth/access is ready.
 
 ## Kaggle
 
