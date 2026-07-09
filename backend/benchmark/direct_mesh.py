@@ -396,6 +396,35 @@ def direct_mesh_bbox_placeholders(sample: dict, output_dir: Path, args) -> dict[
     return values
 
 
+def _tail_file(path: Path, limit: int = 4000) -> str:
+    if not path.exists():
+        return ""
+    data = path.read_bytes()
+    return data[-limit:].decode("utf-8", errors="replace")
+
+
+def _external_command_failure_message(
+    *,
+    command: str,
+    returncode: int | str,
+    stdout_path: Path,
+    stderr_path: Path,
+) -> str:
+    stdout_tail = _tail_file(stdout_path)
+    stderr_tail = _tail_file(stderr_path)
+    parts = [
+        f"External image-to-mesh command failed with exit status {returncode}.",
+        f"Command: {command}",
+        f"stdout_log: {stdout_path}",
+        f"stderr_log: {stderr_path}",
+    ]
+    if stdout_tail:
+        parts.append(f"stdout_tail:\n{stdout_tail}")
+    if stderr_tail:
+        parts.append(f"stderr_tail:\n{stderr_tail}")
+    return "\n".join(parts)
+
+
 def _center_mesh_on_origin(mesh):
     centered = mesh.copy()
     bounds = np.asarray(centered.bounds, dtype=np.float64)
@@ -564,12 +593,36 @@ def run_direct_mesh(sample: dict, method: str, output_dir: Path, args) -> tuple[
         }
         values.update(direct_mesh_bbox_placeholders(sample, output_dir, args))
         command = command_template.format(**values)
-        subprocess.run(
-            command,
-            shell=True,
-            check=True,
-            timeout=max(1, int(getattr(args, "direct_mesh_timeout", 1800))),
-        )
+        stdout_path = output_dir / "external_command.stdout.log"
+        stderr_path = output_dir / "external_command.stderr.log"
+        with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
+            try:
+                subprocess.run(
+                    command,
+                    shell=True,
+                    check=True,
+                    timeout=max(1, int(getattr(args, "direct_mesh_timeout", 1800))),
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                )
+            except subprocess.CalledProcessError as exc:
+                raise RuntimeError(
+                    _external_command_failure_message(
+                        command=command,
+                        returncode=exc.returncode,
+                        stdout_path=stdout_path,
+                        stderr_path=stderr_path,
+                    )
+                ) from exc
+            except subprocess.TimeoutExpired as exc:
+                raise TimeoutError(
+                    _external_command_failure_message(
+                        command=command,
+                        returncode=f"timeout after {exc.timeout}s",
+                        stdout_path=stdout_path,
+                        stderr_path=stderr_path,
+                    )
+                ) from exc
         if not mesh_output_path.exists() and stl_path.exists():
             return input_image, stl_path, stl_path, input_bundle
         if not mesh_output_path.exists():

@@ -61,6 +61,57 @@ PROVIDERS = tuple(
 )
 
 
+def read_meminfo_fields() -> dict[str, int]:
+    path = Path("/proc/meminfo")
+    if not path.exists():
+        return {}
+    fields: dict[str, int] = {}
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        name, _, value = line.partition(":")
+        if name not in {"MemTotal", "MemAvailable", "SwapTotal", "SwapFree"}:
+            continue
+        parts = value.strip().split()
+        if not parts:
+            continue
+        try:
+            fields[f"{name.lower()}_kb"] = int(parts[0])
+        except ValueError:
+            pass
+    return fields
+
+
+def provider_resource_marker(stage: str, torch_module=None) -> None:
+    payload: dict[str, object] = {
+        "event": "provider_resource",
+        "provider": HUNYUAN3D_SHAPE_PROVIDER,
+        "stage": stage,
+        "pid": os.getpid(),
+        "time": round(time.time(), 3),
+    }
+    payload.update(read_meminfo_fields())
+    try:
+        import resource
+
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        payload["ru_maxrss_kb"] = int(usage.ru_maxrss)
+    except ModuleNotFoundError:
+        pass
+    except Exception as exc:
+        payload["resource_error"] = f"{type(exc).__name__}: {exc}"
+    if torch_module is not None:
+        try:
+            payload["torch_cuda_available"] = bool(torch_module.cuda.is_available())
+            if torch_module.cuda.is_available():
+                free_bytes, total_bytes = torch_module.cuda.mem_get_info()
+                payload["cuda_mem_free_bytes"] = int(free_bytes)
+                payload["cuda_mem_total_bytes"] = int(total_bytes)
+                payload["cuda_memory_allocated_bytes"] = int(torch_module.cuda.memory_allocated())
+                payload["cuda_memory_reserved_bytes"] = int(torch_module.cuda.memory_reserved())
+        except Exception as exc:
+            payload["cuda_mem_error"] = f"{type(exc).__name__}: {exc}"
+    print(json.dumps(payload, sort_keys=True), file=sys.stderr, flush=True)
+
+
 def parse_bbox_extents(value: str) -> tuple[float, float, float] | None:
     text = str(value or "").strip()
     if not text:
@@ -173,10 +224,12 @@ def run_cli_provider(args: argparse.Namespace) -> Path:
 
 
 def run_hunyuan_shape(args: argparse.Namespace) -> Path:
+    provider_resource_marker("before_hunyuan_import")
     add_hunyuan_provider_paths(args)
     import torch
     from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
 
+    provider_resource_marker("after_hunyuan_import", torch)
     device = args.provider_device or "cuda"
     if str(device).startswith("cuda") and not torch.cuda.is_available():
         device = "cpu"
@@ -186,18 +239,43 @@ def run_hunyuan_shape(args: argparse.Namespace) -> Path:
         "dtype": dtype,
     }
     model_name = args.model_name or DEFAULT_HUNYUAN3D_MODEL
+    provider_resource_marker("before_hunyuan_from_pretrained", torch)
     try:
         pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(model_name, **pipeline_kwargs)
     except FileNotFoundError as exc:
         if not clean_incomplete_hunyuan_cache(exc):
             raise
         pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(model_name, **pipeline_kwargs)
+    provider_resource_marker("after_hunyuan_from_pretrained", torch)
     if args.low_vram and str(device).startswith("cuda") and hasattr(pipeline, "enable_model_cpu_offload"):
-        pipeline.enable_model_cpu_offload(device=device)
-    with torch.no_grad():
-        mesh = pipeline(image=str(args.input_image))[0]
+        try:
+            pipeline.enable_model_cpu_offload(device=device)
+        except TypeError:
+            pipeline.enable_model_cpu_offload()
+        provider_resource_marker("after_hunyuan_cpu_offload", torch)
+    generator = None
+    if args.seed is not None:
+        generator = torch.Generator(device=device if str(device).startswith("cuda") else "cpu")
+        generator.manual_seed(int(args.seed))
+    call_kwargs = {
+        "image": str(args.input_image),
+        "num_inference_steps": max(1, int(args.num_inference_steps)),
+        "guidance_scale": float(args.guidance_scale),
+        "octree_resolution": max(16, int(args.octree_resolution)),
+        "num_chunks": max(1, int(args.num_chunks)),
+        "enable_pbar": not args.disable_progress,
+    }
+    if args.mc_algo:
+        call_kwargs["mc_algo"] = args.mc_algo
+    if generator is not None:
+        call_kwargs["generator"] = generator
+    provider_resource_marker("before_hunyuan_inference", torch)
+    with torch.inference_mode():
+        mesh = pipeline(**call_kwargs)[0]
+    provider_resource_marker("after_hunyuan_inference", torch)
     args.output_mesh.parent.mkdir(parents=True, exist_ok=True)
     mesh.export(args.output_mesh)
+    provider_resource_marker("after_hunyuan_export", torch)
     return args.output_mesh
 
 
@@ -485,6 +563,23 @@ def main() -> None:
     )
     parser.add_argument("--provider-arg", action="append", default=[])
     parser.add_argument("--model-name", default=None)
+    parser.add_argument(
+        "--num-inference-steps",
+        type=int,
+        default=50,
+        help="Hunyuan3D shape diffusion steps. Lower values are useful for memory/smoke probes.",
+    )
+    parser.add_argument("--guidance-scale", type=float, default=5.0, help="Hunyuan3D shape guidance scale.")
+    parser.add_argument(
+        "--octree-resolution",
+        type=int,
+        default=384,
+        help="Hunyuan3D mesh extraction octree resolution. The official app defaults to 256 for standard decode.",
+    )
+    parser.add_argument("--num-chunks", type=int, default=8000, help="Hunyuan3D VAE mesh extraction chunks.")
+    parser.add_argument("--seed", type=int, default=None, help="Optional Hunyuan3D generator seed.")
+    parser.add_argument("--mc-algo", default=None, help="Optional Hunyuan3D surface extraction algorithm.")
+    parser.add_argument("--disable-progress", action="store_true", help="Disable provider progress bars in logs.")
     parser.add_argument(
         "--prefetch-only",
         action="store_true",

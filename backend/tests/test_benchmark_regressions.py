@@ -26,6 +26,7 @@ from backend.benchmark.direct_mesh import (
     mesh_is_printable_volume,
     postprocess_mesh_for_stl,
     repair_mesh_for_printable_stl,
+    run_direct_mesh,
 )
 from backend.benchmark.explain_rank_score import contribution_rows, explain, markdown_report, summarize_contributions
 from backend.benchmark.explain_paired_objective import (
@@ -1369,8 +1370,13 @@ class StlExportRegressionTests(unittest.TestCase):
                 "        assert 'float32' in str(dtype)\n"
                 "        return cls()\n"
                 "\n"
-                "    def __call__(self, image):\n"
+                "    def __call__(self, image, **kwargs):\n"
                 "        assert image.endswith('input.png')\n"
+                "        assert kwargs['num_inference_steps'] == 12\n"
+                "        assert kwargs['guidance_scale'] == 4.5\n"
+                "        assert kwargs['octree_resolution'] == 128\n"
+                "        assert kwargs['num_chunks'] == 256\n"
+                "        assert kwargs['enable_pbar'] is False\n"
                 "        return [trimesh.creation.box(extents=(1.0, 0.75, 0.5))]\n",
                 encoding="utf-8",
             )
@@ -1401,6 +1407,15 @@ class StlExportRegressionTests(unittest.TestCase):
                     "cpu",
                     "--model-name",
                     "unit/hunyuan",
+                    "--num-inference-steps",
+                    "12",
+                    "--guidance-scale",
+                    "4.5",
+                    "--octree-resolution",
+                    "128",
+                    "--num-chunks",
+                    "256",
+                    "--disable-progress",
                 ],
             ):
                 run_image_to_mesh_provider_main()
@@ -1413,6 +1428,123 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(output_stl_exists)
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
+
+    def test_external_direct_mesh_command_failure_writes_stdout_stderr_logs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            full = root / "full.png"
+            masked = root / "masked.png"
+            mask = root / "mask.png"
+            output_dir = root / "candidate"
+            script_path = root / "fail_provider.py"
+            Image.new("RGB", (8, 8), (127, 127, 127)).save(full)
+            Image.new("RGB", (8, 8), (255, 255, 255)).save(masked)
+            Image.fromarray(np.zeros((8, 8), dtype=np.uint8)).save(mask)
+            script_path.write_text(
+                "\n".join(
+                    [
+                        "import sys",
+                        "print('provider stdout marker')",
+                        "print('provider stderr marker', file=sys.stderr)",
+                        "raise SystemExit(7)",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            sample = {
+                "id": "box",
+                "full_image": str(full),
+                "masked_image": str(masked),
+                "mask": str(mask),
+            }
+            args = SimpleNamespace(
+                direct_mesh_input="masked",
+                direct_mesh_output_ext="ply",
+                direct_mesh_timeout=30,
+                direct_mesh_command=f'"{sys.executable}" "{script_path}"',
+                direct_mesh_reference_output_dir=None,
+                direct_mesh_reference_method="mirror",
+                stl_target_dimension=96,
+            )
+
+            with self.assertRaises(RuntimeError) as raised:
+                run_direct_mesh(sample, "external-image-to-mesh", output_dir, args)
+
+            stdout_log = output_dir / "external_command.stdout.log"
+            stderr_log = output_dir / "external_command.stderr.log"
+            message = str(raised.exception)
+            stdout_exists = stdout_log.exists()
+            stderr_exists = stderr_log.exists()
+            stdout_text = stdout_log.read_text(encoding="utf-8")
+            stderr_text = stderr_log.read_text(encoding="utf-8")
+
+        self.assertTrue(stdout_exists)
+        self.assertTrue(stderr_exists)
+        self.assertIn("provider stdout marker", stdout_text)
+        self.assertIn("provider stderr marker", stderr_text)
+        self.assertIn("exit status 7", message)
+        self.assertIn("provider stdout marker", message)
+        self.assertIn("provider stderr marker", message)
+
+    def test_hunyuan3d_shape_provider_low_vram_accepts_offload_without_device_arg(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            provider_dir = root / "fake_hunyuan"
+            package_dir = provider_dir / "hy3dshape" / "hy3dshape"
+            package_dir.mkdir(parents=True)
+            (package_dir / "__init__.py").write_text("", encoding="utf-8")
+            (package_dir / "pipelines.py").write_text(
+                "import trimesh\n"
+                "\n"
+                "class Hunyuan3DDiTFlowMatchingPipeline:\n"
+                "    @classmethod\n"
+                "    def from_pretrained(cls, model_name, device='cuda', dtype=None):\n"
+                "        return cls()\n"
+                "\n"
+                "    def enable_model_cpu_offload(self):\n"
+                "        self.offload = True\n"
+                "\n"
+                "    def __call__(self, image, **kwargs):\n"
+                "        assert getattr(self, 'offload', False) is True\n"
+                "        return [trimesh.creation.box(extents=(1.0, 0.75, 0.5))]\n",
+                encoding="utf-8",
+            )
+            input_image = root / "input.png"
+            output_mesh = root / "hunyuan.glb"
+            output_stl = root / "hunyuan.stl"
+            Image.new("RGB", (8, 8), (127, 127, 127)).save(input_image)
+
+            for module_name in list(sys.modules):
+                if module_name == "hy3dshape" or module_name.startswith("hy3dshape."):
+                    sys.modules.pop(module_name, None)
+            with patch("torch.cuda.is_available", return_value=True):
+                with patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "run_image_to_mesh_provider",
+                        "--provider",
+                        "hunyuan3d-shape",
+                        "--provider-dir",
+                        str(provider_dir),
+                        "--input-image",
+                        str(input_image),
+                        "--output-mesh",
+                        str(output_mesh),
+                        "--output-stl",
+                        str(output_stl),
+                        "--provider-device",
+                        "cuda",
+                        "--low-vram",
+                    ],
+                ):
+                    run_image_to_mesh_provider_main()
+
+            output_mesh_exists = output_mesh.exists()
+            output_stl_exists = output_stl.exists()
+
+        self.assertTrue(output_mesh_exists)
+        self.assertTrue(output_stl_exists)
 
     def test_source_mesh_bundle_oracle_exports_stl_from_multiview_bundle(self):
         import trimesh
@@ -1499,7 +1631,7 @@ class StlExportRegressionTests(unittest.TestCase):
                 "            raise FileNotFoundError(f'Model file {CACHE_MODEL} not found')\n"
                 "        return cls()\n"
                 "\n"
-                "    def __call__(self, image):\n"
+                "    def __call__(self, image, **kwargs):\n"
                 "        return [trimesh.creation.box(extents=(1.0, 0.75, 0.5))]\n",
                 encoding="utf-8",
             )
@@ -1641,6 +1773,11 @@ class StlExportRegressionTests(unittest.TestCase):
             triposr_python="/content/triposr-venv/bin/python",
             triposr_dir="/content/TripoSR",
             hunyuan3d_dir="/content/Hunyuan3D",
+            hunyuan_num_inference_steps=24,
+            hunyuan_guidance_scale=4.0,
+            hunyuan_octree_resolution=192,
+            hunyuan_num_chunks=4096,
+            hunyuan_low_vram=True,
             chunk_size=256,
             mc_resolution=64,
             mesh_repair="printable",
@@ -1672,6 +1809,12 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("--provider hunyuan3d-shape", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("{output_dir}/output_mesh_raw.glb", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("--mesh-target-max-dimension 96.0", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--num-inference-steps 24", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--guidance-scale 4.0", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--octree-resolution 192", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--num-chunks 4096", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--disable-progress", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--low-vram", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertEqual(by_name["source_mesh_bundle_multiview_oracle"]["method"], "external-multiview-to-mesh")
         self.assertEqual(by_name["source_mesh_bundle_multiview_oracle"]["stl_mode"], "multiview-mesh")
         self.assertIn("--provider source-mesh-bundle-oracle", by_name["source_mesh_bundle_multiview_oracle"]["direct_mesh_command"])
@@ -2777,6 +2920,13 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("python -m pip install -r backend/requirements-cuda.txt", archive_run_script)
         self.assertIn('mkdir -p "$EXTRACT_ROOT" "$(dirname "$RUN_LOG")" "$(dirname "$RESULTS_SUMMARY")" "$(dirname "$RESULTS_ARCHIVE")"', archive_run_script)
         self.assertIn("set +e\n(\nset -euo pipefail\n", archive_run_script)
+        self.assertIn('export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"', archive_run_script)
+        self.assertIn(
+            'export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"',
+            archive_run_script,
+        )
+        self.assertIn('export CUDA_MODULE_LOADING="${CUDA_MODULE_LOADING:-LAZY}"', archive_run_script)
+        self.assertIn('export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"', archive_run_script)
         self.assertIn(') 2>&1 | tee "$RUN_LOG"\nrun_status="${PIPESTATUS[0]}"', archive_run_script)
         self.assertNotIn('backend.benchmark.colab_g4_orchestrator --use-current-repo --run-name g4_qwen_sanity 2>&1 | tee "$RUN_LOG"', archive_run_script)
         self.assertIn("--modern-config backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_g4_depth_stl.json", archive_run_script)
@@ -2904,7 +3054,13 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
 
         self.assertTrue(report["include_hunyuan3d_setup"])
         self.assertIn("https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1", archive_run_script)
-        self.assertIn("git clone --filter=blob:none --depth 1 --sparse", archive_run_script)
+        self.assertIn(
+            'HUNYUAN3D_REF="${HUNYUAN3D_REF:-82920d643c0dc2f7bfd7255f45f62d386edfe60c}"',
+            archive_run_script,
+        )
+        self.assertIn("git clone --filter=blob:none --sparse", archive_run_script)
+        self.assertIn('git -C "$HUNYUAN3D_DIR" checkout "$HUNYUAN3D_REF"', archive_run_script)
+        self.assertIn('git -C "$HUNYUAN3D_DIR" fetch origin "$HUNYUAN3D_REF" || true', archive_run_script)
         self.assertIn(
             'git -C "$HUNYUAN3D_DIR" sparse-checkout set hy3dshape/hy3dshape hy3dshape/configs',
             archive_run_script,

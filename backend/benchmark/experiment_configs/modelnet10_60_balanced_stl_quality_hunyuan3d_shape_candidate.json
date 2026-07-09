@@ -33,7 +33,7 @@
     "direct_mesh_input": "masked",
     "direct_mesh_output_ext": "glb",
     "direct_mesh_timeout": 3600,
-    "direct_mesh_command": "/content/hunyuan3d-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-shape --provider-dir /content/Hunyuan3D-2.1 --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --mesh-repair printable"
+    "direct_mesh_command": "/content/hunyuan3d-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-shape --provider-dir /content/Hunyuan3D-2.1 --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --mesh-repair printable --num-inference-steps 30 --guidance-scale 5.0 --octree-resolution 256 --num-chunks 8000 --disable-progress --low-vram"
   },
   {
     "name": "hunyuan3d_shape_masked_repaired_stl_scaled_compact_direct_mesh",
@@ -44,7 +44,7 @@
     "direct_mesh_input": "masked",
     "direct_mesh_output_ext": "glb",
     "direct_mesh_timeout": 3600,
-    "direct_mesh_command": "/content/hunyuan3d-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-shape --provider-dir /content/Hunyuan3D-2.1 --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --mesh-repair printable --mesh-target-max-dimension 96 --mesh-min-bbox-dimension 12"
+    "direct_mesh_command": "/content/hunyuan3d-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-shape --provider-dir /content/Hunyuan3D-2.1 --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --mesh-repair printable --mesh-target-max-dimension 96 --mesh-min-bbox-dimension 12 --num-inference-steps 30 --guidance-scale 5.0 --octree-resolution 256 --num-chunks 8000 --disable-progress --low-vram"
   },
   {
     "name": "hunyuan3d_shape_masked_repaired_stl_mirror_bbox_direct_mesh",
@@ -56,6 +56,6 @@
     "direct_mesh_output_ext": "glb",
     "direct_mesh_timeout": 3600,
     "direct_mesh_reference_method": "mirror",
-    "direct_mesh_command": "/content/hunyuan3d-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-shape --provider-dir /content/Hunyuan3D-2.1 --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --mesh-repair printable --mesh-target-bbox-extents \"{mirror_bbox_extents}\""
+    "direct_mesh_command": "/content/hunyuan3d-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-shape --provider-dir /content/Hunyuan3D-2.1 --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --mesh-repair printable --mesh-target-bbox-extents \"{mirror_bbox_extents}\" --num-inference-steps 30 --guidance-scale 5.0 --octree-resolution 256 --num-chunks 8000 --disable-progress --low-vram"
   }
 ]

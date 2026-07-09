@@ -105,6 +105,19 @@ def triposr_api_command(args: argparse.Namespace, repaired: bool) -> str:
 
 
 def hunyuan3d_command(args: argparse.Namespace, repaired: bool) -> str:
+    hunyuan_extra = [
+        "--num-inference-steps",
+        str(args.hunyuan_num_inference_steps),
+        "--guidance-scale",
+        str(args.hunyuan_guidance_scale),
+        "--octree-resolution",
+        str(args.hunyuan_octree_resolution),
+        "--num-chunks",
+        str(args.hunyuan_num_chunks),
+        "--disable-progress",
+    ]
+    if args.hunyuan_low_vram:
+        hunyuan_extra.append("--low-vram")
     return image_to_mesh_command(
         python=args.provider_python,
         provider="hunyuan3d-shape",
@@ -118,6 +131,7 @@ def hunyuan3d_command(args: argparse.Namespace, repaired: bool) -> str:
         mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0),
         mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
         mesh_target_faces=getattr(args, "mesh_target_faces", 0),
+        output_extra=hunyuan_extra,
     )
 
 
@@ -457,6 +471,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--triposr-python", default=DEFAULT_TRIPOSR_PYTHON)
     parser.add_argument("--triposr-dir", default=DEFAULT_TRIPOSR_DIR)
     parser.add_argument("--hunyuan3d-dir", default=None)
+    parser.add_argument("--hunyuan-num-inference-steps", type=int, default=30)
+    parser.add_argument("--hunyuan-guidance-scale", type=float, default=5.0)
+    parser.add_argument("--hunyuan-octree-resolution", type=int, default=256)
+    parser.add_argument("--hunyuan-num-chunks", type=int, default=8000)
+    parser.add_argument("--hunyuan-low-vram", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--chunk-size", type=int, default=8192)
     parser.add_argument("--mc-resolution", type=int, default=256)
     parser.add_argument("--mesh-repair", choices=("basic", "convex-hull", "printable"), default="printable")
