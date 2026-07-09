@@ -1134,6 +1134,14 @@ EXPECTED_SHA256=60504cdda38ef121ebd74fdf3470d65e22bf46ab487c55b2e0eb0d25d43243fe
 
 The launcher verifies `EXPECTED_SHA256` when set, validates the rewritten manifest, adapter weights, and training report, clones `REPO_DIR` if a fresh Colab runtime does not already have the repo, then writes `launch_preflight.json` with the archive SHA, resolved git commit, manifest row count, and adapter path before model cache/eval work begins. It also tees the G4 run to `run_colab_eval.log` and always writes `/content/g4_modelnet10_weighted_surface_eval_s20_results.tar.gz` containing the log, preflight, `results_summary.json`, and the orchestrator output directory when present. `results_summary.json` now includes compact per-eval and combined-run digests with artifact presence, top method, candidate decision, failed checks, and per-method coverage/error counts, so partial Colab archives can be triaged without unpacking every CSV manually. Use `--max-method-failures 2` for large-provider prompt sweeps; one broken provider/config is then recorded and skipped instead of repeating the same expensive failure across every sample.
 
+After downloading any Colab results archive, run the STL-first ingest helper locally to re-rank the full CSVs from the archive and separate deployable STL architectures from `source_mesh_oracle` diagnostics:
+
+```powershell
+.\backend\.venv\Scripts\python -m backend.benchmark.ingest_stl_results g4=C:\path\to\g4_run_results.tar.gz --output-dir backend\output\completion-benchmark\ingested\g4_run --score-profile stl-quality --score-mode baseline-delta --baseline-method masked
+```
+
+This writes `stl_first_ingest_report.json` and `stl_first_ingest_report.md`. The report picks the best deployable method among `depth-relief`, `single-image-mesh`, and `multiview-mesh`, while keeping `source-mesh-oracle` as a calibration row so ground-truth diagnostics do not accidentally become the product winner.
+
 Next large-provider G4 slice, using the same packaged ModelNet10 manifest after the archive has been extracted:
 
 ```bash
@@ -1248,6 +1256,14 @@ When regenerating the checked package artifact, also pass `--report C:\Users\arn
 The inline launcher is exact-artifact glue: regenerating the tarball invalidates the old cell because both the embedded bytes and SHA change. Base64 expands the payload by roughly one third, so this is convenient for the current 1.6 MB Hunyuan slice but manual upload/extract/run remains the fallback for larger packages or browser-paste failures.
 
 If the Colab UI has trouble accepting the 2 MB inline paste, use the smaller fetch cell `run_colab_hunyuan3d_shape_eval_fetch_cell.py` from the local `outputs` directory. It downloads the same tarball from the fork's `codex-colab-payloads` branch, verifies SHA256 `cb0f27ffe46b8829f45891d456d8865fbbef23cb7013b299a18c72876ee05482`, extracts `run_colab_eval.sh`, and launches the same Hunyuan setup/eval path. The current payload branch commit validated by raw download is `bf846f926f17bf77b5950cc897f94b375d68a07f`.
+
+When the Hunyuan G4 run finishes, download `/content/g4_stl_first_hunyuan3d_shape_s40_n10_results.tar.gz` and ingest it with:
+
+```powershell
+.\backend\.venv\Scripts\python -m backend.benchmark.ingest_stl_results hunyuan=C:\path\to\g4_stl_first_hunyuan3d_shape_s40_n10_results.tar.gz --output-dir backend\output\completion-benchmark\ingested\g4_stl_first_hunyuan3d_shape_s40_n10 --score-profile stl-quality --score-mode baseline-delta --baseline-method masked
+```
+
+Do not record Hunyuan as a benchmark result until that archive exists and the ingest report or original `results_summary.json` shows `run_status=0`.
 
 Local Hunyuan setup smoke on the 3080 Ti validated the narrow sparse checkout and `hy3dshape.pipelines` import path after installing the same shape-runtime dependency family (`einops`, `omegaconf`, `opencv-python`, `pymeshlab`, `timm`, `torchdiffeq`). The actual unauthenticated checkpoint download stalled locally at `model.fp16.ckpt` with a 0-byte incomplete file, so the first full Hunyuan quality comparison is still assigned to G4. The provider wrapper now cleans that exact interrupted Hunyuan cache shape and retries once when `from_pretrained` finds `config.yaml` but no checkpoint file.
 

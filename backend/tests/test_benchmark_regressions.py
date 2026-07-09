@@ -33,6 +33,10 @@ from backend.benchmark.explain_paired_objective import (
 )
 from backend.benchmark.export_training_pairs import main as export_training_pairs_main
 from backend.benchmark.generate_rendered_dataset import attach_multiview_fields, generate_dataset
+from backend.benchmark.ingest_stl_results import (
+    render_markdown as render_stl_ingest_markdown,
+    summarize_inputs as summarize_stl_inputs,
+)
 from backend.benchmark.package_colab_inputs import build_fetch_colab_launcher, build_inline_colab_launcher, package_inputs
 from backend.benchmark.optimize_completion import (
     annotate_per_sample_metrics,
@@ -3797,6 +3801,142 @@ class CombineOptimizeRunsRegressionTests(unittest.TestCase):
         self.assertEqual(mirror["n"], 2)
         self.assertEqual(mirror["attempted_n"], 2)
         self.assertAlmostEqual(mirror["object_surface_chamfer_l1_median"], 0.30)
+
+
+class StlResultIngestRegressionTests(unittest.TestCase):
+    def write_stl_result_run(self, run_dir: Path) -> Path:
+        run_dir.mkdir(parents=True)
+        summary_rows = [
+            {
+                "method": "masked",
+                "base_method": "masked",
+                "stl_mode": "depth-relief",
+                "n": "2",
+                "attempted_n": "2",
+                "success_rate": "1.0",
+                "error_count": "0",
+                "mesh_surface_chamfer_l1_median": "0.40",
+                "mesh_surface_hausdorff95_median": "0.50",
+                "silhouette_iou_masked_median": "0.70",
+                "stl_is_watertight_median": "1.0",
+                "stl_is_volume_median": "1.0",
+                "stl_is_manifold_median": "1.0",
+                "stl_positive_volume_median": "1.0",
+                "stl_single_component_median": "1.0",
+                "stl_faces_per_bbox_volume_log1p_median": "5.0",
+            },
+            {
+                "method": "mirror",
+                "base_method": "mirror",
+                "stl_mode": "depth-relief",
+                "n": "2",
+                "attempted_n": "2",
+                "success_rate": "1.0",
+                "error_count": "0",
+                "mesh_surface_chamfer_l1_median": "0.22",
+                "mesh_surface_hausdorff95_median": "0.33",
+                "silhouette_iou_masked_median": "0.74",
+                "stl_is_watertight_median": "1.0",
+                "stl_is_volume_median": "1.0",
+                "stl_is_manifold_median": "1.0",
+                "stl_positive_volume_median": "1.0",
+                "stl_single_component_median": "1.0",
+                "stl_faces_per_bbox_volume_log1p_median": "5.1",
+            },
+            {
+                "method": "hunyuan3d_shape_repaired",
+                "base_method": "external-image-to-mesh",
+                "stl_mode": "single-image-mesh",
+                "n": "2",
+                "attempted_n": "2",
+                "success_rate": "1.0",
+                "error_count": "0",
+                "mesh_surface_chamfer_l1_median": "0.12",
+                "mesh_surface_hausdorff95_median": "0.20",
+                "silhouette_iou_masked_median": "0.81",
+                "stl_is_watertight_median": "1.0",
+                "stl_is_volume_median": "1.0",
+                "stl_is_manifold_median": "1.0",
+                "stl_positive_volume_median": "1.0",
+                "stl_single_component_median": "1.0",
+                "stl_faces_per_bbox_volume_log1p_median": "5.4",
+            },
+            {
+                "method": "source_mesh_oracle",
+                "base_method": "source-mesh-oracle",
+                "stl_mode": "source-mesh-oracle",
+                "n": "2",
+                "attempted_n": "2",
+                "success_rate": "1.0",
+                "error_count": "0",
+                "mesh_surface_chamfer_l1_median": "0.00",
+                "mesh_surface_hausdorff95_median": "0.00",
+                "silhouette_iou_masked_median": "1.0",
+                "stl_is_watertight_median": "1.0",
+                "stl_is_volume_median": "1.0",
+                "stl_is_manifold_median": "1.0",
+                "stl_positive_volume_median": "1.0",
+                "stl_single_component_median": "1.0",
+                "stl_faces_per_bbox_volume_log1p_median": "4.0",
+            },
+        ]
+        fieldnames = list(summary_rows[0].keys())
+        with (run_dir / "aggregate_summary.csv").open("w", newline="", encoding="utf-8") as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(summary_rows)
+        with (run_dir / "per_sample_metrics.csv").open("w", newline="", encoding="utf-8") as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=["sample_id", "method", "mesh_surface_chamfer_l1"])
+            writer.writeheader()
+            for sample_id in ("a", "b"):
+                for row in summary_rows:
+                    writer.writerow(
+                        {
+                            "sample_id": sample_id,
+                            "method": row["method"],
+                            "mesh_surface_chamfer_l1": row["mesh_surface_chamfer_l1_median"],
+                        }
+                    )
+        return run_dir
+
+    def test_stl_result_ingest_reports_deployable_winner_by_architecture(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = self.write_stl_result_run(root / "run")
+
+            report = summarize_stl_inputs([str(run_dir)], output_dir=root / "ingested", top=5)
+            markdown = render_stl_ingest_markdown(report)
+
+        run = report["runs"][0]
+        leaders = {row["stl_mode"]: row["method"] for row in run["best_by_stl_mode"]}
+
+        self.assertEqual(run["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
+        self.assertEqual(run["oracle_diagnostic_winner"]["method"], "source_mesh_oracle")
+        self.assertEqual(leaders["depth-relief"], "mirror")
+        self.assertEqual(leaders["single-image-mesh"], "hunyuan3d_shape_repaired")
+        self.assertIn("Source-mesh oracle rows are kept as diagnostics", markdown)
+        self.assertIn("Architecture Leaders", markdown)
+
+    def test_stl_result_ingest_extracts_colab_style_archive(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            archive_root = root / "archive_root"
+            run_dir = self.write_stl_result_run(archive_root / "output" / "g4_run" / "combined" / "eval")
+            (archive_root / "results_summary.json").write_text(
+                json.dumps({"run_name": "g4_run", "combined_summaries": [{"path": str(run_dir)}]}),
+                encoding="utf-8",
+            )
+            archive_path = root / "g4_run_results.tar.gz"
+            with tarfile.open(archive_path, "w:gz") as tar:
+                tar.add(archive_root / "results_summary.json", arcname="results_summary.json")
+                tar.add(archive_root / "output", arcname="output")
+
+            report = summarize_stl_inputs([f"g4={archive_path}"], output_dir=root / "ingested", top=3)
+
+        self.assertEqual(report["run_count"], 1)
+        self.assertTrue(report["inputs"][0]["extracted_to"])
+        self.assertIn("ingested", report["runs"][0]["run_dir"])
+        self.assertEqual(report["runs"][0]["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
 
 
 class CompletionMethodRegressionTests(unittest.TestCase):
