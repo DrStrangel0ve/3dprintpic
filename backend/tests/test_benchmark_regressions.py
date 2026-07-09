@@ -67,6 +67,7 @@ from backend.benchmark.run_stl_first_smoke import (
     build_optimize_command as build_stl_first_optimize_command,
     method_failure_rows,
     shell_token as stl_first_shell_token,
+    write_architecture_report as write_stl_first_architecture_report,
 )
 from backend.benchmark.run_triposr_repair_smoke import build_experiments, rows_from_csv
 from backend.benchmark.run_completion_benchmark import evaluate_sample, run_one, stl_diagnostics, summarize, write_split_audit
@@ -939,6 +940,87 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
 
+    def test_triposg_provider_wrapper_uses_module_cli(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            provider_dir = root / "fake_triposg"
+            scripts_dir = provider_dir / "scripts"
+            scripts_dir.mkdir(parents=True)
+            input_image = root / "input.png"
+            output_mesh = root / "normalized.glb"
+            output_stl = root / "normalized.stl"
+            Image.new("RGB", (12, 12), (120, 80, 160)).save(input_image)
+            (scripts_dir / "__init__.py").write_text("", encoding="utf-8")
+            (scripts_dir / "inference_triposg.py").write_text(
+                "\n".join(
+                    [
+                        "import argparse, json, sys",
+                        "from pathlib import Path",
+                        "import trimesh",
+                        "parser = argparse.ArgumentParser()",
+                        "parser.add_argument('--image-input', required=True)",
+                        "parser.add_argument('--output-path', required=True)",
+                        "parser.add_argument('--num-inference-steps', type=int, default=50)",
+                        "parser.add_argument('--guidance-scale', type=float, default=7.0)",
+                        "parser.add_argument('--faces', type=int, default=40000)",
+                        "parser.add_argument('--seed', type=int, default=None)",
+                        "args = parser.parse_args()",
+                        "assert '--device' not in sys.argv",
+                        "assert args.num_inference_steps == 7",
+                        "assert args.guidance_scale == 3.5",
+                        "assert args.faces == 123",
+                        "assert args.seed == 9",
+                        "Path(args.output_path).parent.mkdir(parents=True, exist_ok=True)",
+                        "trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(args.output_path)",
+                        "Path(args.output_path).with_name('args.json').write_text(json.dumps(vars(args)))",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_image_to_mesh_provider",
+                    "--provider",
+                    "triposg",
+                    "--provider-dir",
+                    str(provider_dir),
+                    "--input-image",
+                    str(input_image),
+                    "--output-mesh",
+                    str(output_mesh),
+                    "--output-stl",
+                    str(output_stl),
+                    "--provider-python",
+                    sys.executable,
+                    "--provider-device",
+                    "cuda",
+                    "--num-inference-steps",
+                    "7",
+                    "--guidance-scale",
+                    "3.5",
+                    "--seed",
+                    "9",
+                    "--mesh-target-faces",
+                    "123",
+                ],
+            ):
+                run_image_to_mesh_provider_main()
+
+            diagnostics = stl_diagnostics(output_stl)
+            raw_args = json.loads((root / "triposg_raw" / "args.json").read_text(encoding="utf-8"))
+            output_mesh_exists = output_mesh.exists()
+            output_stl_exists = output_stl.exists()
+
+        self.assertTrue(output_mesh_exists)
+        self.assertTrue(output_stl_exists)
+        self.assertEqual(raw_args["image_input"], str(input_image))
+        self.assertEqual(raw_args["faces"], 123)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
+
     def test_printable_mesh_repair_falls_back_to_watertight_hull(self):
         import trimesh
 
@@ -1763,6 +1845,7 @@ class StlExportRegressionTests(unittest.TestCase):
             include_raw_direct_mesh=False,
             triposr_direct_inputs=["masked", "mirror", "biharmonic"],
             include_hunyuan3d_shape=True,
+            include_triposg=True,
             include_source_multiview_oracle=True,
             multiview_command='python mv.py "{input_bundle}" "{output_mesh}" "{output_stl}"',
             multiview_name="mv_recon",
@@ -1773,11 +1856,16 @@ class StlExportRegressionTests(unittest.TestCase):
             triposr_python="/content/triposr-venv/bin/python",
             triposr_dir="/content/TripoSR",
             hunyuan3d_dir="/content/Hunyuan3D",
+            triposg_python="/content/triposg-venv/bin/python",
+            triposg_dir="/content/TripoSG",
             hunyuan_num_inference_steps=24,
             hunyuan_guidance_scale=4.0,
             hunyuan_octree_resolution=192,
             hunyuan_num_chunks=4096,
             hunyuan_low_vram=True,
+            triposg_num_inference_steps=8,
+            triposg_guidance_scale=3.5,
+            triposg_seed=99,
             chunk_size=256,
             mc_resolution=64,
             mesh_repair="printable",
@@ -1815,6 +1903,13 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("--num-chunks 4096", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("--disable-progress", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("--low-vram", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertEqual(by_name["triposg_masked_repaired_direct_mesh"]["stl_mode"], "single-image-mesh")
+        self.assertIn("--provider triposg", by_name["triposg_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--provider-dir /content/TripoSG", by_name["triposg_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--num-inference-steps 8", by_name["triposg_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--guidance-scale 3.5", by_name["triposg_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--seed 99", by_name["triposg_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--mesh-target-faces 512", by_name["triposg_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertEqual(by_name["source_mesh_bundle_multiview_oracle"]["method"], "external-multiview-to-mesh")
         self.assertEqual(by_name["source_mesh_bundle_multiview_oracle"]["stl_mode"], "multiview-mesh")
         self.assertIn("--provider source-mesh-bundle-oracle", by_name["source_mesh_bundle_multiview_oracle"]["direct_mesh_command"])
@@ -1842,6 +1937,98 @@ class StlExportRegressionTests(unittest.TestCase):
         )
 
         self.assertEqual([failure["method"] for failure in failures], ["bad"])
+
+    def test_stl_first_smoke_writes_architecture_report(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            experiment_dir = root / "experiment"
+            experiment_dir.mkdir()
+            rows = [
+                {
+                    "method": "masked",
+                    "base_method": "masked",
+                    "stl_mode": "depth-relief",
+                    "n": "2",
+                    "attempted_n": "2",
+                    "success_rate": "1.0",
+                    "error_count": "0",
+                    "mesh_surface_chamfer_l1_median": "0.40",
+                    "mesh_surface_hausdorff95_median": "0.50",
+                    "stl_is_watertight_median": "1.0",
+                    "stl_is_volume_median": "1.0",
+                    "stl_is_manifold_median": "1.0",
+                    "stl_positive_volume_median": "1.0",
+                    "stl_single_component_median": "1.0",
+                    "stl_faces_per_bbox_volume_log1p_median": "5.0",
+                },
+                {
+                    "method": "mirror",
+                    "base_method": "mirror",
+                    "stl_mode": "depth-relief",
+                    "n": "2",
+                    "attempted_n": "2",
+                    "success_rate": "1.0",
+                    "error_count": "0",
+                    "mesh_surface_chamfer_l1_median": "0.24",
+                    "mesh_surface_hausdorff95_median": "0.32",
+                    "stl_is_watertight_median": "1.0",
+                    "stl_is_volume_median": "1.0",
+                    "stl_is_manifold_median": "1.0",
+                    "stl_positive_volume_median": "1.0",
+                    "stl_single_component_median": "1.0",
+                    "stl_faces_per_bbox_volume_log1p_median": "5.1",
+                },
+                {
+                    "method": "triposr_repaired",
+                    "base_method": "external-image-to-mesh",
+                    "stl_mode": "single-image-mesh",
+                    "n": "2",
+                    "attempted_n": "2",
+                    "success_rate": "1.0",
+                    "error_count": "0",
+                    "mesh_surface_chamfer_l1_median": "0.12",
+                    "mesh_surface_hausdorff95_median": "0.18",
+                    "stl_is_watertight_median": "1.0",
+                    "stl_is_volume_median": "1.0",
+                    "stl_is_manifold_median": "1.0",
+                    "stl_positive_volume_median": "1.0",
+                    "stl_single_component_median": "1.0",
+                    "stl_faces_per_bbox_volume_log1p_median": "4.9",
+                },
+                {
+                    "method": "source_mesh_oracle",
+                    "base_method": "source-mesh-oracle",
+                    "stl_mode": "source-mesh-oracle",
+                    "n": "2",
+                    "attempted_n": "2",
+                    "success_rate": "1.0",
+                    "error_count": "0",
+                    "mesh_surface_chamfer_l1_median": "0.0",
+                    "mesh_surface_hausdorff95_median": "0.0",
+                    "stl_is_watertight_median": "1.0",
+                    "stl_is_volume_median": "1.0",
+                    "stl_is_manifold_median": "1.0",
+                    "stl_positive_volume_median": "1.0",
+                    "stl_single_component_median": "1.0",
+                    "stl_faces_per_bbox_volume_log1p_median": "4.0",
+                },
+            ]
+            with (experiment_dir / "aggregate_summary.csv").open("w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=list(rows[0].keys()))
+                writer.writeheader()
+                writer.writerows(rows)
+
+            report = write_stl_first_architecture_report(experiment_dir, root, label="unit")
+
+            markdown = (root / "stl_first_architecture_report.md").read_text(encoding="utf-8")
+
+        leaders = {row["stl_mode"]: row["method"] for row in report["best_by_stl_mode"]}
+        self.assertEqual(report["deployable_winner"]["method"], "triposr_repaired")
+        self.assertEqual(report["oracle_diagnostic_winner"]["method"], "source_mesh_oracle")
+        self.assertEqual(leaders["depth-relief"], "mirror")
+        self.assertEqual(leaders["single-image-mesh"], "triposr_repaired")
+        self.assertTrue(Path(report["report_json"]).name.endswith(".json"))
+        self.assertIn("Architecture Leaders", markdown)
 
     def test_stl_first_smoke_optimize_command_uses_stl_quality_profile(self):
         args = SimpleNamespace(
@@ -3009,6 +3196,62 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("git+https://github.com/tatsy/torchmcubes.git", archive_run_script)
         self.assertIn("--candidate-method triposr_api_masked_repaired_stl_mirror_bbox_direct_mesh", archive_run_script)
 
+    def test_package_inputs_can_embed_triposg_provider_setup(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dataset = root / "dataset"
+            dataset.mkdir()
+            full = dataset / "full.png"
+            masked = dataset / "masked.png"
+            mask = dataset / "mask.png"
+            for path in (full, masked, mask):
+                path.write_bytes(b"asset")
+            manifest = dataset / "manifest.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "id": "sample",
+                        "full_image": str(full.relative_to(root)),
+                        "masked_image": str(masked.relative_to(root)),
+                        "mask": str(mask.relative_to(root)),
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            archive = root / "triposg_bundle.tar.gz"
+
+            report = package_inputs(
+                manifest=manifest,
+                output=archive,
+                extract_root="/content/inputs/triposg",
+                root=root,
+                include_run_script=True,
+                colab_archive_path="/content/triposg_bundle.tar.gz",
+                run_name="g4_triposg_setup",
+                modern_config="backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_triposg_direct_mesh_smoke.json",
+                skip_cache=True,
+                eval_starts=[0],
+                eval_limit=1,
+                score_profile="stl-quality",
+                candidate_method="triposg_masked_repaired_direct_mesh",
+                current_method="mirror",
+                include_triposg_setup=True,
+            )
+            with tarfile.open(archive, "r:gz") as tar:
+                archive_run_script = tar.extractfile("run_colab_eval.sh").read().decode("utf-8")
+
+        self.assertTrue(report["include_triposg_setup"])
+        self.assertIn("https://github.com/VAST-AI-Research/TripoSG", archive_run_script)
+        self.assertIn('TRIPOSG_VENV="${TRIPOSG_VENV:-/content/triposg-venv}"', archive_run_script)
+        self.assertIn('export PYTHONPATH="$TRIPOSG_DIR:${PYTHONPATH:-}"', archive_run_script)
+        self.assertIn("triposg.pipelines.pipeline_triposg", archive_run_script)
+        self.assertIn("/tmp/triposg_requirements_colab.txt", archive_run_script)
+        self.assertIn("numpy==2.0.2", archive_run_script)
+        self.assertIn("TripoSG setup checkpoint: Python deps importable", archive_run_script)
+        self.assertIn("TRIPOSG_SETUP_ONLY", archive_run_script)
+        self.assertIn("--candidate-method triposg_masked_repaired_direct_mesh", archive_run_script)
+
     def test_package_inputs_can_embed_hunyuan3d_provider_setup(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -3104,6 +3347,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("COLAB_PROVIDER_SETUP_ONLY", archive_run_script)
         self.assertIn("HUNYUAN3D_SETUP_ONLY", archive_run_script)
         self.assertIn("TRIPOSR_SETUP_ONLY", archive_run_script)
+        self.assertIn("TRIPOSG_SETUP_ONLY", archive_run_script)
         self.assertIn("Provider setup only requested; skipping benchmark stages", archive_run_script)
         self.assertIn("'provider_setup_only'", archive_run_script)
         self.assertIn("diffusers==0.30.0", archive_run_script)

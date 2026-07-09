@@ -16,11 +16,18 @@ from backend.benchmark.stl_modes import (
     STL_MODE_SINGLE_IMAGE_MESH,
     STL_MODE_SOURCE_MESH_ORACLE,
 )
+from backend.benchmark.ingest_stl_results import (
+    DEPLOYABLE_STL_MODES,
+    render_markdown as render_stl_ingest_markdown,
+    summarize_run as summarize_stl_run,
+)
 
 
 DEFAULT_DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Small-hf"
 DEFAULT_TRIPOSR_PYTHON = "/content/triposr-venv/bin/python"
 DEFAULT_TRIPOSR_DIR = "/content/TripoSR"
+DEFAULT_TRIPOSG_PYTHON = "/content/triposg-venv/bin/python"
+DEFAULT_TRIPOSG_DIR = "/content/TripoSG"
 SOURCE_MULTIVIEW_ORACLE_NAME = "source_mesh_bundle_multiview_oracle"
 
 
@@ -135,6 +142,32 @@ def hunyuan3d_command(args: argparse.Namespace, repaired: bool) -> str:
     )
 
 
+def triposg_command(args: argparse.Namespace, repaired: bool) -> str:
+    triposg_extra = [
+        "--num-inference-steps",
+        str(args.triposg_num_inference_steps),
+        "--guidance-scale",
+        str(args.triposg_guidance_scale),
+    ]
+    if args.triposg_seed is not None:
+        triposg_extra.extend(["--seed", str(args.triposg_seed)])
+    return image_to_mesh_command(
+        python=args.triposg_python,
+        provider="triposg",
+        provider_dir=args.triposg_dir,
+        provider_device=args.provider_device,
+        timeout=args.direct_mesh_timeout,
+        output_mesh_repair=args.mesh_repair if repaired else "none",
+        output_mesh_raw=repaired,
+        raw_output_ext="glb",
+        mesh_target_max_dimension=getattr(args, "mesh_target_max_dimension", 0.0),
+        mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0),
+        mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
+        mesh_target_faces=getattr(args, "mesh_target_faces", 0),
+        output_extra=triposg_extra,
+    )
+
+
 def source_multiview_oracle_command(args: argparse.Namespace) -> str:
     return image_to_mesh_command(
         python=args.provider_python,
@@ -214,6 +247,20 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                 "direct_mesh_output_ext": "glb",
                 "direct_mesh_timeout": args.direct_mesh_timeout,
                 "direct_mesh_command": hunyuan3d_command(args, repaired=True),
+            }
+        )
+    if getattr(args, "include_triposg", False):
+        experiments.append(
+            {
+                "name": "triposg_masked_repaired_direct_mesh",
+                "method": "external-image-to-mesh",
+                "stl_mode": STL_MODE_SINGLE_IMAGE_MESH,
+                "skip_depth": True,
+                "emit_stl": True,
+                "direct_mesh_input": "masked",
+                "direct_mesh_output_ext": "glb",
+                "direct_mesh_timeout": args.direct_mesh_timeout,
+                "direct_mesh_command": triposg_command(args, repaired=True),
             }
         )
     if getattr(args, "include_source_multiview_oracle", False):
@@ -310,6 +357,51 @@ def run_command(command: list[str], cwd: Path, timeout: int) -> dict:
 def write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
+
+def write_architecture_report(experiment_dir: Path, output_dir: Path, label: str = "stl_first_smoke") -> dict:
+    if not (experiment_dir / "aggregate_summary.csv").exists() and not (
+        experiment_dir / "summary_metrics.csv"
+    ).exists():
+        return {}
+
+    run = summarize_stl_run(
+        label,
+        experiment_dir,
+        score_profile="stl-quality",
+        score_mode="baseline-delta",
+        baseline_method="masked",
+        top=20,
+    )
+    report = {
+        "generated_at": utc_now(),
+        "inputs": [
+            {
+                "label": label,
+                "source": str(experiment_dir),
+                "root": str(experiment_dir),
+                "extracted_to": "",
+            }
+        ],
+        "run_count": 1,
+        "score_profile": "stl-quality",
+        "score_mode": "baseline-delta",
+        "baseline_method": "masked",
+        "deployable_stl_modes": list(DEPLOYABLE_STL_MODES),
+        "runs": [run],
+    }
+    report_path = output_dir / "stl_first_architecture_report.json"
+    markdown_path = output_dir / "stl_first_architecture_report.md"
+    write_json(report_path, report)
+    markdown_path.write_text(render_stl_ingest_markdown(report) + "\n", encoding="utf-8")
+    return {
+        "report_json": str(report_path),
+        "report_markdown": str(markdown_path),
+        "deployable_winner": run.get("deployable_winner", {}),
+        "oracle_diagnostic_winner": run.get("oracle_diagnostic_winner", {}),
+        "best_by_stl_mode": run.get("best_by_stl_mode", []),
+        "ranked_methods": run.get("ranked_methods", []),
+    }
 
 
 def ensure_manifest(args: argparse.Namespace, repo_dir: Path, output_dir: Path) -> tuple[Path, dict | None]:
@@ -424,6 +516,12 @@ def run_smoke(args: argparse.Namespace) -> dict:
     summary["aggregate_summary"] = rows_from_csv(experiment_dir / "aggregate_summary.csv")
     summary["method_failures"] = method_failure_rows(summary["aggregate_summary"])
     summary["ranked_experiments"] = rows_from_csv(experiment_dir / "ranked_experiments.csv")
+    architecture_report = write_architecture_report(experiment_dir, output_dir)
+    if architecture_report:
+        summary["architecture_report"] = architecture_report
+        summary["deployable_winner"] = architecture_report.get("deployable_winner", {})
+        summary["oracle_diagnostic_winner"] = architecture_report.get("oracle_diagnostic_winner", {})
+        summary["best_by_stl_mode"] = architecture_report.get("best_by_stl_mode", [])
     summary["selection_decision"] = read_json(experiment_dir / "selection_decision.json")
     if (experiment_dir / "selection_decision.md").exists():
         summary["selection_decision_md"] = str(experiment_dir / "selection_decision.md")
@@ -476,6 +574,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hunyuan-octree-resolution", type=int, default=256)
     parser.add_argument("--hunyuan-num-chunks", type=int, default=8000)
     parser.add_argument("--hunyuan-low-vram", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--include-triposg", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--triposg-python", default=DEFAULT_TRIPOSG_PYTHON)
+    parser.add_argument("--triposg-dir", default=DEFAULT_TRIPOSG_DIR)
+    parser.add_argument("--triposg-num-inference-steps", type=int, default=50)
+    parser.add_argument("--triposg-guidance-scale", type=float, default=7.0)
+    parser.add_argument("--triposg-seed", type=int, default=None)
     parser.add_argument("--chunk-size", type=int, default=8192)
     parser.add_argument("--mc-resolution", type=int, default=256)
     parser.add_argument("--mesh-repair", choices=("basic", "convex-hull", "printable"), default="printable")

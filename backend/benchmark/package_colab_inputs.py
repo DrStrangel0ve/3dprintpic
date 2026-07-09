@@ -236,6 +236,69 @@ def build_triposr_setup_prelude() -> str:
     )
 
 
+def build_triposg_setup_prelude() -> str:
+    return (
+        "TRIPOSG_DIR=\"${TRIPOSG_DIR:-/content/TripoSG}\"\n"
+        "TRIPOSG_VENV=\"${TRIPOSG_VENV:-/content/triposg-venv}\"\n"
+        "export TRIPOSG_DIR TRIPOSG_VENV\n"
+        "if [[ ! -d \"$TRIPOSG_DIR/.git\" ]]; then\n"
+        "  rm -rf \"$TRIPOSG_DIR\"\n"
+        "  git clone --filter=blob:none https://github.com/VAST-AI-Research/TripoSG \"$TRIPOSG_DIR\"\n"
+        "fi\n"
+        "python -m pip install -q virtualenv\n"
+        "if [[ ! -x \"$TRIPOSG_VENV/bin/python\" ]]; then\n"
+        "  python -m virtualenv --system-site-packages \"$TRIPOSG_VENV\"\n"
+        "fi\n"
+        "export PYTHONPATH=\"$TRIPOSG_DIR:${PYTHONPATH:-}\"\n"
+        "if ! \"$TRIPOSG_VENV/bin/python\" - <<'PY'\n"
+        "import importlib.util\n"
+        "missing = []\n"
+        "for name in ('torch', 'diffusers', 'transformers', 'trimesh', 'triposg.pipelines.pipeline_triposg'):\n"
+        "    try:\n"
+        "        found = importlib.util.find_spec(name) is not None\n"
+        "    except ModuleNotFoundError:\n"
+        "        found = False\n"
+        "    if not found:\n"
+        "        missing.append(name)\n"
+        "if missing:\n"
+        "    print('missing TripoSG Python deps: ' + ', '.join(missing))\n"
+        "    raise SystemExit(1)\n"
+        "PY\n"
+        "then\n"
+        "  \"$TRIPOSG_VENV/bin/python\" -m pip install -U pip setuptools wheel\n"
+        "  python - <<'PY'\n"
+        "import os\n"
+        "from pathlib import Path\n"
+        "source = Path(os.environ['TRIPOSG_DIR']) / 'requirements.txt'\n"
+        "target = Path('/tmp/triposg_requirements_colab.txt')\n"
+        "skip_prefixes = ('numpy', 'torch', 'torchvision', 'torchaudio')\n"
+        "lines = []\n"
+        "if source.exists():\n"
+        "    for raw in source.read_text().splitlines():\n"
+        "        line = raw.strip()\n"
+        "        if not line or line.startswith('#'):\n"
+        "            continue\n"
+        "        lowered = line.lower()\n"
+        "        if any(lowered == prefix or lowered.startswith(prefix + spec) for prefix in skip_prefixes for spec in ('=', '<', '>', '~', ' ')):\n"
+        "            continue\n"
+        "        lines.append(line)\n"
+        "target.write_text('\\n'.join(lines) + ('\\n' if lines else ''))\n"
+        "print(target)\n"
+        "PY\n"
+        "  \"$TRIPOSG_VENV/bin/python\" -m pip install numpy==2.0.2 trimesh==4.12.2 Pillow==10.1.0 huggingface-hub imageio\n"
+        "  if [[ -s /tmp/triposg_requirements_colab.txt ]]; then\n"
+        "    \"$TRIPOSG_VENV/bin/python\" -m pip install -r /tmp/triposg_requirements_colab.txt\n"
+        "  fi\n"
+        "  \"$TRIPOSG_VENV/bin/python\" - <<'PY'\n"
+        "import importlib\n"
+        "for name in ('torch', 'diffusers', 'transformers', 'trimesh', 'triposg.pipelines.pipeline_triposg'):\n"
+        "    importlib.import_module(name)\n"
+        "PY\n"
+        "fi\n"
+        "echo \"TripoSG setup checkpoint: Python deps importable\"\n"
+    )
+
+
 def build_hunyuan3d_setup_prelude() -> str:
     return (
         "HUNYUAN3D_DIR=\"${HUNYUAN3D_DIR:-/content/Hunyuan3D-2.1}\"\n"
@@ -364,6 +427,7 @@ def build_colab_run_script(
     contact_sheet_methods: str | None,
     contact_sheet_max_samples: int | None,
     include_triposr_setup: bool = False,
+    include_triposg_setup: bool = False,
     include_hunyuan3d_setup: bool = False,
 ) -> str:
     archive_default = colab_archive_path or f"/content/{archive_filename}"
@@ -436,6 +500,8 @@ def build_colab_run_script(
     provider_setup = ""
     if include_triposr_setup:
         provider_setup += build_triposr_setup_prelude()
+    if include_triposg_setup:
+        provider_setup += build_triposg_setup_prelude()
     if include_hunyuan3d_setup:
         provider_setup += build_hunyuan3d_setup_prelude()
 
@@ -534,7 +600,7 @@ def build_colab_run_script(
         "    payload['lora_adapter'] = os.environ['LORA_ADAPTER_PATH']\n"
         "print(json.dumps(payload, indent=2, sort_keys=True))\n"
         "PY\n"
-        "if [[ \"${COLAB_PROVIDER_SETUP_ONLY:-0}\" == \"1\" || \"${HUNYUAN3D_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSR_SETUP_ONLY:-0}\" == \"1\" ]]; then\n"
+        "if [[ \"${COLAB_PROVIDER_SETUP_ONLY:-0}\" == \"1\" || \"${HUNYUAN3D_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSR_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSG_SETUP_ONLY:-0}\" == \"1\" ]]; then\n"
         "  echo \"Provider setup only requested; skipping benchmark stages\"\n"
         "  exit 0\n"
         "fi\n"
@@ -617,7 +683,7 @@ def build_colab_run_script(
         "    'generated_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),\n"
         "    'run_name': os.environ['RUN_NAME'],\n"
         "    'run_status': int(os.environ['RUN_STATUS']),\n"
-        "    'provider_setup_only': os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1',\n"
+        "    'provider_setup_only': os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1',\n"
         "    'output_root': str(output_root),\n"
         "    'output_root_exists': output_root.exists(),\n"
         "    'run_log': str(run_log),\n"
@@ -854,6 +920,7 @@ def package_inputs(
     contact_sheet_methods: str | None = None,
     contact_sheet_max_samples: int | None = None,
     include_triposr_setup: bool = False,
+    include_triposg_setup: bool = False,
     include_hunyuan3d_setup: bool = False,
     report_path: Path | None = None,
     inline_colab_launcher_path: Path | None = None,
@@ -930,6 +997,7 @@ def package_inputs(
                 contact_sheet_methods=contact_sheet_methods,
                 contact_sheet_max_samples=contact_sheet_max_samples,
                 include_triposr_setup=include_triposr_setup,
+                include_triposg_setup=include_triposg_setup,
                 include_hunyuan3d_setup=include_hunyuan3d_setup,
             )
             add_text_file(tar, "run_colab_eval.sh", run_script_text, mode=0o755)
@@ -973,6 +1041,7 @@ def package_inputs(
         "contact_sheet_methods": contact_sheet_methods or "",
         "contact_sheet_max_samples": contact_sheet_max_samples,
         "include_triposr_setup": include_triposr_setup,
+        "include_triposg_setup": include_triposg_setup,
         "include_hunyuan3d_setup": include_hunyuan3d_setup,
         "run_script_in_archive": "run_colab_eval.sh" if include_run_script else "",
     }
@@ -1070,6 +1139,11 @@ def parse_args() -> argparse.Namespace:
         help="Embed a Colab setup prelude for /content/TripoSR and /content/triposr-venv before running eval.",
     )
     parser.add_argument(
+        "--include-triposg-setup",
+        action="store_true",
+        help="Embed a Colab setup prelude for /content/TripoSG and /content/triposg-venv before running eval.",
+    )
+    parser.add_argument(
         "--include-hunyuan3d-setup",
         action="store_true",
         help="Embed a Colab setup prelude for /content/Hunyuan3D-2.1 and /content/hunyuan3d-venv before running eval.",
@@ -1139,6 +1213,7 @@ def main() -> None:
         contact_sheet_methods=args.contact_sheet_methods,
         contact_sheet_max_samples=args.contact_sheet_max_samples,
         include_triposr_setup=args.include_triposr_setup,
+        include_triposg_setup=args.include_triposg_setup,
         include_hunyuan3d_setup=args.include_hunyuan3d_setup,
         report_path=Path(args.report) if args.report else None,
         inline_colab_launcher_path=Path(args.inline_colab_launcher) if args.inline_colab_launcher else None,

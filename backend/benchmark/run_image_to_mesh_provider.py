@@ -36,23 +36,38 @@ CLI_PROVIDERS = {
     "spar3d": {
         "env": "SPAR3D_DIR",
         "default_dirs": ("/content/stable-point-aware-3d", "/content/SPAR3D"),
+        "runner": "run-py",
         "supports_low_vram": True,
+        "supports_device": True,
         "supports_remesh": True,
         "supports_texture_resolution": True,
     },
     "stable-fast-3d": {
         "env": "SF3D_DIR",
         "default_dirs": ("/content/stable-fast-3d", "/content/SF3D"),
+        "runner": "run-py",
         "supports_low_vram": False,
+        "supports_device": True,
         "supports_remesh": True,
         "supports_texture_resolution": True,
     },
     "triposr": {
         "env": "TRIPOSR_DIR",
         "default_dirs": ("/content/TripoSR", "/content/triposr"),
+        "runner": "run-py",
         "supports_low_vram": False,
+        "supports_device": True,
         "supports_remesh": False,
         "supports_texture_resolution": True,
+    },
+    "triposg": {
+        "env": "TRIPOSG_DIR",
+        "default_dirs": ("/content/TripoSG", "/content/triposg"),
+        "runner": "triposg-module",
+        "supports_low_vram": False,
+        "supports_device": False,
+        "supports_remesh": False,
+        "supports_texture_resolution": False,
     },
 }
 
@@ -191,6 +206,28 @@ def export_mesh(source: Path, target: Path) -> Path:
 
 def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_output_dir: Path) -> list[str]:
     config = CLI_PROVIDERS[args.provider]
+    if config.get("runner") == "triposg-module":
+        output_path = raw_output_dir / "output.glb"
+        command = [
+            args.python,
+            "-m",
+            "scripts.inference_triposg",
+            "--image-input",
+            str(args.input_image),
+            "--output-path",
+            str(output_path),
+            "--num-inference-steps",
+            str(max(1, int(args.num_inference_steps))),
+            "--guidance-scale",
+            str(float(args.guidance_scale)),
+        ]
+        if args.seed is not None:
+            command.extend(["--seed", str(int(args.seed))])
+        if args.mesh_target_faces > 0:
+            command.extend(["--faces", str(int(args.mesh_target_faces))])
+        command.extend(args.provider_arg or [])
+        return command
+
     command = [
         args.python,
         str(provider_dir / "run.py"),
@@ -204,7 +241,7 @@ def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_outpu
         command.extend(["--texture-resolution", str(args.texture_resolution)])
     if args.remesh_option and config["supports_remesh"]:
         command.extend(["--remesh_option", args.remesh_option])
-    if args.provider_device:
+    if args.provider_device and config.get("supports_device", True):
         command.extend(["--device", args.provider_device])
     command.extend(args.provider_arg or [])
     return command
@@ -212,9 +249,14 @@ def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_outpu
 
 def run_cli_provider(args: argparse.Namespace) -> Path:
     provider_dir = resolve_provider_dir(args.provider, args.provider_dir)
-    run_py = provider_dir / "run.py"
-    if not run_py.exists():
-        raise FileNotFoundError(f"{args.provider} provider repo has no run.py: {run_py}")
+    if CLI_PROVIDERS[args.provider].get("runner") == "triposg-module":
+        run_entry = provider_dir / "scripts" / "inference_triposg.py"
+        missing_message = f"{args.provider} provider repo has no scripts/inference_triposg.py: {run_entry}"
+    else:
+        run_entry = provider_dir / "run.py"
+        missing_message = f"{args.provider} provider repo has no run.py: {run_entry}"
+    if not run_entry.exists():
+        raise FileNotFoundError(missing_message)
     raw_output_dir = args.provider_output_dir or args.output_mesh.parent / f"{args.provider}_raw"
     raw_output_dir.mkdir(parents=True, exist_ok=True)
     started_at = time.time()
