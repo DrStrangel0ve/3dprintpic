@@ -3262,6 +3262,9 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
 
         self.assertTrue(report["include_triposg_setup"])
         self.assertIn("https://github.com/VAST-AI-Research/TripoSG", archive_run_script)
+        self.assertIn("TRIPOSG_REF=", archive_run_script)
+        self.assertIn("fc5c40990181e2a756c4e0b1c2f4d6b5202faf8c", archive_run_script)
+        self.assertIn('git -C "$TRIPOSG_DIR" checkout "$TRIPOSG_REF"', archive_run_script)
         self.assertIn('TRIPOSG_VENV="${TRIPOSG_VENV:-/content/triposg-venv}"', archive_run_script)
         self.assertIn('export PYTHONPATH="$TRIPOSG_DIR:${PYTHONPATH:-}"', archive_run_script)
         self.assertIn("importlib.import_module(name)", archive_run_script)
@@ -3271,6 +3274,12 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("/tmp/triposg_requirements_colab.txt", archive_run_script)
         self.assertIn("numpy==2.0.2", archive_run_script)
         self.assertIn("TripoSG setup checkpoint: Python deps importable", archive_run_script)
+        self.assertIn("-m scripts.inference_triposg --help", archive_run_script)
+        self.assertIn("TripoSG setup checkpoint: CLI imports ok", archive_run_script)
+        self.assertIn("TRIPOSG_PREFETCH", archive_run_script)
+        self.assertIn("torch.cuda.is_available()", archive_run_script)
+        self.assertIn("VAST-AI/TripoSG", archive_run_script)
+        self.assertIn("briaai/RMBG-1.4", archive_run_script)
         self.assertIn("TRIPOSG_SETUP_ONLY", archive_run_script)
         self.assertIn("--candidate-method triposg_masked_repaired_direct_mesh", archive_run_script)
 
