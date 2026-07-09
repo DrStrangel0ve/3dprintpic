@@ -661,6 +661,22 @@ def summarize_failures(failures, methods=None, attempted_n=None):
     ]
 
 
+def failure_row(sample, method, args, error_type: str, error: str, *, traceback_text: str = "", skipped: bool = False):
+    return {
+        **experiment_key(sample, method, args),
+        "source": sample.get("source", ""),
+        "asset_id": sample.get("asset_id", ""),
+        "asset_path": sample.get("asset_path", ""),
+        "asset_category": sample.get("asset_category", ""),
+        "asset_source_split": sample.get("asset_source_split", ""),
+        "asset_key": sample.get("asset_key", ""),
+        "skipped": bool(skipped),
+        "error_type": error_type,
+        "error": error,
+        "traceback": traceback_text,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate completion methods before depth/STL generation.")
     parser.add_argument("--manifest", required=True)
@@ -693,11 +709,19 @@ def main():
     parser.add_argument("--lora-scale", type=float, default=None)
     parser.add_argument("--resume", action="store_true", help="Reuse rows from per_sample_metrics.jsonl and skip completed sample/method/config pairs.")
     parser.add_argument("--continue-on-error", action="store_true", help="Write failures.jsonl and keep going after a sample/method error.")
+    parser.add_argument(
+        "--max-method-failures",
+        type=int,
+        default=0,
+        help="With --continue-on-error, skip remaining samples for a method/config after this many logged failures. 0 disables the cap.",
+    )
     args = parser.parse_args()
     if args.emit_stl and args.skip_depth:
         raise ValueError("--emit-stl requires depth generation; remove --skip-depth")
     if args.start_index < 0:
         raise ValueError("--start-index must be non-negative")
+    if args.max_method_failures < 0:
+        raise ValueError("--max-method-failures must be non-negative")
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -719,11 +743,34 @@ def main():
     write_split_audit(output_dir, samples, args)
 
     rows = load_jsonl(jsonl_path) if args.resume else []
+    failures = load_jsonl(failures_path) if args.resume else []
     completed_keys = {key_tuple(row) for row in rows}
+    failure_keys = {key_tuple(row) for row in failures}
+    method_failure_counts = {
+        method: sum(1 for row in failures if row.get("method") == method and not row.get("skipped")) for method in methods
+    }
     for sample in samples:
         for method in methods:
             key = key_tuple(experiment_key(sample, method, args))
             if args.resume and key in completed_keys:
+                continue
+            if args.continue_on_error and args.max_method_failures and method_failure_counts.get(method, 0) >= args.max_method_failures:
+                skip_failure = failure_row(
+                    sample,
+                    method,
+                    args,
+                    "MethodFailureLimitExceeded",
+                    (
+                        f"Skipped after {method_failure_counts.get(method, 0)} non-skipped failures for method "
+                        f"{method}; --max-method-failures={args.max_method_failures}."
+                    ),
+                    skipped=True,
+                )
+                if key_tuple(skip_failure) not in failure_keys:
+                    append_jsonl(failures_path, skip_failure)
+                    failures.append(skip_failure)
+                    failure_keys.add(key_tuple(skip_failure))
+                    print(json.dumps(skip_failure))
                 continue
             try:
                 row = run_one(sample, method, output_dir, args)
@@ -732,19 +779,11 @@ def main():
                 append_jsonl(jsonl_path, row)
                 print(json.dumps(row))
             except Exception as exc:
-                failure = {
-                    **experiment_key(sample, method, args),
-                    "source": sample.get("source", ""),
-                    "asset_id": sample.get("asset_id", ""),
-                    "asset_path": sample.get("asset_path", ""),
-                    "asset_category": sample.get("asset_category", ""),
-                    "asset_source_split": sample.get("asset_source_split", ""),
-                    "asset_key": sample.get("asset_key", ""),
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                    "traceback": traceback.format_exc(),
-                }
+                failure = failure_row(sample, method, args, type(exc).__name__, str(exc), traceback_text=traceback.format_exc())
                 append_jsonl(failures_path, failure)
+                failures.append(failure)
+                failure_keys.add(key_tuple(failure))
+                method_failure_counts[method] = method_failure_counts.get(method, 0) + 1
                 print(json.dumps(failure))
                 if not args.continue_on_error:
                     raise

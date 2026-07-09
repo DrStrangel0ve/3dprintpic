@@ -15,7 +15,7 @@ from PIL import Image
 
 from backend.benchmark.backfill_surface_metrics import backfill_surface_metrics
 from backend.benchmark.backfill_lora_provenance import backfill_lora_root, backfill_split_audit
-from backend.benchmark import colab_g4_orchestrator
+from backend.benchmark import colab_g4_orchestrator, run_completion_benchmark
 from backend.benchmark.combine_optimize_runs import combine_runs
 from backend.benchmark.compare_optimize_runs import add_score_deltas, compare_run, render_markdown
 from backend.benchmark.export_training_pairs import main as export_training_pairs_main
@@ -408,9 +408,13 @@ class ColabG4OrchestratorRegressionTests(unittest.TestCase):
             commands = self.read_command_log(output_root)
             eval_config = json.loads((output_root / "configs" / "modern_plus_weighted_lora.json").read_text())
             result = json.loads((output_root / "orchestrator_result.json").read_text())
+            expected_manifest_sha = colab_g4_orchestrator.file_sha256(manifest)
 
         self.assertEqual(len(self.matching_commands(commands, "backend.benchmark.optimize_completion")), 2)
         self.assertEqual(len(self.matching_commands(commands, "backend.benchmark.combine_optimize_runs")), 1)
+        first_eval_command = self.matching_commands(commands, "backend.benchmark.optimize_completion")[0]["command"]
+        self.assertIn("--max-method-failures", first_eval_command)
+        self.assertEqual(first_eval_command[first_eval_command.index("--max-method-failures") + 1], "2")
         self.assertFalse(self.matching_commands(commands, "backend.benchmark.export_training_pairs"))
         self.assertFalse(self.matching_commands(commands, "backend.benchmark.weight_training_pairs"))
         self.assertFalse(self.matching_commands(commands, "backend.benchmark.train_inpainting_lora"))
@@ -426,6 +430,11 @@ class ColabG4OrchestratorRegressionTests(unittest.TestCase):
         self.assertEqual(result["weighted_metadata"], "")
         self.assertEqual(result["lora_weights"], str(lora_dir))
         self.assertEqual(len(result["eval_dirs"]), 2)
+        self.assertEqual(result["manifest_report"]["sha256"], expected_manifest_sha)
+        self.assertTrue(result["source_modern_config"]["exists"])
+        self.assertTrue(result["eval_config_report"]["exists"])
+        self.assertIn("head", result["repo_state"])
+        self.assertIn("duration_seconds", result)
 
     def test_combine_only_reuses_completed_eval_dirs(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -505,6 +514,69 @@ class ColabG4OrchestratorRegressionTests(unittest.TestCase):
                 colab_g4_orchestrator.validate_lora_weights(bad_lora_dir)
 
 
+class CompletionFailureCapRegressionTests(unittest.TestCase):
+    def test_max_method_failures_skips_remaining_samples_without_rerunning_method(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "manifest.jsonl"
+            manifest_path.write_text(
+                "".join(
+                    json.dumps(
+                        {
+                            "id": f"sample_{index:03d}",
+                            "full_image": "unused_full.png",
+                            "masked_image": "unused_masked.png",
+                            "mask": "unused_mask.png",
+                            "completion_mode": "mirror-left-to-right",
+                        }
+                    )
+                    + "\n"
+                    for index in range(3)
+                ),
+                encoding="utf-8",
+            )
+            output_dir = root / "run"
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_completion_benchmark",
+                    "--manifest",
+                    str(manifest_path),
+                    "--output-dir",
+                    str(output_dir),
+                    "--methods",
+                    "mirror",
+                    "--limit",
+                    "3",
+                    "--skip-depth",
+                    "--continue-on-error",
+                    "--max-method-failures",
+                    "1",
+                ],
+            ), patch(
+                "backend.benchmark.run_completion_benchmark.run_one",
+                side_effect=RuntimeError("provider unavailable"),
+            ) as run_one_mock:
+                run_completion_benchmark.main()
+
+            failures = [
+                json.loads(line)
+                for line in (output_dir / "failures.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            with (output_dir / "summary_metrics.csv").open(newline="", encoding="utf-8") as csv_file:
+                summary = list(csv.DictReader(csv_file))
+
+        self.assertEqual(run_one_mock.call_count, 1)
+        self.assertEqual([row["error_type"] for row in failures], ["RuntimeError", "MethodFailureLimitExceeded", "MethodFailureLimitExceeded"])
+        self.assertEqual([bool(row.get("skipped")) for row in failures], [False, True, True])
+        self.assertEqual(summary[0]["attempted_n"], "3")
+        self.assertEqual(summary[0]["error_count"], "3")
+        self.assertEqual(summary[0]["success_rate"], "0.0")
+
+
 class ColabInputPackageRegressionTests(unittest.TestCase):
     def test_package_inputs_rewrites_manifest_paths_and_includes_lora(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -567,6 +639,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertTrue(report["rewritten_lora_weights"].endswith("/lora/weighted_surface"))
         self.assertEqual(report["run_script_in_archive"], "run_colab_eval.sh")
         self.assertEqual(report["run_script"], str(run_script))
+        self.assertEqual(report["max_method_failures"], 2)
         self.assertIn("inputs/files/backend/output/completion-benchmark/modelnet/sample_full.png", names)
         self.assertIn("inputs/files/data/modelnet10/chair.off", names)
         self.assertIn("lora/weighted_surface/pytorch_lora_weights.safetensors", names)
@@ -589,9 +662,13 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn('tee "$RUN_LOG"', archive_run_script)
         self.assertIn("run_status", archive_run_script)
         self.assertIn("selection_decisions", archive_run_script)
+        self.assertIn("eval_summaries", archive_run_script)
+        self.assertIn("combined_summaries", archive_run_script)
+        self.assertIn("summarize_benchmark_dir", archive_run_script)
         self.assertIn("--run-name g4_test_eval", archive_run_script)
         self.assertIn("--eval-start 40", archive_run_script)
         self.assertIn("--eval-start 50", archive_run_script)
+        self.assertIn("--max-method-failures 2", archive_run_script)
         self.assertIn("--manifest /content/inputs/modelnet/inputs/manifest.jsonl", archive_run_script)
         self.assertIn("--existing-lora-weights /content/inputs/modelnet/lora/weighted_surface", archive_run_script)
 
@@ -649,6 +726,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertEqual(report["rewritten_lora_weights"], "")
         self.assertEqual(report["cache_providers"], ["qwen-image-edit"])
         self.assertTrue(report["cache_full"])
+        self.assertEqual(report["max_method_failures"], 2)
         self.assertIn("--run-name g4_qwen_sanity", archive_run_script)
         self.assertIn("--modern-config backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_g4_depth_stl.json", archive_run_script)
         self.assertIn("--cache-provider qwen-image-edit", archive_run_script)
@@ -659,6 +737,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("--depth-provider depth-anything-v2", archive_run_script)
         self.assertIn("--stl-target-dimension 96", archive_run_script)
         self.assertIn("--min-paired-n 2", archive_run_script)
+        self.assertIn("--max-method-failures 2", archive_run_script)
         self.assertIn("--allow-missing-split-audit", archive_run_script)
         self.assertIn("--contact-sheet-methods masked,mirror,biharmonic,qwen_edit_s20_s512", archive_run_script)
         self.assertIn("--manifest /content/inputs/qwen/inputs/manifest.jsonl", archive_run_script)

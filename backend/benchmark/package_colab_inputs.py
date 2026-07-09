@@ -193,6 +193,7 @@ def build_colab_run_script(
     require_modern_cache: bool,
     cache_download_mode: str,
     cache_max_workers: int,
+    max_method_failures: int,
     min_paired_n: int,
     allow_missing_split_audit: bool,
     contact_sheet_methods: str | None,
@@ -226,6 +227,8 @@ def build_colab_run_script(
         "--min-paired-n",
         str(min_paired_n),
     ]
+    if max_method_failures:
+        command.extend(["--max-method-failures", str(max_method_failures)])
     if lora_path:
         command.extend(["--existing-lora-weights", lora_path, "--train-steps", str(train_steps)])
     if modern_config:
@@ -341,11 +344,55 @@ def build_colab_run_script(
         "export RUN_STATUS=\"$run_status\"\n"
         "python - <<'PY'\n"
         "from datetime import datetime, timezone\n"
-        "import json, os, pathlib, tarfile\n"
+        "import csv, json, os, pathlib, tarfile\n"
         "\n"
         "def add_if_exists(tar: tarfile.TarFile, path: pathlib.Path, arcname: str) -> None:\n"
         "    if path.exists():\n"
         "        tar.add(path, arcname=arcname)\n"
+        "\n"
+        "def read_csv_rows(path: pathlib.Path) -> list[dict]:\n"
+        "    if not path.exists():\n"
+        "        return []\n"
+        "    with path.open(newline='', encoding='utf-8') as csv_file:\n"
+        "        return list(csv.DictReader(csv_file))\n"
+        "\n"
+        "def read_json_object(path: pathlib.Path) -> dict:\n"
+        "    if not path.exists():\n"
+        "        return {}\n"
+        "    try:\n"
+        "        return json.loads(path.read_text(encoding='utf-8'))\n"
+        "    except Exception as exc:\n"
+        "        return {'read_error': f'{type(exc).__name__}: {exc}'}\n"
+        "\n"
+        "def compact_methods(rows: list[dict]) -> list[dict]:\n"
+        "    keys = ['method', 'n', 'attempted_n', 'success_rate', 'error_count', 'logged_failure_count', 'rank_score']\n"
+        "    return [{key: row.get(key, '') for key in keys if key in row} for row in rows]\n"
+        "\n"
+        "def summarize_benchmark_dir(path: pathlib.Path) -> dict:\n"
+        "    aggregate = path / 'aggregate_summary.csv'\n"
+        "    ranked = path / 'ranked_experiments.csv'\n"
+        "    selection = path / 'selection_decision.json'\n"
+        "    contact_sheet = path / 'artifact_contact_sheet.png'\n"
+        "    aggregate_rows = read_csv_rows(aggregate)\n"
+        "    ranked_rows = read_csv_rows(ranked)\n"
+        "    selection_json = read_json_object(selection)\n"
+        "    digest = {\n"
+        "        'path': str(path),\n"
+        "        'aggregate_summary_exists': aggregate.exists(),\n"
+        "        'ranked_experiments_exists': ranked.exists(),\n"
+        "        'selection_decision_exists': selection.exists(),\n"
+        "        'contact_sheet_exists': contact_sheet.exists(),\n"
+        "        'methods': compact_methods(aggregate_rows),\n"
+        "    }\n"
+        "    if ranked_rows:\n"
+        "        top = ranked_rows[0]\n"
+        "        digest['top_method'] = top.get('method', '')\n"
+        "        digest['top_rank_score'] = top.get('rank_score', '')\n"
+        "    if selection_json:\n"
+        "        digest['decision'] = selection_json.get('decision', '')\n"
+        "        digest['candidate_method'] = selection_json.get('candidate_method', '')\n"
+        "        digest['failed_checks'] = [check.get('name', '') for check in selection_json.get('failed_checks', [])]\n"
+        "    return digest\n"
         "\n"
         "output_root = pathlib.Path(os.environ['OUTPUT_ROOT'])\n"
         "run_log = pathlib.Path(os.environ['RUN_LOG'])\n"
@@ -354,6 +401,8 @@ def build_colab_run_script(
         "archive_path = pathlib.Path(os.environ['RESULTS_ARCHIVE'])\n"
         "orchestrator_result = output_root / 'orchestrator_result.json'\n"
         "selection_decisions = sorted(output_root.glob('combined/*/selection_decision.json')) if output_root.exists() else []\n"
+        "eval_summaries = [summarize_benchmark_dir(path) for path in sorted(output_root.glob('experiments/*'))] if output_root.exists() else []\n"
+        "combined_summaries = [summarize_benchmark_dir(path) for path in sorted(output_root.glob('combined/*'))] if output_root.exists() else []\n"
         "summary = {\n"
         "    'generated_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),\n"
         "    'run_name': os.environ['RUN_NAME'],\n"
@@ -365,6 +414,8 @@ def build_colab_run_script(
         "    'results_archive': str(archive_path),\n"
         "    'orchestrator_result': str(orchestrator_result) if orchestrator_result.exists() else '',\n"
         "    'selection_decisions': [str(path) for path in selection_decisions],\n"
+        "    'eval_summaries': eval_summaries,\n"
+        "    'combined_summaries': combined_summaries,\n"
         "}\n"
         "summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + '\\n', encoding='utf-8')\n"
         "archive_path.parent.mkdir(parents=True, exist_ok=True)\n"
@@ -414,6 +465,7 @@ def package_inputs(
     require_modern_cache: bool = True,
     cache_download_mode: str = "snapshot",
     cache_max_workers: int = 8,
+    max_method_failures: int = 2,
     min_paired_n: int = 5,
     allow_missing_split_audit: bool = False,
     contact_sheet_methods: str | None = None,
@@ -422,6 +474,8 @@ def package_inputs(
 ) -> dict:
     if not manifest.exists():
         raise FileNotFoundError(f"--manifest does not exist: {manifest}")
+    if max_method_failures < 0:
+        raise ValueError("--max-method-failures must be non-negative")
     rows = load_jsonl(manifest)
     selected = select_rows(rows, start_index, limit)
     cache_provider_list = list(cache_providers)
@@ -467,6 +521,7 @@ def package_inputs(
                 require_modern_cache=require_modern_cache,
                 cache_download_mode=cache_download_mode,
                 cache_max_workers=cache_max_workers,
+                max_method_failures=max_method_failures,
                 min_paired_n=min_paired_n,
                 allow_missing_split_audit=allow_missing_split_audit,
                 contact_sheet_methods=contact_sheet_methods,
@@ -494,6 +549,9 @@ def package_inputs(
         "modern_config": modern_config or "",
         "cache_providers": cache_provider_list,
         "cache_full": cache_full,
+        "cache_download_mode": cache_download_mode,
+        "cache_max_workers": cache_max_workers,
+        "max_method_failures": max_method_failures,
         "eval_steps": eval_steps,
         "eval_guidance": eval_guidance,
         "eval_inpaint_max_dimension": eval_inpaint_max_dimension,
@@ -547,6 +605,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-require-modern-cache", action="store_true")
     parser.add_argument("--cache-download-mode", choices=("files", "snapshot"), default="snapshot")
     parser.add_argument("--cache-max-workers", type=int, default=8)
+    parser.add_argument("--max-method-failures", type=int, default=2)
     parser.add_argument("--min-paired-n", type=int, default=5)
     parser.add_argument("--allow-missing-split-audit", action="store_true")
     parser.add_argument("--contact-sheet-methods", default=None)
@@ -590,6 +649,7 @@ def main() -> None:
         require_modern_cache=not args.no_require_modern_cache,
         cache_download_mode=args.cache_download_mode,
         cache_max_workers=args.cache_max_workers,
+        max_method_failures=args.max_method_failures,
         min_paired_n=args.min_paired_n,
         allow_missing_split_audit=args.allow_missing_split_audit,
         contact_sheet_methods=args.contact_sheet_methods,

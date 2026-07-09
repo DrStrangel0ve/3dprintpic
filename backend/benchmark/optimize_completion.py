@@ -224,6 +224,9 @@ def run_experiment(args, experiment: dict, output_dir: Path) -> Path:
     append_optional(command, "--stl-target-dimension", experiment.get("stl_target_dimension", args.stl_target_dimension))
     append_optional(command, "--stl-z-scale", experiment.get("stl_z_scale", args.stl_z_scale))
     append_optional(command, "--stl-sigma", experiment.get("stl_sigma", args.stl_sigma))
+    max_method_failures = experiment.get("max_method_failures", args.max_method_failures)
+    if max_method_failures:
+        append_optional(command, "--max-method-failures", max_method_failures)
 
     run(command)
     annotate_per_sample_metrics(experiment, experiment_dir, default_start_index=args.start_index)
@@ -869,6 +872,12 @@ def main() -> None:
     parser.add_argument("--min-stl-positive-volume", type=float, default=1.0)
     parser.add_argument("--max-train-eval-overlap", type=int, default=0)
     parser.add_argument("--allow-missing-split-audit", action="store_true", help="Do not fail candidate selection when split_audit.json is absent.")
+    parser.add_argument(
+        "--max-method-failures",
+        type=int,
+        default=0,
+        help="Forward a per-method failure cap to run_completion_benchmark. 0 disables the cap.",
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
     args = parser.parse_args()
@@ -876,6 +885,8 @@ def main() -> None:
         raise ValueError("--emit-stl requires depth generation; remove --skip-depth")
     if args.start_index < 0:
         raise ValueError("--start-index must be non-negative")
+    if args.max_method_failures < 0:
+        raise ValueError("--max-method-failures must be non-negative")
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

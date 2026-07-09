@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -9,6 +10,7 @@ import shlex
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -85,6 +87,51 @@ def require_existing_file(path: Path, label: str) -> Path:
     if not path.exists():
         raise FileNotFoundError(f"{label} does not exist: {path}")
     return path
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def file_report(path: Path) -> dict:
+    report = {
+        "path": str(path),
+        "exists": path.exists(),
+        "is_file": path.is_file(),
+    }
+    if path.is_file():
+        report.update(
+            {
+                "size_bytes": path.stat().st_size,
+                "sha256": file_sha256(path),
+            }
+        )
+    return report
+
+
+def git_state(repo_root: Path) -> dict:
+    state = {"repo_root": str(repo_root)}
+    commands = {
+        "head": ["git", "rev-parse", "HEAD"],
+        "branch": ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        "remote_origin": ["git", "remote", "get-url", "origin"],
+        "status_short": ["git", "status", "--short"],
+    }
+    for key, command in commands.items():
+        try:
+            state[key] = subprocess.check_output(command, cwd=repo_root, text=True, stderr=subprocess.DEVNULL).strip()
+        except Exception as exc:
+            state[f"{key}_error"] = f"{type(exc).__name__}: {exc}"
+    state["dirty"] = bool(state.get("status_short"))
+    return state
 
 
 def validate_lora_weights(path: Path) -> Path:
@@ -547,6 +594,8 @@ def run_eval_slices(
                 "mirror",
                 "--min-paired-n",
                 str(args.min_paired_n),
+                "--max-method-failures",
+                str(args.max_method_failures),
                 "--contact-sheet",
                 "--contact-sheet-max-samples",
                 str(args.contact_sheet_max_samples),
@@ -683,6 +732,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--depth-model", default=DEFAULT_DEPTH_MODEL)
     parser.add_argument("--stl-target-dimension", type=int, default=96)
     parser.add_argument("--min-paired-n", type=int, default=5)
+    parser.add_argument(
+        "--max-method-failures",
+        type=int,
+        default=2,
+        help="Stop each method/config after this many failures during continue-on-error G4 evals.",
+    )
     parser.add_argument("--allow-missing-split-audit", action="store_true")
     parser.add_argument("--contact-sheet-methods", default=None)
     parser.add_argument("--contact-sheet-max-samples", type=int, default=6)
@@ -691,10 +746,14 @@ def parse_args() -> argparse.Namespace:
     args.stage = args.stage or ["all"]
     args.cache_provider = args.cache_provider or list(DEFAULT_CACHE_PROVIDERS)
     args.eval_start = args.eval_start or [40, 50]
+    if args.max_method_failures < 0:
+        raise ValueError("--max-method-failures must be non-negative")
     return args
 
 
 def main() -> None:
+    started_at = utc_now()
+    started = time.time()
     args = parse_args()
     logger_root = Path(args.output_root or Path(args.workdir) / "backend/output/completion-benchmark/colab_g4" / args.run_name)
     logger = CommandLogger(logger_root / "command_log.jsonl", dry_run=args.dry_run)
@@ -709,13 +768,18 @@ def main() -> None:
         logger = CommandLogger(output_root / "command_log.jsonl", dry_run=args.dry_run)
         write_metadata(output_root / "gpu_probe.json", probe)
 
+    source_modern_config = relative_to_repo(repo_root, args.modern_config)
     write_metadata(
         output_root / "orchestrator_config.json",
         {
+            "started_at": started_at,
             "notebook_url": DEFAULT_COLAB_NOTEBOOK_URL,
             "repo_root": str(repo_root),
+            "repo_state": git_state(repo_root),
             "output_root": str(output_root),
+            "argv": sys.argv[1:],
             "args": vars(args),
+            "source_modern_config": file_report(source_modern_config),
         },
     )
 
@@ -754,11 +818,18 @@ def main() -> None:
     write_metadata(
         output_root / "orchestrator_result.json",
         {
+            "started_at": started_at,
+            "finished_at": utc_now(),
+            "duration_seconds": round(time.time() - started, 3),
             "manifest": str(manifest),
+            "manifest_report": file_report(manifest),
             "training_metadata": str(metadata) if metadata else "",
             "weighted_metadata": str(weighted_metadata) if weighted_metadata else "",
             "lora_weights": str(lora_weights) if lora_weights else "",
             "eval_config": str(eval_config),
+            "eval_config_report": file_report(eval_config),
+            "source_modern_config": file_report(source_modern_config),
+            "repo_state": git_state(repo_root),
             "eval_dirs": [str(path) for path in eval_dirs],
             "combined_dir": str(combined_dir) if combined_dir else "",
         },
