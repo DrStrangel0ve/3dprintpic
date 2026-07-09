@@ -105,6 +105,7 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                 "emit_stl": True,
                 "direct_mesh_input": "full",
                 "direct_mesh_output_ext": "ply",
+                "source_mesh_repair": args.mesh_repair,
             }
         )
     if args.include_triposr_api:
@@ -167,6 +168,13 @@ def rows_from_csv(path: Path) -> list[dict]:
         return []
     with path.open(newline="", encoding="utf-8") as csv_file:
         return list(csv.DictReader(csv_file))
+
+
+def read_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    with path.open(encoding="utf-8") as json_file:
+        return json.load(json_file)
 
 
 def run_command(command: list[str], cwd: Path, timeout: int) -> dict:
@@ -266,6 +274,18 @@ def build_optimize_command(args: argparse.Namespace, manifest_path: Path, experi
         command.append("--continue-on-error")
     if args.resume:
         command.append("--resume")
+    if getattr(args, "select_candidate", False):
+        command.append("--select-candidate")
+        if args.candidate_method:
+            command.extend(["--candidate-method", args.candidate_method])
+        if args.current_method:
+            command.extend(["--current-method", args.current_method])
+        command.extend(["--min-paired-n", str(args.min_paired_n)])
+        command.extend(["--min-win-rate", str(args.min_win_rate)])
+        command.extend(["--min-ci95-low", str(args.min_ci95_low)])
+        command.extend(["--min-score-margin", str(args.min_score_margin)])
+        if args.allow_missing_split_audit:
+            command.append("--allow-missing-split-audit")
     return command
 
 
@@ -292,6 +312,9 @@ def run_smoke(args: argparse.Namespace) -> dict:
     summary["benchmark"] = run_command(optimize_command, repo_dir, timeout=args.benchmark_timeout)
     summary["aggregate_summary"] = rows_from_csv(experiment_dir / "aggregate_summary.csv")
     summary["ranked_experiments"] = rows_from_csv(experiment_dir / "ranked_experiments.csv")
+    summary["selection_decision"] = read_json(experiment_dir / "selection_decision.json")
+    if (experiment_dir / "selection_decision.md").exists():
+        summary["selection_decision_md"] = str(experiment_dir / "selection_decision.md")
     summary["finished_at"] = utc_now()
     write_json(output_dir / "stl_first_summary.json", summary)
     return summary
@@ -339,6 +362,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="auto")
     parser.add_argument("--stl-target-dimension", type=int, default=96)
     parser.add_argument("--contact-sheet-max-samples", type=int, default=2)
+    parser.add_argument("--select-candidate", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--candidate-method", default=None)
+    parser.add_argument("--current-method", default="mirror")
+    parser.add_argument("--min-paired-n", type=int, default=5)
+    parser.add_argument("--min-win-rate", type=float, default=0.8)
+    parser.add_argument("--min-ci95-low", type=float, default=0.0)
+    parser.add_argument("--min-score-margin", type=float, default=0.0)
+    parser.add_argument("--allow-missing-split-audit", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--dataset-timeout", type=int, default=600)
     parser.add_argument("--benchmark-timeout", type=int, default=7200)
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)

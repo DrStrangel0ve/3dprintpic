@@ -105,7 +105,17 @@ def evaluate_selection(
     min_ci95_low=0.0,
     min_score_margin=0.0,
     min_stl_watertight=1.0,
+    min_stl_is_volume=1.0,
+    min_stl_is_manifold=1.0,
+    min_stl_winding_consistent=1.0,
     min_stl_positive_volume=1.0,
+    min_stl_single_component=1.0,
+    min_stl_bbox_has_volume=1.0,
+    max_stl_nonmanifold_edge_count_log1p=0.0,
+    max_stl_degenerate_face_ratio=0.0,
+    max_stl_component_excess_log1p=0.0,
+    max_stl_bbox_aspect_ratio=10.0,
+    max_stl_faces_per_bbox_volume_log1p=10.0,
     max_train_eval_overlap=0,
     split_audit=None,
     require_split_audit=True,
@@ -227,11 +237,26 @@ def evaluate_selection(
 
     for field, label, minimum in (
         ("stl_is_watertight_median", "stl_watertight", min_stl_watertight),
+        ("stl_is_volume_median", "stl_volume", min_stl_is_volume),
+        ("stl_is_manifold_median", "stl_manifold", min_stl_is_manifold),
+        ("stl_winding_consistent_median", "stl_winding_consistent", min_stl_winding_consistent),
         ("stl_positive_volume_median", "stl_positive_volume", min_stl_positive_volume),
+        ("stl_single_component_median", "stl_single_component", min_stl_single_component),
+        ("stl_bbox_has_volume_median", "stl_bbox_has_volume", min_stl_bbox_has_volume),
     ):
         if field in candidate and str(candidate.get(field, "")).strip() != "":
             value = finite_number(candidate.get(field))
             checks.append(pass_check(label, value >= minimum, value, f">= {minimum}"))
+    for field, label, maximum in (
+        ("stl_nonmanifold_edge_count_log1p_median", "stl_nonmanifold_edges", max_stl_nonmanifold_edge_count_log1p),
+        ("stl_degenerate_face_ratio_median", "stl_degenerate_face_ratio", max_stl_degenerate_face_ratio),
+        ("stl_component_excess_log1p_median", "stl_component_excess", max_stl_component_excess_log1p),
+        ("stl_bbox_aspect_ratio_median", "stl_bbox_aspect_ratio", max_stl_bbox_aspect_ratio),
+        ("stl_faces_per_bbox_volume_log1p_median", "stl_face_density", max_stl_faces_per_bbox_volume_log1p),
+    ):
+        if field in candidate and str(candidate.get(field, "")).strip() != "":
+            value = finite_number(candidate.get(field))
+            checks.append(pass_check(label, value <= maximum, value, f"<= {maximum}"))
 
     if require_split_audit:
         checks.append(pass_check("split_audit_present", bool(split_audit), bool(split_audit), "present"))
@@ -439,7 +464,17 @@ def parse_args():
     parser.add_argument("--min-ci95-low", type=float, default=0.0)
     parser.add_argument("--min-score-margin", type=float, default=0.0)
     parser.add_argument("--min-stl-watertight", type=float, default=1.0)
+    parser.add_argument("--min-stl-is-volume", type=float, default=1.0)
+    parser.add_argument("--min-stl-is-manifold", type=float, default=1.0)
+    parser.add_argument("--min-stl-winding-consistent", type=float, default=1.0)
     parser.add_argument("--min-stl-positive-volume", type=float, default=1.0)
+    parser.add_argument("--min-stl-single-component", type=float, default=1.0)
+    parser.add_argument("--min-stl-bbox-has-volume", type=float, default=1.0)
+    parser.add_argument("--max-stl-nonmanifold-edge-count-log1p", type=float, default=0.0)
+    parser.add_argument("--max-stl-degenerate-face-ratio", type=float, default=0.0)
+    parser.add_argument("--max-stl-component-excess-log1p", type=float, default=0.0)
+    parser.add_argument("--max-stl-bbox-aspect-ratio", type=float, default=10.0)
+    parser.add_argument("--max-stl-faces-per-bbox-volume-log1p", type=float, default=10.0)
     parser.add_argument("--max-train-eval-overlap", type=int, default=0)
     parser.add_argument("--allow-missing-split-audit", action="store_true", help="Do not fail the promotion gate when split_audit.json is absent.")
     parser.add_argument("--paired-bootstrap-samples", type=int, default=1000)
@@ -481,7 +516,17 @@ def main():
         min_ci95_low=args.min_ci95_low,
         min_score_margin=args.min_score_margin,
         min_stl_watertight=args.min_stl_watertight,
+        min_stl_is_volume=args.min_stl_is_volume,
+        min_stl_is_manifold=args.min_stl_is_manifold,
+        min_stl_winding_consistent=args.min_stl_winding_consistent,
         min_stl_positive_volume=args.min_stl_positive_volume,
+        min_stl_single_component=args.min_stl_single_component,
+        min_stl_bbox_has_volume=args.min_stl_bbox_has_volume,
+        max_stl_nonmanifold_edge_count_log1p=args.max_stl_nonmanifold_edge_count_log1p,
+        max_stl_degenerate_face_ratio=args.max_stl_degenerate_face_ratio,
+        max_stl_component_excess_log1p=args.max_stl_component_excess_log1p,
+        max_stl_bbox_aspect_ratio=args.max_stl_bbox_aspect_ratio,
+        max_stl_faces_per_bbox_volume_log1p=args.max_stl_faces_per_bbox_volume_log1p,
         max_train_eval_overlap=args.max_train_eval_overlap,
         split_audit=split_audit,
         require_split_audit=not args.allow_missing_split_audit,

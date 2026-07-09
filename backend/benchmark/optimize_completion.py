@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.benchmark.cache_provider import provider_plan
-from backend.benchmark.direct_mesh import DIRECT_MESH_INPUT_MODES, is_direct_mesh_method
+from backend.benchmark.direct_mesh import DIRECT_MESH_INPUT_MODES, MESH_REPAIR_MODES, is_direct_mesh_method
 from backend.benchmark.make_artifact_contact_sheet import make_contact_sheet, parse_csv_arg
 from backend.benchmark.report_run import (
     baseline_delta_rows,
@@ -243,6 +243,7 @@ def run_experiment(args, experiment: dict, output_dir: Path) -> Path:
     append_optional(command, "--direct-mesh-command", experiment.get("direct_mesh_command", args.direct_mesh_command))
     append_optional(command, "--direct-mesh-output-ext", experiment.get("direct_mesh_output_ext", args.direct_mesh_output_ext))
     append_optional(command, "--direct-mesh-timeout", experiment.get("direct_mesh_timeout", args.direct_mesh_timeout))
+    append_optional(command, "--source-mesh-repair", experiment.get("source_mesh_repair", args.source_mesh_repair))
     max_method_failures = experiment.get("max_method_failures", args.max_method_failures)
     if max_method_failures:
         append_optional(command, "--max-method-failures", max_method_failures)
@@ -320,6 +321,7 @@ def experiment_metadata(experiment: dict, default_start_index=0, default_edit_ma
         "model_name": experiment.get("model_name", ""),
         "lora_weights": experiment.get("lora_weights", ""),
         "lora_scale": experiment.get("lora_scale", ""),
+        "source_mesh_repair": experiment.get("source_mesh_repair", ""),
         "start_index": experiment.get("start_index", default_start_index),
     }
     metadata.update(training_metadata(experiment))
@@ -330,6 +332,7 @@ def per_sample_metadata(experiment: dict, default_start_index=0) -> dict[str, ob
     return {
         "method": experiment["name"],
         "base_method": experiment["method"],
+        "source_mesh_repair": experiment.get("source_mesh_repair", ""),
         "start_index": experiment.get("start_index", default_start_index),
     }
 
@@ -514,6 +517,7 @@ def write_resolved_config(args, experiments: list[dict], output_dir: Path) -> Pa
             "direct_mesh_command": getattr(args, "direct_mesh_command", None),
             "direct_mesh_output_ext": getattr(args, "direct_mesh_output_ext", "glb"),
             "direct_mesh_timeout": getattr(args, "direct_mesh_timeout", 1800),
+            "source_mesh_repair": getattr(args, "source_mesh_repair", "none"),
             "prompt": args.prompt,
             "steps": args.steps,
             "guidance": args.guidance,
@@ -539,7 +543,17 @@ def write_resolved_config(args, experiments: list[dict], output_dir: Path) -> Pa
                 "min_ci95_low": args.min_ci95_low,
                 "min_score_margin": args.min_score_margin,
                 "min_stl_watertight": args.min_stl_watertight,
+                "min_stl_is_volume": args.min_stl_is_volume,
+                "min_stl_is_manifold": args.min_stl_is_manifold,
+                "min_stl_winding_consistent": args.min_stl_winding_consistent,
                 "min_stl_positive_volume": args.min_stl_positive_volume,
+                "min_stl_single_component": args.min_stl_single_component,
+                "min_stl_bbox_has_volume": args.min_stl_bbox_has_volume,
+                "max_stl_nonmanifold_edge_count_log1p": args.max_stl_nonmanifold_edge_count_log1p,
+                "max_stl_degenerate_face_ratio": args.max_stl_degenerate_face_ratio,
+                "max_stl_component_excess_log1p": args.max_stl_component_excess_log1p,
+                "max_stl_bbox_aspect_ratio": args.max_stl_bbox_aspect_ratio,
+                "max_stl_faces_per_bbox_volume_log1p": args.max_stl_faces_per_bbox_volume_log1p,
                 "max_train_eval_overlap": args.max_train_eval_overlap,
                 "allow_missing_split_audit": args.allow_missing_split_audit,
             },
@@ -604,6 +618,7 @@ def write_experiment_report(
                 experiment.get("direct_mesh_input", getattr(args, "direct_mesh_input", "masked")),
                 experiment.get("direct_mesh_output_ext", getattr(args, "direct_mesh_output_ext", "glb")),
                 experiment.get("direct_mesh_timeout", getattr(args, "direct_mesh_timeout", 1800)),
+                experiment.get("source_mesh_repair", getattr(args, "source_mesh_repair", "none")),
                 experiment.get("direct_mesh_command", getattr(args, "direct_mesh_command", None)) or "",
                 experiment.get("prompt", args.prompt if experiment.get("method") not in ("mirror", "biharmonic") else ""),
             ]
@@ -761,6 +776,7 @@ def write_experiment_report(
                     "Direct Input",
                     "Direct Ext",
                     "Direct Timeout",
+                    "Source Repair",
                     "Direct Command",
                     "Prompt",
                 ],
@@ -851,7 +867,17 @@ def write_selection_decision(args, output_dir: Path, aggregate_rows: list[dict],
         min_ci95_low=args.min_ci95_low,
         min_score_margin=args.min_score_margin,
         min_stl_watertight=getattr(args, "min_stl_watertight", 1.0),
+        min_stl_is_volume=getattr(args, "min_stl_is_volume", 1.0),
+        min_stl_is_manifold=getattr(args, "min_stl_is_manifold", 1.0),
+        min_stl_winding_consistent=getattr(args, "min_stl_winding_consistent", 1.0),
         min_stl_positive_volume=getattr(args, "min_stl_positive_volume", 1.0),
+        min_stl_single_component=getattr(args, "min_stl_single_component", 1.0),
+        min_stl_bbox_has_volume=getattr(args, "min_stl_bbox_has_volume", 1.0),
+        max_stl_nonmanifold_edge_count_log1p=getattr(args, "max_stl_nonmanifold_edge_count_log1p", 0.0),
+        max_stl_degenerate_face_ratio=getattr(args, "max_stl_degenerate_face_ratio", 0.0),
+        max_stl_component_excess_log1p=getattr(args, "max_stl_component_excess_log1p", 0.0),
+        max_stl_bbox_aspect_ratio=getattr(args, "max_stl_bbox_aspect_ratio", 10.0),
+        max_stl_faces_per_bbox_volume_log1p=getattr(args, "max_stl_faces_per_bbox_volume_log1p", 10.0),
         max_train_eval_overlap=args.max_train_eval_overlap,
         split_audit=split_audit,
         require_split_audit=not args.allow_missing_split_audit,
@@ -888,6 +914,7 @@ def main() -> None:
     parser.add_argument("--direct-mesh-command", default=None)
     parser.add_argument("--direct-mesh-output-ext", default="glb")
     parser.add_argument("--direct-mesh-timeout", type=int, default=1800)
+    parser.add_argument("--source-mesh-repair", choices=MESH_REPAIR_MODES, default="none")
     parser.add_argument("--stl-no-invert", action="store_true")
     parser.add_argument("--prompt", default="Complete the missing half naturally, preserving the same object, lighting, viewpoint, and background.")
     parser.add_argument("--steps", type=int, default=24)
@@ -938,7 +965,17 @@ def main() -> None:
     parser.add_argument("--min-ci95-low", type=float, default=0.0)
     parser.add_argument("--min-score-margin", type=float, default=0.0)
     parser.add_argument("--min-stl-watertight", type=float, default=1.0)
+    parser.add_argument("--min-stl-is-volume", type=float, default=1.0)
+    parser.add_argument("--min-stl-is-manifold", type=float, default=1.0)
+    parser.add_argument("--min-stl-winding-consistent", type=float, default=1.0)
     parser.add_argument("--min-stl-positive-volume", type=float, default=1.0)
+    parser.add_argument("--min-stl-single-component", type=float, default=1.0)
+    parser.add_argument("--min-stl-bbox-has-volume", type=float, default=1.0)
+    parser.add_argument("--max-stl-nonmanifold-edge-count-log1p", type=float, default=0.0)
+    parser.add_argument("--max-stl-degenerate-face-ratio", type=float, default=0.0)
+    parser.add_argument("--max-stl-component-excess-log1p", type=float, default=0.0)
+    parser.add_argument("--max-stl-bbox-aspect-ratio", type=float, default=10.0)
+    parser.add_argument("--max-stl-faces-per-bbox-volume-log1p", type=float, default=10.0)
     parser.add_argument("--max-train-eval-overlap", type=int, default=0)
     parser.add_argument("--allow-missing-split-audit", action="store_true", help="Do not fail candidate selection when split_audit.json is absent.")
     parser.add_argument(

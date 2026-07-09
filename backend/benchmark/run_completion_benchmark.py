@@ -11,7 +11,13 @@ import numpy as np
 from PIL import Image
 from skimage.restoration import inpaint_biharmonic
 
-from backend.benchmark.direct_mesh import DIRECT_MESH_INPUT_MODES, is_direct_mesh_method, run_direct_mesh, sample_mesh_path
+from backend.benchmark.direct_mesh import (
+    DIRECT_MESH_INPUT_MODES,
+    MESH_REPAIR_MODES,
+    is_direct_mesh_method,
+    run_direct_mesh,
+    sample_mesh_path,
+)
 from backend.benchmark.metrics import (
     align_depth,
     depth_metrics,
@@ -65,6 +71,7 @@ METADATA_FIELDS = {
     "model_name",
     "lora_weights",
     "lora_scale",
+    "source_mesh_repair",
     "direct_mesh_input_image",
     "direct_mesh_input_bundle",
     "direct_mesh_output_mesh",
@@ -127,6 +134,7 @@ def experiment_key(sample, method, args):
         "model_name": (args.model_name or "") if is_modern else "",
         "lora_weights": (args.lora_weights or "") if is_modern else "",
         "lora_scale": (args.lora_scale if args.lora_scale is not None else "") if is_modern else "",
+        "source_mesh_repair": getattr(args, "source_mesh_repair", "none") if method == "source-mesh-oracle" else "",
     }
 
 
@@ -146,6 +154,7 @@ def key_tuple(row):
         text(row.get("model_name", "")),
         text(row.get("lora_weights", "")),
         text(row.get("lora_scale", "")),
+        text(row.get("source_mesh_repair", "")),
     )
 
 
@@ -850,12 +859,18 @@ def main():
         default=None,
         help=(
             "Shell command template for external-image-to-mesh. Available fields include "
-            "{input_image}, {masked_image}, {full_image}, {mask}, {output_mesh}, {output_stl}, "
-            "{output_dir}, {sample_id}, and {method}."
+            "{input_image}, {input_bundle}, {masked_image}, {full_image}, {mask}, {output_mesh}, "
+            "{output_stl}, {output_dir}, {sample_id}, and {method}."
         ),
     )
     parser.add_argument("--direct-mesh-output-ext", default="glb")
     parser.add_argument("--direct-mesh-timeout", type=int, default=1800)
+    parser.add_argument(
+        "--source-mesh-repair",
+        choices=MESH_REPAIR_MODES,
+        default="none",
+        help="Optional repair mode for source-mesh-oracle before STL export and mesh scoring.",
+    )
     parser.add_argument("--prompt", default=DEFAULT_PROMPT_TEMPLATE)
     parser.add_argument("--steps", type=int, default=24)
     parser.add_argument("--guidance", type=float, default=None)

@@ -17,7 +17,8 @@
     "skip_depth": true,
     "emit_stl": true,
     "direct_mesh_input": "full",
-    "direct_mesh_output_ext": "ply"
+    "direct_mesh_output_ext": "ply",
+    "source_mesh_repair": "printable"
   },
   {
     "name": "triposr_api_masked_repaired_direct_mesh",

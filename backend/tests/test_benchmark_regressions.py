@@ -289,6 +289,78 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertEqual(summary[0]["n"], "1")
         self.assertAlmostEqual(float(summary[0]["mesh_surface_chamfer_l1_median"]), 0.0)
 
+    def test_source_mesh_oracle_can_repair_unprintable_source_mesh(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            full = root / "full.png"
+            masked = root / "masked.png"
+            mask = root / "mask.png"
+            mesh_path = root / "open_box.ply"
+            Image.new("RGB", (12, 12), (80, 120, 160)).save(full)
+            Image.new("RGB", (12, 12), (255, 255, 255)).save(masked)
+            Image.fromarray(np.zeros((12, 12), dtype=np.uint8)).save(mask)
+            mesh = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
+            keep_faces = np.ones(len(mesh.faces), dtype=bool)
+            keep_faces[-2:] = False
+            mesh.update_faces(keep_faces)
+            mesh.export(mesh_path)
+            manifest_path = root / "manifest.jsonl"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "id": "open_box",
+                        "full_image": str(full),
+                        "masked_image": str(masked),
+                        "mask": str(mask),
+                        "mesh": str(mesh_path),
+                        "source": "unit",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            output_dir = root / "run"
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_completion_benchmark",
+                    "--manifest",
+                    str(manifest_path),
+                    "--output-dir",
+                    str(output_dir),
+                    "--methods",
+                    "source-mesh-oracle",
+                    "--limit",
+                    "1",
+                    "--skip-depth",
+                    "--emit-stl",
+                    "--source-mesh-repair",
+                    "printable",
+                    "--mesh-surface-max-points",
+                    "128",
+                ],
+            ):
+                run_completion_benchmark.main()
+
+            with (output_dir / "per_sample_metrics.csv").open(newline="", encoding="utf-8") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+            repaired_mesh = Path(rows[0]["direct_mesh_output_mesh"])
+            repaired_mesh_exists = repaired_mesh.exists()
+
+        self.assertEqual(rows[0]["method"], "source-mesh-oracle")
+        self.assertEqual(rows[0]["source_mesh_repair"], "printable")
+        self.assertEqual(repaired_mesh.name, "source_mesh_repaired.ply")
+        self.assertTrue(repaired_mesh_exists)
+        self.assertEqual(rows[0]["stl_is_watertight"], "True")
+        self.assertEqual(rows[0]["stl_is_volume"], "True")
+        self.assertEqual(rows[0]["stl_is_manifold"], "True")
+        self.assertEqual(rows[0]["stl_single_component"], "True")
+        self.assertEqual(rows[0]["stl_positive_volume"], "True")
+
     def test_external_image_to_mesh_command_emits_stl_without_depth(self):
         import trimesh
 
@@ -892,6 +964,7 @@ class StlExportRegressionTests(unittest.TestCase):
 
         self.assertEqual([experiment["name"] for experiment in experiments[:3]], ["masked", "mirror", "biharmonic"])
         self.assertEqual(by_name["source_mesh_oracle"]["method"], "source-mesh-oracle")
+        self.assertEqual(by_name["source_mesh_oracle"]["source_mesh_repair"], "printable")
         self.assertIn("--provider triposr-api", by_name["triposr_api_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("--provider hunyuan3d-shape", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("{output_dir}/output_mesh_raw.glb", by_name["hunyuan3d_shape_masked_repaired_direct_mesh"]["direct_mesh_command"])
@@ -926,6 +999,45 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("masked", command)
         self.assertIn("--emit-stl", command)
         self.assertIn("masked,mv_recon", command)
+
+    def test_stl_first_smoke_optimize_command_can_emit_selection_decision(self):
+        args = SimpleNamespace(
+            start_index=4,
+            limit=10,
+            depth_provider="depth-anything-v2",
+            depth_model="depth-anything/Depth-Anything-V2-Small-hf",
+            device="auto",
+            stl_target_dimension=96,
+            contact_sheet_max_samples=2,
+            continue_on_error=True,
+            resume=True,
+            select_candidate=True,
+            candidate_method="triposr_api_masked_repaired_direct_mesh",
+            current_method="mirror",
+            min_paired_n=10,
+            min_win_rate=0.8,
+            min_ci95_low=0.0,
+            min_score_margin=0.0,
+            allow_missing_split_audit=True,
+        )
+        experiments = [{"name": "masked"}, {"name": "mirror"}, {"name": args.candidate_method}]
+
+        command = build_stl_first_optimize_command(
+            args,
+            Path("manifest.jsonl"),
+            Path("experiment"),
+            Path("config.json"),
+            experiments,
+        )
+
+        self.assertIn("--select-candidate", command)
+        self.assertIn("--candidate-method", command)
+        self.assertIn(args.candidate_method, command)
+        self.assertIn("--current-method", command)
+        self.assertIn("mirror", command)
+        self.assertIn("--min-paired-n", command)
+        self.assertIn("10", command)
+        self.assertIn("--allow-missing-split-audit", command)
 
     def test_triposr_repair_smoke_reads_missing_or_present_csv_rows(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -3448,6 +3560,70 @@ class SelectionRegressionTests(unittest.TestCase):
         self.assertFalse(decision["failed_checks"])
         self.assertAlmostEqual(decision["candidate_rank_score"], 1.2)
         self.assertAlmostEqual(decision["paired_objective"]["ci95_low"], 1.6)
+
+    def test_selection_holds_nonprintable_stl_candidate_despite_score_win(self):
+        summary_rows = [
+            {
+                "method": "masked",
+                "success_rate": "1.0",
+                "masked_mae_median": "0.60",
+                "stl_is_watertight_median": "1.0",
+                "stl_is_volume_median": "1.0",
+                "stl_is_manifold_median": "1.0",
+                "stl_winding_consistent_median": "1.0",
+                "stl_positive_volume_median": "1.0",
+                "stl_single_component_median": "1.0",
+                "stl_bbox_has_volume_median": "1.0",
+                "stl_nonmanifold_edge_count_log1p_median": "0.0",
+                "stl_degenerate_face_ratio_median": "0.0",
+                "stl_component_excess_log1p_median": "0.0",
+                "stl_bbox_aspect_ratio_median": "1.5",
+                "stl_faces_per_bbox_volume_log1p_median": "4.0",
+            },
+            {
+                "method": "direct_mesh",
+                "success_rate": "1.0",
+                "masked_mae_median": "0.10",
+                "stl_is_watertight_median": "1.0",
+                "stl_is_volume_median": "1.0",
+                "stl_is_manifold_median": "0.0",
+                "stl_winding_consistent_median": "1.0",
+                "stl_positive_volume_median": "1.0",
+                "stl_single_component_median": "0.0",
+                "stl_bbox_has_volume_median": "1.0",
+                "stl_nonmanifold_edge_count_log1p_median": "2.0",
+                "stl_degenerate_face_ratio_median": "0.01",
+                "stl_component_excess_log1p_median": "1.1",
+                "stl_bbox_aspect_ratio_median": "1.5",
+                "stl_faces_per_bbox_volume_log1p_median": "4.0",
+            },
+        ]
+        per_sample_rows = [
+            {"sample_id": "a", "method": "masked", "masked_mae": "0.60"},
+            {"sample_id": "a", "method": "direct_mesh", "masked_mae": "0.10"},
+            {"sample_id": "b", "method": "masked", "masked_mae": "0.70"},
+            {"sample_id": "b", "method": "direct_mesh", "masked_mae": "0.05"},
+        ]
+
+        decision = evaluate_selection(
+            summary_rows,
+            per_sample_rows,
+            baseline_method="masked",
+            candidate_method="direct_mesh",
+            weights={"masked_mae_median": -4.0},
+            min_paired_n=2,
+            require_split_audit=False,
+            bootstrap_samples=0,
+        )
+
+        failed_checks = {check["name"] for check in decision["failed_checks"]}
+        self.assertEqual(decision["decision"], "hold")
+        self.assertGreater(decision["candidate_rank_score"], 0)
+        self.assertIn("stl_manifold", failed_checks)
+        self.assertIn("stl_single_component", failed_checks)
+        self.assertIn("stl_nonmanifold_edges", failed_checks)
+        self.assertIn("stl_degenerate_face_ratio", failed_checks)
+        self.assertIn("stl_component_excess", failed_checks)
 
     def test_selection_holds_candidate_that_does_not_beat_current_method(self):
         summary_rows = [

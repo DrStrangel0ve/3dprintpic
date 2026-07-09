@@ -305,12 +305,25 @@ def run_direct_mesh(sample: dict, method: str, output_dir: Path, args) -> tuple[
         source_path = sample_mesh_path(sample)
         if source_path is None:
             raise FileNotFoundError(f"Sample {sample.get('id', '')} does not include an existing source mesh")
+        source_mesh_repair = str(getattr(args, "source_mesh_repair", "none") or "none")
+        if source_mesh_repair not in MESH_REPAIR_MODES:
+            raise ValueError(f"Unsupported source mesh repair mode: {source_mesh_repair}")
         mesh_output_path = output_dir / f"source_mesh{source_path.suffix or '.mesh'}"
+        raw_mesh_output_path = (
+            output_dir / f"source_mesh_raw{source_path.suffix or '.mesh'}"
+            if source_mesh_repair != "none"
+            else mesh_output_path
+        )
         if sample.get("camera"):
             source_mesh = mesh_in_render_frame(load_mesh(source_path), sample.get("camera"))
-            source_mesh.export(mesh_output_path)
+            source_mesh.export(raw_mesh_output_path)
         else:
-            shutil.copy2(source_path, mesh_output_path)
+            shutil.copy2(source_path, raw_mesh_output_path)
+        if source_mesh_repair != "none":
+            mesh_output_path = output_dir / "source_mesh_repaired.ply"
+            repair_mesh_for_printable_stl(raw_mesh_output_path, mesh_output_path, source_mesh_repair)
+        else:
+            mesh_output_path = raw_mesh_output_path
         convert_mesh_to_stl(mesh_output_path, stl_path)
         return input_image, mesh_output_path, stl_path, input_bundle
 
