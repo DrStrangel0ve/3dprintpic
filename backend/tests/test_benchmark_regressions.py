@@ -5176,6 +5176,7 @@ class StlResultIngestRegressionTests(unittest.TestCase):
                 for row in rows
                 if row["method"] == "hunyuan3d_shape_repaired" and row["sample_id"] == "b"
             )
+            failing["stl_is_watertight"] = "0.0"
             failing["stl_is_manifold"] = "0.0"
             with metrics_path.open("w", newline="", encoding="utf-8") as csv_file:
                 writer = csv.DictWriter(csv_file, fieldnames=list(rows[0].keys()))
@@ -5192,13 +5193,19 @@ class StlResultIngestRegressionTests(unittest.TestCase):
             for row in run["gate_failures"]
             if row["method"] == "hunyuan3d_shape_repaired" and row["gate"] == "Sample Manifold"
         )
+        hotspot = next(row for row in run["sample_failure_hotspots"] if row["sample_id"] == "b")
         self.assertEqual(run["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
         self.assertEqual(run["promotion_eligible_winner"]["method"], "vggt_multiview_repaired")
         self.assertFalse(blocked_direct["promotion_eligible"])
         self.assertIn("Sample Manifold", blocked_direct["failed_promotion_gates"])
         self.assertEqual(sample_gate["failed_sample_count"], 1)
         self.assertEqual(sample_gate["failed_samples"], ["b"])
+        self.assertEqual(hotspot["method_count"], 1)
+        self.assertEqual(hotspot["gate_count"], 2)
+        self.assertEqual(hotspot["methods"], ["hunyuan3d_shape_repaired"])
+        self.assertEqual(hotspot["gates"], ["Sample Manifold", "Sample Watertight"])
         self.assertIn("Promotion Gate Failures", markdown)
+        self.assertIn("Sample Failure Hotspots", markdown)
         self.assertIn("failed_samples=b", markdown)
 
     def test_stl_result_ingest_extracts_colab_style_archive(self):

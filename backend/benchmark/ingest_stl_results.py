@@ -388,6 +388,49 @@ def gate_failure_rows(ranked_rows: list[dict], per_sample_rows: list[dict] | Non
     return rows
 
 
+def sample_failure_hotspot_rows(gate_failures: list[dict]) -> list[dict]:
+    hotspots: dict[str, dict] = {}
+    for failure in gate_failures:
+        samples = failure.get("failed_samples") or []
+        for sample in samples:
+            sample_id = str(sample)
+            hotspot = hotspots.setdefault(
+                sample_id,
+                {
+                    "sample_id": sample_id,
+                    "method_count": 0,
+                    "gate_count": 0,
+                    "methods": set(),
+                    "stl_modes": set(),
+                    "gates": set(),
+                },
+            )
+            if failure.get("method"):
+                hotspot["methods"].add(str(failure.get("method")))
+            if failure.get("stl_mode"):
+                hotspot["stl_modes"].add(str(failure.get("stl_mode")))
+            if failure.get("gate"):
+                hotspot["gates"].add(str(failure.get("gate")))
+            hotspot["gate_count"] += 1
+
+    rows = []
+    for hotspot in hotspots.values():
+        methods = sorted(hotspot["methods"])
+        stl_modes = sorted(hotspot["stl_modes"])
+        gates = sorted(hotspot["gates"])
+        rows.append(
+            {
+                "sample_id": hotspot["sample_id"],
+                "method_count": len(methods),
+                "gate_count": hotspot["gate_count"],
+                "methods": methods,
+                "stl_modes": stl_modes,
+                "gates": gates,
+            }
+        )
+    return sorted(rows, key=lambda row: (-row["method_count"], -row["gate_count"], row["sample_id"]))
+
+
 def best_by_mode(ranked_rows: list[dict], per_sample_rows: list[dict] | None = None) -> list[dict]:
     best: dict[str, dict] = {}
     for row in ranked_rows:
@@ -442,6 +485,7 @@ def summarize_run(
         score_mode=score_mode,
         baseline_method=baseline_method,
     )
+    gate_failures = gate_failure_rows(ranked_rows[:top], per_sample_rows)
     return {
         "label": label,
         "run_dir": str(run_dir),
@@ -457,7 +501,8 @@ def summarize_run(
         "oracle_diagnostic_winner": first_oracle(ranked_rows, per_sample_rows),
         "best_by_stl_mode": best_by_mode(ranked_rows, per_sample_rows),
         "ranked_methods": [compact_row(row, per_sample_rows) for row in ranked_rows[:top]],
-        "gate_failures": gate_failure_rows(ranked_rows[:top], per_sample_rows),
+        "gate_failures": gate_failures,
+        "sample_failure_hotspots": sample_failure_hotspot_rows(gate_failures),
     }
 
 
@@ -541,6 +586,22 @@ def gate_failure_table_rows(rows: list[dict]) -> list[list[str]]:
                 gate_value_label(row.get("value")),
                 str(row.get("threshold", "")),
                 row.get("detail", ""),
+            ]
+        )
+    return table
+
+
+def sample_failure_hotspot_table_rows(rows: list[dict]) -> list[list[str]]:
+    table = []
+    for row in rows:
+        table.append(
+            [
+                row.get("sample_id", ""),
+                format_number(row.get("method_count")),
+                format_number(row.get("gate_count")),
+                ", ".join(row.get("methods", [])),
+                ", ".join(row.get("stl_modes", [])),
+                ", ".join(row.get("gates", [])),
             ]
         )
     return table
@@ -639,6 +700,13 @@ def render_markdown(report: dict) -> str:
                 markdown_table(
                     ["Method", "STL Mode", "Score", "Gate", "Field", "Value", "Threshold", "Detail"],
                     gate_failure_table_rows(run.get("gate_failures", [])),
+                ),
+                "",
+                "### Sample Failure Hotspots",
+                "",
+                markdown_table(
+                    ["Sample", "Methods", "Gates", "Method Names", "STL Modes", "Gate Names"],
+                    sample_failure_hotspot_table_rows(run.get("sample_failure_hotspots", [])),
                 ),
                 "",
             ]
