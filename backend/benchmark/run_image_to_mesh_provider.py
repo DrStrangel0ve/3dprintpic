@@ -18,6 +18,7 @@ from PIL import Image, ImageFilter
 from backend.benchmark.direct_mesh import (
     MESH_REPAIR_MODES,
     convert_mesh_to_stl,
+    max_faces_for_normalized_bbox_complexity,
     postprocess_mesh_for_stl,
     repair_mesh_for_printable_stl,
 )
@@ -597,6 +598,20 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
     args.output_mesh = Path(args.output_mesh)
     args.output_stl = Path(args.output_stl) if args.output_stl else None
     args.raw_output_mesh = Path(args.raw_output_mesh) if args.raw_output_mesh else None
+    max_normalized_face_density_log1p = float(
+        getattr(args, "mesh_max_normalized_face_density_log1p", 0.0) or 0.0
+    )
+    adaptive_target_faces = max_faces_for_normalized_bbox_complexity(
+        getattr(args, "mesh_target_bbox_extents", None),
+        max_normalized_face_density_log1p,
+    )
+    if adaptive_target_faces > 0:
+        fixed_target_faces = int(getattr(args, "mesh_target_faces", 0) or 0)
+        args.mesh_target_faces = (
+            min(fixed_target_faces, adaptive_target_faces)
+            if fixed_target_faces > 0
+            else adaptive_target_faces
+        )
     args.input_bundle = Path(args.input_bundle) if args.input_bundle else None
     if not args.input_image.exists():
         raise FileNotFoundError(f"Input image does not exist: {args.input_image}")
@@ -630,6 +645,7 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
         or args.mesh_max_bbox_aspect_ratio > 0
         or args.mesh_target_bbox_extents is not None
         or args.mesh_target_faces > 0
+        or max_normalized_face_density_log1p > 0
     ):
         if args.raw_output_mesh and args.mesh_repair == "none" and output_mesh.resolve() != args.raw_output_mesh.resolve():
             args.raw_output_mesh.parent.mkdir(parents=True, exist_ok=True)
@@ -642,6 +658,7 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
             max_bbox_aspect_ratio=args.mesh_max_bbox_aspect_ratio,
             target_bbox_extents=args.mesh_target_bbox_extents,
             target_faces=args.mesh_target_faces,
+            max_normalized_face_density_log1p=max_normalized_face_density_log1p,
         )
 
     output_stl = None
@@ -729,6 +746,16 @@ def main() -> None:
         help=(
             "If positive, attempt quadric decimation to this face count after scaling. Environments without "
             "the optional Trimesh simplification backend leave the mesh unchanged."
+        ),
+    )
+    parser.add_argument(
+        "--mesh-max-normalized-face-density-log1p",
+        type=float,
+        default=0.0,
+        help=(
+            "If positive, adapt the face cap to keep log1p(faces / scale-normalized bbox volume) at or "
+            "below this value. Exact target bbox extents also let supported providers generate the lower "
+            "face count directly before final postprocessing."
         ),
     )
     parser.add_argument("--provider-arg", action="append", default=[])

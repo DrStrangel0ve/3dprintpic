@@ -19,5 +19,6 @@ torchao>=0.16.0
 datasets==5.0.0
 kaggle
 trimesh>=4.12.2
+fast-simplification
 scikit-image
 matplotlib

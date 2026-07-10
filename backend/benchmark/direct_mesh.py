@@ -16,10 +16,58 @@ from backend.pic_to_3d import _masked_edit_image
 DIRECT_MESH_METHODS = {"source-mesh-oracle", "external-image-to-mesh", "external-multiview-to-mesh"}
 DIRECT_MESH_INPUT_MODES = ("masked", "full", "mirror", "biharmonic")
 MESH_REPAIR_MODES = ("none", "basic", "convex-hull", "printable")
+DIRECT_MESH_BBOX_SOURCES = ("none", "source", "mirror", "inferred", "reference")
+DIRECT_MESH_BBOX_PLACEHOLDERS = {
+    "source": "{source_bbox_extents}",
+    "inferred": "{inferred_bbox_extents}",
+    "mirror": "{mirror_bbox_extents}",
+    "reference": "{reference_bbox_extents}",
+}
 
 
 def is_direct_mesh_method(method: str) -> bool:
     return method in DIRECT_MESH_METHODS
+
+
+def resolve_direct_mesh_bbox_source(command: str | None, declared_source: str | None = None) -> str:
+    command_text = str(command or "")
+    used_sources = [
+        source
+        for source in DIRECT_MESH_BBOX_PLACEHOLDERS
+        if f"{{{source}_bbox_" in command_text
+    ]
+    declared = str(declared_source or "").strip().lower()
+    if declared and declared not in DIRECT_MESH_BBOX_SOURCES:
+        expected = ", ".join(DIRECT_MESH_BBOX_SOURCES)
+        raise ValueError(f"Unknown direct_mesh_bbox_source `{declared}`. Expected one of: {expected}")
+
+    if "source" in used_sources:
+        if declared and declared != "source":
+            raise ValueError(
+                f"direct_mesh_bbox_source `{declared}` conflicts with hidden-source placeholder "
+                "{source_bbox_extents}"
+            )
+        return "source"
+    if declared:
+        if used_sources and declared == "none":
+            raise ValueError(
+                "direct_mesh_bbox_source `none` conflicts with command bbox placeholders: "
+                + ", ".join(used_sources)
+            )
+        if used_sources and declared not in used_sources:
+            raise ValueError(
+                f"direct_mesh_bbox_source `{declared}` conflicts with command bbox placeholders: "
+                + ", ".join(used_sources)
+            )
+        return declared
+    return next((source for source in ("inferred", "mirror", "reference") if source in used_sources), "none")
+
+
+def direct_mesh_bbox_uses_hidden_source(bbox_source: str | None, reference_method: str | None = None) -> bool:
+    source = str(bbox_source or "none").strip().lower()
+    reference = str(reference_method or "").strip().lower().replace("-", "_")
+    source_reference = "source_bbox" in reference or ("source" in reference and "oracle" in reference)
+    return source == "source" or (source == "reference" and source_reference)
 
 
 def resolve_existing_path(value: str | None) -> Path | None:
@@ -345,6 +393,25 @@ def _bbox_placeholder_values(prefix: str, extents: np.ndarray | None) -> dict[st
     return values
 
 
+def bbox_extent_comparison_metrics(source_extents, inferred_extents) -> dict[str, float]:
+    source = _target_extents_array(source_extents)
+    inferred = _target_extents_array(inferred_extents)
+    if source is None or inferred is None:
+        return {}
+
+    source_shape = source / float(np.max(source))
+    inferred_shape = inferred / float(np.max(inferred))
+    intersection = float(np.prod(np.minimum(source_shape, inferred_shape)))
+    union = float(np.prod(source_shape) + np.prod(inferred_shape) - intersection)
+    return {
+        "inferred_bbox_shape_log_mae": float(np.mean(np.abs(np.log(inferred_shape / source_shape)))),
+        "inferred_bbox_shape_relative_mae": float(
+            np.mean(np.abs(inferred_shape - source_shape) / source_shape)
+        ),
+        "inferred_bbox_centered_iou": intersection / union if union > 0 else 0.0,
+    }
+
+
 def source_mesh_bbox_extents(sample: dict, target_max_dimension: float = 0.0) -> np.ndarray | None:
     source_path = sample_mesh_path(sample)
     if source_path is None:
@@ -389,10 +456,19 @@ def direct_mesh_bbox_placeholders(sample: dict, output_dir: Path, args) -> dict[
         "reference_method": reference_method,
         "reference_stl": str(reference_stl or ""),
         "mirror_stl": str(mirror_stl or ""),
+        "inferred_bbox_method": "mirror",
+        "inferred_bbox_stl": str(mirror_stl or ""),
     }
     values.update(_bbox_placeholder_values("source", source_extents))
     values.update(_bbox_placeholder_values("mirror", mirror_extents))
+    values.update(_bbox_placeholder_values("inferred", mirror_extents))
     values.update(_bbox_placeholder_values("reference", reference_extents))
+    values.update(
+        {
+            key: f"{value:.10g}"
+            for key, value in bbox_extent_comparison_metrics(source_extents, mirror_extents).items()
+        }
+    )
     return values
 
 
@@ -501,6 +577,39 @@ def _match_bbox_extents(mesh, target_bbox_extents):
     return matched
 
 
+def max_faces_for_normalized_bbox_complexity(
+    bbox_extents,
+    max_normalized_face_density_log1p: float,
+) -> int:
+    """Convert the scale-free STL complexity limit into a per-mesh face cap."""
+    target = _target_extents_array(bbox_extents)
+    limit = float(max_normalized_face_density_log1p or 0.0)
+    if target is None or limit <= 0 or not math.isfinite(limit):
+        return 0
+    max_extent = float(np.max(target))
+    normalized_bbox_volume = float(np.prod(target) / (max_extent**3))
+    if normalized_bbox_volume <= 0 or not math.isfinite(normalized_bbox_volume):
+        return 0
+    try:
+        max_face_density = math.expm1(limit)
+    except OverflowError:
+        return 0
+    if not math.isfinite(max_face_density):
+        return 0
+    return max(4, int(math.floor(max_face_density * normalized_bbox_volume)))
+
+
+def normalized_bbox_complexity_log1p(mesh) -> float:
+    extents = _valid_extents(mesh)
+    if extents is None or not len(mesh.faces):
+        return math.inf
+    max_extent = float(np.max(extents))
+    normalized_bbox_volume = float(np.prod(extents) / (max_extent**3))
+    if normalized_bbox_volume <= 0 or not math.isfinite(normalized_bbox_volume):
+        return math.inf
+    return float(math.log1p(len(mesh.faces) / normalized_bbox_volume))
+
+
 def _simplify_to_face_count(mesh, target_faces: int):
     target_faces = int(target_faces or 0)
     if target_faces <= 0 or len(mesh.faces) <= target_faces:
@@ -526,6 +635,7 @@ def postprocess_mesh_for_stl(
     max_bbox_aspect_ratio: float = 0.0,
     target_bbox_extents=None,
     target_faces: int = 0,
+    max_normalized_face_density_log1p: float = 0.0,
 ) -> Path:
     mesh = load_mesh(mesh_path)
     if not len(mesh.vertices) or not len(mesh.faces):
@@ -534,7 +644,31 @@ def postprocess_mesh_for_stl(
     processed = _enforce_min_bbox_dimension(processed, float(min_bbox_dimension or 0.0))
     processed = _clamp_bbox_aspect_ratio(processed, float(max_bbox_aspect_ratio or 0.0))
     processed = _match_bbox_extents(processed, target_bbox_extents)
-    processed = _simplify_to_face_count(processed, int(target_faces or 0))
+    fixed_target = int(target_faces or 0)
+    if fixed_target > 0:
+        processed = _simplify_to_face_count(processed, fixed_target)
+
+    complexity_limit = float(max_normalized_face_density_log1p or 0.0)
+    if complexity_limit > 0:
+        for _ in range(8):
+            complexity = normalized_bbox_complexity_log1p(processed)
+            if complexity <= complexity_limit:
+                break
+            adaptive_target = max_faces_for_normalized_bbox_complexity(
+                _valid_extents(processed),
+                complexity_limit,
+            )
+            previous_faces = len(processed.faces)
+            processed = _simplify_to_face_count(processed, adaptive_target)
+            if len(processed.faces) >= previous_faces:
+                break
+        final_complexity = normalized_bbox_complexity_log1p(processed)
+        if final_complexity > complexity_limit:
+            raise RuntimeError(
+                "Mesh still exceeds the adaptive scale-free complexity limit after simplification: "
+                f"value={final_complexity:.10g}, limit={complexity_limit:.10g}, faces={len(processed.faces)}. "
+                "Install fast-simplification or use a provider with native face-count control."
+            )
     processed.remove_unreferenced_vertices()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     processed.export(output_path)

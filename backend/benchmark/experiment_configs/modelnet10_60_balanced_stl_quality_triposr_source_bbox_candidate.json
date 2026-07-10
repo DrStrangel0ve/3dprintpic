@@ -18,6 +18,8 @@
     "direct_mesh_input": "masked",
     "direct_mesh_output_ext": "obj",
     "direct_mesh_timeout": 3600,
+    "direct_mesh_bbox_source": "source",
+    "oracle_diagnostic": true,
     "direct_mesh_command": "/content/triposr-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider triposr-api --provider-dir /content/TripoSR --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.obj\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --chunk-size 8192 --mc-resolution 256 --mesh-repair printable --mesh-target-bbox-extents \"{source_bbox_extents}\""
   }
 ]

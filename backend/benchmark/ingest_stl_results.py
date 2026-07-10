@@ -16,9 +16,10 @@ from backend.benchmark.rank_methods import (
     rank_summary_rows,
     with_derived_metrics,
 )
+from backend.benchmark.direct_mesh import direct_mesh_bbox_uses_hidden_source
 from backend.benchmark.report_run import format_number, markdown_table
 from backend.benchmark.stl_modes import STL_MODE_DEPTH_RELIEF, STL_MODE_SOURCE_MESH_ORACLE, STL_MODES, infer_stl_mode
-from backend.benchmark.select_completion_candidate import json_safe, load_per_sample_rows, load_summary_rows
+from backend.benchmark.select_completion_candidate import bool_value, json_safe, load_per_sample_rows, load_summary_rows
 
 
 SUMMARY_FILES = ("aggregate_summary.csv", "summary_metrics.csv")
@@ -34,12 +35,17 @@ COMPACT_METRICS = (
     "method",
     "base_method",
     "stl_mode",
+    "direct_mesh_bbox_source",
+    "direct_mesh_reference_method",
     "n",
     "attempted_n",
     "success_rate",
     "error_count",
     "mesh_surface_chamfer_l1_median",
     "mesh_surface_hausdorff95_median",
+    "inferred_bbox_shape_log_mae_median",
+    "inferred_bbox_shape_relative_mae_median",
+    "inferred_bbox_centered_iou_median",
     "silhouette_iou_masked_median",
     "stl_exists_median",
     "stl_is_watertight_median",
@@ -167,10 +173,14 @@ def materialize_input(label: str, source: Path, output_dir: Path) -> dict:
 
 
 def discover_result_runs(root: Path) -> list[Path]:
-    roots = set()
-    for summary_name in SUMMARY_FILES:
-        for summary_path in root.rglob(summary_name):
-            roots.add(summary_path.parent)
+    aggregate_roots = {summary_path.parent for summary_path in root.rglob("aggregate_summary.csv")}
+    summary_roots = {summary_path.parent for summary_path in root.rglob("summary_metrics.csv")}
+    roots = set(aggregate_roots)
+    roots.update(
+        summary_root
+        for summary_root in summary_roots
+        if not any(is_within(summary_root, aggregate_root) for aggregate_root in aggregate_roots)
+    )
     return sorted(roots, key=lambda path: path.as_posix())
 
 
@@ -184,10 +194,18 @@ def method_stl_mode(row: dict) -> str:
 
 
 def is_oracle_diagnostic(row: dict) -> bool:
+    if bool_value(row.get("oracle_diagnostic")):
+        return True
     mode = method_stl_mode(row)
     names = " ".join(str(row.get(field) or "") for field in ("method", "base_method", "stl_mode")).lower()
     names = names.replace("-", "_")
-    return mode == STL_MODE_SOURCE_MESH_ORACLE or ("source_mesh" in names and "oracle" in names)
+    bbox_source = str(row.get("direct_mesh_bbox_source") or "").strip().lower()
+    return (
+        mode == STL_MODE_SOURCE_MESH_ORACLE
+        or direct_mesh_bbox_uses_hidden_source(bbox_source, row.get("direct_mesh_reference_method"))
+        or "source_bbox" in names
+        or ("source_mesh" in names and "oracle" in names)
+    )
 
 
 def compact_row(row: dict, per_sample_rows: list[dict] | None = None) -> dict:

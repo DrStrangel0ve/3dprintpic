@@ -7,6 +7,7 @@ import math
 from datetime import datetime, timezone
 from pathlib import Path
 
+from backend.benchmark.direct_mesh import direct_mesh_bbox_uses_hidden_source
 from backend.benchmark.rank_methods import SCORE_PROFILES, parse_float, parse_weights, rank_summary_rows, with_derived_metrics
 from backend.benchmark.report_run import format_number, markdown_table, paired_objective_rows
 
@@ -71,6 +72,17 @@ def bool_value(value, default=False):
     if text in {"0", "false", "no", "n"}:
         return False
     return default
+
+
+def is_oracle_diagnostic(row: dict) -> bool:
+    if bool_value(row.get("oracle_diagnostic")):
+        return True
+    bbox_source = str(row.get("direct_mesh_bbox_source") or "").strip().lower()
+    if direct_mesh_bbox_uses_hidden_source(bbox_source, row.get("direct_mesh_reference_method")):
+        return True
+    names = " ".join(str(row.get(field) or "") for field in ("method", "base_method", "stl_mode"))
+    names = names.lower().replace("-", "_")
+    return "source_bbox" in names or ("source_mesh" in names and "oracle" in names)
 
 
 def json_safe(value):
@@ -234,11 +246,15 @@ def evaluate_selection(
         raise ValueError("No ranked rows available for selection")
 
     candidate_method = candidate_method or next(
-        (row.get("method") for row in ranked_rows if row.get("method") != baseline_method),
+        (
+            row.get("method")
+            for row in ranked_rows
+            if row.get("method") != baseline_method and not is_oracle_diagnostic(row)
+        ),
         None,
     )
     if not candidate_method:
-        raise ValueError("No candidate method available after excluding the baseline")
+        raise ValueError("No deployable candidate method available after excluding the baseline and oracle diagnostics")
 
     candidate = method_row(ranked_rows, candidate_method)
     if candidate is None:
@@ -265,6 +281,15 @@ def evaluate_selection(
         objective_vs_current = next((row for row in current_objective_rows if row.get("method") == candidate_method), None)
 
     checks = []
+    candidate_is_oracle = is_oracle_diagnostic(candidate)
+    checks.append(
+        pass_check(
+            "deployable_candidate",
+            not candidate_is_oracle,
+            candidate.get("direct_mesh_bbox_source") or candidate.get("stl_mode") or "deployable",
+            "not a hidden-source/oracle diagnostic",
+        )
+    )
     if current_method and current is None:
         checks.append(
             pass_check(
@@ -632,7 +657,14 @@ def main():
             score_mode="baseline-delta",
             baseline_method=args.baseline_method,
         )
-        candidate_method = next((row.get("method") for row in ranked_rows if row.get("method") != args.baseline_method), None)
+        candidate_method = next(
+            (
+                row.get("method")
+                for row in ranked_rows
+                if row.get("method") != args.baseline_method and not is_oracle_diagnostic(row)
+            ),
+            None,
+        )
 
     split_audit = load_split_audit(input_dir, candidate_method or "")
     decision = evaluate_selection(

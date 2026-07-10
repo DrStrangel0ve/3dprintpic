@@ -21,6 +21,7 @@ from backend.benchmark.ingest_stl_results import (
     render_markdown as render_stl_ingest_markdown,
     summarize_run as summarize_stl_run,
 )
+from backend.benchmark.direct_mesh import direct_mesh_bbox_uses_hidden_source
 
 
 DEFAULT_DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Small-hf"
@@ -33,6 +34,7 @@ VISUAL_HULL_MULTIVIEW_NAME = "visual_hull_multiview_repaired_mesh"
 MESH_TARGET_BBOX_PLACEHOLDERS = {
     "source": "{source_bbox_extents}",
     "mirror": "{mirror_bbox_extents}",
+    "inferred": "{inferred_bbox_extents}",
     "reference": "{reference_bbox_extents}",
 }
 
@@ -62,6 +64,7 @@ def image_to_mesh_command(
     mesh_max_bbox_aspect_ratio: float = 0.0,
     mesh_target_bbox_source: str = "none",
     mesh_target_faces: int = 0,
+    mesh_max_normalized_face_density_log1p: float = 0.0,
     output_extra: list[str] | None = None,
 ) -> str:
     command = [
@@ -99,6 +102,13 @@ def image_to_mesh_command(
         command.extend(["--mesh-target-bbox-extents", f'"{bbox_placeholder}"'])
     if mesh_target_faces > 0:
         command.extend(["--mesh-target-faces", str(mesh_target_faces)])
+    if mesh_max_normalized_face_density_log1p > 0:
+        command.extend(
+            [
+                "--mesh-max-normalized-face-density-log1p",
+                str(mesh_max_normalized_face_density_log1p),
+            ]
+        )
     command.extend(output_extra or [])
     return " ".join(command)
 
@@ -114,7 +124,16 @@ def direct_mesh_reference_fields(args: argparse.Namespace) -> dict:
     bbox_source = getattr(args, "mesh_target_bbox_source", "none") or "none"
     if bbox_source == "none":
         return {}
-    return {"direct_mesh_reference_method": getattr(args, "direct_mesh_reference_method", "mirror")}
+    reference_method = "mirror" if bbox_source == "inferred" else getattr(
+        args,
+        "direct_mesh_reference_method",
+        "mirror",
+    )
+    return {
+        "direct_mesh_bbox_source": bbox_source,
+        "direct_mesh_reference_method": reference_method,
+        "oracle_diagnostic": direct_mesh_bbox_uses_hidden_source(bbox_source, reference_method),
+    }
 
 
 def triposr_api_command(args: argparse.Namespace, repaired: bool) -> str:
@@ -132,6 +151,11 @@ def triposr_api_command(args: argparse.Namespace, repaired: bool) -> str:
         mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
         mesh_target_bbox_source=getattr(args, "mesh_target_bbox_source", "none"),
         mesh_target_faces=getattr(args, "mesh_target_faces", 0),
+        mesh_max_normalized_face_density_log1p=getattr(
+            args,
+            "mesh_max_normalized_face_density_log1p",
+            0.0,
+        ),
         output_extra=["--chunk-size", str(args.chunk_size), "--mc-resolution", str(args.mc_resolution)],
     )
 
@@ -164,6 +188,11 @@ def hunyuan3d_command(args: argparse.Namespace, repaired: bool) -> str:
         mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
         mesh_target_bbox_source=getattr(args, "mesh_target_bbox_source", "none"),
         mesh_target_faces=getattr(args, "mesh_target_faces", 0),
+        mesh_max_normalized_face_density_log1p=getattr(
+            args,
+            "mesh_max_normalized_face_density_log1p",
+            0.0,
+        ),
         output_extra=hunyuan_extra,
     )
 
@@ -191,6 +220,11 @@ def triposg_command(args: argparse.Namespace, repaired: bool) -> str:
         mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
         mesh_target_bbox_source=getattr(args, "mesh_target_bbox_source", "none"),
         mesh_target_faces=getattr(args, "mesh_target_faces", 0),
+        mesh_max_normalized_face_density_log1p=getattr(
+            args,
+            "mesh_max_normalized_face_density_log1p",
+            0.0,
+        ),
         output_extra=triposg_extra,
     )
 
@@ -210,6 +244,11 @@ def source_multiview_oracle_command(args: argparse.Namespace) -> str:
         mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
         mesh_target_bbox_source=getattr(args, "mesh_target_bbox_source", "none"),
         mesh_target_faces=getattr(args, "mesh_target_faces", 0),
+        mesh_max_normalized_face_density_log1p=getattr(
+            args,
+            "mesh_max_normalized_face_density_log1p",
+            0.0,
+        ),
         output_extra=["--input-bundle", '"{input_bundle}"'],
     )
 
@@ -229,6 +268,11 @@ def visual_hull_multiview_command(args: argparse.Namespace) -> str:
         mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
         mesh_target_bbox_source=getattr(args, "mesh_target_bbox_source", "none"),
         mesh_target_faces=getattr(args, "mesh_target_faces", 0),
+        mesh_max_normalized_face_density_log1p=getattr(
+            args,
+            "mesh_max_normalized_face_density_log1p",
+            0.0,
+        ),
         output_extra=[
             "--input-bundle",
             '"{input_bundle}"',
@@ -742,11 +786,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--mesh-target-bbox-source",
-        choices=("none", "source", "mirror", "reference"),
+        choices=("none", "source", "mirror", "inferred", "reference"),
         default="none",
         help=(
             "Optionally scale direct provider meshes to bbox extents from the source mesh, the mirror "
-            "depth-relief baseline, or --direct-mesh-reference-method."
+            "depth-relief baseline, its deployable inferred alias, or --direct-mesh-reference-method. "
+            "The source option is a hidden-geometry oracle and is never promotion eligible."
         ),
     )
     parser.add_argument(
@@ -754,6 +799,15 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="If positive, attempt Trimesh quadric decimation on provider meshes before export.",
+    )
+    parser.add_argument(
+        "--mesh-max-normalized-face-density-log1p",
+        type=float,
+        default=0.0,
+        help=(
+            "If positive, adapt each provider mesh face cap to the scale-free STL complexity metric after "
+            "bbox calibration."
+        ),
     )
     parser.add_argument("--direct-mesh-timeout", type=int, default=3600)
     parser.add_argument(

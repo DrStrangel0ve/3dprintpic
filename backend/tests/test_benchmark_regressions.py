@@ -18,11 +18,13 @@ from PIL import Image
 
 from backend.benchmark.backfill_surface_metrics import backfill_surface_metrics
 from backend.benchmark.backfill_lora_provenance import backfill_lora_root, backfill_split_audit
-from backend.benchmark import colab_g4_orchestrator, run_completion_benchmark
+from backend.benchmark import colab_g4_orchestrator, run_completion_benchmark, run_image_to_mesh_provider
 from backend.benchmark.combine_optimize_runs import combine_runs
 from backend.benchmark.compare_optimize_runs import add_score_deltas, compare_run, render_markdown
 from backend.benchmark.direct_mesh import (
+    bbox_extent_comparison_metrics,
     direct_mesh_input_path,
+    max_faces_for_normalized_bbox_complexity,
     mesh_is_printable_volume,
     postprocess_mesh_for_stl,
     repair_mesh_for_printable_stl,
@@ -37,6 +39,7 @@ from backend.benchmark.extract_colab_output_summary import extract_colab_output,
 from backend.benchmark.export_training_pairs import main as export_training_pairs_main
 from backend.benchmark.generate_rendered_dataset import attach_multiview_fields, generate_dataset
 from backend.benchmark.ingest_stl_results import (
+    discover_result_runs,
     render_markdown as render_stl_ingest_markdown,
     summarize_inputs as summarize_stl_inputs,
 )
@@ -44,6 +47,7 @@ from backend.benchmark.package_colab_inputs import build_fetch_colab_launcher, b
 from backend.benchmark.optimize_completion import (
     annotate_per_sample_metrics,
     experiment_metadata,
+    infer_selection_candidate,
     load_experiments,
     run_experiment,
     training_metadata,
@@ -133,6 +137,7 @@ class StlExportRegressionTests(unittest.TestCase):
             "mesh_target_bbox_source": "none",
             "direct_mesh_reference_method": "mirror",
             "mesh_target_faces": 0,
+            "mesh_max_normalized_face_density_log1p": 0.0,
             "direct_mesh_timeout": 123,
             "write_config": "",
         }
@@ -585,13 +590,19 @@ class StlExportRegressionTests(unittest.TestCase):
 
             with (output_dir / "per_sample_metrics.csv").open(newline="", encoding="utf-8") as csv_file:
                 rows = list(csv.DictReader(csv_file))
+            with (output_dir / "summary_metrics.csv").open(newline="", encoding="utf-8") as csv_file:
+                summary_rows = list(csv.DictReader(csv_file))
 
         self.assertEqual(rows[0]["method"], "external-image-to-mesh")
         self.assertEqual(rows[0]["stl_mode"], "single-image-mesh")
+        self.assertEqual(rows[0]["direct_mesh_bbox_source"], "source")
+        self.assertEqual(rows[0]["oracle_diagnostic"], "True")
         self.assertEqual(rows[0]["stl_exists"], "True")
         self.assertIn("output_model.stl", rows[0]["stl_model"])
         self.assertIn("output_mesh.ply", rows[0]["direct_mesh_output_mesh"])
         self.assertAlmostEqual(float(rows[0]["mesh_surface_chamfer_l1"]), 0.0)
+        self.assertEqual(summary_rows[0]["direct_mesh_bbox_source"], "source")
+        self.assertEqual(summary_rows[0]["oracle_diagnostic"], "True")
 
     def test_external_image_to_mesh_command_can_use_reference_mirror_bbox(self):
         import trimesh
@@ -620,6 +631,7 @@ class StlExportRegressionTests(unittest.TestCase):
                         "assert sys.argv[4] == '96,48,24', sys.argv[4]",
                         "assert sys.argv[5].replace('\\\\', '/').endswith('mirror/output_model.stl'), sys.argv[5]",
                         "assert sys.argv[6] == 'mirror', sys.argv[6]",
+                        "assert sys.argv[7] == '96,48,24', sys.argv[7]",
                         "trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(sys.argv[1])",
                         "trimesh.creation.box(extents=(1.0, 0.75, 0.5)).export(sys.argv[2])",
                     ]
@@ -643,7 +655,8 @@ class StlExportRegressionTests(unittest.TestCase):
             )
             command = (
                 f'"{sys.executable}" "{script_path}" "{{output_mesh}}" "{{output_stl}}" '
-                '"{mirror_bbox_extents}" "{reference_bbox_extents}" "{reference_stl}" "{reference_method}"'
+                '"{mirror_bbox_extents}" "{reference_bbox_extents}" "{reference_stl}" "{reference_method}" '
+                '"{inferred_bbox_extents}"'
             )
 
             with patch.object(
@@ -681,6 +694,93 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertEqual(rows[0]["method"], "external-image-to-mesh")
         self.assertEqual(rows[0]["stl_exists"], "True")
         self.assertIn("output_model.stl", rows[0]["stl_model"])
+        self.assertGreater(float(rows[0]["inferred_bbox_centered_iou"]), 0.0)
+
+    def test_bbox_extent_comparison_metrics_separate_shape_from_absolute_scale(self):
+        metrics = bbox_extent_comparison_metrics(
+            (96.0, 72.0, 48.0),
+            (48.0, 36.0, 24.0),
+        )
+
+        self.assertAlmostEqual(metrics["inferred_bbox_shape_log_mae"], 0.0)
+        self.assertAlmostEqual(metrics["inferred_bbox_shape_relative_mae"], 0.0)
+        self.assertAlmostEqual(metrics["inferred_bbox_centered_iou"], 1.0)
+
+    def test_standalone_reference_to_source_oracle_bbox_is_diagnostic(self):
+        args = SimpleNamespace(
+            prompt=None,
+            steps=None,
+            guidance=None,
+            seed=None,
+            inpaint_max_dimension=None,
+            edit_mask_fill="input",
+            model_name=None,
+            lora_weights=None,
+            lora_scale=None,
+            source_mesh_repair="none",
+            direct_mesh_command='provider --mesh-target-bbox-extents "{reference_bbox_extents}"',
+            direct_mesh_reference_method="source_mesh_oracle",
+        )
+
+        key = run_completion_benchmark.experiment_key(
+            {"id": "sample"},
+            "external-image-to-mesh",
+            args,
+        )
+
+        self.assertEqual(key["direct_mesh_bbox_source"], "reference")
+        self.assertEqual(key["direct_mesh_reference_method"], "source_mesh_oracle")
+        self.assertTrue(key["oracle_diagnostic"])
+
+    def test_resume_filters_stale_source_bbox_rows_before_inferred_rerun(self):
+        common = {
+            "prompt": None,
+            "steps": None,
+            "guidance": None,
+            "seed": None,
+            "inpaint_max_dimension": None,
+            "edit_mask_fill": "input",
+            "model_name": None,
+            "lora_weights": None,
+            "lora_scale": None,
+            "source_mesh_repair": "none",
+            "direct_mesh_reference_method": "mirror",
+            "direct_mesh_input": "biharmonic",
+            "direct_mesh_output_ext": "glb",
+            "direct_mesh_reference_output_dir": None,
+            "stl_target_dimension": 96,
+            "mesh_surface_max_points": 128,
+        }
+        source_args = SimpleNamespace(
+            **common,
+            direct_mesh_command=(
+                'provider --bbox "{source_bbox_x},{source_bbox_y},{source_bbox_z}"'
+            ),
+        )
+        inferred_args = SimpleNamespace(
+            **common,
+            direct_mesh_command='provider --bbox "{inferred_bbox_extents}"',
+        )
+        source_row = run_completion_benchmark.experiment_key(
+            {"id": "sample"},
+            "external-image-to-mesh",
+            source_args,
+        )
+        inferred_key = run_completion_benchmark.experiment_key(
+            {"id": "sample"},
+            "external-image-to-mesh",
+            inferred_args,
+        )
+
+        filtered = run_completion_benchmark.filter_resume_rows(
+            [source_row],
+            {run_completion_benchmark.key_tuple(inferred_key)},
+        )
+
+        self.assertEqual(source_row["direct_mesh_bbox_source"], "source")
+        self.assertTrue(source_row["oracle_diagnostic"])
+        self.assertNotEqual(source_row["direct_mesh_config_hash"], inferred_key["direct_mesh_config_hash"])
+        self.assertEqual(filtered, [])
 
     def test_optimize_direct_mesh_experiment_passes_reference_sweep_root(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1220,6 +1320,91 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertAlmostEqual(diagnostics["stl_bbox_aspect_ratio"], 4.0, places=4)
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
+
+    def test_mesh_postprocess_adapts_faces_to_scale_free_complexity_limit(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_mesh = root / "dense_sphere.ply"
+            output_mesh = root / "complexity_capped.stl"
+            dense_mesh = trimesh.creation.icosphere(subdivisions=4)
+            dense_mesh.export(input_mesh)
+
+            postprocess_mesh_for_stl(
+                input_mesh,
+                output_mesh,
+                target_bbox_extents=(96.0, 72.0, 48.0),
+                target_faces=40000,
+                max_normalized_face_density_log1p=8.0,
+            )
+
+            diagnostics = stl_diagnostics(output_mesh)
+
+        self.assertLess(diagnostics["stl_faces"], len(dense_mesh.faces))
+        self.assertLessEqual(diagnostics["stl_faces_per_normalized_bbox_volume_log1p"], 8.01)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
+
+    def test_mesh_postprocess_rejects_output_when_decimation_shrinks_normalized_bbox(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_mesh = root / "dense_sphere.ply"
+            output_mesh = root / "too_thin.stl"
+            trimesh.creation.icosphere(subdivisions=4).export(input_mesh)
+
+            with self.assertRaisesRegex(RuntimeError, "still exceeds the adaptive scale-free complexity limit"):
+                postprocess_mesh_for_stl(
+                    input_mesh,
+                    output_mesh,
+                    target_bbox_extents=(96.0, 96.0, 0.96),
+                    target_faces=40000,
+                    max_normalized_face_density_log1p=8.0,
+                )
+
+    def test_provider_derives_native_face_target_from_exact_bbox_before_inference(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_image = root / "input.png"
+            provider_mesh = root / "provider.ply"
+            output_mesh = root / "output.ply"
+            output_stl = root / "output.stl"
+            Image.new("RGB", (8, 8), "white").save(input_image)
+            trimesh.creation.icosphere(subdivisions=4).export(provider_mesh)
+            observed_targets = []
+
+            def fake_provider(args):
+                observed_targets.append(args.mesh_target_faces)
+                return provider_mesh
+
+            args = SimpleNamespace(
+                provider="triposg",
+                input_image=input_image,
+                input_bundle=None,
+                output_mesh=output_mesh,
+                output_stl=output_stl,
+                raw_output_mesh=None,
+                mesh_repair="none",
+                mesh_target_max_dimension=0.0,
+                mesh_min_bbox_dimension=0.0,
+                mesh_max_bbox_aspect_ratio=0.0,
+                mesh_target_bbox_extents=(96.0, 48.0, 24.0),
+                mesh_target_faces=40000,
+                mesh_max_normalized_face_density_log1p=8.0,
+            )
+
+            with patch.object(run_image_to_mesh_provider, "run_cli_provider", side_effect=fake_provider):
+                run_image_to_mesh_provider.run_provider(args)
+
+            diagnostics = stl_diagnostics(output_stl)
+
+        expected_target = max_faces_for_normalized_bbox_complexity((96.0, 48.0, 24.0), 8.0)
+        self.assertEqual(observed_targets, [expected_target])
+        self.assertLessEqual(diagnostics["stl_faces_per_normalized_bbox_volume_log1p"], 8.01)
 
     def test_image_to_mesh_provider_wrapper_can_repair_unprintable_mesh(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2163,6 +2348,24 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertNotIn("triposr_api_masked_repaired_direct_mesh", by_name)
         self.assertIn("--mesh-target-faces 40000", by_name[expected_direct_names[-1]]["direct_mesh_command"])
 
+    def test_stl_first_smoke_marks_source_oracle_reference_bbox_as_diagnostic(self):
+        args = self.stl_first_args(
+            include_triposg=True,
+            triposg_direct_inputs=["biharmonic"],
+            mesh_target_bbox_source="reference",
+            direct_mesh_reference_method="source_mesh_oracle",
+        )
+
+        experiments = build_stl_first_experiments(args)
+        candidate = next(
+            experiment
+            for experiment in experiments
+            if experiment["name"] == "triposg_biharmonic_prefill_repaired_stl_reference_bbox_direct_mesh"
+        )
+
+        self.assertEqual(candidate["direct_mesh_bbox_source"], "reference")
+        self.assertTrue(candidate["oracle_diagnostic"])
+
     def test_stl_first_smoke_can_write_generated_triposg_bbox_config(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = Path(temp_dir) / "triposg_generated.json"
@@ -2172,9 +2375,10 @@ class StlExportRegressionTests(unittest.TestCase):
                 triposg_direct_inputs=["masked", "mirror", "biharmonic"],
                 triposg_num_inference_steps=50,
                 triposg_guidance_scale=7.0,
-                mesh_target_bbox_source="mirror",
+                mesh_target_bbox_source="inferred",
                 direct_mesh_reference_method="mirror",
                 mesh_target_faces=40000,
+                mesh_max_normalized_face_density_log1p=9.95,
                 direct_mesh_timeout=3600,
             )
 
@@ -2190,16 +2394,22 @@ class StlExportRegressionTests(unittest.TestCase):
                 "mirror",
                 "biharmonic",
                 "source_mesh_oracle",
-                "triposg_masked_repaired_stl_mirror_bbox_direct_mesh",
-                "triposg_mirror_prefill_repaired_stl_mirror_bbox_direct_mesh",
-                "triposg_biharmonic_prefill_repaired_stl_mirror_bbox_direct_mesh",
+                "triposg_masked_repaired_stl_inferred_bbox_direct_mesh",
+                "triposg_mirror_prefill_repaired_stl_inferred_bbox_direct_mesh",
+                "triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
             ],
         )
         self.assertEqual(report["experiment_count"], 7)
-        candidate = by_name["triposg_biharmonic_prefill_repaired_stl_mirror_bbox_direct_mesh"]
+        candidate = by_name["triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh"]
+        self.assertEqual(candidate["direct_mesh_bbox_source"], "inferred")
         self.assertEqual(candidate["direct_mesh_reference_method"], "mirror")
-        self.assertIn('--mesh-target-bbox-extents "{mirror_bbox_extents}"', candidate["direct_mesh_command"])
+        self.assertFalse(candidate["oracle_diagnostic"])
+        self.assertIn('--mesh-target-bbox-extents "{inferred_bbox_extents}"', candidate["direct_mesh_command"])
         self.assertIn("--mesh-target-faces 40000", candidate["direct_mesh_command"])
+        self.assertIn(
+            "--mesh-max-normalized-face-density-log1p 9.95",
+            candidate["direct_mesh_command"],
+        )
 
     def test_stl_first_smoke_shell_token_matches_current_platform(self):
         token = stl_first_shell_token(Path("C:/Program Files/Python/python.exe"))
@@ -3673,6 +3883,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("TRIPOSG_INSTALL_DISO", archive_run_script)
         self.assertIn("diso==0.1.4", archive_run_script)
         self.assertIn("packaging ninja", archive_run_script)
+        self.assertIn("fast-simplification", archive_run_script)
         self.assertIn("pip install -v --no-cache-dir --no-build-isolation --no-binary=:all: diso==0.1.4", archive_run_script)
         self.assertIn("triposg.pipelines.pipeline_triposg", archive_run_script)
         self.assertIn("/tmp/triposg_requirements_colab.txt", archive_run_script)
@@ -4285,6 +4496,111 @@ class OptimizeCompletionRegressionTests(unittest.TestCase):
 
         self.assertIn("mirror-seam-repair", names)
         self.assertNotIn("mirror_seam_repair", names)
+
+    def test_source_bbox_configs_are_automatically_oracle_diagnostics(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "bbox_provenance.json"
+            config_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "name": "source_probe",
+                            "method": "external-image-to-mesh",
+                            "stl_mode": "single-image-mesh",
+                            "direct_mesh_command": 'provider --mesh-target-bbox-extents "{source_bbox_extents}"',
+                        },
+                        {
+                            "name": "inferred_candidate",
+                            "method": "external-image-to-mesh",
+                            "stl_mode": "single-image-mesh",
+                            "direct_mesh_command": 'provider --mesh-target-bbox-extents "{inferred_bbox_extents}"',
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            experiments = load_experiments(str(config_path))
+
+        by_name = {experiment["name"]: experiment for experiment in experiments}
+        self.assertEqual(by_name["source_probe"]["direct_mesh_bbox_source"], "source")
+        self.assertTrue(by_name["source_probe"]["oracle_diagnostic"])
+        self.assertEqual(by_name["inferred_candidate"]["direct_mesh_bbox_source"], "inferred")
+        self.assertFalse(by_name["inferred_candidate"].get("oracle_diagnostic", False))
+
+    def test_bbox_provenance_rejects_metadata_that_hides_source_placeholder(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "conflicting_bbox_provenance.json"
+            config_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "name": "mislabelled_source_probe",
+                            "method": "external-image-to-mesh",
+                            "stl_mode": "single-image-mesh",
+                            "direct_mesh_bbox_source": "inferred",
+                            "direct_mesh_command": 'provider --mesh-target-bbox-extents "{source_bbox_extents}"',
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "conflicts with hidden-source placeholder"):
+                load_experiments(str(config_path))
+
+    def test_bbox_provenance_detects_axis_placeholders_and_transitive_reference(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "transitive_bbox_provenance.json"
+            config_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "name": "calibration_a",
+                            "method": "external-image-to-mesh",
+                            "direct_mesh_command": (
+                                'provider --bbox "{source_bbox_x},{source_bbox_y},{source_bbox_z}"'
+                            ),
+                        },
+                        {
+                            "name": "reference_candidate",
+                            "method": "external-image-to-mesh",
+                            "direct_mesh_reference_method": "calibration_a",
+                            "direct_mesh_command": (
+                                'provider --bbox "{reference_bbox_extents}"'
+                            ),
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            experiments = load_experiments(str(config_path))
+
+        by_name = {experiment["name"]: experiment for experiment in experiments}
+        self.assertEqual(by_name["calibration_a"]["direct_mesh_bbox_source"], "source")
+        self.assertTrue(by_name["calibration_a"]["oracle_diagnostic"])
+        self.assertEqual(by_name["reference_candidate"]["direct_mesh_bbox_source"], "reference")
+        self.assertTrue(by_name["reference_candidate"]["oracle_diagnostic"])
+
+    def test_optimize_auto_selection_skips_oracle_score_leader(self):
+        args = SimpleNamespace(
+            candidate_method=None,
+            baseline_method="masked",
+            weight=["masked_mae_median=-4"],
+            score_profile="default",
+        )
+        rows = [
+            {"method": "masked", "masked_mae_median": "0.50"},
+            {
+                "method": "source_probe",
+                "masked_mae_median": "0.01",
+                "oracle_diagnostic": True,
+            },
+            {"method": "mirror", "masked_mae_median": "0.10"},
+        ]
+
+        self.assertEqual(infer_selection_candidate(args, rows), "mirror")
 
     def test_triposg_bbox_tuning_config_uses_mirror_bbox_placeholder(self):
         config_path = (
@@ -4955,6 +5271,22 @@ class CombineOptimizeRunsRegressionTests(unittest.TestCase):
 
 
 class StlResultIngestRegressionTests(unittest.TestCase):
+    def test_result_discovery_ignores_method_summaries_nested_under_aggregate_run(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = root / "run"
+            method_dir = run_dir / "triposg"
+            method_dir.mkdir(parents=True)
+            (run_dir / "aggregate_summary.csv").write_text("method,success_rate\nmasked,1\n", encoding="utf-8")
+            (method_dir / "summary_metrics.csv").write_text(
+                "method,success_rate\nexternal-image-to-mesh,1\n",
+                encoding="utf-8",
+            )
+
+            discovered = discover_result_runs(root)
+
+        self.assertEqual(discovered, [run_dir])
+
     def write_stl_result_run(self, run_dir: Path) -> Path:
         run_dir.mkdir(parents=True)
         summary_rows = [
@@ -5174,6 +5506,41 @@ class StlResultIngestRegressionTests(unittest.TestCase):
         self.assertTrue(bundle_row["oracle_diagnostic"])
         self.assertFalse(bundle_row["promotion_eligible"])
         self.assertIn("deployable_stl_mode", bundle_row["failed_promotion_gates"])
+
+    def test_stl_result_ingest_treats_source_bbox_calibration_as_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = self.write_stl_result_run(root / "run")
+            summary_path = run_dir / "aggregate_summary.csv"
+            with summary_path.open(newline="", encoding="utf-8") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+            for row in rows:
+                row["direct_mesh_bbox_source"] = ""
+                row["oracle_diagnostic"] = ""
+            source_bbox_probe = dict(next(row for row in rows if row["method"] == "hunyuan3d_shape_repaired"))
+            source_bbox_probe.update(
+                {
+                    "method": "triposr_source_bbox_probe",
+                    "direct_mesh_bbox_source": "source",
+                    "oracle_diagnostic": "True",
+                    "mesh_surface_chamfer_l1_median": "0.001",
+                    "mesh_surface_hausdorff95_median": "0.002",
+                }
+            )
+            rows.append(source_bbox_probe)
+            with summary_path.open("w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=list(rows[0].keys()))
+                writer.writeheader()
+                writer.writerows(rows)
+
+            report = summarize_stl_inputs([str(run_dir)], output_dir=root / "ingested", top=6)
+
+        run = report["runs"][0]
+        probe_row = next(row for row in run["ranked_methods"] if row["method"] == "triposr_source_bbox_probe")
+        self.assertEqual(run["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
+        self.assertTrue(probe_row["oracle_diagnostic"])
+        self.assertFalse(probe_row["promotion_eligible"])
+        self.assertIn("deployable_stl_mode", probe_row["failed_promotion_gates"])
 
     def test_stl_result_ingest_separates_score_leader_from_promotion_winner(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -6397,6 +6764,99 @@ class SelectionRegressionTests(unittest.TestCase):
         self.assertFalse(decision["failed_checks"])
         self.assertAlmostEqual(decision["candidate_rank_score"], 1.2)
         self.assertAlmostEqual(decision["paired_objective"]["ci95_low"], 1.6)
+
+    def test_selection_never_promotes_hidden_source_bbox_probe(self):
+        summary_rows = [
+            {"method": "masked", "success_rate": "1.0", "masked_mae_median": "0.50"},
+            {
+                "method": "triposr_source_bbox_probe",
+                "success_rate": "1.0",
+                "masked_mae_median": "0.05",
+                "direct_mesh_bbox_source": "source",
+                "oracle_diagnostic": "True",
+            },
+        ]
+        per_sample_rows = [
+            {"sample_id": "a", "method": "masked", "masked_mae": "0.50"},
+            {"sample_id": "a", "method": "triposr_source_bbox_probe", "masked_mae": "0.05"},
+            {"sample_id": "b", "method": "masked", "masked_mae": "0.60"},
+            {"sample_id": "b", "method": "triposr_source_bbox_probe", "masked_mae": "0.04"},
+        ]
+
+        decision = evaluate_selection(
+            summary_rows,
+            per_sample_rows,
+            baseline_method="masked",
+            candidate_method="triposr_source_bbox_probe",
+            weights={"masked_mae_median": -4.0},
+            min_paired_n=2,
+            require_split_audit=False,
+            bootstrap_samples=0,
+        )
+
+        self.assertEqual(decision["decision"], "hold")
+        self.assertGreater(decision["candidate_rank_score"], 0)
+        self.assertIn("deployable_candidate", {check["name"] for check in decision["failed_checks"]})
+
+    def test_selection_default_skips_higher_scoring_oracle_probe(self):
+        summary_rows = [
+            {"method": "masked", "success_rate": "1.0", "masked_mae_median": "0.50"},
+            {
+                "method": "source_bbox_oracle",
+                "success_rate": "1.0",
+                "masked_mae_median": "0.01",
+                "direct_mesh_bbox_source": "source",
+            },
+            {"method": "mirror", "success_rate": "1.0", "masked_mae_median": "0.10"},
+        ]
+        per_sample_rows = [
+            {"sample_id": "a", "method": "masked", "masked_mae": "0.50"},
+            {"sample_id": "a", "method": "source_bbox_oracle", "masked_mae": "0.01"},
+            {"sample_id": "a", "method": "mirror", "masked_mae": "0.10"},
+        ]
+
+        decision = evaluate_selection(
+            summary_rows,
+            per_sample_rows,
+            baseline_method="masked",
+            weights={"masked_mae_median": -4.0},
+            min_paired_n=1,
+            require_split_audit=False,
+            bootstrap_samples=0,
+        )
+
+        self.assertEqual(decision["candidate_method"], "mirror")
+        self.assertEqual(decision["decision"], "promote")
+
+    def test_selection_rejects_reference_alias_to_source_oracle(self):
+        summary_rows = [
+            {"method": "masked", "success_rate": "1.0", "masked_mae_median": "0.50"},
+            {
+                "method": "reference_probe",
+                "success_rate": "1.0",
+                "masked_mae_median": "0.01",
+                "direct_mesh_bbox_source": "reference",
+                "direct_mesh_reference_method": "source_mesh_oracle",
+            },
+        ]
+        per_sample_rows = [
+            {"sample_id": "a", "method": "masked", "masked_mae": "0.50"},
+            {"sample_id": "a", "method": "reference_probe", "masked_mae": "0.01"},
+        ]
+
+        decision = evaluate_selection(
+            summary_rows,
+            per_sample_rows,
+            baseline_method="masked",
+            candidate_method="reference_probe",
+            weights={"masked_mae_median": -4.0},
+            min_paired_n=1,
+            require_split_audit=False,
+            bootstrap_samples=0,
+        )
+
+        self.assertEqual(decision["decision"], "hold")
+        self.assertIn("deployable_candidate", {check["name"] for check in decision["failed_checks"]})
 
     def test_selection_uses_scale_free_complexity_gate_for_stl_candidates(self):
         stl_pass_fields = {

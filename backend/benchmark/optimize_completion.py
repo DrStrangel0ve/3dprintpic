@@ -10,7 +10,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.benchmark.cache_provider import provider_plan
-from backend.benchmark.direct_mesh import DIRECT_MESH_INPUT_MODES, MESH_REPAIR_MODES, is_direct_mesh_method
+from backend.benchmark.direct_mesh import (
+    DIRECT_MESH_INPUT_MODES,
+    MESH_REPAIR_MODES,
+    direct_mesh_bbox_uses_hidden_source,
+    is_direct_mesh_method,
+    resolve_direct_mesh_bbox_source,
+)
 from backend.benchmark.make_artifact_contact_sheet import make_contact_sheet, parse_csv_arg
 from backend.benchmark.preflight_image_to_mesh_providers import (
     preflight_experiments as preflight_image_to_mesh_experiments,
@@ -33,7 +39,12 @@ from backend.benchmark.rank_methods import (
     rank_summary_rows,
 )
 from backend.benchmark.stl_modes import experiment_stl_mode, validate_stl_mode
-from backend.benchmark.select_completion_candidate import decision_markdown, evaluate_selection, json_safe
+from backend.benchmark.select_completion_candidate import (
+    decision_markdown,
+    evaluate_selection,
+    is_oracle_diagnostic,
+    json_safe,
+)
 from backend.pic_to_3d import MODERN_INPAINT_MODELS
 
 
@@ -61,6 +72,9 @@ REPORT_METRICS = [
     ("mesh_surface_chamfer_l1_median", "Mesh Surface Chamfer"),
     ("mesh_surface_chamfer_rmse_median", "Mesh Surface Chamfer RMSE"),
     ("mesh_surface_hausdorff95_median", "Mesh Surface Hausdorff95"),
+    ("inferred_bbox_shape_log_mae_median", "Inferred BBox Shape log-MAE"),
+    ("inferred_bbox_shape_relative_mae_median", "Inferred BBox Shape Rel-MAE"),
+    ("inferred_bbox_centered_iou_median", "Inferred BBox Centered IoU"),
     ("silhouette_iou_masked_median", "Silhouette IoU"),
     ("stl_is_watertight_median", "STL Watertight"),
     ("stl_is_volume_median", "STL Volume Mesh"),
@@ -91,9 +105,41 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def annotate_direct_mesh_bbox_provenance(experiment: dict) -> None:
+    command = str(experiment.get("direct_mesh_command") or "")
+    bbox_source = resolve_direct_mesh_bbox_source(command, experiment.get("direct_mesh_bbox_source"))
+    experiment["direct_mesh_bbox_source"] = bbox_source
+
+    names = " ".join(
+        str(experiment.get(field) or "") for field in ("name", "method", "stl_mode")
+    ).lower().replace("-", "_")
+    if (
+        direct_mesh_bbox_uses_hidden_source(bbox_source, experiment.get("direct_mesh_reference_method"))
+        or ("source_mesh" in names and "oracle" in names)
+    ):
+        experiment["oracle_diagnostic"] = True
+
+
+def propagate_reference_oracle_provenance(experiments: list[dict]) -> None:
+    by_name = {str(experiment.get("name") or ""): experiment for experiment in experiments}
+    for _ in range(len(experiments)):
+        changed = False
+        for experiment in experiments:
+            if experiment.get("oracle_diagnostic"):
+                continue
+            if experiment.get("direct_mesh_bbox_source") != "reference":
+                continue
+            reference = by_name.get(str(experiment.get("direct_mesh_reference_method") or ""))
+            if reference and reference.get("oracle_diagnostic"):
+                experiment["oracle_diagnostic"] = True
+                changed = True
+        if not changed:
+            break
+
+
 def load_experiments(path: str | None, include_baselines: bool = False) -> list[dict]:
     if not path:
-        data = list(DEFAULT_EXPERIMENTS)
+        data = [dict(experiment) for experiment in DEFAULT_EXPERIMENTS]
     else:
         with open(path, encoding="utf-8") as file:
             data = json.load(file)
@@ -101,13 +147,15 @@ def load_experiments(path: str | None, include_baselines: bool = False) -> list[
         raise ValueError("Experiment config must be a JSON list")
     if include_baselines:
         existing = {experiment.get("name", experiment.get("method")) for experiment in data}
-        baselines = [experiment for experiment in DEFAULT_EXPERIMENTS if experiment["name"] not in existing]
+        baselines = [dict(experiment) for experiment in DEFAULT_EXPERIMENTS if experiment["name"] not in existing]
         data = baselines + data
     for index, experiment in enumerate(data):
         if "method" not in experiment:
             raise ValueError(f"Experiment {index} is missing required field 'method'")
         validate_stl_mode(experiment.get("stl_mode", ""))
         experiment.setdefault("name", experiment["method"])
+        annotate_direct_mesh_bbox_provenance(experiment)
+    propagate_reference_oracle_provenance(data)
     return data
 
 
@@ -378,6 +426,9 @@ def experiment_metadata(
         "lora_weights": experiment.get("lora_weights", ""),
         "lora_scale": experiment.get("lora_scale", ""),
         "source_mesh_repair": experiment.get("source_mesh_repair", ""),
+        "direct_mesh_bbox_source": experiment.get("direct_mesh_bbox_source", "none"),
+        "direct_mesh_reference_method": experiment.get("direct_mesh_reference_method", "mirror"),
+        "oracle_diagnostic": experiment.get("oracle_diagnostic", False),
         "start_index": experiment.get("start_index", default_start_index),
     }
     metadata.update(training_metadata(experiment))
@@ -390,6 +441,9 @@ def per_sample_metadata(experiment: dict, default_start_index=0, default_emit_st
         "base_method": experiment["method"],
         "stl_mode": experiment_stl_mode(experiment, default_emit_stl=default_emit_stl),
         "source_mesh_repair": experiment.get("source_mesh_repair", ""),
+        "direct_mesh_bbox_source": experiment.get("direct_mesh_bbox_source", "none"),
+        "direct_mesh_reference_method": experiment.get("direct_mesh_reference_method", "mirror"),
+        "oracle_diagnostic": experiment.get("oracle_diagnostic", False),
         "start_index": experiment.get("start_index", default_start_index),
     }
 
@@ -695,6 +749,8 @@ def write_experiment_report(
                 experiment.get("direct_mesh_output_ext", getattr(args, "direct_mesh_output_ext", "glb")),
                 experiment.get("direct_mesh_timeout", getattr(args, "direct_mesh_timeout", 1800)),
                 experiment.get("direct_mesh_reference_output_dir", getattr(args, "direct_mesh_reference_output_dir", None)) or "",
+                experiment.get("direct_mesh_bbox_source", "none"),
+                experiment.get("oracle_diagnostic", False),
                 experiment.get("direct_mesh_reference_method", getattr(args, "direct_mesh_reference_method", "mirror")),
                 experiment.get("source_mesh_repair", getattr(args, "source_mesh_repair", "none")),
                 experiment.get("direct_mesh_command", getattr(args, "direct_mesh_command", None)) or "",
@@ -856,6 +912,8 @@ def write_experiment_report(
                     "Direct Ext",
                     "Direct Timeout",
                     "Direct Ref Root",
+                    "Direct BBox Source",
+                    "Oracle Diagnostic",
                     "Direct Ref Method",
                     "Source Repair",
                     "Direct Command",
@@ -929,7 +987,14 @@ def infer_selection_candidate(args, aggregate_rows: list[dict]) -> str | None:
         score_mode="baseline-delta",
         baseline_method=args.baseline_method,
     )
-    return next((row.get("method") for row in ranked_rows if row.get("method") != args.baseline_method), None)
+    return next(
+        (
+            row.get("method")
+            for row in ranked_rows
+            if row.get("method") != args.baseline_method and not is_oracle_diagnostic(row)
+        ),
+        None,
+    )
 
 
 def write_selection_decision(args, output_dir: Path, aggregate_rows: list[dict], per_sample_rows: list[dict]) -> tuple[Path, Path]:

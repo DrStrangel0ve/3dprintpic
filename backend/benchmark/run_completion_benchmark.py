@@ -14,7 +14,10 @@ from skimage.restoration import inpaint_biharmonic
 from backend.benchmark.direct_mesh import (
     DIRECT_MESH_INPUT_MODES,
     MESH_REPAIR_MODES,
+    direct_mesh_bbox_uses_hidden_source,
+    direct_mesh_bbox_placeholders,
     is_direct_mesh_method,
+    resolve_direct_mesh_bbox_source,
     run_direct_mesh,
     sample_mesh_path,
 )
@@ -78,6 +81,10 @@ METADATA_FIELDS = {
     "direct_mesh_input_image",
     "direct_mesh_input_bundle",
     "direct_mesh_output_mesh",
+    "direct_mesh_bbox_source",
+    "direct_mesh_reference_method",
+    "direct_mesh_config_hash",
+    "oracle_diagnostic",
     "multiview_images",
     "multiview_masks",
     "multiview_cameras",
@@ -125,6 +132,31 @@ def experiment_key(sample, method, args):
     is_modern = method in MODERN_INPAINT_MODELS
     edit_mask_fill_arg = getattr(args, "edit_mask_fill", "input")
     edit_mask_fill = "" if edit_mask_fill_arg in (None, "", "input") else edit_mask_fill_arg
+    direct_mesh_bbox_source = (
+        resolve_direct_mesh_bbox_source(getattr(args, "direct_mesh_command", None))
+        if is_direct_mesh_method(method)
+        else "none"
+    )
+    direct_mesh_reference_method = (
+        str(getattr(args, "direct_mesh_reference_method", "mirror") or "mirror")
+        if is_direct_mesh_method(method)
+        else ""
+    )
+    direct_mesh_config_hash = ""
+    if is_direct_mesh_method(method):
+        direct_mesh_config = {
+            "method": method,
+            "command": str(getattr(args, "direct_mesh_command", None) or ""),
+            "input": str(getattr(args, "direct_mesh_input", "masked") or "masked"),
+            "output_ext": str(getattr(args, "direct_mesh_output_ext", "glb") or "glb"),
+            "reference_method": direct_mesh_reference_method,
+            "reference_output_dir": str(getattr(args, "direct_mesh_reference_output_dir", None) or ""),
+            "source_mesh_repair": str(getattr(args, "source_mesh_repair", "none") or "none"),
+            "stl_target_dimension": float(getattr(args, "stl_target_dimension", 0.0) or 0.0),
+            "mesh_surface_max_points": int(getattr(args, "mesh_surface_max_points", 0) or 0),
+        }
+        encoded_config = json.dumps(direct_mesh_config, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        direct_mesh_config_hash = hashlib.sha256(encoded_config).hexdigest()
     return {
         "sample_id": sample["id"],
         "method": method,
@@ -138,6 +170,13 @@ def experiment_key(sample, method, args):
         "lora_weights": (args.lora_weights or "") if is_modern else "",
         "lora_scale": (args.lora_scale if args.lora_scale is not None else "") if is_modern else "",
         "source_mesh_repair": getattr(args, "source_mesh_repair", "none") if method == "source-mesh-oracle" else "",
+        "direct_mesh_bbox_source": direct_mesh_bbox_source,
+        "direct_mesh_reference_method": direct_mesh_reference_method,
+        "direct_mesh_config_hash": direct_mesh_config_hash,
+        "oracle_diagnostic": method == "source-mesh-oracle" or direct_mesh_bbox_uses_hidden_source(
+            direct_mesh_bbox_source,
+            direct_mesh_reference_method,
+        ),
     }
 
 
@@ -158,6 +197,9 @@ def key_tuple(row):
         text(row.get("lora_weights", "")),
         text(row.get("lora_scale", "")),
         text(row.get("source_mesh_repair", "")),
+        text(row.get("direct_mesh_bbox_source", "")),
+        text(row.get("direct_mesh_reference_method", "")),
+        text(row.get("direct_mesh_config_hash", "")),
     )
 
 
@@ -201,6 +243,15 @@ def load_jsonl(path):
 def append_jsonl(path, row):
     with path.open("a", encoding="utf-8") as file:
         file.write(json.dumps(row) + "\n")
+
+
+def write_jsonl(path, rows):
+    text = "".join(json.dumps(row) + "\n" for row in rows)
+    path.write_text(text, encoding="utf-8")
+
+
+def filter_resume_rows(rows, expected_keys):
+    return [row for row in rows if key_tuple(row) in expected_keys]
 
 
 def sample_asset_key(sample):
@@ -499,6 +550,14 @@ def evaluate_direct_mesh_sample(sample, method, output_dir, args):
         "direct_mesh_output_mesh": str(output_mesh),
         **sample_artifact_fields(sample),
     }
+    bbox_diagnostics = direct_mesh_bbox_placeholders(sample, output_dir, args)
+    for field in (
+        "inferred_bbox_shape_log_mae",
+        "inferred_bbox_shape_relative_mae",
+        "inferred_bbox_centered_iou",
+    ):
+        if bbox_diagnostics.get(field) not in (None, ""):
+            row[field] = float(bbox_diagnostics[field])
     row.update(stl_and_mesh_metrics(sample, stl_path, max_points=args.mesh_surface_max_points))
     return row
 
@@ -684,6 +743,15 @@ def summarize(rows, methods=None, attempted_n=None, failures=None):
             "logged_failure_count": logged_failure_count,
             "success_rate": (len(method_rows) / method_attempted_n) if method_attempted_n else 0.0,
         }
+        for field in (
+            "stl_mode",
+            "direct_mesh_bbox_source",
+            "direct_mesh_reference_method",
+            "oracle_diagnostic",
+        ):
+            values = {str(row.get(field, "")) for row in method_rows if row.get(field, "") not in (None, "")}
+            if len(values) == 1:
+                item[field] = values.pop()
         for metric in metric_names:
             values = []
             for row in method_rows:
@@ -772,7 +840,9 @@ def main():
             "Shell command template for external-image-to-mesh. Available fields include "
             "{input_image}, {input_bundle}, {masked_image}, {full_image}, {mask}, {output_mesh}, "
             "{output_stl}, {output_dir}, {sample_id}, {method}, {source_bbox_extents}, "
-            "{mirror_bbox_extents}, and {reference_bbox_extents}."
+            "{mirror_bbox_extents}, {inferred_bbox_extents}, and {reference_bbox_extents}. "
+            "The inferred bbox is the deployable mirror/depth-relief estimate; source bbox uses "
+            "hidden benchmark geometry and is diagnostic only."
         ),
     )
     parser.add_argument("--direct-mesh-output-ext", default="glb")
@@ -851,8 +921,16 @@ def main():
                 break
     write_split_audit(output_dir, samples, args)
 
-    rows = load_jsonl(jsonl_path) if args.resume else []
-    failures = load_jsonl(failures_path) if args.resume else []
+    expected_keys = {
+        key_tuple(experiment_key(sample, method, args))
+        for sample in samples
+        for method in methods
+    }
+    rows = filter_resume_rows(load_jsonl(jsonl_path), expected_keys) if args.resume else []
+    failures = filter_resume_rows(load_jsonl(failures_path), expected_keys) if args.resume else []
+    if args.resume:
+        write_jsonl(jsonl_path, rows)
+        write_jsonl(failures_path, failures)
     completed_keys = {key_tuple(row) for row in rows}
     failure_keys = {key_tuple(row) for row in failures}
     method_failure_counts = {
