@@ -719,6 +719,18 @@ def build_optimize_command(args: argparse.Namespace, manifest_path: Path, experi
                 str(args.max_stl_faces_per_bbox_volume_log1p),
             ]
         )
+        command.extend(
+            [
+                "--max-mesh-surface-chamfer-ratio-vs-current",
+                str(getattr(args, "max_mesh_surface_chamfer_ratio_vs_current", 1.1)),
+            ]
+        )
+        command.extend(
+            [
+                "--max-mesh-surface-hausdorff95-ratio-vs-current",
+                str(getattr(args, "max_mesh_surface_hausdorff95_ratio_vs_current", 1.1)),
+            ]
+        )
         if args.allow_missing_split_audit:
             command.append("--allow-missing-split-audit")
     return command
@@ -940,6 +952,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-stl-component-excess-log1p", type=float, default=0.0)
     parser.add_argument("--max-stl-bbox-aspect-ratio", type=float, default=10.0)
     parser.add_argument("--max-stl-faces-per-bbox-volume-log1p", type=float, default=10.0)
+    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=1.1)
+    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=1.1)
     parser.add_argument("--allow-missing-split-audit", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--dataset-timeout", type=int, default=600)
     parser.add_argument("--benchmark-timeout", type=int, default=7200)

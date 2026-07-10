@@ -202,6 +202,88 @@ def per_sample_stl_checks(
     return checks
 
 
+def paired_metric_ratio_check(
+    per_sample_rows,
+    candidate_method: str,
+    current_method: str,
+    *,
+    field: str,
+    label: str,
+    maximum_ratio: float,
+    minimum_pairs: int,
+):
+    method_rows = [
+        row
+        for row in per_sample_rows
+        if row.get("method") in {candidate_method, current_method}
+    ]
+    if not any(_has_cell(row, field) for row in method_rows):
+        return None
+
+    by_sample_method = {
+        (str(row.get("sample_id")), row.get("method")): row
+        for row in method_rows
+        if row.get("sample_id")
+    }
+    sample_ids = sorted({sample_id for sample_id, _method in by_sample_method})
+    ratios = []
+    missing = []
+    for sample_id in sample_ids:
+        candidate_row = by_sample_method.get((sample_id, candidate_method))
+        current_row = by_sample_method.get((sample_id, current_method))
+        candidate_value = finite_number(candidate_row.get(field)) if candidate_row else math.nan
+        current_value = finite_number(current_row.get(field)) if current_row else math.nan
+        if (
+            not math.isfinite(candidate_value)
+            or not math.isfinite(current_value)
+            or candidate_value < 0
+            or current_value < 0
+        ):
+            missing.append(sample_id)
+            continue
+        if current_value == 0:
+            ratio = 1.0 if candidate_value == 0 else math.inf
+        else:
+            ratio = candidate_value / current_value
+        ratios.append((ratio, sample_id, candidate_value, current_value))
+
+    worst = max(ratios, default=(math.nan, "", math.nan, math.nan), key=lambda item: item[0])
+    sorted_ratios = sorted(item[0] for item in ratios)
+    median_ratio = math.nan
+    if sorted_ratios:
+        middle = len(sorted_ratios) // 2
+        if len(sorted_ratios) % 2:
+            median_ratio = sorted_ratios[middle]
+        else:
+            median_ratio = (sorted_ratios[middle - 1] + sorted_ratios[middle]) / 2.0
+    passed = (
+        len(ratios) >= minimum_pairs
+        and not missing
+        and math.isfinite(worst[0])
+        and worst[0] <= maximum_ratio
+    )
+    detail = (
+        f"paired_n={len(ratios)}; required_n={minimum_pairs}; "
+        f"median_ratio={format_number(median_ratio)}"
+    )
+    if worst[1]:
+        detail += (
+            f"; worst_sample={worst[1]}; candidate={format_number(worst[2])}; "
+            f"current={format_number(worst[3])}"
+        )
+    if missing:
+        detail += f"; missing_or_nonfinite={','.join(missing[:10])}"
+        if len(missing) > 10:
+            detail += f",+{len(missing) - 10}"
+    return pass_check(
+        f"paired_{label}_ratio_vs_current",
+        passed,
+        worst[0],
+        f"<= {maximum_ratio}",
+        detail=detail,
+    )
+
+
 def evaluate_selection(
     summary_rows,
     per_sample_rows,
@@ -227,6 +309,8 @@ def evaluate_selection(
     max_stl_component_excess_log1p=0.0,
     max_stl_bbox_aspect_ratio=10.0,
     max_stl_faces_per_bbox_volume_log1p=10.0,
+    max_mesh_surface_chamfer_ratio_vs_current=1.1,
+    max_mesh_surface_hausdorff95_ratio_vs_current=1.1,
     max_train_eval_overlap=0,
     split_audit=None,
     require_split_audit=True,
@@ -353,6 +437,29 @@ def evaluate_selection(
                 detail=f"current_method={current_method}",
             )
         )
+        for field, label, maximum_ratio in (
+            (
+                "mesh_surface_chamfer_l1",
+                "mesh_surface_chamfer",
+                max_mesh_surface_chamfer_ratio_vs_current,
+            ),
+            (
+                "mesh_surface_hausdorff95",
+                "mesh_surface_hausdorff95",
+                max_mesh_surface_hausdorff95_ratio_vs_current,
+            ),
+        ):
+            check = paired_metric_ratio_check(
+                per_sample_rows,
+                candidate_method,
+                current_method,
+                field=field,
+                label=label,
+                maximum_ratio=maximum_ratio,
+                minimum_pairs=min_paired_n,
+            )
+            if check:
+                checks.append(check)
     elif current:
         current_score = finite_number(current.get("rank_score"))
     else:
@@ -632,6 +739,8 @@ def parse_args():
     parser.add_argument("--max-stl-component-excess-log1p", type=float, default=0.0)
     parser.add_argument("--max-stl-bbox-aspect-ratio", type=float, default=10.0)
     parser.add_argument("--max-stl-faces-per-bbox-volume-log1p", type=float, default=10.0)
+    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=1.1)
+    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=1.1)
     parser.add_argument("--max-train-eval-overlap", type=int, default=0)
     parser.add_argument("--allow-missing-split-audit", action="store_true", help="Do not fail the promotion gate when split_audit.json is absent.")
     parser.add_argument("--paired-bootstrap-samples", type=int, default=1000)
@@ -691,6 +800,8 @@ def main():
         max_stl_component_excess_log1p=args.max_stl_component_excess_log1p,
         max_stl_bbox_aspect_ratio=args.max_stl_bbox_aspect_ratio,
         max_stl_faces_per_bbox_volume_log1p=args.max_stl_faces_per_bbox_volume_log1p,
+        max_mesh_surface_chamfer_ratio_vs_current=args.max_mesh_surface_chamfer_ratio_vs_current,
+        max_mesh_surface_hausdorff95_ratio_vs_current=args.max_mesh_surface_hausdorff95_ratio_vs_current,
         max_train_eval_overlap=args.max_train_eval_overlap,
         split_audit=split_audit,
         require_split_audit=not args.allow_missing_split_audit,

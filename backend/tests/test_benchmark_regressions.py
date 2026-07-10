@@ -2820,6 +2820,8 @@ class StlExportRegressionTests(unittest.TestCase):
             max_stl_component_excess_log1p=0.0,
             max_stl_bbox_aspect_ratio=10.0,
             max_stl_faces_per_bbox_volume_log1p=10.0,
+            max_mesh_surface_chamfer_ratio_vs_current=1.05,
+            max_mesh_surface_hausdorff95_ratio_vs_current=1.08,
             allow_missing_split_audit=True,
         )
         experiments = [{"name": "masked"}, {"name": "mirror"}, {"name": args.candidate_method}]
@@ -2843,6 +2845,14 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("--min-stl-single-component", command)
         self.assertIn("--max-stl-nonmanifold-edge-count-log1p", command)
         self.assertIn("--max-stl-bbox-aspect-ratio", command)
+        self.assertEqual(
+            command[command.index("--max-mesh-surface-chamfer-ratio-vs-current") + 1],
+            "1.05",
+        )
+        self.assertEqual(
+            command[command.index("--max-mesh-surface-hausdorff95-ratio-vs-current") + 1],
+            "1.08",
+        )
         self.assertIn("--allow-missing-split-audit", command)
 
     def test_triposr_repair_smoke_reads_missing_or_present_csv_rows(self):
@@ -7394,6 +7404,125 @@ class SelectionRegressionTests(unittest.TestCase):
         self.assertEqual(decision["decision"], "promote")
         self.assertFalse(decision["failed_checks"])
         self.assertGreater(decision["paired_objective_vs_current"]["ci95_low"], 0)
+
+    def test_selection_holds_surface_geometry_regression_vs_current(self):
+        summary_rows = [
+            {"method": "masked", "success_rate": "1.0", "masked_mae_median": "0.60"},
+            {"method": "current", "success_rate": "1.0", "masked_mae_median": "0.30"},
+            {"method": "candidate", "success_rate": "1.0", "masked_mae_median": "0.10"},
+        ]
+        per_sample_rows = [
+            {"sample_id": "a", "method": "masked", "masked_mae": "0.60"},
+            {
+                "sample_id": "a",
+                "method": "current",
+                "masked_mae": "0.30",
+                "mesh_surface_chamfer_l1": "0.10",
+                "mesh_surface_hausdorff95": "0.20",
+            },
+            {
+                "sample_id": "a",
+                "method": "candidate",
+                "masked_mae": "0.10",
+                "mesh_surface_chamfer_l1": "0.15",
+                "mesh_surface_hausdorff95": "0.28",
+            },
+            {"sample_id": "b", "method": "masked", "masked_mae": "0.70"},
+            {
+                "sample_id": "b",
+                "method": "current",
+                "masked_mae": "0.40",
+                "mesh_surface_chamfer_l1": "0.20",
+                "mesh_surface_hausdorff95": "0.30",
+            },
+            {
+                "sample_id": "b",
+                "method": "candidate",
+                "masked_mae": "0.20",
+                "mesh_surface_chamfer_l1": "0.21",
+                "mesh_surface_hausdorff95": "0.32",
+            },
+        ]
+
+        decision = evaluate_selection(
+            summary_rows,
+            per_sample_rows,
+            baseline_method="masked",
+            candidate_method="candidate",
+            current_method="current",
+            weights={"masked_mae_median": -4.0},
+            min_paired_n=2,
+            require_split_audit=False,
+            bootstrap_samples=0,
+        )
+
+        failed_checks = {check["name"]: check for check in decision["failed_checks"]}
+        self.assertEqual(decision["decision"], "hold")
+        self.assertGreater(decision["candidate_rank_score"], decision["current_rank_score"])
+        self.assertAlmostEqual(
+            failed_checks["paired_mesh_surface_chamfer_ratio_vs_current"]["value"],
+            1.5,
+        )
+        self.assertAlmostEqual(
+            failed_checks["paired_mesh_surface_hausdorff95_ratio_vs_current"]["value"],
+            1.4,
+        )
+
+    def test_selection_promotes_when_paired_surface_geometry_stays_within_ratio(self):
+        summary_rows = [
+            {"method": "masked", "success_rate": "1.0", "masked_mae_median": "0.60"},
+            {"method": "current", "success_rate": "1.0", "masked_mae_median": "0.30"},
+            {"method": "candidate", "success_rate": "1.0", "masked_mae_median": "0.10"},
+        ]
+        per_sample_rows = [
+            {"sample_id": "a", "method": "masked", "masked_mae": "0.60"},
+            {
+                "sample_id": "a",
+                "method": "current",
+                "masked_mae": "0.30",
+                "mesh_surface_chamfer_l1": "0.10",
+                "mesh_surface_hausdorff95": "0.20",
+            },
+            {
+                "sample_id": "a",
+                "method": "candidate",
+                "masked_mae": "0.10",
+                "mesh_surface_chamfer_l1": "0.105",
+                "mesh_surface_hausdorff95": "0.21",
+            },
+            {"sample_id": "b", "method": "masked", "masked_mae": "0.70"},
+            {
+                "sample_id": "b",
+                "method": "current",
+                "masked_mae": "0.40",
+                "mesh_surface_chamfer_l1": "0.20",
+                "mesh_surface_hausdorff95": "0.30",
+            },
+            {
+                "sample_id": "b",
+                "method": "candidate",
+                "masked_mae": "0.20",
+                "mesh_surface_chamfer_l1": "0.21",
+                "mesh_surface_hausdorff95": "0.315",
+            },
+        ]
+
+        decision = evaluate_selection(
+            summary_rows,
+            per_sample_rows,
+            baseline_method="masked",
+            candidate_method="candidate",
+            current_method="current",
+            weights={"masked_mae_median": -4.0},
+            min_paired_n=2,
+            require_split_audit=False,
+            bootstrap_samples=0,
+        )
+
+        checks = {check["name"]: check for check in decision["checks"]}
+        self.assertEqual(decision["decision"], "promote")
+        self.assertTrue(checks["paired_mesh_surface_chamfer_ratio_vs_current"]["passed"])
+        self.assertTrue(checks["paired_mesh_surface_hausdorff95_ratio_vs_current"]["passed"])
 
     def test_selection_keeps_current_when_top_candidate_is_current_method(self):
         summary_rows = [
