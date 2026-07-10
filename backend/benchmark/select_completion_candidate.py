@@ -91,6 +91,80 @@ def method_row(rows, method):
     return next((row for row in rows if row.get("method") == method), None)
 
 
+def _sample_label(row: dict, index: int) -> str:
+    return str(row.get("sample_id") or row.get("id") or f"row{index}")
+
+
+def _has_cell(row: dict, field: str) -> bool:
+    return field in row and str(row.get(field, "")).strip() != ""
+
+
+def stl_gate_number(value) -> float:
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    text = str(value or "").strip().lower()
+    if text in {"true", "yes", "y"}:
+        return 1.0
+    if text in {"false", "no", "n"}:
+        return 0.0
+    return finite_number(value)
+
+
+def per_sample_stl_checks(
+    per_sample_rows,
+    method: str,
+    *,
+    minimums,
+    maximums,
+):
+    method_rows = [row for row in per_sample_rows if row.get("method") == method]
+    if not method_rows:
+        return []
+
+    checks = []
+    for field, label, threshold in minimums:
+        if not any(_has_cell(row, field) for row in method_rows):
+            continue
+        failed = []
+        for index, row in enumerate(method_rows):
+            value = stl_gate_number(row.get(field))
+            if not math.isfinite(value) or value < threshold:
+                failed.append(_sample_label(row, index))
+        detail = f"failed_samples={','.join(failed[:10])}" if failed else ""
+        if len(failed) > 10:
+            detail += f",+{len(failed) - 10}"
+        checks.append(
+            pass_check(
+                f"per_sample_{label}",
+                not failed,
+                len(method_rows) - len(failed),
+                f"{len(method_rows)}/{len(method_rows)} samples >= {threshold}",
+                detail=detail,
+            )
+        )
+    for field, label, threshold in maximums:
+        if not any(_has_cell(row, field) for row in method_rows):
+            continue
+        failed = []
+        for index, row in enumerate(method_rows):
+            value = stl_gate_number(row.get(field))
+            if not math.isfinite(value) or value > threshold:
+                failed.append(_sample_label(row, index))
+        detail = f"failed_samples={','.join(failed[:10])}" if failed else ""
+        if len(failed) > 10:
+            detail += f",+{len(failed) - 10}"
+        checks.append(
+            pass_check(
+                f"per_sample_{label}",
+                not failed,
+                len(method_rows) - len(failed),
+                f"{len(method_rows)}/{len(method_rows)} samples <= {threshold}",
+                detail=detail,
+            )
+        )
+    return checks
+
+
 def evaluate_selection(
     summary_rows,
     per_sample_rows,
@@ -257,6 +331,29 @@ def evaluate_selection(
         if field in candidate and str(candidate.get(field, "")).strip() != "":
             value = finite_number(candidate.get(field))
             checks.append(pass_check(label, value <= maximum, value, f"<= {maximum}"))
+
+    checks.extend(
+        per_sample_stl_checks(
+            per_sample_rows,
+            candidate_method,
+            minimums=(
+                ("stl_is_watertight", "stl_watertight", min_stl_watertight),
+                ("stl_is_volume", "stl_volume", min_stl_is_volume),
+                ("stl_is_manifold", "stl_manifold", min_stl_is_manifold),
+                ("stl_winding_consistent", "stl_winding_consistent", min_stl_winding_consistent),
+                ("stl_positive_volume", "stl_positive_volume", min_stl_positive_volume),
+                ("stl_single_component", "stl_single_component", min_stl_single_component),
+                ("stl_bbox_has_volume", "stl_bbox_has_volume", min_stl_bbox_has_volume),
+            ),
+            maximums=(
+                ("stl_nonmanifold_edge_count_log1p", "stl_nonmanifold_edges", max_stl_nonmanifold_edge_count_log1p),
+                ("stl_degenerate_face_ratio", "stl_degenerate_face_ratio", max_stl_degenerate_face_ratio),
+                ("stl_component_excess_log1p", "stl_component_excess", max_stl_component_excess_log1p),
+                ("stl_bbox_aspect_ratio", "stl_bbox_aspect_ratio", max_stl_bbox_aspect_ratio),
+                ("stl_faces_per_bbox_volume_log1p", "stl_face_density", max_stl_faces_per_bbox_volume_log1p),
+            ),
+        )
+    )
 
     if require_split_audit:
         checks.append(pass_check("split_audit_present", bool(split_audit), bool(split_audit), "present"))

@@ -170,10 +170,10 @@ def method_stl_mode(row: dict) -> str:
     return infer_stl_mode(method, emit_stl=emit_stl)
 
 
-def compact_row(row: dict) -> dict:
+def compact_row(row: dict, per_sample_rows: list[dict] | None = None) -> dict:
     compact = {key: row.get(key, "") for key in COMPACT_METRICS if key in row}
     compact["stl_mode"] = method_stl_mode(row)
-    gates = promotion_gate_results(row)
+    gates = promotion_gate_results(row, per_sample_rows)
     compact["promotion_eligible"] = all(gate["passed"] for gate in gates)
     compact["failed_promotion_gates"] = ", ".join(gate["name"] for gate in gates if not gate["passed"])
     return compact
@@ -182,10 +182,83 @@ def compact_row(row: dict) -> dict:
 def metric_value(row: dict, field: str) -> float:
     if field not in row or str(row.get(field, "")).strip() == "":
         return float("nan")
+    value = row.get(field)
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    text = str(value).strip().lower()
+    if text in {"true", "yes", "y"}:
+        return 1.0
+    if text in {"false", "no", "n"}:
+        return 0.0
     return parse_float(row.get(field))
 
 
-def promotion_gate_results(row: dict) -> list[dict]:
+def _sample_metric_field(summary_field: str) -> str:
+    return summary_field[: -len("_median")] if summary_field.endswith("_median") else summary_field
+
+
+def _sample_label(row: dict, index: int) -> str:
+    return str(row.get("sample_id") or row.get("id") or f"row{index}")
+
+
+def _has_cell(row: dict, field: str) -> bool:
+    return field in row and str(row.get(field, "")).strip() != ""
+
+
+def method_sample_rows(per_sample_rows: list[dict] | None, method: str) -> list[dict]:
+    if not per_sample_rows:
+        return []
+    return [row for row in per_sample_rows if row.get("method") == method]
+
+
+def per_sample_gate_results(row: dict, per_sample_rows: list[dict] | None = None) -> list[dict]:
+    sample_rows = method_sample_rows(per_sample_rows, row.get("method", ""))
+    if not sample_rows:
+        return []
+
+    gates = []
+    for summary_field, minimum, label in PROMOTION_MINIMUMS:
+        field = _sample_metric_field(summary_field)
+        if not any(_has_cell(sample, field) for sample in sample_rows):
+            continue
+        failed = []
+        for index, sample in enumerate(sample_rows):
+            value = metric_value(sample, field)
+            if value != value or value < minimum:
+                failed.append(_sample_label(sample, index))
+        gates.append(
+            {
+                "name": f"Sample {label}",
+                "field": field,
+                "passed": not failed,
+                "value": len(sample_rows) - len(failed),
+                "threshold": f"{len(sample_rows)}/{len(sample_rows)} samples >= {minimum}",
+                "detail": f"failed_samples={','.join(failed[:10])}" if failed else "",
+            }
+        )
+    for summary_field, maximum, label in PROMOTION_MAXIMUMS:
+        field = _sample_metric_field(summary_field)
+        if not any(_has_cell(sample, field) for sample in sample_rows):
+            continue
+        failed = []
+        for index, sample in enumerate(sample_rows):
+            value = metric_value(sample, field)
+            if value != value or value > maximum:
+                failed.append(_sample_label(sample, index))
+        gates.append(
+            {
+                "name": f"Sample {label}",
+                "field": field,
+                "passed": not failed,
+                "value": len(sample_rows) - len(failed),
+                "threshold": f"{len(sample_rows)}/{len(sample_rows)} samples <= {maximum}",
+                "detail": f"failed_samples={','.join(failed[:10])}" if failed else "",
+            }
+        )
+    return gates
+
+
+def promotion_gate_results(row: dict, per_sample_rows: list[dict] | None = None) -> list[dict]:
     mode = method_stl_mode(row)
     gates = [
         {
@@ -217,41 +290,45 @@ def promotion_gate_results(row: dict) -> list[dict]:
                 "threshold": f"<= {maximum}",
             }
         )
+    gates.extend(per_sample_gate_results(row, per_sample_rows))
     return gates
 
 
-def promotion_eligible(row: dict) -> bool:
-    return all(gate["passed"] for gate in promotion_gate_results(row))
+def promotion_eligible(row: dict, per_sample_rows: list[dict] | None = None) -> bool:
+    return all(gate["passed"] for gate in promotion_gate_results(row, per_sample_rows))
 
 
-def best_by_mode(ranked_rows: list[dict]) -> list[dict]:
+def best_by_mode(ranked_rows: list[dict], per_sample_rows: list[dict] | None = None) -> list[dict]:
     best: dict[str, dict] = {}
     for row in ranked_rows:
         mode = method_stl_mode(row)
         if not mode:
             continue
         best.setdefault(mode, row)
-    return [compact_row(best[mode]) for mode in sorted(best, key=lambda item: MODE_ORDER.get(item, 999))]
+    return [
+        compact_row(best[mode], per_sample_rows)
+        for mode in sorted(best, key=lambda item: MODE_ORDER.get(item, 999))
+    ]
 
 
-def first_deployable(ranked_rows: list[dict]) -> dict:
+def first_deployable(ranked_rows: list[dict], per_sample_rows: list[dict] | None = None) -> dict:
     for row in ranked_rows:
         if method_stl_mode(row) in DEPLOYABLE_STL_MODES:
-            return compact_row(row)
+            return compact_row(row, per_sample_rows)
     return {}
 
 
-def first_promotion_eligible(ranked_rows: list[dict]) -> dict:
+def first_promotion_eligible(ranked_rows: list[dict], per_sample_rows: list[dict] | None = None) -> dict:
     for row in ranked_rows:
-        if promotion_eligible(row):
-            return compact_row(row)
+        if promotion_eligible(row, per_sample_rows):
+            return compact_row(row, per_sample_rows)
     return {}
 
 
-def first_oracle(ranked_rows: list[dict]) -> dict:
+def first_oracle(ranked_rows: list[dict], per_sample_rows: list[dict] | None = None) -> dict:
     for row in ranked_rows:
         if method_stl_mode(row) == STL_MODE_SOURCE_MESH_ORACLE:
-            return compact_row(row)
+            return compact_row(row, per_sample_rows)
     return {}
 
 
@@ -283,11 +360,11 @@ def summarize_run(
         "score_mode": score_mode,
         "baseline_method": baseline_method,
         "used_metrics": used_metrics,
-        "deployable_winner": first_deployable(ranked_rows),
-        "promotion_eligible_winner": first_promotion_eligible(ranked_rows),
-        "oracle_diagnostic_winner": first_oracle(ranked_rows),
-        "best_by_stl_mode": best_by_mode(ranked_rows),
-        "ranked_methods": [compact_row(row) for row in ranked_rows[:top]],
+        "deployable_winner": first_deployable(ranked_rows, per_sample_rows),
+        "promotion_eligible_winner": first_promotion_eligible(ranked_rows, per_sample_rows),
+        "oracle_diagnostic_winner": first_oracle(ranked_rows, per_sample_rows),
+        "best_by_stl_mode": best_by_mode(ranked_rows, per_sample_rows),
+        "ranked_methods": [compact_row(row, per_sample_rows) for row in ranked_rows[:top]],
     }
 
 

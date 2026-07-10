@@ -4752,8 +4752,26 @@ class StlResultIngestRegressionTests(unittest.TestCase):
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(summary_rows)
+        per_sample_fieldnames = [
+            "sample_id",
+            "method",
+            "mesh_surface_chamfer_l1",
+            "stl_exists",
+            "stl_is_watertight",
+            "stl_is_volume",
+            "stl_is_manifold",
+            "stl_winding_consistent",
+            "stl_positive_volume",
+            "stl_single_component",
+            "stl_bbox_has_volume",
+            "stl_nonmanifold_edge_count_log1p",
+            "stl_degenerate_face_ratio",
+            "stl_component_excess_log1p",
+            "stl_bbox_aspect_ratio",
+            "stl_faces_per_bbox_volume_log1p",
+        ]
         with (run_dir / "per_sample_metrics.csv").open("w", newline="", encoding="utf-8") as csv_file:
-            writer = csv.DictWriter(csv_file, fieldnames=["sample_id", "method", "mesh_surface_chamfer_l1"])
+            writer = csv.DictWriter(csv_file, fieldnames=per_sample_fieldnames)
             writer.writeheader()
             for sample_id in ("a", "b"):
                 for row in summary_rows:
@@ -4762,6 +4780,19 @@ class StlResultIngestRegressionTests(unittest.TestCase):
                             "sample_id": sample_id,
                             "method": row["method"],
                             "mesh_surface_chamfer_l1": row["mesh_surface_chamfer_l1_median"],
+                            "stl_exists": row["stl_exists_median"],
+                            "stl_is_watertight": row["stl_is_watertight_median"],
+                            "stl_is_volume": row["stl_is_volume_median"],
+                            "stl_is_manifold": row["stl_is_manifold_median"],
+                            "stl_winding_consistent": row["stl_winding_consistent_median"],
+                            "stl_positive_volume": row["stl_positive_volume_median"],
+                            "stl_single_component": row["stl_single_component_median"],
+                            "stl_bbox_has_volume": row["stl_bbox_has_volume_median"],
+                            "stl_nonmanifold_edge_count_log1p": row["stl_nonmanifold_edge_count_log1p_median"],
+                            "stl_degenerate_face_ratio": row["stl_degenerate_face_ratio_median"],
+                            "stl_component_excess_log1p": row["stl_component_excess_log1p_median"],
+                            "stl_bbox_aspect_ratio": row["stl_bbox_aspect_ratio_median"],
+                            "stl_faces_per_bbox_volume_log1p": row["stl_faces_per_bbox_volume_log1p_median"],
                         }
                     )
         return run_dir
@@ -4812,6 +4843,33 @@ class StlResultIngestRegressionTests(unittest.TestCase):
         self.assertFalse(blocked_direct["promotion_eligible"])
         self.assertIn("Degenerate Face Ratio", blocked_direct["failed_promotion_gates"])
         self.assertIn("Promotion-eligible winner", markdown)
+
+    def test_stl_result_ingest_blocks_promotion_on_per_sample_stl_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = self.write_stl_result_run(root / "run")
+            metrics_path = run_dir / "per_sample_metrics.csv"
+            with metrics_path.open(newline="", encoding="utf-8") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+            failing = next(
+                row
+                for row in rows
+                if row["method"] == "hunyuan3d_shape_repaired" and row["sample_id"] == "b"
+            )
+            failing["stl_is_manifold"] = "0.0"
+            with metrics_path.open("w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=list(rows[0].keys()))
+                writer.writeheader()
+                writer.writerows(rows)
+
+            report = summarize_stl_inputs([str(run_dir)], output_dir=root / "ingested", top=5)
+
+        run = report["runs"][0]
+        blocked_direct = next(row for row in run["ranked_methods"] if row["method"] == "hunyuan3d_shape_repaired")
+        self.assertEqual(run["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
+        self.assertEqual(run["promotion_eligible_winner"]["method"], "vggt_multiview_repaired")
+        self.assertFalse(blocked_direct["promotion_eligible"])
+        self.assertIn("Sample Manifold", blocked_direct["failed_promotion_gates"])
 
     def test_stl_result_ingest_extracts_colab_style_archive(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -5956,6 +6014,45 @@ class SelectionRegressionTests(unittest.TestCase):
         self.assertIn("stl_nonmanifold_edges", failed_checks)
         self.assertIn("stl_degenerate_face_ratio", failed_checks)
         self.assertIn("stl_component_excess", failed_checks)
+
+    def test_selection_holds_candidate_with_per_sample_stl_failure(self):
+        summary_rows = [
+            {
+                "method": "masked",
+                "success_rate": "1.0",
+                "masked_mae_median": "0.60",
+                "stl_is_manifold_median": "1.0",
+            },
+            {
+                "method": "direct_mesh",
+                "success_rate": "1.0",
+                "masked_mae_median": "0.10",
+                "stl_is_manifold_median": "1.0",
+            },
+        ]
+        per_sample_rows = [
+            {"sample_id": "a", "method": "masked", "masked_mae": "0.60", "stl_is_manifold": "1.0"},
+            {"sample_id": "a", "method": "direct_mesh", "masked_mae": "0.10", "stl_is_manifold": "1.0"},
+            {"sample_id": "b", "method": "masked", "masked_mae": "0.70", "stl_is_manifold": "1.0"},
+            {"sample_id": "b", "method": "direct_mesh", "masked_mae": "0.05", "stl_is_manifold": "0.0"},
+        ]
+
+        decision = evaluate_selection(
+            summary_rows,
+            per_sample_rows,
+            baseline_method="masked",
+            candidate_method="direct_mesh",
+            weights={"masked_mae_median": -4.0},
+            min_paired_n=2,
+            require_split_audit=False,
+            bootstrap_samples=0,
+        )
+
+        failed_checks = {check["name"]: check for check in decision["failed_checks"]}
+        self.assertEqual(decision["decision"], "hold")
+        self.assertGreater(decision["candidate_rank_score"], 0)
+        self.assertIn("per_sample_stl_manifold", failed_checks)
+        self.assertIn("failed_samples=b", failed_checks["per_sample_stl_manifold"]["detail"])
 
     def test_selection_holds_candidate_that_does_not_beat_current_method(self):
         summary_rows = [
