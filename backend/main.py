@@ -25,6 +25,12 @@ except ImportError:  # pragma: no cover - supports running uvicorn from backend/
     if __package__:
         raise
     from pic_to_3d import MODERN_INPAINT_MODELS, complete_image, process_image_get_depth_data, depth_data_to_3d_model
+try:
+    from .stl_diagnostics import json_safe_stl_diagnostics, stl_diagnostics
+except ImportError:  # pragma: no cover - supports running uvicorn from backend/
+    if __package__:
+        raise
+    from stl_diagnostics import json_safe_stl_diagnostics, stl_diagnostics
 import numpy as np
 from PIL import Image
 
@@ -215,7 +221,7 @@ async def process_image(
         
         # Generate 3D model
         logger.info("Generating 3D model...")
-        stl_path = job_dir / "model.stl"
+        stl_path = job_dir / "output_model.stl"
         depth_data_to_3d_model(
             depth_data_path,
             output_stl_path=str(stl_path),
@@ -236,6 +242,18 @@ async def process_image(
         # Check if the STL file was actually created
         if not os.path.exists(stl_path):
             raise FileNotFoundError(f"STL file was not created at {stl_path}")
+
+        diagnostics = json_safe_stl_diagnostics(stl_diagnostics(stl_path))
+        diagnostics.update(
+            {
+                "job_id": job_id,
+                "runner": "depth-relief",
+                "artifact_contract": "output_model.stl + diagnostics.json",
+            }
+        )
+        diagnostics_path = job_dir / "diagnostics.json"
+        with open(diagnostics_path, "w", encoding="utf-8") as diagnostics_file:
+            json.dump(diagnostics, diagnostics_file, indent=2, allow_nan=False)
 
         metadata = {
             "job_id": job_id,
@@ -280,6 +298,7 @@ async def process_image(
 
         depth_relative_path = output_relative_path(depth_data_path)
         stl_relative_path = output_relative_path(stl_path)
+        diagnostics_relative_path = output_relative_path(diagnostics_path)
         completed_image_relative_path = (
             output_relative_path(completed_image_path)
             if completed_image_path and applied_completion_mode
@@ -293,6 +312,9 @@ async def process_image(
             "depth_data_url": f"/depth_data/{depth_relative_path}",
             "stl_model": stl_relative_path,
             "stl_url": f"/stl_model/{stl_relative_path}",
+            "diagnostics": diagnostics_relative_path,
+            "diagnostics_url": f"/diagnostics/{diagnostics_relative_path}",
+            "stl_diagnostics": diagnostics,
         }
         if completed_image_relative_path:
             response["completed_image"] = completed_image_relative_path
@@ -452,6 +474,11 @@ async def get_depth_data(file_path: str):
 async def get_stl_model(file_path: str):
     resolved_path = resolve_output_file(file_path, (".stl",))
     return FileResponse(resolved_path)
+
+@app.get("/diagnostics/{file_path:path}")
+async def get_diagnostics(file_path: str):
+    resolved_path = resolve_output_file(file_path, (".json",))
+    return FileResponse(resolved_path, media_type="application/json")
 
 def sanitize_float(x):
     if np.isnan(x) or np.isinf(x):

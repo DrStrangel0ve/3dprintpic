@@ -29,8 +29,10 @@ import {
 
 import { Button } from '@/components/ui/button';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8004';
-const VIDEO_BACKEND_URL = process.env.NEXT_PUBLIC_VIDEO_BACKEND_URL || 'http://localhost:8005';
+const DEFAULT_BACKEND_URL = 'http://localhost:8004';
+const DEFAULT_VIDEO_BACKEND_URL = 'http://localhost:8005';
+const CONFIGURED_BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_BACKEND_URL;
+const CONFIGURED_VIDEO_BACKEND_URL = process.env.NEXT_PUBLIC_VIDEO_BACKEND_URL || DEFAULT_VIDEO_BACKEND_URL;
 const PROCESS_IMAGE_TIMEOUT_MS = 10 * 60 * 1000;
 
 type MediaKind = 'photo' | 'video';
@@ -77,6 +79,22 @@ type PlannerResponse = {
   metrics?: string[];
   next_backend_contract?: Record<string, string>;
   print_volume?: PrintVolumePlan;
+};
+
+type StlDiagnostics = {
+  artifact_contract?: string;
+  runner?: string;
+  stl_exists?: boolean;
+  stl_is_watertight?: boolean;
+  stl_is_volume?: boolean;
+  stl_is_manifold?: boolean;
+  stl_winding_consistent?: boolean;
+  stl_positive_volume?: boolean;
+  stl_single_component?: boolean;
+  stl_faces?: number;
+  stl_bbox_aspect_ratio?: number | null;
+  stl_nonmanifold_edge_count?: number;
+  stl_degenerate_face_count?: number;
 };
 
 type PrinterPresetId = 'bambulab-p1s' | 'custom';
@@ -487,6 +505,8 @@ function workflowSteps({
 }
 
 export default function Home() {
+  const [backendUrl, setBackendUrl] = useState(DEFAULT_BACKEND_URL);
+  const [videoBackendUrl, setVideoBackendUrl] = useState(DEFAULT_VIDEO_BACKEND_URL);
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog>(fallbackModelCatalog);
   const [catalogState, setCatalogState] = useState<CatalogState>('loading');
   const [file, setFile] = useState<File | null>(null);
@@ -519,6 +539,8 @@ export default function Home() {
   const [videoBackend, setVideoBackend] = useState(fallbackModelCatalog.defaults.video_reconstruction);
   const [stlPostprocessModel, setStlPostprocessModel] = useState(fallbackModelCatalog.defaults.stl_postprocess);
   const [processedSTL, setProcessedSTL] = useState('');
+  const [diagnosticsUrl, setDiagnosticsUrl] = useState('');
+  const [stlDiagnostics, setStlDiagnostics] = useState<StlDiagnostics | null>(null);
   const [completedPreview, setCompletedPreview] = useState('');
   const [plannerResponse, setPlannerResponse] = useState<PlannerResponse | null>(null);
   const [runState, setRunState] = useState<RunState>('idle');
@@ -566,6 +588,11 @@ export default function Home() {
   };
 
   useEffect(() => {
+    setBackendUrl(CONFIGURED_BACKEND_URL);
+    setVideoBackendUrl(CONFIGURED_VIDEO_BACKEND_URL);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     const loadModelCatalog = async () => {
@@ -573,7 +600,7 @@ export default function Home() {
       try {
         const controller = new AbortController();
         const timeout = window.setTimeout(() => controller.abort(), 2500);
-        const response = await fetch(`${VIDEO_BACKEND_URL}/models`, { signal: controller.signal });
+        const response = await fetch(`${videoBackendUrl}/models`, { signal: controller.signal });
         window.clearTimeout(timeout);
         if (!response.ok) throw new Error(`Model planner ${response.status}`);
         const data = (await response.json()) as Partial<ModelCatalog>;
@@ -593,7 +620,7 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [videoBackendUrl]);
 
   useEffect(() => {
     if (!file) {
@@ -604,6 +631,8 @@ export default function Home() {
     setPreviewUrl(nextUrl);
     setMediaKind(mediaKindFromFile(file));
     setProcessedSTL('');
+    setDiagnosticsUrl('');
+    setStlDiagnostics(null);
     setCompletedPreview('');
     setPlannerResponse(null);
     setRunState('idle');
@@ -647,8 +676,8 @@ export default function Home() {
         bytes: file?.size || 0,
       },
       services: {
-        depth_relief_backend: BACKEND_URL,
-        video_selection_planner: VIDEO_BACKEND_URL,
+        depth_relief_backend: backendUrl,
+        video_selection_planner: videoBackendUrl,
         model_catalog: modelCatalog.service,
         planner_mode: modelCatalog.mode,
       },
@@ -721,6 +750,8 @@ export default function Home() {
     }),
     [
       file,
+      backendUrl,
+      videoBackendUrl,
       mediaKind,
       photoScope,
       photoTarget,
@@ -812,6 +843,8 @@ export default function Home() {
   const resetFile = () => {
     setFile(null);
     setProcessedSTL('');
+    setDiagnosticsUrl('');
+    setStlDiagnostics(null);
     setCompletedPreview('');
     setPlannerResponse(null);
     setRunState('idle');
@@ -841,6 +874,8 @@ export default function Home() {
 
     setError('');
     setProcessedSTL('');
+    setDiagnosticsUrl('');
+    setStlDiagnostics(null);
     setCompletedPreview('');
     setPlannerResponse(null);
 
@@ -850,7 +885,7 @@ export default function Home() {
       try {
         const healthController = new AbortController();
         const healthTimeout = window.setTimeout(() => healthController.abort(), 2000);
-        const health = await fetch(`${BACKEND_URL}/health`, { signal: healthController.signal });
+        const health = await fetch(`${backendUrl}/health`, { signal: healthController.signal });
         window.clearTimeout(healthTimeout);
         if (!health.ok) throw new Error(`Backend health ${health.status}`);
 
@@ -881,7 +916,7 @@ export default function Home() {
 
         const controller = new AbortController();
         const timeout = window.setTimeout(() => controller.abort(), PROCESS_IMAGE_TIMEOUT_MS);
-        const response = await fetch(`${BACKEND_URL}/process_image`, {
+        const response = await fetch(`${backendUrl}/process_image`, {
           method: 'POST',
           body: formData,
           signal: controller.signal,
@@ -890,9 +925,11 @@ export default function Home() {
         if (!response.ok) throw new Error(`Process image ${response.status}`);
 
         const data = await response.json();
-        const stlUrl = data.stl_url ? `${BACKEND_URL}${data.stl_url}` : `${BACKEND_URL}/stl_model/${data.stl_model}`;
+        const stlUrl = data.stl_url ? `${backendUrl}${data.stl_url}` : `${backendUrl}/stl_model/${data.stl_model}`;
         setProcessedSTL(stlUrl);
-        setCompletedPreview(data.completed_image_url ? `${BACKEND_URL}${data.completed_image_url}` : previewUrl);
+        setDiagnosticsUrl(data.diagnostics_url ? `${backendUrl}${data.diagnostics_url}` : '');
+        setStlDiagnostics(data.stl_diagnostics || null);
+        setCompletedPreview(data.completed_image_url ? `${backendUrl}${data.completed_image_url}` : previewUrl);
         setRunState('ready');
         setStatusText('STL ready');
       } catch (runError) {
@@ -908,7 +945,7 @@ export default function Home() {
     try {
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 5000);
-      const response = await fetch(`${VIDEO_BACKEND_URL}/plan`, {
+      const response = await fetch(`${videoBackendUrl}/plan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(jobPlan),
@@ -1553,6 +1590,46 @@ export default function Home() {
                 <FileDown className="h-4 w-4" />
                 Download STL
               </a>
+            )}
+
+            {stlDiagnostics && (
+              <div className="mt-3 border border-zinc-200 bg-zinc-50 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold">Diagnostics</div>
+                  {diagnosticsUrl && (
+                    <a href={diagnosticsUrl} className="text-xs font-medium text-blue-700">
+                      JSON
+                    </a>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {([
+                    ['Watertight', stlDiagnostics.stl_is_watertight],
+                    ['Volume', stlDiagnostics.stl_is_volume],
+                    ['Manifold', stlDiagnostics.stl_is_manifold],
+                    ['Winding', stlDiagnostics.stl_winding_consistent],
+                    ['Positive', stlDiagnostics.stl_positive_volume],
+                    ['Single body', stlDiagnostics.stl_single_component],
+                  ] as Array<[string, boolean | undefined]>).map(([label, value]) => (
+                    <div key={String(label)} className="flex items-center justify-between border border-zinc-200 bg-white px-2 py-1.5">
+                      <span className="text-zinc-600">{label}</span>
+                      <span className={classNames('font-semibold', value ? 'text-emerald-700' : 'text-red-700')}>
+                        {value ? 'Pass' : 'Fail'}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between border border-zinc-200 bg-white px-2 py-1.5">
+                    <span className="text-zinc-600">Faces</span>
+                    <span className="font-semibold">{stlDiagnostics.stl_faces?.toLocaleString() || '-'}</span>
+                  </div>
+                  <div className="flex items-center justify-between border border-zinc-200 bg-white px-2 py-1.5">
+                    <span className="text-zinc-600">Aspect</span>
+                    <span className="font-semibold">
+                      {typeof stlDiagnostics.stl_bbox_aspect_ratio === 'number' ? stlDiagnostics.stl_bbox_aspect_ratio.toFixed(2) : '-'}
+                    </span>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
 

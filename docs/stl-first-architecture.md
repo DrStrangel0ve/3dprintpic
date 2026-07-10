@@ -53,6 +53,8 @@ Runner outputs must be machine-checkable before the UI marks a job as ready:
 
 Local planner contract smoke on July 10, 2026: the draft planner service compiled, `/health` and `/models` returned `200`, photo `/plan` returned `object-selection -> image-to-mesh -> stl-postprocess`, video `/plan` returned `frame-selection -> object-selection -> camera-pose -> video-reconstruction -> stl-postprocess`, and an invalid camera-pose id returned `400` with the valid model ids. This validates the planning contract only; the next implementation step is to attach a runner that emits the STL and diagnostics artifacts above.
 
+Live depth-relief runner contract on July 10, 2026: `/process_image` now writes `output_model.stl`, `diagnostics.json`, and `metadata.json` in each job directory. The response returns `stl_url`, `diagnostics_url`, and inline `stl_diagnostics` using the same watertightness, manifoldness, winding, volume, connected-component, bbox, and face-density fields used by the benchmark promotion gates. This turns the fast 2.5D path into a machine-checkable STL runner while full-mesh and video runners are attached behind the planner ids.
+
 ## Evaluation Metrics
 
 The benchmark should rank candidates with STL-facing metrics:
