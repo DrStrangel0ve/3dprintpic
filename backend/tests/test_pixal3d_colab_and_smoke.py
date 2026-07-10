@@ -105,6 +105,10 @@ class Pixal3DColabSetupTest(unittest.TestCase):
         self.assertIn("source /tmp/pixal3d_model_paths.sh", run_script)
         self.assertIn("'PIXAL3D_MOGE_MODEL_PATH': resolved['moge'] / 'model.pt'", run_script)
         self.assertIn("HF_HUB_OFFLINE", run_script)
+        self.assertIn("runtime_exports = {", run_script)
+        self.assertIn("offline_exports = {", run_script)
+        self.assertIn("for name, value in runtime_exports.items()", run_script)
+        self.assertNotIn("for name, value in exports.items()", run_script)
         self.assertIn(
             'python -m backend.benchmark.patch_pixal3d_sources --pixal3d-dir "$PIXAL3D_DIR"',
             run_script,
