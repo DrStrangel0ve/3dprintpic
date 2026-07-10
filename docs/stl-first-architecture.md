@@ -32,6 +32,27 @@ When the user provides video or multiple photos, the pipeline should select usef
 
 Gaussian splatting and NeRF are optional reconstruction backends in this lane. They should be used only if they produce better final meshes or better STL repair inputs. Splat visual fidelity by itself is not a success metric.
 
+## Planner-to-Runner Contract
+
+The app-facing planner should stay lightweight and deterministic. It should expose model ids and route plans, while heavy runners attach behind those ids and write benchmark-compatible artifacts. A planner response is not a successful reconstruction by itself; it is a promise that the backend knows which stages, inputs, and promotion gates the runner must satisfy.
+
+Required planner stages:
+
+- **Photo full mesh:** object selection, image-to-mesh, STL postprocess.
+- **Selected-frame video:** frame selection, object selection, camera pose, video reconstruction, STL postprocess.
+- **Whole-video reconstruction:** frame sampling, camera pose, video reconstruction, STL postprocess.
+
+Runner inputs should preserve both geometry context and object focus. Selected-frame video runs must keep full uncropped frames for keypoint/camera matching, plus object masks or crops for the reconstruction target. Single-image mesh runs should receive the same visible image, object mask, and target STL scale used by the benchmark.
+
+Runner outputs must be machine-checkable before the UI marks a job as ready:
+
+- `output_model.stl` or an equivalent STL path.
+- `diagnostics.json` with watertightness, manifoldness, positive volume, component count, bbox extents/aspect, face count, and repair actions.
+- Optional preview images or meshes for inspection, treated as secondary evidence.
+- A promotion decision that distinguishes planner-only readiness from STL-ready reconstruction.
+
+Local planner contract smoke on July 10, 2026: the draft planner service compiled, `/health` and `/models` returned `200`, photo `/plan` returned `object-selection -> image-to-mesh -> stl-postprocess`, video `/plan` returned `frame-selection -> object-selection -> camera-pose -> video-reconstruction -> stl-postprocess`, and an invalid camera-pose id returned `400` with the valid model ids. This validates the planning contract only; the next implementation step is to attach a runner that emits the STL and diagnostics artifacts above.
+
 ## Evaluation Metrics
 
 The benchmark should rank candidates with STL-facing metrics:
