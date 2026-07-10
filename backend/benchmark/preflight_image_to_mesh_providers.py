@@ -15,8 +15,10 @@ from backend.benchmark.run_image_to_mesh_provider import (
     MULTIVIEW_VISUAL_HULL_PROVIDER,
     PROVIDERS,
     SOURCE_MESH_BUNDLE_ORACLE_PROVIDER,
+    TRELLIS2_PROVIDER,
     TRIPOSR_API_PROVIDER,
     provider_dir_config_key,
+    provider_git_revision,
     resolve_provider_dir,
 )
 from backend.benchmark.pixal3d_models import (
@@ -25,6 +27,14 @@ from backend.benchmark.pixal3d_models import (
     pixal3d_model_specs,
 )
 from backend.benchmark.triposg_models import triposg_model_specs
+from backend.benchmark.trellis2_models import (
+    DEFAULT_TRELLIS2_MODEL,
+    DEFAULT_TRELLIS2_MODEL_REVISION,
+    DEFAULT_TRELLIS2_RESOLUTION,
+    DEFAULT_TRELLIS2_SOURCE_REVISION,
+    TRELLIS2_RESOLUTIONS,
+    trellis2_model_specs,
+)
 
 
 BUILTIN_PROVIDERS = {SOURCE_MESH_BUNDLE_ORACLE_PROVIDER, MULTIVIEW_VISUAL_HULL_PROVIDER}
@@ -98,6 +108,26 @@ def parse_provider_command(command: str) -> dict | None:
             model_revision=flag_value(tokens, "--triposg-model-revision") or "",
             rembg_revision=flag_value(tokens, "--triposg-rembg-revision") or "",
         )
+    elif provider == TRELLIS2_PROVIDER:
+        specs = trellis2_model_specs(
+            model_repo=(
+                flag_value(tokens, "--trellis2-model-path")
+                or DEFAULT_TRELLIS2_MODEL
+            ),
+            model_revision=(
+                flag_value(tokens, "--trellis2-model-revision")
+                or DEFAULT_TRELLIS2_MODEL_REVISION
+            ),
+        )
+        parsed["provider_models"] = {
+            name: {"repo_id": spec["repo_id"], "revision": spec["revision"]}
+            for name, spec in specs.items()
+        }
+        parsed["provider_source_revision"] = DEFAULT_TRELLIS2_SOURCE_REVISION
+        parsed["trellis2_resolution"] = (
+            flag_value(tokens, "--trellis2-resolution")
+            or str(DEFAULT_TRELLIS2_RESOLUTION)
+        )
     return parsed
 
 
@@ -120,6 +150,8 @@ def provider_entrypoint(provider: str) -> Path | None:
             return Path("scripts/inference_triposg.py")
         if runner == "pixal3d-inference":
             return Path("inference.py")
+        if runner == "trellis2-wrapper":
+            return Path("trellis2/pipelines/trellis2_image_to_3d.py")
         return Path("run.py")
     if provider == TRIPOSR_API_PROVIDER:
         return Path("tsr/system.py")
@@ -164,6 +196,30 @@ def provider_preflight_row(parsed: dict, experiment_names: list[str] | None = No
         checks["model_revisions_pinned"] = revisions_present == 2
         if not revisions_complete:
             setup_errors.append("TripoSG model revisions must be supplied together for both snapshots.")
+    elif provider == TRELLIS2_PROVIDER:
+        model_spec = (parsed.get("provider_models") or {}).get("trellis2") or {}
+        model_pinned = (
+            model_spec.get("repo_id") == DEFAULT_TRELLIS2_MODEL
+            and model_spec.get("revision") == DEFAULT_TRELLIS2_MODEL_REVISION
+        )
+        checks["model_revision_pinned"] = model_pinned
+        checks["model_revisions_complete"] = bool(model_spec.get("revision"))
+        checks["model_revisions_pinned"] = model_pinned
+        if not model_pinned:
+            setup_errors.append(
+                "TRELLIS.2 requires model "
+                f"{DEFAULT_TRELLIS2_MODEL}@{DEFAULT_TRELLIS2_MODEL_REVISION}."
+            )
+        try:
+            resolution = int(parsed.get("trellis2_resolution"))
+        except (TypeError, ValueError):
+            resolution = None
+        resolution_supported = resolution in TRELLIS2_RESOLUTIONS
+        checks["trellis2_resolution"] = resolution
+        checks["trellis2_resolution_supported"] = resolution_supported
+        if not resolution_supported:
+            supported = ", ".join(str(value) for value in TRELLIS2_RESOLUTIONS)
+            setup_errors.append(f"TRELLIS.2 resolution must be one of: {supported}.")
 
     provider_dir = None
     provider_dir_resolved = False
@@ -182,6 +238,22 @@ def provider_preflight_row(parsed: dict, experiment_names: list[str] | None = No
             checks["entrypoint_found"] = entrypoint_found
             if not entrypoint_found:
                 setup_errors.append(f"Provider repo is missing expected entrypoint: {entrypoint.as_posix()}.")
+        if provider == TRELLIS2_PROVIDER and provider_dir:
+            source_revision = provider_git_revision(provider_dir)
+            source_revision_pinned = (
+                source_revision == DEFAULT_TRELLIS2_SOURCE_REVISION
+            )
+            checks["provider_source_revision"] = source_revision
+            checks["provider_source_revision_expected"] = (
+                DEFAULT_TRELLIS2_SOURCE_REVISION
+            )
+            checks["provider_source_revision_pinned"] = source_revision_pinned
+            if not source_revision_pinned:
+                actual = source_revision or "<unknown>"
+                setup_errors.append(
+                    "TRELLIS.2 provider source must be checked out at "
+                    f"{DEFAULT_TRELLIS2_SOURCE_REVISION}; found {actual}."
+                )
     elif provider == HUNYUAN3D_SHAPE_PROVIDER:
         provider_dir_value = parsed.get("provider_dir") or os.getenv("HUNYUAN3D_DIR")
         source_available = False
@@ -228,6 +300,8 @@ def experiment_provider_commands(experiments: list[dict]) -> dict[str, list[str]
                 "provider_python": parsed.get("provider_python") or "",
                 "wrapper_python": parsed.get("wrapper_python") or "",
                 "provider_models": parsed.get("provider_models") or {},
+                "provider_source_revision": parsed.get("provider_source_revision") or "",
+                "trellis2_resolution": parsed.get("trellis2_resolution"),
             },
             sort_keys=True,
         )

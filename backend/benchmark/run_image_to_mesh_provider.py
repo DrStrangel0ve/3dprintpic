@@ -34,6 +34,15 @@ from backend.benchmark.pixal3d_models import (
     pixal3d_model_specs,
 )
 from backend.benchmark.triposg_models import triposg_model_specs
+from backend.benchmark.trellis2_models import (
+    DEFAULT_TRELLIS2_MODEL,
+    DEFAULT_TRELLIS2_MODEL_REVISION,
+    DEFAULT_TRELLIS2_RESOLUTION,
+    DEFAULT_TRELLIS2_SEED,
+    DEFAULT_TRELLIS2_SOURCE_REVISION,
+    TRELLIS2_RESOLUTIONS,
+    trellis2_model_specs,
+)
 
 
 MESH_EXTENSIONS = (".glb", ".gltf", ".obj", ".ply", ".stl")
@@ -43,6 +52,7 @@ HUNYUAN3D_SHAPE_PROVIDER = "hunyuan3d-shape"
 SOURCE_MESH_BUNDLE_ORACLE_PROVIDER = "source-mesh-bundle-oracle"
 MULTIVIEW_VISUAL_HULL_PROVIDER = "multiview-visual-hull"
 PIXAL3D_PROVIDER = "pixal3d"
+TRELLIS2_PROVIDER = "trellis2"
 DEFAULT_TRIPOSR_MODEL = "stabilityai/TripoSR"
 DEFAULT_HUNYUAN3D_MODEL = "tencent/Hunyuan3D-2.1"
 
@@ -51,6 +61,15 @@ CLI_PROVIDERS = {
         "env": "PIXAL3D_DIR",
         "default_dirs": ("/content/Pixal3D",),
         "runner": "pixal3d-inference",
+    },
+    TRELLIS2_PROVIDER: {
+        "env": "TRELLIS2_DIR",
+        "default_dirs": ("/content/TRELLIS.2",),
+        "runner": "trellis2-wrapper",
+        "supports_low_vram": False,
+        "supports_device": False,
+        "supports_remesh": False,
+        "supports_texture_resolution": False,
     },
     "spar3d": {
         "env": "SPAR3D_DIR",
@@ -285,6 +304,54 @@ def triposg_model_revisions_pinned(args: argparse.Namespace) -> bool:
     return len(present) == len(revisions)
 
 
+def trellis2_provider_models(args: argparse.Namespace) -> dict[str, dict[str, str]]:
+    specs = trellis2_model_specs(
+        model_repo=getattr(args, "trellis2_model_path", None) or DEFAULT_TRELLIS2_MODEL,
+        model_revision=(
+            getattr(args, "trellis2_model_revision", None)
+            or DEFAULT_TRELLIS2_MODEL_REVISION
+        ),
+    )
+    return {
+        name: {"repo_id": spec["repo_id"], "revision": spec["revision"]}
+        for name, spec in specs.items()
+    }
+
+
+def trellis2_model_revision_pinned(args: argparse.Namespace) -> bool:
+    model = (
+        getattr(args, "trellis2_model_path", None) or DEFAULT_TRELLIS2_MODEL
+    )
+    revision = (
+        getattr(args, "trellis2_model_revision", None)
+        or DEFAULT_TRELLIS2_MODEL_REVISION
+    )
+    return (
+        model == DEFAULT_TRELLIS2_MODEL
+        and revision == DEFAULT_TRELLIS2_MODEL_REVISION
+    )
+
+
+def require_trellis2_pins(args: argparse.Namespace, provider_dir: Path) -> str:
+    if not trellis2_model_revision_pinned(args):
+        raise ValueError(
+            "TRELLIS.2 requires model "
+            f"{DEFAULT_TRELLIS2_MODEL}@{DEFAULT_TRELLIS2_MODEL_REVISION}"
+        )
+    source_revision = provider_git_revision(provider_dir)
+    if source_revision != DEFAULT_TRELLIS2_SOURCE_REVISION:
+        actual = source_revision or "<unknown>"
+        raise ValueError(
+            "TRELLIS.2 provider source must be checked out at "
+            f"{DEFAULT_TRELLIS2_SOURCE_REVISION}; found {actual}"
+        )
+    return source_revision
+
+
+def trellis2_wrapper_path() -> Path:
+    return Path(__file__).with_name("trellis2_models.py").resolve()
+
+
 def resolve_pixal3d_model_snapshots(args: argparse.Namespace) -> dict[str, Path]:
     from huggingface_hub import snapshot_download
 
@@ -364,6 +431,11 @@ def cli_provider_cache_payload(
         for path in source_files
         if path.exists()
     }
+    if args.provider == TRELLIS2_PROVIDER:
+        wrapper_path = trellis2_wrapper_path()
+        source_sha256["backend/benchmark/trellis2_models.py"] = sha256_file(
+            wrapper_path
+        )
     provider_environment_names = [
         "ATTN_BACKEND",
         "SPARSE_ATTN_BACKEND",
@@ -389,6 +461,9 @@ def cli_provider_cache_payload(
         payload["provider_models"] = pixal3d_provider_models(args)
     elif args.provider == "triposg":
         payload["provider_models"] = triposg_provider_models(args)
+    elif args.provider == TRELLIS2_PROVIDER:
+        payload["provider_models"] = trellis2_provider_models(args)
+        payload["expected_provider_revision"] = DEFAULT_TRELLIS2_SOURCE_REVISION
     return payload
 
 
@@ -411,6 +486,49 @@ def export_mesh(source: Path, target: Path) -> Path:
 
 def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_output_dir: Path) -> list[str]:
     config = CLI_PROVIDERS[args.provider]
+    if config.get("runner") == "trellis2-wrapper":
+        resolution = int(
+            getattr(args, "trellis2_resolution", None)
+            or DEFAULT_TRELLIS2_RESOLUTION
+        )
+        if resolution not in TRELLIS2_RESOLUTIONS:
+            supported = ", ".join(str(value) for value in TRELLIS2_RESOLUTIONS)
+            raise ValueError(f"TRELLIS.2 resolution must be one of: {supported}")
+        command = [
+            args.python,
+            str(trellis2_wrapper_path()),
+            "--provider-dir",
+            str(provider_dir),
+            "--model-path",
+            getattr(args, "trellis2_model_path", None) or DEFAULT_TRELLIS2_MODEL,
+            "--model-revision",
+            (
+                getattr(args, "trellis2_model_revision", None)
+                or DEFAULT_TRELLIS2_MODEL_REVISION
+            ),
+            "--resolution",
+            str(resolution),
+            "--seed",
+            str(
+                int(args.seed)
+                if getattr(args, "seed", None) is not None
+                else DEFAULT_TRELLIS2_SEED
+            ),
+        ]
+        if getattr(args, "prefetch_only", False):
+            command.append("--prefetch-only")
+        else:
+            command.extend(
+                [
+                    "--input-image",
+                    str(args.input_image),
+                    "--output-mesh",
+                    str(raw_output_dir / "output.glb"),
+                ]
+            )
+        command.extend(args.provider_arg or [])
+        return command
+
     if config.get("runner") == "pixal3d-inference":
         output_path = raw_output_dir / "output.glb"
         command = [
@@ -477,10 +595,18 @@ def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_outpu
 
 def run_cli_provider(args: argparse.Namespace) -> Path:
     provider_dir = resolve_provider_dir(args.provider, args.provider_dir)
+    if args.provider == TRELLIS2_PROVIDER:
+        require_trellis2_pins(args, provider_dir)
     pixal3d_pinned = args.provider == PIXAL3D_PROVIDER and pixal3d_model_revisions_pinned(args)
     triposg_pinned = args.provider == "triposg" and triposg_model_revisions_pinned(args)
     runner = CLI_PROVIDERS[args.provider].get("runner")
-    if runner == "triposg-module":
+    if runner == "trellis2-wrapper":
+        run_entry = provider_dir / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
+        missing_message = (
+            f"{args.provider} provider repo has no trellis2/pipelines/trellis2_image_to_3d.py: "
+            f"{run_entry}"
+        )
+    elif runner == "triposg-module":
         run_entry = provider_dir / "scripts" / "inference_triposg.py"
         missing_message = f"{args.provider} provider repo has no scripts/inference_triposg.py: {run_entry}"
     elif runner == "pixal3d-inference":
@@ -562,6 +688,19 @@ def run_cli_provider(args: argparse.Namespace) -> Path:
             flush=True,
         )
     return provider_mesh
+
+
+def prefetch_trellis2(args: argparse.Namespace) -> None:
+    provider_dir = resolve_provider_dir(TRELLIS2_PROVIDER, args.provider_dir)
+    require_trellis2_pins(args, provider_dir)
+    run_entry = provider_dir / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
+    if not run_entry.is_file():
+        raise FileNotFoundError(
+            "trellis2 provider repo has no trellis2/pipelines/trellis2_image_to_3d.py: "
+            f"{run_entry}"
+        )
+    command = cli_provider_command(args, provider_dir, Path("__trellis2_prefetch__"))
+    subprocess.run(command, cwd=provider_dir, check=True, timeout=args.timeout)
 
 
 def run_hunyuan_shape(args: argparse.Namespace) -> Path:
@@ -1020,6 +1159,23 @@ def main() -> None:
     parser.add_argument("--triposg-model-revision", default=None)
     parser.add_argument("--triposg-rembg-revision", default=None)
     parser.add_argument(
+        "--trellis2-model-path",
+        default=DEFAULT_TRELLIS2_MODEL,
+        help="Pinned TRELLIS.2 Hugging Face repository used by the isolated provider environment.",
+    )
+    parser.add_argument(
+        "--trellis2-model-revision",
+        default=DEFAULT_TRELLIS2_MODEL_REVISION,
+        help="Exact TRELLIS.2 Hugging Face snapshot revision.",
+    )
+    parser.add_argument(
+        "--trellis2-resolution",
+        type=int,
+        choices=TRELLIS2_RESOLUTIONS,
+        default=DEFAULT_TRELLIS2_RESOLUTION,
+        help="TRELLIS.2 geometry generation resolution; this bounded provider slice supports 512.",
+    )
+    parser.add_argument(
         "--mesh-repair",
         choices=MESH_REPAIR_MODES,
         default="none",
@@ -1115,12 +1271,17 @@ def main() -> None:
     )
     args = parser.parse_args()
     if args.prefetch_only:
-        if args.provider != HUNYUAN3D_SHAPE_PROVIDER:
-            raise ValueError("--prefetch-only is currently supported only for hunyuan3d-shape")
-        config_path, ckpt_path = prefetch_hunyuan_shape(args)
-        print(f"config={config_path}")
-        print(f"checkpoint={ckpt_path}")
-        return
+        if args.provider == HUNYUAN3D_SHAPE_PROVIDER:
+            config_path, ckpt_path = prefetch_hunyuan_shape(args)
+            print(f"config={config_path}")
+            print(f"checkpoint={ckpt_path}")
+            return
+        if args.provider == TRELLIS2_PROVIDER:
+            prefetch_trellis2(args)
+            return
+        raise ValueError(
+            "--prefetch-only is currently supported only for hunyuan3d-shape and trellis2"
+        )
     if not args.input_image or not args.output_mesh:
         raise ValueError("--input-image and --output-mesh are required unless --prefetch-only is set")
     output_mesh, output_stl = run_provider(args)
