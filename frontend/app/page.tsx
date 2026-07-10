@@ -160,6 +160,33 @@ type DepthPreloadStatus = {
   error?: string | null;
 };
 
+type SelectionPoint = {
+  id: string;
+  x: number;
+  y: number;
+};
+
+type SelectionResult = {
+  selected_image?: string;
+  selected_image_url?: string;
+  mask?: string;
+  mask_url?: string;
+  overlay?: string;
+  overlay_url?: string;
+  metadata_url?: string;
+  points?: Array<{ x: number; y: number }>;
+  model_id?: string;
+  model_status?: string;
+  model_error?: string | null;
+  mask_pixels?: number;
+  mask_coverage?: number;
+};
+
+type SelectionApplyResult = {
+  file: File;
+  previewUrl: string;
+};
+
 type PrinterPresetId = 'bambulab-p1s' | 'custom';
 
 type PrinterPreset = {
@@ -219,7 +246,7 @@ const depthModels: DepthModelOption[] = [
     id: DEPTH_PRO_MODEL_ID,
     label: 'Apple Depth Pro',
     tier: 'Experimental detail',
-    notes: 'Sharp metric-depth candidate; large first download, use after preload.',
+    notes: 'Sharp distance edges with inverse-depth relief shaping; use after preload.',
     farIsHigh: true,
   },
   {
@@ -709,6 +736,11 @@ export default function Home() {
   const [meshBackend, setMeshBackend] = useState(fallbackModelCatalog.defaults.image_to_mesh);
   const [inpaintBackend, setInpaintBackend] = useState(inpaintBackends[0]);
   const [selectionModel, setSelectionModel] = useState(fallbackModelCatalog.defaults.selection);
+  const [selectionPoints, setSelectionPoints] = useState<SelectionPoint[]>([]);
+  const [selectionResult, setSelectionResult] = useState<SelectionResult | null>(null);
+  const [selectionPreviewUrl, setSelectionPreviewUrl] = useState('');
+  const [selectionAppliedFile, setSelectionAppliedFile] = useState<File | null>(null);
+  const [selectionState, setSelectionState] = useState<'idle' | 'editing' | 'applying' | 'ready' | 'error'>('idle');
   const [frameSelectionModel, setFrameSelectionModel] = useState(fallbackModelCatalog.defaults.frame_selection);
   const [cameraPoseModel, setCameraPoseModel] = useState(fallbackModelCatalog.defaults.camera_pose);
   const [videoBackend, setVideoBackend] = useState(fallbackModelCatalog.defaults.video_reconstruction);
@@ -730,6 +762,7 @@ export default function Home() {
   const [statusText, setStatusText] = useState('Ready');
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectionImageRef = useRef<HTMLImageElement>(null);
 
   const selectionModels = modelsFor(modelCatalog, 'selection');
   const frameSelectionModels = modelsFor(modelCatalog, 'frame_selection');
@@ -933,6 +966,11 @@ export default function Home() {
     setStageTimings(null);
     setDepthRunMetadata(null);
     setCompletedPreview('');
+    setSelectionPoints([]);
+    setSelectionResult(null);
+    setSelectionPreviewUrl('');
+    setSelectionAppliedFile(null);
+    setSelectionState('idle');
     setPlannerResponse(null);
     setRunState('idle');
     setStatusText('Ready');
@@ -1003,6 +1041,15 @@ export default function Home() {
               scope: photoScope,
               target: photoTarget,
               selection_model: photoScope === 'object-selection' ? selectionModel : null,
+              selection:
+                photoScope === 'object-selection'
+                  ? {
+                      point_count: selectionPoints.length,
+                      edited_image_ready: Boolean(selectionAppliedFile),
+                      status: selectionState,
+                      model_status: selectionResult?.model_status || null,
+                    }
+                  : null,
               depth: {
                 provider: 'transformers',
                 model: depthModel,
@@ -1070,6 +1117,10 @@ export default function Home() {
       inpaintBackend,
       meshBackend,
       selectionModel,
+      selectionPoints.length,
+      selectionAppliedFile,
+      selectionState,
+      selectionResult,
       frameSelectionModel,
       cameraPoseModel,
       videoScope,
@@ -1141,7 +1192,132 @@ export default function Home() {
     stlPostprocessModel,
   ]);
 
-  const handleDrop = (event: React.DragEvent<HTMLLabelElement>) => {
+  const clearObjectSelection = () => {
+    setSelectionPoints([]);
+    setSelectionResult(null);
+    setSelectionPreviewUrl('');
+    setSelectionAppliedFile(null);
+    setSelectionState('idle');
+    setCompletedPreview('');
+    setProcessedSTL('');
+    setDiagnosticsUrl('');
+    setStlDiagnostics(null);
+    setStageTimings(null);
+    setDepthRunMetadata(null);
+    setRunState('idle');
+    setStatusText('Ready');
+    setError('');
+  };
+
+  const invalidateSelectionResult = () => {
+    setSelectionResult(null);
+    setSelectionPreviewUrl('');
+    setSelectionAppliedFile(null);
+    setCompletedPreview('');
+    setProcessedSTL('');
+    setDiagnosticsUrl('');
+    setStlDiagnostics(null);
+    setStageTimings(null);
+    setDepthRunMetadata(null);
+    setRunState('idle');
+    setError('');
+  };
+
+  const handleSelectionImageClick = (event: React.MouseEvent<HTMLImageElement>) => {
+    if (!file || photoScope !== 'object-selection' || runState === 'running' || selectionState === 'applying') return;
+    const imageElement = selectionImageRef.current || event.currentTarget;
+    const rect = imageElement.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+    invalidateSelectionResult();
+    setSelectionPoints((points) => [...points, { id: `${Date.now()}-${points.length}`, x, y }]);
+    setSelectionState('editing');
+    setStatusText('Selection updated');
+  };
+
+  const undoSelectionPoint = () => {
+    invalidateSelectionResult();
+    setSelectionPoints((points) => points.slice(0, -1));
+    setSelectionState(selectionPoints.length > 1 ? 'editing' : 'idle');
+    setStatusText('Selection updated');
+  };
+
+  const applyObjectSelection = async (): Promise<SelectionApplyResult | null> => {
+    if (!file) return null;
+    if (selectionAppliedFile && selectionPreviewUrl && selectionState === 'ready') {
+      return { file: selectionAppliedFile, previewUrl: selectionPreviewUrl };
+    }
+    if (!selectionPoints.length) {
+      setSelectionState('error');
+      setStatusText('Selection required');
+      setError('Click the image objects or parts you want to keep, then apply the selection.');
+      return null;
+    }
+
+    setSelectionState('applying');
+    setStatusText('Applying object selection');
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file, file.name || 'photo.jpg');
+      formData.append('model_id', selectionModel);
+      formData.append(
+        'points_json',
+        JSON.stringify(selectionPoints.map((point) => ({ x: point.x, y: point.y }))),
+      );
+
+      const response = await fetch(`${backendUrl}/selection/keep`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) {
+        let message = `Object selection ${response.status}`;
+        try {
+          const details = await response.json();
+          if (details?.detail) message = String(details.detail);
+        } catch {
+          // Keep the status-based message when the backend does not return JSON.
+        }
+        throw new Error(message);
+      }
+
+      const data = (await response.json()) as SelectionResult;
+      const editedUrl = data.selected_image_url
+        ? data.selected_image_url.startsWith('http')
+          ? data.selected_image_url
+          : `${backendUrl}${data.selected_image_url}`
+        : '';
+      if (!editedUrl) throw new Error('Selection response did not include an edited image.');
+
+      const editedResponse = await fetch(editedUrl);
+      if (!editedResponse.ok) throw new Error(`Could not load edited selection image ${editedResponse.status}`);
+      const editedBlob = await editedResponse.blob();
+      const baseName = file.name ? file.name.replace(/\.[^.]+$/, '') || 'photo' : 'photo';
+      const editedFile = new File([editedBlob], `selected-${baseName}.png`, { type: editedBlob.type || 'image/png' });
+
+      setSelectionResult(data);
+      setSelectionPreviewUrl(editedUrl);
+      setSelectionAppliedFile(editedFile);
+      setSelectionState('ready');
+      setCompletedPreview(editedUrl);
+      setStatusText('Selection ready');
+      return { file: editedFile, previewUrl: editedUrl };
+    } catch (selectionError) {
+      setSelectionState('error');
+      setStatusText('Selection failed');
+      setError(selectionError instanceof Error ? selectionError.message : String(selectionError));
+      return null;
+    }
+  };
+
+  const openFilePicker = () => {
+    if (!fileInputRef.current) return;
+    fileInputRef.current.value = '';
+    fileInputRef.current.click();
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     const droppedFile = event.dataTransfer.files?.[0];
     if (droppedFile) setFile(droppedFile);
@@ -1160,6 +1336,11 @@ export default function Home() {
     setStageTimings(null);
     setDepthRunMetadata(null);
     setCompletedPreview('');
+    setSelectionPoints([]);
+    setSelectionResult(null);
+    setSelectionPreviewUrl('');
+    setSelectionAppliedFile(null);
+    setSelectionState('idle');
     setPlannerResponse(null);
     setRunState('idle');
     setStatusText('Ready');
@@ -1247,6 +1428,18 @@ export default function Home() {
       return;
     }
 
+    let pipelineInputFile = file;
+    let pipelinePreviewUrl = previewUrl;
+    if (mediaKind === 'photo' && photoScope === 'object-selection') {
+      const selectedInput = await applyObjectSelection();
+      if (!selectedInput) {
+        setRunState('blocked');
+        return;
+      }
+      pipelineInputFile = selectedInput.file;
+      pipelinePreviewUrl = selectedInput.previewUrl;
+    }
+
     if (mediaKind === 'photo' && photoTarget === 'depth-relief') {
       setRunState('running');
       setStatusText('Generating relief STL');
@@ -1258,7 +1451,7 @@ export default function Home() {
         if (!health.ok) throw new Error(`Backend health ${health.status}`);
 
         const formData = new FormData();
-        formData.append('file', file, file.name || 'photo.jpg');
+        formData.append('file', pipelineInputFile, pipelineInputFile.name || file.name || 'photo.jpg');
         formData.append('depth_provider', 'transformers');
         formData.append('depth_model', depthModel);
         formData.append('device', 'auto');
@@ -1304,7 +1497,7 @@ export default function Home() {
         }
         setStageTimings(data.timings || null);
         setDepthRunMetadata(data.depth_metadata || null);
-        setCompletedPreview(data.completed_image_url ? `${backendUrl}${data.completed_image_url}` : previewUrl);
+        setCompletedPreview(data.completed_image_url ? `${backendUrl}${data.completed_image_url}` : pipelinePreviewUrl);
         setRunState('ready');
         setStatusText('STL ready');
       } catch (runError) {
@@ -1333,7 +1526,7 @@ export default function Home() {
 
       if (mediaKind === 'photo' && photoTarget === 'full-mesh') {
         const formData = new FormData();
-        formData.append('file', file, file.name || 'photo.jpg');
+        formData.append('file', pipelineInputFile, pipelineInputFile.name || file.name || 'photo.jpg');
         formData.append('provider', meshBackend);
         formData.append('provider_device', 'cuda');
         formData.append('mesh_repair', 'printable');
@@ -1360,7 +1553,7 @@ export default function Home() {
         setDiagnosticsUrl(runnerData.diagnostics_url ? `${videoBackendUrl}${runnerData.diagnostics_url}` : '');
         setStlDiagnostics(runnerData.stl_diagnostics || null);
         setStageTimings(runnerData.timings || null);
-        setCompletedPreview(previewUrl);
+        setCompletedPreview(pipelinePreviewUrl);
         const passesHardChecks = Boolean(runnerData.stl_passes_hard_checks);
         setStatusText(passesHardChecks ? 'Printable STL ready' : 'STL emitted; checks failed');
         setRunState(passesHardChecks ? 'ready' : 'blocked');
@@ -1392,7 +1585,7 @@ export default function Home() {
     }
   };
 
-  const canRun = Boolean(file) && runState !== 'running';
+  const canRun = Boolean(file) && runState !== 'running' && selectionState !== 'applying';
   const isPhoto = mediaKind === 'photo';
   const runtimeLabel =
     backendRuntimeState === 'checking'
@@ -1414,6 +1607,20 @@ export default function Home() {
       ? `${fileSizeLabel(depthProPreload.downloaded_bytes)} / ${fileSizeLabel(depthProPreload.total_bytes)}`
       : '';
   const depthProIsBusy = depthProPreloadStarting || depthProStatus === 'downloading';
+  const selectionStatusLabel =
+    selectionState === 'applying'
+      ? 'Applying'
+      : selectionState === 'ready'
+        ? 'Edited image ready'
+        : selectionState === 'error'
+          ? 'Selection error'
+          : selectionPoints.length
+            ? `${selectionPoints.length} keep point${selectionPoints.length === 1 ? '' : 's'}`
+            : 'Click to keep';
+  const selectionCoverageLabel =
+    typeof selectionResult?.mask_coverage === 'number'
+      ? `${Math.round(selectionResult.mask_coverage * 1000) / 10}% kept`
+      : `${selectionPoints.length} point${selectionPoints.length === 1 ? '' : 's'}`;
 
   return (
     <main className="min-h-screen bg-zinc-50 text-zinc-950">
@@ -1430,8 +1637,8 @@ export default function Home() {
               </Button>
             </div>
 
-            <label
-              className="group relative flex h-[250px] cursor-pointer items-center justify-center overflow-hidden border border-dashed border-zinc-300 bg-zinc-100"
+            <div
+              className="group relative flex h-[250px] items-center justify-center overflow-hidden border border-dashed border-zinc-300 bg-zinc-100"
               onDragOver={(event) => event.preventDefault()}
               onDrop={handleDrop}
             >
@@ -1442,6 +1649,14 @@ export default function Home() {
                   ) : (
                     <img src={previewUrl} alt="" className="h-full w-full object-cover" />
                   )}
+                  <button
+                    type="button"
+                    className="absolute left-2 top-2 grid h-8 w-8 place-items-center bg-white text-zinc-900 shadow-sm"
+                    onClick={openFilePicker}
+                    title="Change file"
+                  >
+                    <Upload className="h-4 w-4" />
+                  </button>
                   <button
                     type="button"
                     className="absolute right-2 top-2 grid h-8 w-8 place-items-center bg-zinc-950 text-white"
@@ -1455,13 +1670,17 @@ export default function Home() {
                   </button>
                 </>
               ) : (
-                <div className="flex flex-col items-center gap-3 text-center text-zinc-600">
+                <button
+                  type="button"
+                  className="flex h-full w-full flex-col items-center justify-center gap-3 text-center text-zinc-600"
+                  onClick={openFilePicker}
+                >
                   <Upload className="h-10 w-10 text-blue-700" />
                   <div className="text-sm font-medium">Import image or video</div>
-                </div>
+                </button>
               )}
-              <input ref={fileInputRef} type="file" className="hidden" accept="image/*,video/*" onChange={handleFileInput} />
-            </label>
+            </div>
+            <input ref={fileInputRef} type="file" className="hidden" accept="image/*,video/*" onChange={handleFileInput} />
 
             <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
               <button
@@ -1558,20 +1777,119 @@ export default function Home() {
                 </div>
 
                 {photoScope === 'object-selection' && (
-                  <label className="block text-sm font-medium text-zinc-700">
-                    Selection model
-                    <select
-                      value={selectionModel}
-                      onChange={(event) => setSelectionModel(event.target.value)}
-                      className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
-                    >
-                      {selectionModels.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <div className="space-y-3">
+                    <label className="block text-sm font-medium text-zinc-700">
+                      Selection model
+                      <select
+                        value={selectionModel}
+                        onChange={(event) => {
+                          setSelectionModel(event.target.value);
+                          invalidateSelectionResult();
+                          setSelectionState(selectionPoints.length ? 'editing' : 'idle');
+                        }}
+                        className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
+                      >
+                        {selectionModels.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
+                          <MousePointer2 className="h-4 w-4 text-emerald-700" />
+                          Keep Objects
+                        </div>
+                        <span
+                          className={classNames(
+                            'border px-2 py-1 text-xs font-medium',
+                            selectionState === 'ready' && 'border-emerald-700 bg-emerald-50 text-emerald-900',
+                            selectionState === 'applying' && 'border-blue-700 bg-blue-50 text-blue-900',
+                            selectionState === 'error' && 'border-red-700 bg-red-50 text-red-900',
+                            (selectionState === 'idle' || selectionState === 'editing') && 'border-zinc-300 bg-white text-zinc-700',
+                          )}
+                        >
+                          {selectionStatusLabel}
+                        </span>
+                      </div>
+
+                      {previewUrl ? (
+                        <div className="relative overflow-hidden border border-zinc-200 bg-white">
+                          <img
+                            ref={selectionImageRef}
+                            src={previewUrl}
+                            alt=""
+                            className="block w-full cursor-crosshair select-none"
+                            onClick={handleSelectionImageClick}
+                            draggable={false}
+                          />
+                          {selectionPoints.map((point, index) => (
+                            <span
+                              key={point.id}
+                              className="absolute grid h-6 w-6 -translate-x-1/2 -translate-y-1/2 place-items-center border border-white bg-emerald-600 text-[11px] font-semibold text-white shadow-sm"
+                              style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
+                            >
+                              {index + 1}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="border border-dashed border-zinc-300 bg-white p-4 text-center text-sm text-zinc-500">
+                          Import a photo to select objects.
+                        </div>
+                      )}
+
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-10"
+                          onClick={undoSelectionPoint}
+                          disabled={!selectionPoints.length || selectionState === 'applying'}
+                        >
+                          Undo
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-10"
+                          onClick={clearObjectSelection}
+                          disabled={(!selectionPoints.length && !selectionPreviewUrl) || selectionState === 'applying'}
+                        >
+                          Clear
+                        </Button>
+                        <Button
+                          type="button"
+                          className="h-10 gap-2"
+                          onClick={applyObjectSelection}
+                          disabled={!selectionPoints.length || selectionState === 'applying' || !file}
+                        >
+                          {selectionState === 'applying' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                          Apply
+                        </Button>
+                      </div>
+
+                      {selectionPreviewUrl && (
+                        <div className="mt-3 border border-emerald-200 bg-white p-2">
+                          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+                            <span className="font-semibold text-emerald-900">Edited image</span>
+                            <span className="text-zinc-500">{selectionCoverageLabel}</span>
+                          </div>
+                          <img src={selectionPreviewUrl} alt="" className="block w-full border border-zinc-200" />
+                        </div>
+                      )}
+
+                      {selectionResult?.model_status && (
+                        <div className="mt-2 text-xs text-zinc-500">
+                          {selectionResult.model_status}
+                          {selectionResult.model_error ? ` fallback: ${selectionResult.model_error}` : ''}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
 
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">

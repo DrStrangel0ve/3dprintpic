@@ -9,7 +9,13 @@ import numpy as np
 from stl import mesh
 
 from backend import pic_to_3d
-from backend.pic_to_3d import _flatten_border, _shape_relief_values, depth_data_to_3d_model
+from backend.pic_to_3d import (
+    RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
+    _flatten_border,
+    _shape_relief_values,
+    depth_data_to_3d_model,
+    relief_value_transform_for_model,
+)
 
 
 class ReliefStlControlsTest(unittest.TestCase):
@@ -36,6 +42,29 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertTrue(preview_exists)
         self.assertEqual(metadata["requested_model"], "apple/DepthPro-hf")
         self.assertEqual(metadata["effective_model"], "depth-anything/Depth-Anything-V2-Large-hf")
+        self.assertTrue(metadata["stored_depth_normalized"])
+
+    def test_save_depth_outputs_preserves_metric_depth_for_inverse_relief(self):
+        source = np.array([[1.0, 2.0], [10.0, 100.0]], dtype=np.float32)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir)
+            depth_path = pic_to_3d._save_depth_outputs(
+                source,
+                output_dir,
+                metadata={"effective_model": "apple/DepthPro-hf"},
+                normalize_depth=False,
+                preview_value_transform=RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
+            )
+
+            saved = np.load(depth_path)
+            metadata = json.loads((output_dir / "output_depth_metadata.json").read_text(encoding="utf-8"))
+            relief_preview_exists = (output_dir / "output_relief_preview.png").exists()
+
+        np.testing.assert_array_equal(saved, source)
+        self.assertFalse(metadata["stored_depth_normalized"])
+        self.assertEqual(metadata["relief_value_transform"], RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH)
+        self.assertEqual(metadata["relief_preview"], "output_relief_preview.png")
+        self.assertTrue(relief_preview_exists)
 
     def test_depth_fallback_preserves_requested_model_and_reason(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -83,6 +112,66 @@ class ReliefStlControlsTest(unittest.TestCase):
         boosted = _shape_relief_values(base, detail_boost=2.0, detail_radius=2, low_percentile=0, high_percentile=100)
 
         self.assertGreater(boosted[20, 20] - boosted[20, 19], plain[20, 20] - plain[20, 19])
+
+    def test_inverse_depth_transform_expands_near_subject_relief(self):
+        metric_depth = np.array([[1.0, 2.0, 5.0, 100.0]], dtype=np.float32)
+        linear = _shape_relief_values(
+            metric_depth,
+            invert=True,
+            gamma=1.0,
+            detail_boost=0,
+            low_percentile=0,
+            high_percentile=100,
+        )
+        proximity = _shape_relief_values(
+            metric_depth,
+            invert=True,
+            gamma=1.0,
+            detail_boost=0,
+            low_percentile=0,
+            high_percentile=100,
+            value_transform=RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
+        )
+
+        self.assertGreater(proximity[0, 0], proximity[0, 1])
+        self.assertGreater(proximity[0, 1], proximity[0, 2])
+        self.assertGreater(proximity[0, 2], proximity[0, 3])
+        self.assertLess(proximity[0, 1], linear[0, 1] - 0.4)
+
+    def test_inverse_depth_transform_preserves_mold_polarity(self):
+        metric_depth = np.array([[1.0, 5.0, 100.0]], dtype=np.float32)
+        raised = _shape_relief_values(
+            metric_depth,
+            invert=True,
+            gamma=1.0,
+            detail_boost=0,
+            low_percentile=0,
+            high_percentile=100,
+            value_transform=RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
+        )
+        mold = _shape_relief_values(
+            metric_depth,
+            invert=False,
+            gamma=1.0,
+            detail_boost=0,
+            low_percentile=0,
+            high_percentile=100,
+            value_transform=RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
+        )
+
+        self.assertGreater(raised[0, 0], raised[0, -1])
+        self.assertLess(mold[0, 0], mold[0, -1])
+        np.testing.assert_allclose(mold, 1.0 - raised)
+
+    def test_metric_models_select_inverse_depth_relief(self):
+        self.assertEqual(
+            relief_value_transform_for_model("apple/DepthPro-hf"),
+            RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
+        )
+        self.assertEqual(
+            relief_value_transform_for_model("depth-anything/Depth-Anything-V2-Large-hf"),
+            "linear",
+        )
 
     def test_flatten_border_locks_outer_wall_height(self):
         values = np.ones((8, 10), dtype=np.float32)

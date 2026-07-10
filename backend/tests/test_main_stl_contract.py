@@ -1,16 +1,27 @@
 import json
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 from fastapi.testclient import TestClient
+from PIL import Image
 
 import backend.main as main_module
 
 
 class MainStlContractTest(unittest.TestCase):
+    def png_bytes(self, color=(245, 245, 245), accent=(20, 120, 220)) -> bytes:
+        image = Image.new("RGB", (32, 24), color)
+        for x in range(8, 18):
+            for y in range(6, 18):
+                image.putpixel((x, y), accent)
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+
     def test_depth_anything_large_is_default_and_only_recommended_model(self):
         self.assertEqual(main_module.DEFAULT_DEPTH_MODEL, "depth-anything/Depth-Anything-V2-Large-hf")
         recommended = [model for model in main_module.DEPTH_MODELS if model.get("recommended")]
@@ -18,6 +29,11 @@ class MainStlContractTest(unittest.TestCase):
         self.assertEqual([model["id"] for model in recommended], ["depth-anything/Depth-Anything-V2-Large-hf"])
         self.assertFalse(main_module.depth_model_far_is_high("depth-anything/Depth-Anything-V2-Large-hf"))
         self.assertTrue(main_module.depth_model_far_is_high("apple/DepthPro-hf"))
+        self.assertEqual(main_module.relief_value_transform_for_model("apple/DepthPro-hf"), "inverse-depth")
+        self.assertEqual(
+            main_module.relief_value_transform_for_model("depth-anything/Depth-Anything-V2-Large-hf"),
+            "linear",
+        )
 
     def test_relief_invert_tracks_effective_depth_model_semantics(self):
         self.assertTrue(
@@ -139,6 +155,7 @@ class MainStlContractTest(unittest.TestCase):
         self.assertEqual(payload["depth_fallback_reason"], "Depth Pro weights are not cached.")
         self.assertFalse(payload["invert"])
         self.assertTrue(payload["requested_invert"])
+        self.assertEqual(payload["relief_value_transform"], "linear")
         self.assertEqual(payload["depth_metadata"]["effective_model"], "depth-anything/Depth-Anything-V2-Large-hf")
 
     def test_depthpro_preload_status_reports_missing_cache_without_network(self):
@@ -201,6 +218,62 @@ class MainStlContractTest(unittest.TestCase):
         self.assertEqual(started[0]["kwargs"], {"force": False})
         self.assertTrue(started[0]["daemon"])
         self.assertTrue(started[0]["started"])
+
+    def test_selection_keep_requires_at_least_one_point(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(main_module, "OUTPUT_DIR", Path(temp_dir) / "output"):
+                client = TestClient(main_module.app)
+                response = client.post(
+                    "/selection/keep",
+                    files={"file": ("object.png", self.png_bytes(), "image/png")},
+                    data={"points_json": "[]"},
+                )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Click at least one", response.json()["detail"])
+
+    def test_selection_keep_rejects_malformed_points(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(main_module, "OUTPUT_DIR", Path(temp_dir) / "output"):
+                client = TestClient(main_module.app)
+                response = client.post(
+                    "/selection/keep",
+                    files={"file": ("object.png", self.png_bytes(), "image/png")},
+                    data={"points_json": json.dumps([{"x": "left", "y": 0.5}])},
+                )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("non-numeric", response.json()["detail"])
+
+    def test_selection_keep_fallback_writes_fetchable_artifacts(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(main_module, "OUTPUT_DIR", Path(temp_dir) / "output"),
+                patch.object(main_module, "sam2_selection_mask", side_effect=RuntimeError("checkpoint not cached locally")),
+            ):
+                client = TestClient(main_module.app)
+                response = client.post(
+                    "/selection/keep",
+                    files={"file": ("object.png", self.png_bytes(), "image/png")},
+                    data={
+                        "points_json": json.dumps([{"x": 0.38, "y": 0.5}]),
+                        "model_id": "sam2.1-hiera-large",
+                        "background_mode": "white",
+                        "mask_max_dimension": "64",
+                    },
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                payload = response.json()
+
+                for url_field in ("selected_image_url", "mask_url", "overlay_url", "metadata_url"):
+                    artifact_response = client.get(payload[url_field])
+                    self.assertEqual(artifact_response.status_code, 200, url_field)
+
+        self.assertEqual(payload["model_status"], "fallback-click-region")
+        self.assertEqual(payload["model_error"], "SAM2 checkpoint is not cached locally")
+        self.assertGreater(payload["mask_pixels"], 0)
+        self.assertGreater(payload["mask_coverage"], 0.0)
+        self.assertEqual(payload["background_mode"], "white")
 
 
 if __name__ == "__main__":

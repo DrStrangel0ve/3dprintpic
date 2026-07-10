@@ -9,6 +9,25 @@ _DEPTH_PIPELINE_CACHE = {}
 _INPAINT_PIPELINE_CACHE = {}
 DEPTHPRO_MODEL_ID = "apple/DepthPro-hf"
 DEFAULT_DEPTH_FALLBACK_MODEL = "depth-anything/Depth-Anything-V2-Large-hf"
+RELIEF_VALUE_TRANSFORM_LINEAR = "linear"
+RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH = "inverse-depth"
+RELIEF_VALUE_TRANSFORMS = {
+    RELIEF_VALUE_TRANSFORM_LINEAR,
+    RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
+}
+METRIC_FAR_HIGH_DEPTH_MODELS = frozenset(
+    {
+        DEPTHPRO_MODEL_ID,
+        "depth-anything/Depth-Anything-V2-Metric-Indoor-Large-hf",
+        "depth-anything/Depth-Anything-V2-Metric-Outdoor-Large-hf",
+    }
+)
+
+
+def relief_value_transform_for_model(model_name):
+    if model_name in METRIC_FAR_HIGH_DEPTH_MODELS:
+        return RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH
+    return RELIEF_VALUE_TRANSFORM_LINEAR
 
 MODERN_INPAINT_MODELS = {
     "sdxl-inpaint": {
@@ -725,6 +744,7 @@ def process_image_get_depth_data_transformers(
         depth_image = result["depth"]
         depth_data = np.asarray(depth_image, dtype=np.float32)
 
+    relief_value_transform = relief_value_transform_for_model(model_name)
     return _save_depth_outputs(
         depth_data,
         output_dir,
@@ -734,7 +754,10 @@ def process_image_get_depth_data_transformers(
             "effective_model": model_name,
             "fallback_model": model_name if fallback_reason else None,
             "fallback_reason": fallback_reason,
+            "relief_value_transform": relief_value_transform,
         },
+        normalize_depth=relief_value_transform == RELIEF_VALUE_TRANSFORM_LINEAR,
+        preview_value_transform=relief_value_transform,
     )
 
 
@@ -821,7 +844,12 @@ def process_image_get_depth_data_depthpro(
                 "effective_model": model_name,
                 "fallback_model": None,
                 "fallback_reason": fallback_reason,
+                "depth_value_semantics": "distance_far_high",
+                "relief_value_transform": RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
+                "fov_model_enabled": bool(model.use_fov_model),
             },
+            normalize_depth=False,
+            preview_value_transform=RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
         )
     except Exception as exc:
         return _run_depth_fallback(
@@ -861,7 +889,38 @@ def _hf_model_has_local_weights(model_name):
     return False
 
 
-def _save_depth_outputs(depth_data, output_dir, metadata=None):
+def _transform_relief_values(values, value_transform=RELIEF_VALUE_TRANSFORM_LINEAR):
+    if value_transform not in RELIEF_VALUE_TRANSFORMS:
+        raise ValueError(
+            f"Unsupported relief value transform: {value_transform}. "
+            f"Expected one of {sorted(RELIEF_VALUE_TRANSFORMS)}."
+        )
+
+    transformed = values.astype(np.float32, copy=True)
+    if value_transform == RELIEF_VALUE_TRANSFORM_LINEAR:
+        return transformed, False
+
+    finite_positive = transformed[np.isfinite(transformed) & (transformed > 0)]
+    if finite_positive.size == 0:
+        raise ValueError("Inverse-depth relief requires at least one finite positive depth value")
+
+    # A tiny number of invalid near-zero estimates should not become unbounded
+    # relief spikes. The 0.1th percentile is effectively a robust nearest plane.
+    depth_floor = float(np.nanpercentile(finite_positive, 0.1))
+    depth_floor = max(depth_floor, float(np.finfo(np.float32).tiny))
+    positive = np.isfinite(transformed) & (transformed > 0)
+    transformed[positive] = 1.0 / np.maximum(transformed[positive], depth_floor)
+    transformed[np.isfinite(transformed) & ~positive] = np.nan
+    return transformed, True
+
+
+def _save_depth_outputs(
+    depth_data,
+    output_dir,
+    metadata=None,
+    normalize_depth=True,
+    preview_value_transform=RELIEF_VALUE_TRANSFORM_LINEAR,
+):
     from PIL import Image
 
     depth_data = np.squeeze(depth_data).astype(np.float32)
@@ -872,7 +931,7 @@ def _save_depth_outputs(depth_data, output_dir, metadata=None):
     finite_values = depth_data[finite_mask]
     depth_min = float(np.min(finite_values))
     depth_max = float(np.max(finite_values))
-    if depth_max > depth_min:
+    if normalize_depth and depth_max > depth_min:
         depth_data = (depth_data - depth_min) / (depth_max - depth_min)
 
     npy_path = os.path.join(output_dir, "output_depth_data.npy")
@@ -880,14 +939,38 @@ def _save_depth_outputs(depth_data, output_dir, metadata=None):
     metadata_path = os.path.join(output_dir, "output_depth_metadata.json")
     np.save(npy_path, depth_data)
 
-    preview_data = np.nan_to_num(depth_data, nan=0.0, posinf=1.0, neginf=0.0)
-    if np.max(preview_data) > np.min(preview_data):
-        preview_data = (preview_data - np.min(preview_data)) / (np.max(preview_data) - np.min(preview_data))
+    def normalized_preview(values):
+        finite_values = values[np.isfinite(values)]
+        preview_low = float(np.nanpercentile(finite_values, 1.0))
+        preview_high = float(np.nanpercentile(finite_values, 99.0))
+        if preview_high <= preview_low:
+            preview_low = float(np.nanmin(finite_values))
+            preview_high = float(np.nanmax(finite_values))
+        if preview_high > preview_low:
+            values = np.clip((values - preview_low) / (preview_high - preview_low), 0.0, 1.0)
+        else:
+            values = np.zeros_like(values)
+        return np.nan_to_num(values, nan=0.0, posinf=1.0, neginf=0.0)
+
+    preview_data = normalized_preview(depth_data)
     Image.fromarray((preview_data * 255).astype(np.uint8)).save(preview_path)
+
+    relief_preview_name = None
+    if preview_value_transform != RELIEF_VALUE_TRANSFORM_LINEAR:
+        relief_preview_name = "output_relief_preview.png"
+        relief_preview_path = os.path.join(output_dir, relief_preview_name)
+        relief_preview_data, _ = _transform_relief_values(depth_data, preview_value_transform)
+        relief_preview_data = normalized_preview(relief_preview_data)
+        Image.fromarray((relief_preview_data * 255).astype(np.uint8)).save(relief_preview_path)
 
     if metadata:
         import json
 
+        metadata = dict(metadata)
+        metadata.setdefault("stored_depth_normalized", bool(normalize_depth))
+        metadata.setdefault("relief_value_transform", preview_value_transform)
+        if relief_preview_name:
+            metadata.setdefault("relief_preview", relief_preview_name)
         with open(metadata_path, "w", encoding="utf-8") as metadata_file:
             json.dump(metadata, metadata_file, indent=2)
 
@@ -939,9 +1022,15 @@ def _shape_relief_values(
     detail_radius=2.0,
     low_percentile=1.0,
     high_percentile=99.0,
+    value_transform=RELIEF_VALUE_TRANSFORM_LINEAR,
 ):
-    relief = _normalize_relief_values(values, low_percentile=low_percentile, high_percentile=high_percentile)
-    if invert:
+    transformed, reverses_order = _transform_relief_values(values, value_transform)
+    relief = _normalize_relief_values(
+        transformed,
+        low_percentile=low_percentile,
+        high_percentile=high_percentile,
+    )
+    if bool(invert) ^ reverses_order:
         relief = 1.0 - relief
 
     if detail_boost > 0 and detail_radius > 0:
@@ -953,6 +1042,30 @@ def _shape_relief_values(
     if gamma > 0 and gamma != 1:
         relief = np.power(relief, gamma)
     return np.clip(relief, 0.0, 1.0)
+
+
+def _resolve_relief_value_transform(npy_file, value_transform):
+    if value_transform != "auto":
+        if value_transform not in RELIEF_VALUE_TRANSFORMS:
+            raise ValueError(
+                f"Unsupported relief value transform: {value_transform}. "
+                f"Expected 'auto' or one of {sorted(RELIEF_VALUE_TRANSFORMS)}."
+            )
+        return value_transform
+
+    import json
+
+    metadata_path = os.path.join(os.path.dirname(os.fspath(npy_file)), "output_depth_metadata.json")
+    try:
+        with open(metadata_path, encoding="utf-8") as metadata_file:
+            metadata = json.load(metadata_file)
+        detected = metadata.get("relief_value_transform")
+        if detected in RELIEF_VALUE_TRANSFORMS:
+            return detected
+        return relief_value_transform_for_model(metadata.get("effective_model"))
+    except (FileNotFoundError, OSError, ValueError, TypeError):
+        pass
+    return RELIEF_VALUE_TRANSFORM_LINEAR
 
 
 def _flatten_border(values, border_px):
@@ -1024,6 +1137,7 @@ def depth_data_to_3d_model(
     low_percentile=1.0,
     high_percentile=99.0,
     base_border_px=2,
+    value_transform="auto",
 ):
     # Load the .npy file
     data = np.load(npy_file).astype(np.float32)
@@ -1043,6 +1157,7 @@ def depth_data_to_3d_model(
     # Flip the x axis
     data = np.flip(data, axis=1)
 
+    resolved_value_transform = _resolve_relief_value_transform(npy_file, value_transform)
     relief = _shape_relief_values(
         data,
         invert=invert,
@@ -1051,6 +1166,7 @@ def depth_data_to_3d_model(
         detail_radius=detail_radius,
         low_percentile=low_percentile,
         high_percentile=high_percentile,
+        value_transform=resolved_value_transform,
     )
     relief = _flatten_border(relief, base_border_px)
     z = relief * z_scale

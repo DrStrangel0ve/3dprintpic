@@ -6,6 +6,7 @@ import asyncio
 import re
 import math
 import time
+from collections import deque
 from threading import Lock, Thread
 from datetime import datetime
 from pathlib import Path
@@ -22,11 +23,18 @@ try:
         complete_image,
         depth_data_to_3d_model,
         process_image_get_depth_data,
+        relief_value_transform_for_model,
     )
 except ImportError:  # pragma: no cover - supports running uvicorn from backend/
     if __package__:
         raise
-    from pic_to_3d import MODERN_INPAINT_MODELS, complete_image, process_image_get_depth_data, depth_data_to_3d_model
+    from pic_to_3d import (
+        MODERN_INPAINT_MODELS,
+        complete_image,
+        depth_data_to_3d_model,
+        process_image_get_depth_data,
+        relief_value_transform_for_model,
+    )
 try:
     from .stl_diagnostics import json_safe_stl_diagnostics, stl_diagnostics
 except ImportError:  # pragma: no cover - supports running uvicorn from backend/
@@ -34,7 +42,7 @@ except ImportError:  # pragma: no cover - supports running uvicorn from backend/
         raise
     from stl_diagnostics import json_safe_stl_diagnostics, stl_diagnostics
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps
 
 # Load environment variables
 load_dotenv()
@@ -84,6 +92,13 @@ DEPTH_PRELOAD_STATE = {
     "error": None,
     "total_bytes": DEPTHPRO_EXPECTED_BYTES,
 }
+SELECTION_MODEL_LOCK = Lock()
+SELECTION_MODEL_CACHE = {}
+SELECTION_MODEL_IDS = {
+    "sam2.1-hiera-large": "facebook/sam2.1-hiera-large",
+    "sam2.1-hiera-base-plus": "facebook/sam2.1-hiera-base-plus",
+    "grounding-dino-sam2": "facebook/sam2.1-hiera-large",
+}
 
 DEPTH_MODELS = [
     {
@@ -92,7 +107,7 @@ DEPTH_MODELS = [
         "provider": "transformers",
         "recommended": False,
         "depth_value_semantics": "metric_far_high",
-        "notes": "Sharp metric depth candidate; large first download, keep experimental until preloaded.",
+        "notes": "Sharp distance edges with inverse-depth relief shaping; large first download.",
     },
     {
         "id": "depth-anything/Depth-Anything-V2-Metric-Indoor-Large-hf",
@@ -308,6 +323,192 @@ def output_relative_path(file_path: Path | str) -> str:
     return path.relative_to(OUTPUT_DIR).as_posix()
 
 
+def parse_selection_points(points_json: str) -> list[dict[str, float]]:
+    try:
+        raw_points = json.loads(points_json or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid selection points JSON: {exc}") from exc
+
+    if not isinstance(raw_points, list):
+        raise HTTPException(status_code=400, detail="Selection points must be a JSON list")
+
+    points = []
+    for index, point in enumerate(raw_points):
+        if isinstance(point, dict):
+            x = point.get("x")
+            y = point.get("y")
+        elif isinstance(point, (list, tuple)) and len(point) >= 2:
+            x, y = point[:2]
+        else:
+            raise HTTPException(status_code=400, detail=f"Selection point {index} must include x and y")
+        try:
+            points.append({"x": float(x), "y": float(y)})
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"Selection point {index} has non-numeric coordinates") from exc
+    return points
+
+
+def selection_points_to_pixels(points: list[dict[str, float]], width: int, height: int) -> list[list[float]]:
+    pixels = []
+    for point in points:
+        x = point["x"]
+        y = point["y"]
+        if 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0:
+            px = x * max(0, width - 1)
+            py = y * max(0, height - 1)
+        else:
+            px = x
+            py = y
+        pixels.append([float(np.clip(px, 0, max(0, width - 1))), float(np.clip(py, 0, max(0, height - 1)))])
+    return pixels
+
+
+def connected_component_from_seed(region_mask: np.ndarray, seed_x: int, seed_y: int, max_pixels: int) -> np.ndarray:
+    height, width = region_mask.shape
+    component = np.zeros_like(region_mask, dtype=bool)
+    if not (0 <= seed_x < width and 0 <= seed_y < height) or not region_mask[seed_y, seed_x]:
+        return component
+
+    visited = np.zeros_like(region_mask, dtype=bool)
+    queue = deque([(seed_x, seed_y)])
+    accepted = 0
+    while queue and accepted < max_pixels:
+        x, y = queue.popleft()
+        if x < 0 or y < 0 or x >= width or y >= height or visited[y, x]:
+            continue
+        visited[y, x] = True
+        if not region_mask[y, x]:
+            continue
+        component[y, x] = True
+        accepted += 1
+        queue.extend(((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)))
+    return component
+
+
+def fallback_selection_mask(image: Image.Image, points: list[dict[str, float]], max_dimension: int = 1024) -> Image.Image:
+    width, height = image.size
+    max_dimension = max(128, min(2048, int(max_dimension or 1024)))
+    scale = min(1.0, max_dimension / max(width, height))
+    if scale < 1.0:
+        work_size = (max(1, round(width * scale)), max(1, round(height * scale)))
+        work_image = image.resize(work_size, Image.Resampling.LANCZOS)
+    else:
+        work_size = image.size
+        work_image = image
+
+    work_width, work_height = work_size
+    data = np.asarray(work_image.convert("RGB"), dtype=np.float32)
+    mask = np.zeros((work_height, work_width), dtype=bool)
+    pixels = selection_points_to_pixels(points, work_width, work_height)
+    yy, xx = np.ogrid[:work_height, :work_width]
+    global_std = float(np.std(data.reshape(-1, 3)))
+    threshold = max(28.0, min(74.0, 22.0 + global_std * 0.42))
+    click_radius = max(18, round(max(work_width, work_height) * 0.055))
+    max_component_pixels = max(1024, int(work_width * work_height * 0.55))
+
+    for px_float, py_float in pixels:
+        px = int(round(px_float))
+        py = int(round(py_float))
+        seed = data[py, px]
+        color_distance = np.linalg.norm(data - seed, axis=2)
+        color_region = color_distance <= threshold
+        component = connected_component_from_seed(color_region, px, py, max_component_pixels)
+        click_circle = (xx - px) ** 2 + (yy - py) ** 2 <= click_radius**2
+        component |= click_circle & (color_distance <= threshold * 1.8)
+        if int(component.sum()) < max(64, int(work_width * work_height * 0.001)):
+            component |= click_circle
+        mask |= component
+
+    mask_image = Image.fromarray((mask.astype(np.uint8) * 255), mode="L")
+    mask_image = mask_image.filter(ImageFilter.MaxFilter(9)).filter(ImageFilter.MinFilter(5)).filter(ImageFilter.MaxFilter(7))
+    if mask_image.size != image.size:
+        mask_image = mask_image.resize(image.size, Image.Resampling.NEAREST)
+    return mask_image
+
+
+def load_sam2_selection_model(model_id: str, device: str):
+    import torch
+    from transformers import Sam2Model, Sam2Processor
+
+    hf_model_id = SELECTION_MODEL_IDS.get(model_id, model_id if "/" in model_id else SELECTION_MODEL_IDS["sam2.1-hiera-large"])
+    cache_key = (hf_model_id, device)
+    with SELECTION_MODEL_LOCK:
+        if cache_key in SELECTION_MODEL_CACHE:
+            return SELECTION_MODEL_CACHE[cache_key]
+
+        allow_download = os.getenv("SELECTION_ALLOW_MODEL_DOWNLOAD", "").lower() in {"1", "true", "yes", "on"}
+        local_files_only = not allow_download
+        processor = Sam2Processor.from_pretrained(hf_model_id, local_files_only=local_files_only)
+        torch_dtype = torch.float16 if str(device).startswith("cuda") else torch.float32
+        model = Sam2Model.from_pretrained(hf_model_id, torch_dtype=torch_dtype, local_files_only=local_files_only)
+        model.to(device)
+        model.eval()
+        SELECTION_MODEL_CACHE[cache_key] = (processor, model, hf_model_id)
+        return SELECTION_MODEL_CACHE[cache_key]
+
+
+def sam2_selection_mask(image: Image.Image, points: list[dict[str, float]], model_id: str, device: str = "auto") -> tuple[Image.Image, str]:
+    import torch
+
+    selected_device = device
+    if selected_device == "auto":
+        selected_device = "cuda" if torch.cuda.is_available() else "cpu"
+    processor, model, hf_model_id = load_sam2_selection_model(model_id, selected_device)
+    pixel_points = selection_points_to_pixels(points, *image.size)
+    input_labels = [[[1 for _ in pixel_points]]]
+    inputs = processor(
+        images=image,
+        input_points=[[pixel_points]],
+        input_labels=input_labels,
+        return_tensors="pt",
+    )
+    inputs = inputs.to(selected_device)
+
+    with torch.inference_mode():
+        outputs = model(**inputs)
+
+    post_masks = processor.post_process_masks(
+        outputs.pred_masks.detach().cpu(),
+        inputs["original_sizes"].detach().cpu(),
+        mask_threshold=0.0,
+        binarize=True,
+        max_hole_area=256.0,
+        max_sprinkle_area=128.0,
+    )
+    masks = post_masks[0].detach().cpu().numpy().astype(bool)
+    candidates = masks.reshape((-1, masks.shape[-2], masks.shape[-1]))
+    scores = getattr(outputs, "iou_scores", None)
+    if scores is not None and scores.numel() == len(candidates):
+        best_index = int(torch.argmax(scores.detach().cpu().reshape(-1)).item())
+    else:
+        areas = candidates.reshape((len(candidates), -1)).sum(axis=1)
+        best_index = int(np.argmax(areas))
+
+    selected_mask = candidates[best_index]
+    if not np.any(selected_mask):
+        raise RuntimeError("SAM2 returned an empty selection mask")
+    return Image.fromarray((selected_mask.astype(np.uint8) * 255), mode="L"), hf_model_id
+
+
+def selected_image_from_mask(image: Image.Image, mask: Image.Image, background_mode: str) -> Image.Image:
+    background_colors = {
+        "neutral": (245, 245, 245),
+        "white": (255, 255, 255),
+        "black": (0, 0, 0),
+    }
+    background = Image.new("RGB", image.size, background_colors.get(background_mode, background_colors["neutral"]))
+    soft_mask = mask.convert("L").filter(ImageFilter.GaussianBlur(radius=1.5))
+    return Image.composite(image.convert("RGB"), background, soft_mask)
+
+
+def selection_overlay(image: Image.Image, mask: Image.Image) -> Image.Image:
+    base = image.convert("RGBA")
+    tint = Image.new("RGBA", image.size, (16, 185, 129, 105))
+    clear = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    highlight = Image.composite(tint, clear, mask.convert("L"))
+    return Image.alpha_composite(base, highlight)
+
+
 def get_runtime_info() -> dict:
     try:
         import torch
@@ -327,6 +528,96 @@ def get_runtime_info() -> dict:
             "device": "unknown",
             "error": str(exc),
         }
+
+
+@app.post("/selection/keep")
+async def keep_selected_objects(
+    file: UploadFile = File(...),
+    points_json: str = Form("[]"),
+    model_id: str = Form("sam2.1-hiera-large"),
+    device: str = Form("auto"),
+    background_mode: str = Form("neutral"),
+    mask_max_dimension: int = Form(1024),
+):
+    points = parse_selection_points(points_json)
+    if not points:
+        raise HTTPException(status_code=400, detail="Click at least one object or image part to keep")
+
+    job_id = uuid4().hex
+    job_dir = OUTPUT_DIR / "selection" / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    started = time.perf_counter()
+
+    try:
+        with Image.open(file.file) as uploaded_image:
+            image = ImageOps.exif_transpose(uploaded_image).convert("RGB")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
+
+    model_status = "fallback-click-region"
+    model_error = None
+    try:
+        if model_id.startswith("sam2") or model_id == "grounding-dino-sam2":
+            mask, resolved_model_id = sam2_selection_mask(image, points, model_id=model_id, device=device)
+            model_status = "sam2-point-prompt"
+            model_id = resolved_model_id
+        else:
+            mask = fallback_selection_mask(image, points, max_dimension=mask_max_dimension)
+    except Exception as exc:
+        model_error = str(exc)
+        if "cache" in model_error.lower() and "local" in model_error.lower():
+            model_error = "SAM2 checkpoint is not cached locally"
+        elif len(model_error) > 220:
+            model_error = f"{model_error[:217]}..."
+        logger.warning("Selection model failed; using fallback click-region mask: %s", model_error)
+        mask = fallback_selection_mask(image, points, max_dimension=mask_max_dimension)
+
+    selected = selected_image_from_mask(image, mask, background_mode=background_mode)
+    overlay = selection_overlay(image, mask)
+    source_path = job_dir / "source.png"
+    selected_path = job_dir / "selected_image.png"
+    mask_path = job_dir / "selection_mask.png"
+    overlay_path = job_dir / "selection_overlay.png"
+    metadata_path = job_dir / "selection.json"
+    image.save(source_path)
+    selected.save(selected_path)
+    mask.save(mask_path)
+    overlay.save(overlay_path)
+
+    mask_pixels = int(np.count_nonzero(np.asarray(mask) > 0))
+    metadata = {
+        "job_id": job_id,
+        "source_filename": file.filename,
+        "points": points,
+        "model_id": model_id,
+        "model_status": model_status,
+        "model_error": model_error,
+        "background_mode": background_mode,
+        "image_size": {"width": image.width, "height": image.height},
+        "mask_pixels": mask_pixels,
+        "mask_coverage": mask_pixels / float(max(1, image.width * image.height)),
+        "timings": {"selection_seconds": round(time.perf_counter() - started, 3)},
+        "created_at": datetime.utcnow().isoformat() + "Z",
+    }
+    with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+        json.dump(metadata, metadata_file, indent=2)
+
+    selected_relative_path = output_relative_path(selected_path)
+    mask_relative_path = output_relative_path(mask_path)
+    overlay_relative_path = output_relative_path(overlay_path)
+    metadata_relative_path = output_relative_path(metadata_path)
+    return {
+        **metadata,
+        "selected_image": selected_relative_path,
+        "selected_image_url": f"/depth_data/{selected_relative_path}",
+        "mask": mask_relative_path,
+        "mask_url": f"/depth_data/{mask_relative_path}",
+        "overlay": overlay_relative_path,
+        "overlay_url": f"/depth_data/{overlay_relative_path}",
+        "metadata": metadata_relative_path,
+        "metadata_url": f"/diagnostics/{metadata_relative_path}",
+    }
+
 
 @app.post("/process_image")
 async def process_image(
@@ -425,6 +716,9 @@ async def process_image(
                 depth_metadata = json.load(depth_metadata_file)
         effective_depth_model = depth_metadata.get("effective_model") or selected_model
         effective_invert = relief_invert_for_model(effective_depth_model, relief_polarity, invert)
+        relief_value_transform = depth_metadata.get("relief_value_transform")
+        if not relief_value_transform:
+            relief_value_transform = relief_value_transform_for_model(effective_depth_model)
         
         # Generate 3D model
         logger.info("Generating 3D model...")
@@ -444,6 +738,7 @@ async def process_image(
             low_percentile=low_percentile,
             high_percentile=high_percentile,
             base_border_px=base_border_px,
+            value_transform=relief_value_transform,
         )
         record_timing("stl_seconds", stage_started)
         logger.info(f"3D model saved as: {stl_path}")
@@ -493,6 +788,7 @@ async def process_image(
             "mesh_resolution_multiplier": mesh_resolution_multiplier,
             "invert": effective_invert,
             "requested_invert": invert,
+            "relief_value_transform": relief_value_transform,
             "sigma": sigma,
             "relief_gamma": relief_gamma,
             "detail_boost": detail_boost,
