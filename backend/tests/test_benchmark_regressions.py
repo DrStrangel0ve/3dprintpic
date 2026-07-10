@@ -33,6 +33,7 @@ from backend.benchmark.explain_paired_objective import (
     explain as explain_paired_objective,
     paired_sample_rows,
 )
+from backend.benchmark.extract_colab_output_summary import extract_colab_output, parse_colab_output
 from backend.benchmark.export_training_pairs import main as export_training_pairs_main
 from backend.benchmark.generate_rendered_dataset import attach_multiview_fields, generate_dataset
 from backend.benchmark.ingest_stl_results import (
@@ -3432,6 +3433,61 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("diffusers==0.30.0", archive_run_script)
         self.assertIn("transformers==4.46.0", archive_run_script)
         self.assertIn("--candidate-method hunyuan3d_shape_masked_repaired_stl_mirror_bbox_direct_mesh", archive_run_script)
+
+
+class ColabOutputSummaryExtractionTests(unittest.TestCase):
+    def sample_output(self) -> str:
+        return """
+Launching /content/inputs/run_colab_eval.sh
+---RESULTS_SUMMARY_JSON---
+{
+  "provider_setup_only": false,
+  "run_name": "g4_stl_first_triposg_prefill_s40_n10",
+  "run_status": 0,
+  "eval_summaries": [
+    {
+      "top_method": "mirror",
+      "selection_decision_exists": true
+    }
+  ]
+}
+---RESULT_ARCHIVES_JSON---
+[
+  {
+    "bytes": 2905172,
+    "path": "/content/g4_stl_first_triposg_prefill_s40_n10_results.tar.gz",
+    "sha256": "abc123"
+  }
+]
+CompletedProcess(args=['bash'], returncode=0)
+"""
+
+    def test_parse_colab_output_reads_latest_marked_json_blocks(self):
+        parsed = parse_colab_output("stale\n" + self.sample_output())
+
+        self.assertTrue(parsed["markers_found"]["results_summary"])
+        self.assertTrue(parsed["markers_found"]["result_archives"])
+        self.assertEqual(parsed["results_summary"]["run_status"], 0)
+        self.assertEqual(parsed["results_summary"]["run_name"], "g4_stl_first_triposg_prefill_s40_n10")
+        self.assertEqual(parsed["result_archives"][0]["bytes"], 2905172)
+        self.assertEqual(parsed["result_archives"][0]["sha256"], "abc123")
+
+    def test_extract_colab_output_writes_summary_archives_and_report(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output_text = root / "colab_output.txt"
+            output_text.write_text(self.sample_output(), encoding="utf-8")
+
+            report = extract_colab_output(output_text, root / "extracted")
+            summary = json.loads((root / "extracted" / "results_summary.json").read_text(encoding="utf-8"))
+            archives = json.loads((root / "extracted" / "result_archives.json").read_text(encoding="utf-8"))
+            report_json = json.loads((root / "extracted" / "colab_output_extract_report.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(report["run_status"], 0)
+        self.assertEqual(report["archive_count"], 1)
+        self.assertEqual(summary["run_name"], "g4_stl_first_triposg_prefill_s40_n10")
+        self.assertEqual(archives[0]["path"], "/content/g4_stl_first_triposg_prefill_s40_n10_results.tar.gz")
+        self.assertEqual(report_json["archive_paths"], ["/content/g4_stl_first_triposg_prefill_s40_n10_results.tar.gz"])
 
 
 class TrainingProvenanceRegressionTests(unittest.TestCase):
