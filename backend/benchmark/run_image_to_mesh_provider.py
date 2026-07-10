@@ -1119,12 +1119,13 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
         provider_invocation_runtime = time.perf_counter() - provider_started
         args._provider_metrics["provider_invocation_runtime_seconds"] = provider_invocation_runtime
         inference_runtime = getattr(args, "_provider_inference_runtime_seconds", None)
-        args._provider_metrics["provider_inference_runtime_seconds"] = (
-            float(inference_runtime) if inference_runtime is not None else provider_invocation_runtime
-        )
-        args._provider_metrics["provider_cache_hit"] = bool(
-            getattr(args, "_provider_cache_hit", False)
-        )
+        provider_cache_hit = bool(getattr(args, "_provider_cache_hit", False))
+        if inference_runtime is not None:
+            inference_runtime = float(inference_runtime)
+        elif not provider_cache_hit:
+            inference_runtime = provider_invocation_runtime
+        args._provider_metrics["provider_inference_runtime_seconds"] = inference_runtime
+        args._provider_metrics["provider_cache_hit"] = provider_cache_hit
 
     args._provider_metrics["provider_raw_output_mesh"] = str(output_mesh)
 
@@ -1150,17 +1151,26 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
                 time.perf_counter() - repair_started
             )
 
-    if (
+    needs_postprocess = (
         args.mesh_target_max_dimension > 0
         or args.mesh_min_bbox_dimension > 0
         or args.mesh_max_bbox_aspect_ratio > 0
         or args.mesh_target_bbox_extents is not None
         or args.mesh_target_faces > 0
         or max_normalized_face_density_log1p > 0
-    ):
-        if args.raw_output_mesh and args.mesh_repair == "none" and output_mesh.resolve() != args.raw_output_mesh.resolve():
-            args.raw_output_mesh.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(output_mesh, args.raw_output_mesh)
+    )
+    if needs_postprocess:
+        if args.mesh_repair == "none":
+            raw_output_mesh = args.raw_output_mesh or output_mesh.with_name(
+                f"{output_mesh.stem}_raw{output_mesh.suffix}"
+            )
+            if output_mesh.resolve() == raw_output_mesh.resolve():
+                raw_output_mesh = output_mesh.with_name(
+                    f"{output_mesh.stem}_raw{output_mesh.suffix}"
+                )
+            raw_output_mesh.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(output_mesh, raw_output_mesh)
+            args._provider_metrics["provider_raw_output_mesh"] = str(raw_output_mesh)
         postprocess_started = time.perf_counter()
         try:
             output_mesh = postprocess_mesh_for_stl(
@@ -1379,20 +1389,24 @@ def main() -> None:
     try:
         output_mesh, output_stl = run_provider(args)
     except Exception as exc:
-        metrics = dict(getattr(args, "_provider_metrics", {}))
-        metrics.update(
-            {
-                "provider_metrics_path": str(provider_metrics_path),
-                "status": "failed",
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-            }
-        )
-        write_json_atomic(provider_metrics_path, metrics)
+        provider_metrics = getattr(args, "_provider_metrics", None)
+        if provider_metrics is not None:
+            metrics = dict(provider_metrics)
+            metrics.update(
+                {
+                    "provider_metrics_path": str(provider_metrics_path),
+                    "status": "failed",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+            )
+            write_json_atomic(provider_metrics_path, metrics)
         raise
-    metrics = dict(getattr(args, "_provider_metrics", {}))
-    metrics["provider_metrics_path"] = str(provider_metrics_path)
-    write_json_atomic(provider_metrics_path, metrics)
+    provider_metrics = getattr(args, "_provider_metrics", None)
+    if provider_metrics is not None:
+        metrics = dict(provider_metrics)
+        metrics["provider_metrics_path"] = str(provider_metrics_path)
+        write_json_atomic(provider_metrics_path, metrics)
     print(f"mesh={output_mesh}")
     if output_stl is not None:
         print(f"stl={output_stl}")

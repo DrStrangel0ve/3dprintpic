@@ -590,16 +590,16 @@ def evaluate_direct_mesh_sample(sample, method, output_dir, args):
         row.update(provider_metrics)
         row["provider_status"] = provider_metrics.get("status", "")
         row["provider_metrics_path"] = str(provider_metrics_path)
-        if provider_metrics.get("provider_mesh_repair") not in (None, "", "none"):
-            raw_mesh_path = provider_metrics.get("provider_raw_output_mesh")
-            if raw_mesh_path and Path(raw_mesh_path).is_file():
-                row.update(
-                    mesh_diagnostics(
-                        raw_mesh_path,
-                        prefix="raw_mesh",
-                        include_topology=False,
-                    )
+        raw_mesh_path = provider_metrics.get("provider_raw_output_mesh")
+        if raw_mesh_path and Path(raw_mesh_path).is_file():
+            row.update(
+                mesh_diagnostics(
+                    raw_mesh_path,
+                    prefix="raw_mesh",
+                    include_topology=False,
                 )
+            )
+        if provider_metrics.get("provider_mesh_repair") not in (None, "", "none"):
             raw_fill = float(row.get("raw_mesh_volume_fill_ratio", math.nan))
             repaired_fill = float(row.get("stl_volume_fill_ratio", math.nan))
             if math.isfinite(raw_fill) and math.isfinite(repaired_fill):

@@ -1317,6 +1317,21 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(diagnostics["stl_is_volume"])
         self.assertTrue(diagnostics["stl_single_component"])
 
+    def test_fast_component_filter_prefers_enclosed_volume_over_surface_area(self):
+        import trimesh
+
+        plate = trimesh.creation.box(extents=(10.0, 10.0, 0.01))
+        plate.apply_translation((20.0, 0.0, 0.0))
+        solid = trimesh.creation.box(extents=(4.0, 4.0, 4.0))
+        fragmented = trimesh.util.concatenate((plate, solid))
+
+        filtered = direct_mesh._largest_face_component(fragmented)
+
+        self.assertGreater(float(plate.area), float(solid.area))
+        self.assertGreater(float(solid.volume), float(plate.volume) * 60.0)
+        self.assertAlmostEqual(abs(float(filtered.volume)), float(solid.volume), places=6)
+        np.testing.assert_allclose(filtered.extents, solid.extents)
+
     def test_printable_mesh_repair_accepts_bounded_residual_before_component_cleanup(self):
         import trimesh
 
@@ -2080,6 +2095,13 @@ class StlExportRegressionTests(unittest.TestCase):
                 direct_mesh_reference_method="mirror",
                 stl_target_dimension=96,
             )
+            output_dir.mkdir()
+            stale_mesh = output_dir / "output_mesh.ply"
+            stale_stl = output_dir / "output_model.stl"
+            stale_metrics = output_dir / "provider_metrics.json"
+            stale_mesh.write_bytes(b"stale mesh")
+            stale_stl.write_bytes(b"stale stl")
+            stale_metrics.write_text('{"status":"stale"}', encoding="utf-8")
 
             with self.assertRaises(RuntimeError) as raised:
                 run_direct_mesh(sample, "external-image-to-mesh", output_dir, args)
@@ -2094,6 +2116,9 @@ class StlExportRegressionTests(unittest.TestCase):
             command_metrics = json.loads(
                 (output_dir / "direct_mesh_command_metrics.json").read_text(encoding="utf-8")
             )
+            stale_artifacts_exist = any(
+                path.exists() for path in (stale_mesh, stale_stl, stale_metrics)
+            )
 
         self.assertTrue(stdout_exists)
         self.assertTrue(stderr_exists)
@@ -2104,6 +2129,7 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("provider stderr marker", message)
         self.assertEqual(command_metrics["direct_mesh_command_status"], "failed")
         self.assertGreaterEqual(command_metrics["direct_mesh_command_runtime_seconds"], 0.0)
+        self.assertFalse(stale_artifacts_exist)
 
     def test_direct_mesh_metrics_ingest_provider_runtime_and_raw_geometry(self):
         import trimesh
@@ -2181,6 +2207,59 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertGreater(row["repair_volume_fill_ratio_relative_change"], 0.0)
         self.assertFalse(row["provider_peak_cuda_vram_supported"])
         self.assertIsNone(row["provider_peak_cuda_vram_gib"])
+
+    def test_direct_mesh_metrics_include_raw_geometry_without_mesh_repair(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_image = root / "input.png"
+            raw_mesh = root / "raw.glb"
+            output_mesh = root / "normalized.glb"
+            output_stl = root / "normalized.stl"
+            Image.new("RGB", (8, 8), (120, 130, 140)).save(input_image)
+            trimesh.creation.icosphere(subdivisions=1).export(raw_mesh)
+            trimesh.creation.box(extents=(2.0, 2.0, 2.0)).export(output_mesh)
+            trimesh.creation.box(extents=(2.0, 2.0, 2.0)).export(output_stl)
+            (root / "provider_metrics.json").write_text(
+                json.dumps(
+                    {
+                        "provider": "pixal3d",
+                        "provider_raw_output_mesh": str(raw_mesh),
+                        "provider_final_output_mesh": str(output_mesh),
+                        "provider_mesh_repair": "none",
+                        "status": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            sample = {
+                "id": "box",
+                "full_image": str(input_image),
+                "masked_image": str(input_image),
+                "mask": str(input_image),
+            }
+            args = SimpleNamespace(
+                direct_mesh_command="provider-wrapper",
+                direct_mesh_input="biharmonic",
+                direct_mesh_output_ext="glb",
+                direct_mesh_reference_method="mirror",
+                direct_mesh_reference_output_dir=None,
+                source_mesh_repair="none",
+                stl_target_dimension=96,
+                mesh_surface_max_points=64,
+                emit_stl=True,
+            )
+            with patch.object(
+                run_completion_benchmark,
+                "run_direct_mesh",
+                return_value=(input_image, output_mesh, output_stl, None),
+            ):
+                row = evaluate_direct_mesh_sample(sample, "external-image-to-mesh", root, args)
+
+        self.assertTrue(row["raw_mesh_exists"])
+        self.assertEqual(row["provider_mesh_repair"], "none")
+        self.assertNotIn("repair_volume_fill_ratio_change", row)
 
     def test_hunyuan3d_shape_provider_low_vram_accepts_offload_without_device_arg(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -259,11 +259,58 @@ class Pixal3DProviderTest(unittest.TestCase):
             raw_mesh = load_mesh(raw_output_mesh)
             normalized_mesh = load_mesh(output_mesh)
             stl_mesh = load_mesh(output_stl)
+            provider_metrics = json.loads(
+                (root / "provider_metrics.json").read_text(encoding="utf-8")
+            )
             self.assertAlmostEqual(float(raw_mesh.extents.max()), 2.0, places=4)
             self.assertAlmostEqual(float(normalized_mesh.extents.max()), 40.0, places=4)
             self.assertAlmostEqual(float(stl_mesh.extents.max()), 40.0, places=4)
             self.assertTrue(stl_mesh.is_watertight)
             self.assertGreater(float(stl_mesh.volume), 0.0)
+            self.assertEqual(
+                Path(provider_metrics["provider_raw_output_mesh"]),
+                raw_output_mesh,
+            )
+
+    def test_legacy_cache_hit_keeps_unknown_inference_runtime_null(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_image = root / "input.png"
+            output_mesh = root / "output.glb"
+            Image.new("RGB", (8, 8), (127, 127, 127)).save(input_image)
+            args = SimpleNamespace(
+                provider="pixal3d",
+                input_image=input_image,
+                output_mesh=output_mesh,
+                output_stl=None,
+                raw_output_mesh=None,
+                mesh_max_normalized_face_density_log1p=0.0,
+                mesh_target_bbox_extents=None,
+                mesh_target_faces=0,
+                input_bundle=None,
+                mesh_repair="none",
+                mesh_target_max_dimension=0.0,
+                mesh_min_bbox_dimension=0.0,
+                mesh_max_bbox_aspect_ratio=0.0,
+            )
+
+            def cached_provider(call_args):
+                call_args._provider_cache_hit = True
+                call_args._provider_inference_runtime_seconds = None
+                return root / "cached.glb"
+
+            with patch.object(
+                provider_module, "run_cli_provider", side_effect=cached_provider
+            ), patch.object(
+                provider_module, "export_mesh", return_value=output_mesh
+            ):
+                provider_module.run_provider(args)
+
+        self.assertTrue(args._provider_metrics["provider_cache_hit"])
+        self.assertIsNone(args._provider_metrics["provider_inference_runtime_seconds"])
+        self.assertGreaterEqual(
+            args._provider_metrics["provider_invocation_runtime_seconds"], 0.0
+        )
 
     def test_content_addressed_cache_reuses_identical_mesh_for_repair(self):
         with tempfile.TemporaryDirectory() as temp_dir:

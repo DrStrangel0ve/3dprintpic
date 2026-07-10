@@ -307,7 +307,14 @@ def _largest_face_component(mesh):
         face_areas = np.asarray(mesh.area_faces, dtype=np.float64)
         safe_areas = np.where(np.isfinite(face_areas), np.maximum(face_areas, 0.0), 0.0)
         areas = np.bincount(labels, weights=safe_areas, minlength=len(counts))
-        component = int(np.lexsort((counts, areas))[-1])
+        triangles = np.asarray(mesh.triangles, dtype=np.float64)
+        crosses = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+        volume_terms = crosses[:, 0] * triangles[:, :, 0].sum(axis=1) / 6.0
+        safe_volume_terms = np.where(np.isfinite(volume_terms), volume_terms, 0.0)
+        volumes = np.abs(
+            np.bincount(labels, weights=safe_volume_terms, minlength=len(counts))
+        )
+        component = int(np.lexsort((counts, areas, volumes))[-1])
         face_indices = np.flatnonzero(labels == component)
         if not len(face_indices) or len(face_indices) == len(mesh.faces):
             return mesh
@@ -801,6 +808,14 @@ def run_direct_mesh(sample: dict, method: str, output_dir: Path, args) -> tuple[
         stdout_path = output_dir / "external_command.stdout.log"
         stderr_path = output_dir / "external_command.stderr.log"
         command_metrics_path = output_dir / "direct_mesh_command_metrics.json"
+        for stale_path in (
+            mesh_output_path,
+            stl_path,
+            output_dir / "provider_metrics.json",
+            command_metrics_path,
+        ):
+            if stale_path.is_file():
+                stale_path.unlink()
         command_started = time.perf_counter()
         command_status = "failed"
         with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
