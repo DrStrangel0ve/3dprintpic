@@ -6,6 +6,7 @@ import json
 import os
 import shlex
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -38,6 +39,13 @@ from backend.benchmark.trellis2_models import (
 
 
 BUILTIN_PROVIDERS = {SOURCE_MESH_BUNDLE_ORACLE_PROVIDER, MULTIVIEW_VISUAL_HULL_PROVIDER}
+TRELLIS2_ATTENTION_BACKENDS = ("xformers", "flash_attn", "flash_attn_3")
+TRELLIS2_ATTENTION_MODULES = {
+    "xformers": "xformers.ops",
+    "flash_attn": "flash_attn",
+    "flash_attn_3": "flash_attn_interface",
+}
+TRELLIS2_PROBE_JSON_PREFIX = "TRELLIS2_PREFLIGHT_JSON="
 
 
 def command_exists(executable: str | None) -> bool:
@@ -56,6 +64,139 @@ def safe_find_spec(module: str) -> bool:
         return importlib.util.find_spec(module) is not None
     except (ImportError, ValueError):
         return False
+
+
+def build_trellis2_python_probe_script() -> str:
+    return (
+        "import importlib, json, os, sys\n"
+        f"accepted = {TRELLIS2_ATTENTION_BACKENDS!r}\n"
+        f"module_by_backend = {TRELLIS2_ATTENTION_MODULES!r}\n"
+        "requested = os.environ.get('SPARSE_ATTN_BACKEND') or os.environ.get('ATTN_BACKEND') or ''\n"
+        "payload = {\n"
+        "    'python_executable': sys.executable,\n"
+        "    'pipelines_importable': False,\n"
+        "    'pipeline_class_importable': False,\n"
+        "    'attention_backend_requested': requested,\n"
+        "    'attention_backend': '',\n"
+        "    'attention_backend_accepted': False,\n"
+        "    'attention_backend_module': '',\n"
+        "    'attention_backend_importable': False,\n"
+        "    'attention_backend_api_ready': False,\n"
+        "    'backend_ready': False,\n"
+        "    'error': '',\n"
+        "}\n"
+        "try:\n"
+        "    pipelines = importlib.import_module('trellis2.pipelines')\n"
+        "    payload['pipelines_importable'] = True\n"
+        "    getattr(pipelines, 'Trellis2ImageTo3DPipeline')\n"
+        "    payload['pipeline_class_importable'] = True\n"
+        "    sparse_config = importlib.import_module('trellis2.modules.sparse.config')\n"
+        "    active = str(sparse_config.ATTN)\n"
+        "    payload['attention_backend'] = active\n"
+        "    requested_accepted = not requested or requested in accepted\n"
+        "    requested_matches = not requested or requested == active\n"
+        "    payload['attention_backend_accepted'] = active in accepted and requested_accepted and requested_matches\n"
+        "    backend_module = module_by_backend.get(active, '')\n"
+        "    payload['attention_backend_module'] = backend_module\n"
+        "    if backend_module:\n"
+        "        backend_api = importlib.import_module(backend_module)\n"
+        "        payload['attention_backend_importable'] = True\n"
+        "        if active == 'xformers':\n"
+        "            getattr(backend_api, 'memory_efficient_attention')\n"
+        "            getattr(backend_api.fmha.BlockDiagonalMask, 'from_seqlens')\n"
+        "        elif active == 'flash_attn':\n"
+        "            getattr(backend_api, 'flash_attn_varlen_qkvpacked_func')\n"
+        "            getattr(backend_api, 'flash_attn_varlen_kvpacked_func')\n"
+        "            getattr(backend_api, 'flash_attn_varlen_func')\n"
+        "        elif active == 'flash_attn_3':\n"
+        "            getattr(backend_api, 'flash_attn_varlen_func')\n"
+        "        payload['attention_backend_api_ready'] = True\n"
+        "except Exception as exc:\n"
+        "    payload['error'] = f'{type(exc).__name__}: {exc}'\n"
+        "payload['backend_ready'] = bool(\n"
+        "    payload['pipelines_importable']\n"
+        "    and payload['pipeline_class_importable']\n"
+        "    and payload['attention_backend_accepted']\n"
+        "    and payload['attention_backend_importable']\n"
+        "    and payload['attention_backend_api_ready']\n"
+        ")\n"
+        f"print({TRELLIS2_PROBE_JSON_PREFIX!r} + json.dumps(payload, sort_keys=True))\n"
+        "raise SystemExit(0 if payload['backend_ready'] else 1)\n"
+    )
+
+
+def probe_trellis2_provider_python(
+    provider_python: str,
+    provider_dir: Path,
+    *,
+    timeout_seconds: int = 60,
+) -> dict:
+    env = os.environ.copy()
+    current_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(provider_dir), current_pythonpath) if part
+    )
+    command = [provider_python, "-c", build_trellis2_python_probe_script()]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=provider_dir,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=timeout_seconds,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "python_executable": provider_python,
+            "returncode": None,
+            "pipelines_importable": False,
+            "pipeline_class_importable": False,
+            "attention_backend_requested": (
+                env.get("SPARSE_ATTN_BACKEND") or env.get("ATTN_BACKEND") or ""
+            ),
+            "attention_backend": "",
+            "attention_backend_accepted": False,
+            "attention_backend_module": "",
+            "attention_backend_importable": False,
+            "attention_backend_api_ready": False,
+            "backend_ready": False,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+    payload = None
+    for line in reversed(completed.stdout.splitlines()):
+        if line.startswith(TRELLIS2_PROBE_JSON_PREFIX):
+            try:
+                payload = json.loads(line[len(TRELLIS2_PROBE_JSON_PREFIX) :])
+            except json.JSONDecodeError:
+                payload = None
+            break
+    if not isinstance(payload, dict):
+        payload = {
+            "python_executable": provider_python,
+            "pipelines_importable": False,
+            "pipeline_class_importable": False,
+            "attention_backend_requested": (
+                env.get("SPARSE_ATTN_BACKEND") or env.get("ATTN_BACKEND") or ""
+            ),
+            "attention_backend": "",
+            "attention_backend_accepted": False,
+            "attention_backend_module": "",
+            "attention_backend_importable": False,
+            "attention_backend_api_ready": False,
+            "backend_ready": False,
+            "error": "Provider Python did not emit a TRELLIS.2 preflight payload.",
+        }
+    payload["returncode"] = completed.returncode
+    if completed.returncode and not payload.get("error"):
+        stderr = completed.stderr.strip()
+        payload["error"] = stderr[-2000:] or f"Provider Python exited with {completed.returncode}."
+    payload["backend_ready"] = bool(
+        payload.get("backend_ready") and completed.returncode == 0
+    )
+    return payload
 
 
 def flag_value(tokens: list[str], flag: str) -> str | None:
@@ -254,6 +395,91 @@ def provider_preflight_row(parsed: dict, experiment_names: list[str] | None = No
                     "TRELLIS.2 provider source must be checked out at "
                     f"{DEFAULT_TRELLIS2_SOURCE_REVISION}; found {actual}."
                 )
+            package_source = provider_dir / "trellis2" / "__init__.py"
+            package_source_found = package_source.is_file()
+            checks["trellis2_package_source_found"] = package_source_found
+            if (provider_dir / ".git").exists() and not package_source_found:
+                setup_errors.append(
+                    "TRELLIS.2 provider repo is missing trellis2/__init__.py."
+                )
+            if package_source_found and provider_python_found:
+                python_probe = probe_trellis2_provider_python(
+                    provider_python,
+                    provider_dir,
+                )
+                checks["trellis2_python_probe"] = python_probe
+                checks["trellis2_pipelines_importable"] = bool(
+                    python_probe.get("pipelines_importable")
+                )
+                checks["trellis2_pipeline_class_importable"] = bool(
+                    python_probe.get("pipeline_class_importable")
+                )
+                checks["trellis2_attention_backend_requested"] = (
+                    python_probe.get("attention_backend_requested") or ""
+                )
+                checks["trellis2_attention_backend"] = (
+                    python_probe.get("attention_backend") or ""
+                )
+                checks["trellis2_attention_backend_accepted"] = bool(
+                    python_probe.get("attention_backend_accepted")
+                )
+                checks["trellis2_attention_backend_module"] = (
+                    python_probe.get("attention_backend_module") or ""
+                )
+                checks["trellis2_attention_backend_importable"] = bool(
+                    python_probe.get("attention_backend_importable")
+                )
+                checks["trellis2_attention_backend_api_ready"] = bool(
+                    python_probe.get(
+                        "attention_backend_api_ready",
+                        python_probe.get("attention_backend_importable"),
+                    )
+                )
+                checks["trellis2_attention_backend_ready"] = bool(
+                    python_probe.get("backend_ready")
+                )
+                if not python_probe.get("pipelines_importable"):
+                    setup_errors.append(
+                        "TRELLIS.2 provider Python cannot import trellis2.pipelines."
+                    )
+                elif not python_probe.get("pipeline_class_importable"):
+                    setup_errors.append(
+                        "TRELLIS.2 provider Python cannot import Trellis2ImageTo3DPipeline."
+                    )
+                if not python_probe.get("attention_backend_accepted"):
+                    accepted = ", ".join(TRELLIS2_ATTENTION_BACKENDS)
+                    requested = (
+                        python_probe.get("attention_backend_requested") or "<unset>"
+                    )
+                    active = python_probe.get("attention_backend") or "<unknown>"
+                    setup_errors.append(
+                        "TRELLIS.2 sparse attention backend must be one of "
+                        f"{accepted}; requested {requested}, active {active}."
+                    )
+                elif not python_probe.get("attention_backend_importable"):
+                    backend_module = (
+                        python_probe.get("attention_backend_module") or "<unknown>"
+                    )
+                    setup_errors.append(
+                        "TRELLIS.2 attention backend dependency is not importable: "
+                        f"{backend_module}."
+                    )
+                elif not python_probe.get(
+                    "attention_backend_api_ready",
+                    python_probe.get("attention_backend_importable"),
+                ):
+                    backend_module = (
+                        python_probe.get("attention_backend_module") or "<unknown>"
+                    )
+                    setup_errors.append(
+                        "TRELLIS.2 attention backend is missing its required sparse "
+                        f"attention API: {backend_module}."
+                    )
+                elif not python_probe.get("backend_ready"):
+                    detail = python_probe.get("error") or "unknown provider Python error"
+                    setup_errors.append(
+                        f"TRELLIS.2 provider Python preflight failed: {detail}"
+                    )
     elif provider == HUNYUAN3D_SHAPE_PROVIDER:
         provider_dir_value = parsed.get("provider_dir") or os.getenv("HUNYUAN3D_DIR")
         source_available = False

@@ -33,6 +33,13 @@ from backend.benchmark.triposg_models import (
     DEFAULT_TRIPOSG_REMBG_REVISION,
     triposg_model_specs,
 )
+from backend.benchmark.trellis2_models import (
+    DEFAULT_TRELLIS2_MODEL,
+    DEFAULT_TRELLIS2_MODEL_REVISION,
+    DEFAULT_TRELLIS2_RESOLUTION,
+    DEFAULT_TRELLIS2_SOURCE_REVISION,
+    trellis2_model_specs,
+)
 
 
 DEFAULT_PATH_FIELDS = (
@@ -54,6 +61,12 @@ DEFAULT_REPO_REMOTE = "https://github.com/DrStrangel0ve/3dprintpic.git"
 DEFAULT_REPO_REF = "codex/3d-completion-benchmark-g4"
 DEFAULT_INLINE_B64_CHUNK_SIZE = 76_000
 DETERMINISTIC_TAR_MTIME = 0
+DEFAULT_TRELLIS2_COLAB_PYTHON = "/content/trellis2-venv/bin/python"
+TRELLIS2_XFORMERS_VERSION = "0.0.35"
+TRELLIS2_UTILS3D_REVISION = "9a4eb15e4021b67b12c460c7057d642626897ec8"
+TRELLIS2_CUMESH_REVISION = "12289e1062f0603f2f0d0771b02e1395d247f26f"
+TRELLIS2_FLEXGEMM_REVISION = "6dd94a859c26ee8246888502eada3dd8ad85532e"
+TRELLIS2_NVDIFFRAST_REVISION = "253ac4fcea7de5f396371124af597e6cc957bfae"
 
 
 def repo_root() -> Path:
@@ -508,6 +521,162 @@ def build_triposg_setup_prelude() -> str:
     )
 
 
+def build_trellis2_setup_prelude() -> str:
+    return (
+        "TRELLIS2_DIR=\"${TRELLIS2_DIR:-/content/TRELLIS.2}\"\n"
+        "TRELLIS2_VENV=\"${TRELLIS2_VENV:-/content/trellis2-venv}\"\n"
+        "TRELLIS2_DEPS_SRC=\"${TRELLIS2_DEPS_SRC:-/content/trellis2-deps-src}\"\n"
+        f"TRELLIS2_REF=\"${{TRELLIS2_REF:-{DEFAULT_TRELLIS2_SOURCE_REVISION}}}\"\n"
+        f"TRELLIS2_MODEL_ID=\"${{TRELLIS2_MODEL_ID:-{DEFAULT_TRELLIS2_MODEL}}}\"\n"
+        f"TRELLIS2_MODEL_REVISION=\"${{TRELLIS2_MODEL_REVISION:-{DEFAULT_TRELLIS2_MODEL_REVISION}}}\"\n"
+        f"TRELLIS2_RESOLUTION=\"${{TRELLIS2_RESOLUTION:-{DEFAULT_TRELLIS2_RESOLUTION}}}\"\n"
+        "TRELLIS2_ATTN_BACKEND=\"${TRELLIS2_ATTN_BACKEND:-xformers}\"\n"
+        f"TRELLIS2_XFORMERS_VERSION=\"${{TRELLIS2_XFORMERS_VERSION:-{TRELLIS2_XFORMERS_VERSION}}}\"\n"
+        "TRELLIS2_CUMESH_DIR=\"${TRELLIS2_CUMESH_DIR:-$TRELLIS2_DEPS_SRC/CuMesh}\"\n"
+        f"TRELLIS2_CUMESH_REF=\"${{TRELLIS2_CUMESH_REF:-{TRELLIS2_CUMESH_REVISION}}}\"\n"
+        "TRELLIS2_FLEXGEMM_DIR=\"${TRELLIS2_FLEXGEMM_DIR:-$TRELLIS2_DEPS_SRC/FlexGEMM}\"\n"
+        f"TRELLIS2_FLEXGEMM_REF=\"${{TRELLIS2_FLEXGEMM_REF:-{TRELLIS2_FLEXGEMM_REVISION}}}\"\n"
+        "TRELLIS2_NVDIFFRAST_DIR=\"${TRELLIS2_NVDIFFRAST_DIR:-$TRELLIS2_DEPS_SRC/nvdiffrast}\"\n"
+        f"TRELLIS2_NVDIFFRAST_REF=\"${{TRELLIS2_NVDIFFRAST_REF:-{TRELLIS2_NVDIFFRAST_REVISION}}}\"\n"
+        "if [[ \"$TRELLIS2_ATTN_BACKEND\" != \"xformers\" ]]; then\n"
+        "  echo \"The reproducible TRELLIS.2 Colab setup installs xformers; got TRELLIS2_ATTN_BACKEND=$TRELLIS2_ATTN_BACKEND\" >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "export TRELLIS2_DIR TRELLIS2_VENV TRELLIS2_DEPS_SRC TRELLIS2_REF TRELLIS2_MODEL_ID TRELLIS2_MODEL_REVISION TRELLIS2_RESOLUTION TRELLIS2_ATTN_BACKEND TRELLIS2_XFORMERS_VERSION\n"
+        "export TRELLIS2_CUMESH_DIR TRELLIS2_CUMESH_REF TRELLIS2_FLEXGEMM_DIR TRELLIS2_FLEXGEMM_REF TRELLIS2_NVDIFFRAST_DIR TRELLIS2_NVDIFFRAST_REF\n"
+        "export ATTN_BACKEND=\"$TRELLIS2_ATTN_BACKEND\"\n"
+        "export SPARSE_ATTN_BACKEND=\"$TRELLIS2_ATTN_BACKEND\"\n"
+        "export CUDA_HOME=\"${CUDA_HOME:-/usr/local/cuda}\"\n"
+        "export PATH=\"$CUDA_HOME/bin:$PATH\"\n"
+        "export LD_LIBRARY_PATH=\"$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}\"\n"
+        "export MAX_JOBS=\"${MAX_JOBS:-4}\"\n"
+        "mkdir -p \"$TRELLIS2_DEPS_SRC\"\n"
+        "if [[ ! -d \"$TRELLIS2_DIR/.git\" ]]; then\n"
+        "  rm -rf \"$TRELLIS2_DIR\"\n"
+        "  git clone --filter=blob:none --recurse-submodules https://github.com/microsoft/TRELLIS.2 \"$TRELLIS2_DIR\"\n"
+        "fi\n"
+        "git -C \"$TRELLIS2_DIR\" fetch --filter=blob:none origin \"$TRELLIS2_REF\" || git -C \"$TRELLIS2_DIR\" fetch --filter=blob:none origin main\n"
+        "git -C \"$TRELLIS2_DIR\" checkout --detach \"$TRELLIS2_REF\"\n"
+        "git -C \"$TRELLIS2_DIR\" reset --hard \"$TRELLIS2_REF\"\n"
+        "git -C \"$TRELLIS2_DIR\" submodule update --init --recursive\n"
+        "test \"$(git -C \"$TRELLIS2_DIR\" rev-parse HEAD)\" = \"$TRELLIS2_REF\"\n"
+        "if [[ ! -d \"$TRELLIS2_CUMESH_DIR/.git\" ]]; then\n"
+        "  rm -rf \"$TRELLIS2_CUMESH_DIR\"\n"
+        "  git clone --filter=blob:none --recurse-submodules https://github.com/JeffreyXiang/CuMesh.git \"$TRELLIS2_CUMESH_DIR\"\n"
+        "fi\n"
+        "git -C \"$TRELLIS2_CUMESH_DIR\" fetch --filter=blob:none origin \"$TRELLIS2_CUMESH_REF\" || git -C \"$TRELLIS2_CUMESH_DIR\" fetch --filter=blob:none origin main\n"
+        "git -C \"$TRELLIS2_CUMESH_DIR\" checkout --detach \"$TRELLIS2_CUMESH_REF\"\n"
+        "git -C \"$TRELLIS2_CUMESH_DIR\" reset --hard \"$TRELLIS2_CUMESH_REF\"\n"
+        "git -C \"$TRELLIS2_CUMESH_DIR\" submodule update --init --recursive\n"
+        "test \"$(git -C \"$TRELLIS2_CUMESH_DIR\" rev-parse HEAD)\" = \"$TRELLIS2_CUMESH_REF\"\n"
+        "if [[ ! -d \"$TRELLIS2_FLEXGEMM_DIR/.git\" ]]; then\n"
+        "  rm -rf \"$TRELLIS2_FLEXGEMM_DIR\"\n"
+        "  git clone --filter=blob:none --recurse-submodules https://github.com/JeffreyXiang/FlexGEMM.git \"$TRELLIS2_FLEXGEMM_DIR\"\n"
+        "fi\n"
+        "git -C \"$TRELLIS2_FLEXGEMM_DIR\" fetch --filter=blob:none origin \"$TRELLIS2_FLEXGEMM_REF\" || git -C \"$TRELLIS2_FLEXGEMM_DIR\" fetch --filter=blob:none origin main\n"
+        "git -C \"$TRELLIS2_FLEXGEMM_DIR\" checkout --detach \"$TRELLIS2_FLEXGEMM_REF\"\n"
+        "git -C \"$TRELLIS2_FLEXGEMM_DIR\" reset --hard \"$TRELLIS2_FLEXGEMM_REF\"\n"
+        "git -C \"$TRELLIS2_FLEXGEMM_DIR\" submodule update --init --recursive\n"
+        "test \"$(git -C \"$TRELLIS2_FLEXGEMM_DIR\" rev-parse HEAD)\" = \"$TRELLIS2_FLEXGEMM_REF\"\n"
+        "if [[ ! -d \"$TRELLIS2_NVDIFFRAST_DIR/.git\" ]]; then\n"
+        "  rm -rf \"$TRELLIS2_NVDIFFRAST_DIR\"\n"
+        "  git clone --filter=blob:none --branch v0.4.0 https://github.com/NVlabs/nvdiffrast.git \"$TRELLIS2_NVDIFFRAST_DIR\"\n"
+        "fi\n"
+        "git -C \"$TRELLIS2_NVDIFFRAST_DIR\" fetch --filter=blob:none origin \"$TRELLIS2_NVDIFFRAST_REF\" || git -C \"$TRELLIS2_NVDIFFRAST_DIR\" fetch --filter=blob:none origin v0.4.0\n"
+        "git -C \"$TRELLIS2_NVDIFFRAST_DIR\" checkout --detach \"$TRELLIS2_NVDIFFRAST_REF\"\n"
+        "git -C \"$TRELLIS2_NVDIFFRAST_DIR\" reset --hard \"$TRELLIS2_NVDIFFRAST_REF\"\n"
+        "test \"$(git -C \"$TRELLIS2_NVDIFFRAST_DIR\" rev-parse HEAD)\" = \"$TRELLIS2_NVDIFFRAST_REF\"\n"
+        "python -m pip install -q virtualenv\n"
+        "if [[ ! -x \"$TRELLIS2_VENV/bin/python\" ]]; then\n"
+        "  python -m virtualenv --system-site-packages \"$TRELLIS2_VENV\"\n"
+        "fi\n"
+        "TRELLIS2_PYTHON=\"$TRELLIS2_VENV/bin/python\"\n"
+        "export TRELLIS2_PYTHON\n"
+        "export PYTHONPATH=\"$TRELLIS2_DIR:${PYTHONPATH:-}\"\n"
+        "if ! command -v nvcc >/dev/null 2>&1; then\n"
+        "  echo \"TRELLIS.2 CUDA extension build requires nvcc\" >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "if ! nvcc --version | grep -Eq 'release 12\\.8([, ]|$)'; then\n"
+        "  echo \"TRELLIS.2 G4 setup requires a CUDA 12.8 toolkit to match Torch cu128\" >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "TRELLIS2_TORCH_CUDA_ARCH=\"$(\"$TRELLIS2_PYTHON\" - <<'PY'\n"
+        "import torch\n"
+        "if torch.__version__.split('+', 1)[0] != '2.11.0':\n"
+        "    raise SystemExit(f'TRELLIS.2 G4 setup requires Torch 2.11.0, got {torch.__version__}')\n"
+        "if torch.version.cuda != '12.8':\n"
+        "    raise SystemExit(f'TRELLIS.2 G4 setup requires Torch cu128, got CUDA {torch.version.cuda}')\n"
+        "if not torch.cuda.is_available():\n"
+        "    raise SystemExit('TRELLIS.2 setup requires CUDA')\n"
+        "major, minor = torch.cuda.get_device_capability(0)\n"
+        "print(f'{major}.{minor}')\n"
+        "PY\n"
+        ")\"\n"
+        "export TORCH_CUDA_ARCH_LIST=\"${TORCH_CUDA_ARCH_LIST:-$TRELLIS2_TORCH_CUDA_ARCH}\"\n"
+        "export CMAKE_CUDA_ARCHITECTURES=\"${CMAKE_CUDA_ARCHITECTURES:-${TRELLIS2_TORCH_CUDA_ARCH/./}}\"\n"
+        "if ! \"$TRELLIS2_PYTHON\" - <<'PY'\n"
+        "import importlib\n"
+        "from importlib.metadata import version\n"
+        "for name in ('xformers.ops', 'o_voxel', 'cumesh', 'flex_gemm', 'nvdiffrast.torch'):\n"
+        "    importlib.import_module(name)\n"
+        "if version('xformers') != __import__('os').environ['TRELLIS2_XFORMERS_VERSION']:\n"
+        "    raise SystemExit(1)\n"
+        "from trellis2.pipelines import Trellis2ImageTo3DPipeline\n"
+        "PY\n"
+        "then\n"
+        "  \"$TRELLIS2_PYTHON\" -m pip install -U pip setuptools wheel ninja cmake packaging\n"
+        "  \"$TRELLIS2_PYTHON\" -m pip install --no-deps \"xformers==$TRELLIS2_XFORMERS_VERSION\" --index-url https://download.pytorch.org/whl/cu128\n"
+        "  \"$TRELLIS2_PYTHON\" -m pip install imageio==2.37.0 imageio-ffmpeg==0.6.0 tqdm==4.67.1 easydict==1.13 ninja==1.11.1.3 trimesh==4.12.2 lpips==0.1.4 zstandard==0.23.0 kornia==0.8.1 timm==1.0.22\n"
+        f"  \"$TRELLIS2_PYTHON\" -m pip install --no-deps \"git+https://github.com/EasternJournalist/utils3d.git@{TRELLIS2_UTILS3D_REVISION}\"\n"
+        "  \"$TRELLIS2_PYTHON\" -m pip install -v --no-deps --no-build-isolation \"$TRELLIS2_NVDIFFRAST_DIR\"\n"
+        "  \"$TRELLIS2_PYTHON\" -m pip install -v --no-deps --no-build-isolation \"$TRELLIS2_CUMESH_DIR\"\n"
+        "  \"$TRELLIS2_PYTHON\" -m pip install -v --no-deps --no-build-isolation \"$TRELLIS2_FLEXGEMM_DIR\"\n"
+        "  \"$TRELLIS2_PYTHON\" -m pip install -v --no-deps --no-build-isolation \"$TRELLIS2_DIR/o-voxel\"\n"
+        "fi\n"
+        "\"$TRELLIS2_PYTHON\" - <<'PY'\n"
+        "import json\n"
+        "import os\n"
+        "from importlib.metadata import version\n"
+        "import torch\n"
+        "import xformers.ops as xops\n"
+        "import trellis2.pipelines\n"
+        "from trellis2.modules.sparse import config as sparse_config\n"
+        "from trellis2.pipelines import Trellis2ImageTo3DPipeline\n"
+        "accepted = ('xformers', 'flash_attn', 'flash_attn_3')\n"
+        "requested = os.environ.get('SPARSE_ATTN_BACKEND') or os.environ.get('ATTN_BACKEND') or ''\n"
+        "if requested not in accepted or sparse_config.ATTN != requested:\n"
+        "    raise SystemExit(f'Invalid TRELLIS.2 sparse attention backend: requested={requested!r}, active={sparse_config.ATTN!r}')\n"
+        "if version('xformers') != os.environ['TRELLIS2_XFORMERS_VERSION']:\n"
+        "    raise SystemExit(f'Unexpected xformers version: {version(\"xformers\")}')\n"
+        "query = torch.randn((1, 32, 1, 64), device='cuda', dtype=torch.float16)\n"
+        "mask = xops.fmha.BlockDiagonalMask.from_seqlens([32])\n"
+        "output = xops.memory_efficient_attention(query, query, query, mask)\n"
+        "torch.cuda.synchronize()\n"
+        "props = torch.cuda.get_device_properties(0)\n"
+        "print(json.dumps({\n"
+        "    'event': 'trellis2_backend_ready',\n"
+        "    'python': __import__('sys').executable,\n"
+        "    'pipelines_importable': True,\n"
+        "    'pipeline_class': Trellis2ImageTo3DPipeline.__name__,\n"
+        "    'attention_backend': sparse_config.ATTN,\n"
+        "    'attention_smoke_shape': list(output.shape),\n"
+        "    'xformers_version': version('xformers'),\n"
+        "    'torch_version': torch.__version__,\n"
+        "    'gpu': props.name,\n"
+        "}, sort_keys=True))\n"
+        "PY\n"
+        "echo \"TRELLIS.2 setup checkpoint: provider imports and xformers CUDA attention ready\"\n"
+        "TRELLIS2_PREFLIGHT_COMMAND=\"$TRELLIS2_PYTHON -m backend.benchmark.run_image_to_mesh_provider --provider trellis2 --provider-dir $TRELLIS2_DIR --trellis2-model-path $TRELLIS2_MODEL_ID --trellis2-model-revision $TRELLIS2_MODEL_REVISION --trellis2-resolution $TRELLIS2_RESOLUTION --seed 42\"\n"
+        "\"$TRELLIS2_PYTHON\" -m backend.benchmark.preflight_image_to_mesh_providers --command \"$TRELLIS2_PREFLIGHT_COMMAND\" --output \"${TRELLIS2_PREFLIGHT_PATH:-/tmp/trellis2_provider_preflight.json}\" --require-runnable\n"
+        "echo \"TRELLIS.2 setup checkpoint: provider preflight passed\"\n"
+        "if [[ \"${TRELLIS2_PREFETCH:-1}\" == \"1\" ]]; then\n"
+        "  \"$TRELLIS2_PYTHON\" -m backend.benchmark.run_image_to_mesh_provider --provider trellis2 --provider-dir \"$TRELLIS2_DIR\" --trellis2-model-path \"$TRELLIS2_MODEL_ID\" --trellis2-model-revision \"$TRELLIS2_MODEL_REVISION\" --trellis2-resolution \"$TRELLIS2_RESOLUTION\" --seed 42 --timeout 3600 --prefetch-only\n"
+        "  echo \"TRELLIS.2 setup checkpoint: pinned model prefetched\"\n"
+        "fi\n"
+    )
+
+
 def build_pixal3d_setup_prelude() -> str:
     return (
         "PIXAL3D_DIR=\"${PIXAL3D_DIR:-/content/Pixal3D}\"\n"
@@ -863,6 +1032,7 @@ def build_colab_run_script(
     include_triposr_setup: bool = False,
     include_triposg_setup: bool = False,
     include_pixal3d_setup: bool = False,
+    include_trellis2_setup: bool = False,
     include_hunyuan3d_setup: bool = False,
 ) -> str:
     archive_default = colab_archive_path or f"/content/{archive_filename}"
@@ -941,6 +1111,8 @@ def build_colab_run_script(
         provider_setup += build_triposg_setup_prelude()
     if include_pixal3d_setup:
         provider_setup += build_pixal3d_setup_prelude()
+    if include_trellis2_setup:
+        provider_setup += build_trellis2_setup_prelude()
     if include_hunyuan3d_setup:
         provider_setup += build_hunyuan3d_setup_prelude()
 
@@ -948,6 +1120,9 @@ def build_colab_run_script(
     lora_report_path = colab_path(lora_path, Path("training_report.json")) if lora_path else ""
     gpu_preflight_path = colab_path(extract_root, Path("gpu_preflight.json"))
     preflight_path = colab_path(extract_root, Path("launch_preflight.json"))
+    trellis2_preflight_path = colab_path(
+        extract_root, Path("trellis2_provider_preflight.json")
+    )
     results_summary_path = colab_path(extract_root, Path("results_summary.json"))
     run_log_path = colab_path(extract_root, Path("run_colab_eval.log"))
     results_archive_path = f"/content/{run_name}_results.tar.gz"
@@ -978,6 +1153,7 @@ def build_colab_run_script(
         f"LORA_REPORT_PATH={shell_join([lora_report_path])}\n"
         f"GPU_PREFLIGHT_PATH={shell_join([gpu_preflight_path])}\n"
         f"PREFLIGHT_PATH={shell_join([preflight_path])}\n"
+        f"TRELLIS2_PREFLIGHT_PATH={shell_join([trellis2_preflight_path])}\n"
         "COLAB_REQUIRE_GPU_NAME_REGEX=\"${COLAB_REQUIRE_GPU_NAME_REGEX:-}\"\n"
         "if [[ -z \"$COLAB_REQUIRE_GPU_NAME_REGEX\" ]]; then\n"
         f"  COLAB_REQUIRE_GPU_NAME_REGEX={shell_join([gpu_name_default])}\n"
@@ -986,7 +1162,7 @@ def build_colab_run_script(
         "if [[ -z \"$COLAB_MIN_GPU_MEMORY_GB\" ]]; then\n"
         f"  COLAB_MIN_GPU_MEMORY_GB={shell_join([gpu_memory_default])}\n"
         "fi\n"
-        "export ARCHIVE_PATH EXTRACT_ROOT REPO_DIR REPO_REMOTE REPO_REF RUN_NAME RUN_LOG OUTPUT_ROOT RESULTS_SUMMARY RESULTS_ARCHIVE STL_INGEST_DIR STL_INGEST_JSON STL_INGEST_MD MANIFEST_PATH LORA_PATH LORA_ADAPTER_PATH LORA_REPORT_PATH GPU_PREFLIGHT_PATH PREFLIGHT_PATH COLAB_REQUIRE_GPU_NAME_REGEX COLAB_MIN_GPU_MEMORY_GB\n"
+        "export ARCHIVE_PATH EXTRACT_ROOT REPO_DIR REPO_REMOTE REPO_REF RUN_NAME RUN_LOG OUTPUT_ROOT RESULTS_SUMMARY RESULTS_ARCHIVE STL_INGEST_DIR STL_INGEST_JSON STL_INGEST_MD MANIFEST_PATH LORA_PATH LORA_ADAPTER_PATH LORA_REPORT_PATH GPU_PREFLIGHT_PATH PREFLIGHT_PATH TRELLIS2_PREFLIGHT_PATH COLAB_REQUIRE_GPU_NAME_REGEX COLAB_MIN_GPU_MEMORY_GB\n"
         "mkdir -p \"$EXTRACT_ROOT\" \"$(dirname \"$RUN_LOG\")\" \"$(dirname \"$RESULTS_SUMMARY\")\" \"$(dirname \"$RESULTS_ARCHIVE\")\" \"$STL_INGEST_DIR\"\n"
         "set +e\n"
         "(\n"
@@ -1051,6 +1227,7 @@ def build_colab_run_script(
         "    'resolved_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),\n"
         "    'extract_root': os.environ['EXTRACT_ROOT'],\n"
         "    'gpu_preflight': os.environ['GPU_PREFLIGHT_PATH'],\n"
+        "    'trellis2_provider_preflight': os.environ['TRELLIS2_PREFLIGHT_PATH'],\n"
         "    'manifest': str(manifest),\n"
         "    'manifest_rows': sum(1 for line in manifest.read_text().splitlines() if line.strip()),\n"
         "}\n"
@@ -1059,7 +1236,7 @@ def build_colab_run_script(
         "    payload['lora_adapter'] = os.environ['LORA_ADAPTER_PATH']\n"
         "print(json.dumps(payload, indent=2, sort_keys=True))\n"
         "PY\n"
-        "if [[ \"${COLAB_PROVIDER_SETUP_ONLY:-0}\" == \"1\" || \"${HUNYUAN3D_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSR_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSG_SETUP_ONLY:-0}\" == \"1\" || \"${PIXAL3D_SETUP_ONLY:-0}\" == \"1\" ]]; then\n"
+        "if [[ \"${COLAB_PROVIDER_SETUP_ONLY:-0}\" == \"1\" || \"${HUNYUAN3D_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSR_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSG_SETUP_ONLY:-0}\" == \"1\" || \"${PIXAL3D_SETUP_ONLY:-0}\" == \"1\" || \"${TRELLIS2_SETUP_ONLY:-0}\" == \"1\" ]]; then\n"
         "  echo \"Provider setup only requested; skipping benchmark stages\"\n"
         "  exit 0\n"
         "fi\n"
@@ -1176,7 +1353,7 @@ def build_colab_run_script(
         "        'markdown': str(md_path),\n"
         "        'log': str(log_path),\n"
         "    }\n"
-        "    if os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1' or os.environ.get('PIXAL3D_SETUP_ONLY') == '1':\n"
+        "    if os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1' or os.environ.get('PIXAL3D_SETUP_ONLY') == '1' or os.environ.get('TRELLIS2_SETUP_ONLY') == '1':\n"
         "        result['reason'] = 'provider_setup_only'\n"
         "        return result\n"
         "    if not output_root.exists():\n"
@@ -1233,6 +1410,7 @@ def build_colab_run_script(
         "run_log = pathlib.Path(os.environ['RUN_LOG'])\n"
         "gpu_preflight = pathlib.Path(os.environ['GPU_PREFLIGHT_PATH'])\n"
         "preflight = pathlib.Path(os.environ['PREFLIGHT_PATH'])\n"
+        "trellis2_preflight = pathlib.Path(os.environ['TRELLIS2_PREFLIGHT_PATH'])\n"
         "summary_path = pathlib.Path(os.environ['RESULTS_SUMMARY'])\n"
         "archive_path = pathlib.Path(os.environ['RESULTS_ARCHIVE'])\n"
         "stl_ingest_dir = pathlib.Path(os.environ['STL_INGEST_DIR'])\n"
@@ -1240,6 +1418,8 @@ def build_colab_run_script(
         "stl_ingest_md = pathlib.Path(os.environ['STL_INGEST_MD'])\n"
         "run_status = int(os.environ['RUN_STATUS'])\n"
         "gpu_preflight_summary = summarize_gpu_preflight(gpu_preflight)\n"
+        "trellis2_preflight_summary = read_json_object(trellis2_preflight)\n"
+        "trellis2_preflight_failed = any(not row.get('runnable') for row in trellis2_preflight_summary.get('rows', []))\n"
         "orchestrator_result = output_root / 'orchestrator_result.json'\n"
         "selection_decisions = sorted(output_root.glob('combined/*/selection_decision.json')) if output_root.exists() else []\n"
         "eval_summaries = [summarize_benchmark_dir(path) for path in sorted(output_root.glob('experiments/*'))] if output_root.exists() else []\n"
@@ -1249,14 +1429,16 @@ def build_colab_run_script(
         "    'generated_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),\n"
         "    'run_name': os.environ['RUN_NAME'],\n"
         "    'run_status': run_status,\n"
-        "    'failure_stage': 'gpu_preflight' if run_status and gpu_preflight_summary.get('ok') is False else '',\n"
-        "    'provider_setup_only': os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1' or os.environ.get('PIXAL3D_SETUP_ONLY') == '1',\n"
+        "    'failure_stage': 'gpu_preflight' if run_status and gpu_preflight_summary.get('ok') is False else ('trellis2_preflight' if run_status and trellis2_preflight_failed else ''),\n"
+        "    'provider_setup_only': os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1' or os.environ.get('PIXAL3D_SETUP_ONLY') == '1' or os.environ.get('TRELLIS2_SETUP_ONLY') == '1',\n"
         "    'output_root': str(output_root),\n"
         "    'output_root_exists': output_root.exists(),\n"
         "    'run_log': str(run_log),\n"
         "    'gpu_preflight': str(gpu_preflight),\n"
         "    'gpu_preflight_summary': gpu_preflight_summary,\n"
         "    'preflight': str(preflight),\n"
+        "    'trellis2_provider_preflight': str(trellis2_preflight),\n"
+        "    'trellis2_provider_preflight_summary': trellis2_preflight_summary,\n"
         "    'results_archive': str(archive_path),\n"
         "    'stl_first_ingest_report': stl_ingest_report,\n"
         "    'orchestrator_result': str(orchestrator_result) if orchestrator_result.exists() else '',\n"
@@ -1269,6 +1451,7 @@ def build_colab_run_script(
         "with tarfile.open(archive_path, 'w:gz') as tar:\n"
         "    add_if_exists(tar, gpu_preflight, 'gpu_preflight.json')\n"
         "    add_if_exists(tar, preflight, 'launch_preflight.json')\n"
+        "    add_if_exists(tar, trellis2_preflight, 'trellis2_provider_preflight.json')\n"
         "    add_if_exists(tar, run_log, 'run_colab_eval.log')\n"
         "    add_if_exists(tar, summary_path, 'results_summary.json')\n"
         "    add_if_exists(tar, stl_ingest_json, 'stl_first_ingest_report.json')\n"
@@ -1565,6 +1748,7 @@ def package_inputs(
     include_triposr_setup: bool = False,
     include_triposg_setup: bool = False,
     include_pixal3d_setup: bool = False,
+    include_trellis2_setup: bool = False,
     include_hunyuan3d_setup: bool = False,
     colab_env: dict[str, str] | None = None,
     report_path: Path | None = None,
@@ -1650,6 +1834,7 @@ def package_inputs(
                 include_triposr_setup=include_triposr_setup,
                 include_triposg_setup=include_triposg_setup,
                 include_pixal3d_setup=include_pixal3d_setup,
+                include_trellis2_setup=include_trellis2_setup,
                 include_hunyuan3d_setup=include_hunyuan3d_setup,
             )
             add_text_file(tar, "run_colab_eval.sh", run_script_text, mode=0o755)
@@ -1707,6 +1892,22 @@ def package_inputs(
                 for name, spec in pixal3d_model_specs().items()
             }
             if include_pixal3d_setup
+            else {}
+        ),
+        "include_trellis2_setup": include_trellis2_setup,
+        "trellis2_source_revision": (
+            DEFAULT_TRELLIS2_SOURCE_REVISION if include_trellis2_setup else ""
+        ),
+        "trellis2_attention_backend": "xformers" if include_trellis2_setup else "",
+        "trellis2_python": (
+            DEFAULT_TRELLIS2_COLAB_PYTHON if include_trellis2_setup else ""
+        ),
+        "trellis2_model_snapshots": (
+            {
+                name: {"repo_id": spec["repo_id"], "revision": spec["revision"]}
+                for name, spec in trellis2_model_specs().items()
+            }
+            if include_trellis2_setup
             else {}
         ),
         "include_hunyuan3d_setup": include_hunyuan3d_setup,
@@ -1835,6 +2036,11 @@ def parse_args() -> argparse.Namespace:
         help="Embed a pinned Colab setup prelude for /content/Pixal3D and /content/pixal3d-venv before running eval.",
     )
     parser.add_argument(
+        "--include-trellis2-setup",
+        action="store_true",
+        help="Embed a pinned Colab setup and preflight for /content/TRELLIS.2 and /content/trellis2-venv before running eval.",
+    )
+    parser.add_argument(
         "--include-hunyuan3d-setup",
         action="store_true",
         help="Embed a Colab setup prelude for /content/Hunyuan3D-2.1 and /content/hunyuan3d-venv before running eval.",
@@ -1915,6 +2121,7 @@ def main() -> None:
         include_triposr_setup=args.include_triposr_setup,
         include_triposg_setup=args.include_triposg_setup,
         include_pixal3d_setup=args.include_pixal3d_setup,
+        include_trellis2_setup=args.include_trellis2_setup,
         include_hunyuan3d_setup=args.include_hunyuan3d_setup,
         colab_env=parse_colab_env(args.colab_env),
         report_path=Path(args.report) if args.report else None,

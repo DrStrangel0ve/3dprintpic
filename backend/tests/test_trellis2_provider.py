@@ -20,14 +20,106 @@ from backend.benchmark import preflight_image_to_mesh_providers as preflight_mod
 from backend.benchmark import run_image_to_mesh_provider as provider_module
 from backend.benchmark import trellis2_models
 from backend.benchmark.trellis2_models import (
+    DEFAULT_TRELLIS2_DINOV3_MODEL,
+    DEFAULT_TRELLIS2_DINOV3_REVISION,
     DEFAULT_TRELLIS2_MODEL,
     DEFAULT_TRELLIS2_MODEL_REVISION,
+    DEFAULT_TRELLIS2_REMBG_MODEL,
+    DEFAULT_TRELLIS2_REMBG_REVISION,
     DEFAULT_TRELLIS2_RESOLUTION,
     DEFAULT_TRELLIS2_SOURCE_REVISION,
+    DEFAULT_TRELLIS2_SPARSE_STRUCTURE_MODEL,
+    DEFAULT_TRELLIS2_SPARSE_STRUCTURE_REVISION,
 )
 
 
 class Trellis2ProviderTest(unittest.TestCase):
+    def _pipeline_config(self) -> dict:
+        return {
+            "name": "Trellis2ImageTo3DPipeline",
+            "args": {
+                "models": {
+                    "sparse_structure_decoder": (
+                        "microsoft/TRELLIS-image-large/ckpts/"
+                        "ss_dec_conv3d_16l8_fp16"
+                    ),
+                    "sparse_structure_flow_model": (
+                        "ckpts/ss_flow_img_dit_1_3B_64_bf16"
+                    ),
+                    "shape_slat_decoder": "ckpts/shape_dec_next_dc_f16c32_fp16",
+                    "shape_slat_flow_model_512": (
+                        "ckpts/slat_flow_img2shape_dit_1_3B_512_bf16"
+                    ),
+                    "shape_slat_flow_model_1024": (
+                        "ckpts/slat_flow_img2shape_dit_1_3B_1024_bf16"
+                    ),
+                    "tex_slat_decoder": "ckpts/tex_dec_next_dc_f16c32_fp16",
+                    "tex_slat_flow_model_512": (
+                        "ckpts/slat_flow_imgshape2tex_dit_1_3B_512_bf16"
+                    ),
+                    "tex_slat_flow_model_1024": (
+                        "ckpts/slat_flow_imgshape2tex_dit_1_3B_1024_bf16"
+                    ),
+                },
+                "image_cond_model": {
+                    "name": "DinoV3FeatureExtractor",
+                    "args": {
+                        "model_name": "facebook/dinov3-vitl16-pretrain-lvd1689m"
+                    },
+                },
+                "rembg_model": {
+                    "name": "BiRefNet",
+                    "args": {"model_name": "briaai/RMBG-2.0"},
+                },
+            },
+        }
+
+    def _snapshot_fixtures(
+        self,
+        root: Path,
+        *,
+        missing: tuple[str, str] | None = None,
+    ) -> dict[str, Path]:
+        paths: dict[str, Path] = {}
+        for name, spec in trellis2_models.trellis2_model_specs().items():
+            snapshot = root / name
+            snapshot.mkdir(parents=True)
+            for required_file in spec["required_files"]:
+                if missing == (name, required_file):
+                    continue
+                required_path = snapshot / required_file
+                required_path.parent.mkdir(parents=True, exist_ok=True)
+                required_path.write_bytes(b"snapshot fixture")
+            if name == "trellis2" and missing != (name, "pipeline.json"):
+                (snapshot / "pipeline.json").write_text(
+                    json.dumps(self._pipeline_config()),
+                    encoding="utf-8",
+                )
+            paths[name] = snapshot.resolve()
+        return paths
+
+    def _snapshot_download_side_effect(self, paths: dict[str, Path]):
+        specs = trellis2_models.trellis2_model_specs()
+        names_by_repo = {
+            str(spec["repo_id"]): name for name, spec in specs.items()
+        }
+
+        def download(*, repo_id, revision):
+            name = names_by_repo[repo_id]
+            self.assertEqual(revision, specs[name]["revision"])
+            return str(paths[name])
+
+        return download
+
+    def _provider_model_metadata(self) -> dict[str, dict[str, str]]:
+        return {
+            name: {
+                "repo_id": str(spec["repo_id"]),
+                "revision": str(spec["revision"]),
+            }
+            for name, spec in trellis2_models.trellis2_model_specs().items()
+        }
+
     def test_exact_pins_and_provider_registration(self):
         self.assertEqual(
             DEFAULT_TRELLIS2_SOURCE_REVISION,
@@ -37,6 +129,34 @@ class Trellis2ProviderTest(unittest.TestCase):
         self.assertEqual(
             DEFAULT_TRELLIS2_MODEL_REVISION,
             "af44b45f2e35a493886929c6d786e563ec68364d",
+        )
+        self.assertEqual(
+            (
+                DEFAULT_TRELLIS2_SPARSE_STRUCTURE_MODEL,
+                DEFAULT_TRELLIS2_SPARSE_STRUCTURE_REVISION,
+            ),
+            (
+                "microsoft/TRELLIS-image-large",
+                "25e0d31ffbebe4b5a97464dd851910efc3002d96",
+            ),
+        )
+        self.assertEqual(
+            (DEFAULT_TRELLIS2_DINOV3_MODEL, DEFAULT_TRELLIS2_DINOV3_REVISION),
+            (
+                "camenduru/dinov3-vitl16-pretrain-lvd1689m",
+                "3c276edd87d6f6e569ff0c4400e086807d0f3881",
+            ),
+        )
+        self.assertEqual(
+            (DEFAULT_TRELLIS2_REMBG_MODEL, DEFAULT_TRELLIS2_REMBG_REVISION),
+            (
+                "ZhengPeng7/BiRefNet",
+                "e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4",
+            ),
+        )
+        self.assertEqual(
+            set(trellis2_models.trellis2_model_specs()),
+            {"trellis2", "sparse_structure_decoder", "dinov3", "rembg"},
         )
         self.assertEqual(DEFAULT_TRELLIS2_RESOLUTION, 512)
         self.assertIn(provider_module.TRELLIS2_PROVIDER, provider_module.PROVIDERS)
@@ -51,37 +171,83 @@ class Trellis2ProviderTest(unittest.TestCase):
             ("/content/TRELLIS.2",),
         )
 
-    def test_snapshot_is_resolved_at_exact_revision_then_forced_offline(self):
+    def test_all_snapshots_resolve_at_exact_revisions_then_force_offline(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            snapshot = Path(temp_dir) / "snapshot"
-            snapshot.mkdir()
-            (snapshot / "pipeline.json").write_text("{}", encoding="utf-8")
+            snapshots = self._snapshot_fixtures(Path(temp_dir))
 
             with patch(
                 "huggingface_hub.snapshot_download",
-                return_value=str(snapshot),
+                side_effect=self._snapshot_download_side_effect(snapshots),
             ) as download, patch.dict(
                 os.environ,
                 {"HF_HUB_OFFLINE": "0", "TRANSFORMERS_OFFLINE": "0"},
                 clear=False,
             ):
-                resolved = trellis2_models.resolve_trellis2_model_snapshot()
+                resolved = trellis2_models.resolve_trellis2_model_snapshots()
                 self.assertEqual(os.environ["HF_HUB_OFFLINE"], "1")
                 self.assertEqual(os.environ["TRANSFORMERS_OFFLINE"], "1")
 
-            self.assertEqual(resolved, snapshot.resolve())
-            download.assert_called_once_with(
-                repo_id=DEFAULT_TRELLIS2_MODEL,
-                revision=DEFAULT_TRELLIS2_MODEL_REVISION,
+            self.assertEqual(resolved, snapshots)
+            self.assertEqual(
+                [call.kwargs for call in download.call_args_list],
+                [
+                    {
+                        "repo_id": str(spec["repo_id"]),
+                        "revision": str(spec["revision"]),
+                    }
+                    for spec in trellis2_models.trellis2_model_specs().values()
+                ],
             )
 
-    def test_wrapper_uses_official_512_api_and_exports_geometry_only(self):
+    def test_prefetch_only_fails_when_a_transitive_asset_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            snapshots = self._snapshot_fixtures(
+                root,
+                missing=("dinov3", "model.safetensors"),
+            )
+            argv = [
+                "trellis2_models",
+                "--provider-dir",
+                str(root),
+                "--prefetch-only",
+            ]
+            with patch(
+                "huggingface_hub.snapshot_download",
+                side_effect=self._snapshot_download_side_effect(snapshots),
+            ), patch.object(sys, "argv", argv), patch.dict(
+                os.environ,
+                {"HF_HUB_OFFLINE": "0", "TRANSFORMERS_OFFLINE": "0"},
+                clear=False,
+            ):
+                with self.assertRaisesRegex(
+                    FileNotFoundError,
+                    r"dinov3.*model\.safetensors",
+                ):
+                    trellis2_models.main()
+                self.assertEqual(os.environ["HF_HUB_OFFLINE"], "0")
+                self.assertEqual(os.environ["TRANSFORMERS_OFFLINE"], "0")
+
+    def test_wrapper_uses_official_512_api_and_glb_coordinates(self):
         observed: dict[str, object] = {}
 
         class FakePipeline:
             @classmethod
             def from_pretrained(cls, path):
                 observed["snapshot"] = path
+                manifest = json.loads(
+                    (Path(path) / "pipeline.json").read_text(encoding="utf-8")
+                )
+                observed["pipeline_models"] = {
+                    name: (Path(path) / reference).resolve()
+                    for name, reference in manifest["args"]["models"].items()
+                }
+                observed["dinov3_path"] = Path(
+                    manifest["args"]["image_cond_model"]["args"]["model_name"]
+                ).resolve()
+                observed["rembg_path"] = Path(
+                    manifest["args"]["rembg_model"]["args"]["model_name"]
+                ).resolve()
                 return cls()
 
             def cuda(self):
@@ -93,7 +259,7 @@ class Trellis2ProviderTest(unittest.TestCase):
                 return [
                     SimpleNamespace(
                         vertices=np.array(
-                            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                            [[1.0, 2.0, 3.0], [-4.0, 5.0, -6.0], [7.0, -8.0, 9.0]],
                             dtype=np.float32,
                         ),
                         faces=np.array([[0, 1, 2]], dtype=np.int32),
@@ -124,17 +290,16 @@ class Trellis2ProviderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             provider_dir = root / "TRELLIS.2"
-            snapshot = root / "snapshot"
             provider_dir.mkdir()
-            snapshot.mkdir()
+            snapshots = self._snapshot_fixtures(root / "snapshots")
             input_image = root / "input.png"
             output_mesh = root / "raw.glb"
             Image.new("RGB", (8, 8), (40, 90, 140)).save(input_image)
 
             with patch.object(
                 trellis2_models,
-                "resolve_trellis2_model_snapshot",
-                return_value=snapshot,
+                "resolve_trellis2_model_snapshots",
+                return_value=snapshots,
             ), patch.dict(
                 sys.modules,
                 {
@@ -153,7 +318,7 @@ class Trellis2ProviderTest(unittest.TestCase):
                 output_exists = output_mesh.is_file()
 
         self.assertEqual(result, output_mesh)
-        self.assertEqual(observed["snapshot"], str(snapshot))
+        self.assertNotEqual(observed["snapshot"], str(snapshots["trellis2"]))
         self.assertTrue(observed["cuda"])
         self.assertEqual(
             observed["run_kwargs"],
@@ -164,6 +329,31 @@ class Trellis2ProviderTest(unittest.TestCase):
             {"vertices", "faces", "process"},
         )
         self.assertFalse(observed["trimesh_kwargs"]["process"])
+        np.testing.assert_array_equal(
+            observed["trimesh_kwargs"]["vertices"],
+            np.array(
+                [[1.0, 3.0, -2.0], [-4.0, -6.0, -5.0], [7.0, 9.0, 8.0]],
+                dtype=np.float32,
+            ),
+        )
+        np.testing.assert_array_equal(
+            observed["trimesh_kwargs"]["faces"],
+            np.array([[0, 1, 2]], dtype=np.int32),
+        )
+        expected_pipeline_models = {
+            name: (
+                snapshots["sparse_structure_decoder"]
+                / reference.removeprefix(
+                    f"{DEFAULT_TRELLIS2_SPARSE_STRUCTURE_MODEL}/"
+                )
+                if name == "sparse_structure_decoder"
+                else snapshots["trellis2"] / reference
+            ).resolve()
+            for name, reference in self._pipeline_config()["args"]["models"].items()
+        }
+        self.assertEqual(observed["pipeline_models"], expected_pipeline_models)
+        self.assertEqual(observed["dinov3_path"], snapshots["dinov3"])
+        self.assertEqual(observed["rembg_path"], snapshots["rembg"])
         self.assertTrue(output_exists)
 
     def test_preflight_requires_exact_model_source_and_official_entrypoint(self):
@@ -191,10 +381,7 @@ class Trellis2ProviderTest(unittest.TestCase):
                 row = preflight_module.provider_preflight_row(parsed)
 
             self.assertTrue(row["runnable"])
-            self.assertEqual(
-                row["provider_models"]["trellis2"]["revision"],
-                DEFAULT_TRELLIS2_MODEL_REVISION,
-            )
+            self.assertEqual(row["provider_models"], self._provider_model_metadata())
             self.assertEqual(
                 row["checks"]["entrypoint"],
                 "trellis2/pipelines/trellis2_image_to_3d.py",
@@ -314,6 +501,10 @@ class Trellis2ProviderTest(unittest.TestCase):
                 baseline["expected_provider_revision"],
                 DEFAULT_TRELLIS2_SOURCE_REVISION,
             )
+            self.assertEqual(
+                baseline["provider_models"],
+                self._provider_model_metadata(),
+            )
             self.assertIn(
                 "backend/benchmark/trellis2_models.py",
                 baseline["provider_source_sha256"],
@@ -428,12 +619,7 @@ class Trellis2ProviderTest(unittest.TestCase):
             )
             self.assertEqual(
                 metadata["provider_models"],
-                {
-                    "trellis2": {
-                        "repo_id": DEFAULT_TRELLIS2_MODEL,
-                        "revision": DEFAULT_TRELLIS2_MODEL_REVISION,
-                    }
-                },
+                self._provider_model_metadata(),
             )
 
     def test_stl_smoke_config_compares_raw_and_repaired_geometry(self):
