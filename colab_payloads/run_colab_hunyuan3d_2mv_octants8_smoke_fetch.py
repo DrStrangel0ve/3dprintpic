@@ -7,11 +7,11 @@ import subprocess
 import tarfile
 import urllib.request
 
-PAYLOAD_URL = "https://raw.githubusercontent.com/DrStrangel0ve/3dprintpic/fa79e27/colab_payloads/modelnet10_heldout1_hunyuan3d_2mv_octants8_smoke_colab_inputs.tar.gz"
+PAYLOAD_URL = "https://raw.githubusercontent.com/DrStrangel0ve/3dprintpic/e304d6bbf2a493f7c086ff5a115afb6bbf659ae8/colab_payloads/modelnet10_heldout1_hunyuan3d_2mv_octants8_smoke_colab_inputs.tar.gz"
 ARCHIVE_PATH = pathlib.Path("/content/modelnet10_heldout1_hunyuan3d_2mv_octants8_smoke_colab_inputs.tar.gz")
 EXTRACT_ROOT = pathlib.Path("/content/3dprintpic_colab_inputs/modelnet10_heldout1_hunyuan3d_2mv_octants8_smoke")
-EXPECTED_SHA256 = "e3207b5c5819a64452a4f7cdfb7105ceca240b50af8f098bfd394810262f0301"
-EXPECTED_SIZE = 38213
+EXPECTED_SHA256 = "48b675a222d04c1e7b3f76090b0e206e91daecd47bc7a71ab97d4a1b75c6f807"
+EXPECTED_SIZE = 38240
 LAUNCH_ENV = {}
 
 ARCHIVE_PATH.parent.mkdir(parents=True, exist_ok=True)
