@@ -489,6 +489,28 @@ def build_optimize_command(args: argparse.Namespace, manifest_path: Path, experi
         command.extend(["--min-win-rate", str(args.min_win_rate)])
         command.extend(["--min-ci95-low", str(args.min_ci95_low)])
         command.extend(["--min-score-margin", str(args.min_score_margin)])
+        command.extend(["--min-stl-watertight", str(args.min_stl_watertight)])
+        command.extend(["--min-stl-is-volume", str(args.min_stl_is_volume)])
+        command.extend(["--min-stl-is-manifold", str(args.min_stl_is_manifold)])
+        command.extend(["--min-stl-winding-consistent", str(args.min_stl_winding_consistent)])
+        command.extend(["--min-stl-positive-volume", str(args.min_stl_positive_volume)])
+        command.extend(["--min-stl-single-component", str(args.min_stl_single_component)])
+        command.extend(["--min-stl-bbox-has-volume", str(args.min_stl_bbox_has_volume)])
+        command.extend(
+            [
+                "--max-stl-nonmanifold-edge-count-log1p",
+                str(args.max_stl_nonmanifold_edge_count_log1p),
+            ]
+        )
+        command.extend(["--max-stl-degenerate-face-ratio", str(args.max_stl_degenerate_face_ratio)])
+        command.extend(["--max-stl-component-excess-log1p", str(args.max_stl_component_excess_log1p)])
+        command.extend(["--max-stl-bbox-aspect-ratio", str(args.max_stl_bbox_aspect_ratio)])
+        command.extend(
+            [
+                "--max-stl-faces-per-bbox-volume-log1p",
+                str(args.max_stl_faces_per_bbox_volume_log1p),
+            ]
+        )
         if args.allow_missing_split_audit:
             command.append("--allow-missing-split-audit")
     return command
@@ -639,6 +661,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-win-rate", type=float, default=0.8)
     parser.add_argument("--min-ci95-low", type=float, default=0.0)
     parser.add_argument("--min-score-margin", type=float, default=0.0)
+    parser.add_argument("--min-stl-watertight", type=float, default=1.0)
+    parser.add_argument("--min-stl-is-volume", type=float, default=1.0)
+    parser.add_argument("--min-stl-is-manifold", type=float, default=1.0)
+    parser.add_argument("--min-stl-winding-consistent", type=float, default=1.0)
+    parser.add_argument("--min-stl-positive-volume", type=float, default=1.0)
+    parser.add_argument("--min-stl-single-component", type=float, default=1.0)
+    parser.add_argument("--min-stl-bbox-has-volume", type=float, default=1.0)
+    parser.add_argument("--max-stl-nonmanifold-edge-count-log1p", type=float, default=0.0)
+    parser.add_argument("--max-stl-degenerate-face-ratio", type=float, default=0.0)
+    parser.add_argument("--max-stl-component-excess-log1p", type=float, default=0.0)
+    parser.add_argument("--max-stl-bbox-aspect-ratio", type=float, default=10.0)
+    parser.add_argument("--max-stl-faces-per-bbox-volume-log1p", type=float, default=10.0)
     parser.add_argument("--allow-missing-split-audit", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--dataset-timeout", type=int, default=600)
     parser.add_argument("--benchmark-timeout", type=int, default=7200)

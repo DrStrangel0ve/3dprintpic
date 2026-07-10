@@ -2089,6 +2089,18 @@ class StlExportRegressionTests(unittest.TestCase):
             min_win_rate=0.8,
             min_ci95_low=0.0,
             min_score_margin=0.0,
+            min_stl_watertight=1.0,
+            min_stl_is_volume=1.0,
+            min_stl_is_manifold=1.0,
+            min_stl_winding_consistent=1.0,
+            min_stl_positive_volume=1.0,
+            min_stl_single_component=1.0,
+            min_stl_bbox_has_volume=1.0,
+            max_stl_nonmanifold_edge_count_log1p=0.0,
+            max_stl_degenerate_face_ratio=0.0,
+            max_stl_component_excess_log1p=0.0,
+            max_stl_bbox_aspect_ratio=10.0,
+            max_stl_faces_per_bbox_volume_log1p=10.0,
             allow_missing_split_audit=True,
         )
         experiments = [{"name": "masked"}, {"name": "mirror"}, {"name": args.candidate_method}]
@@ -2108,6 +2120,10 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("mirror", command)
         self.assertIn("--min-paired-n", command)
         self.assertIn("10", command)
+        self.assertIn("--min-stl-is-manifold", command)
+        self.assertIn("--min-stl-single-component", command)
+        self.assertIn("--max-stl-nonmanifold-edge-count-log1p", command)
+        self.assertIn("--max-stl-bbox-aspect-ratio", command)
         self.assertIn("--allow-missing-split-audit", command)
 
     def test_triposr_repair_smoke_reads_missing_or_present_csv_rows(self):
