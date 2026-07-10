@@ -1,7 +1,12 @@
 import unittest
+import os
+import sys
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+import trimesh
 
+import backend.video_selection_service as service_module
 from backend.video_selection_service import DEFAULTS, app
 
 
@@ -14,7 +19,8 @@ class VideoSelectionServiceTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["mode"], "planner-only")
+        self.assertEqual(data["mode"], "planner-plus-runner")
+        self.assertIn("image-to-mesh", data["runner_modes"])
         self.assertEqual(data["defaults"]["image_to_mesh"], DEFAULTS["image_to_mesh"])
         self.assertIn("selection", data["groups"])
         self.assertIn("video_reconstruction", data["groups"])
@@ -73,6 +79,104 @@ class VideoSelectionServiceTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Unsupported camera_pose model", response.json()["detail"])
         self.assertIn("hloc-lightglue", response.json()["detail"])
+
+    def test_image_to_mesh_runner_emits_stl_and_diagnostics(self):
+        observed_args = {}
+
+        def fake_provider(args):
+            observed_args["provider"] = args.provider
+            observed_args["provider_dir"] = args.provider_dir
+            observed_args["python"] = args.python
+            observed_args["timeout"] = args.timeout
+            mesh = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
+            args.output_mesh.parent.mkdir(parents=True, exist_ok=True)
+            mesh.export(args.output_mesh)
+            mesh.export(args.output_stl)
+            return args.output_mesh, args.output_stl
+
+        with patch.dict(
+            os.environ,
+            {
+                "IMAGE_TO_MESH_PROVIDER_DIR": "",
+                "IMAGE_TO_MESH_PROVIDER_PYTHON": "",
+                "IMAGE_TO_MESH_TIMEOUT_SECONDS": "",
+            },
+            clear=False,
+        ), patch.object(service_module, "run_provider_job", side_effect=fake_provider):
+            response = self.client.post(
+                "/run/image-to-mesh",
+                files={"file": ("object.png", b"fake-image-bytes", "image/png")},
+                data={
+                    "provider": "triposr",
+                    "provider_dir": "C:/should/not/be/used",
+                    "provider_python": "C:/should/not/run/python.exe",
+                    "timeout": "999999",
+                    "provider_device": "cpu",
+                    "mesh_repair": "printable",
+                    "mesh_target_max_dimension": "96",
+                    "mesh_min_bbox_dimension": "12",
+                    "mesh_max_bbox_aspect_ratio": "2.25",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["status"], "printable")
+        self.assertEqual(data["runner"], "image-to-mesh")
+        self.assertEqual(data["provider"], "triposr")
+        self.assertEqual(observed_args["provider"], "triposr")
+        self.assertIsNone(observed_args["provider_dir"])
+        self.assertEqual(observed_args["python"], sys.executable)
+        self.assertEqual(observed_args["timeout"], 3600)
+        self.assertTrue(data["stl_model"].endswith("/output_model.stl"))
+        self.assertTrue(data["diagnostics"].endswith("/diagnostics.json"))
+        self.assertEqual(data["stl_diagnostics"]["artifact_contract"], "output_model.stl + diagnostics.json")
+        self.assertTrue(data["stl_diagnostics"]["stl_is_watertight"])
+        self.assertTrue(data["stl_diagnostics"]["stl_is_volume"])
+        self.assertTrue(data["stl_passes_hard_checks"])
+        self.assertEqual(data["stl_failed_checks"], [])
+        self.assertIn("provider_seconds", data["timings"])
+        self.assertIn("diagnostics_seconds", data["timings"])
+
+        diagnostics_response = self.client.get(data["diagnostics_url"])
+        self.assertEqual(diagnostics_response.status_code, 200)
+        self.assertEqual(diagnostics_response.json()["job_id"], data["job_id"])
+
+    def test_image_to_mesh_runner_reports_emitted_stl_when_hard_checks_fail(self):
+        def fake_provider(args):
+            mesh = trimesh.Trimesh(
+                vertices=((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+                faces=((0, 1, 2),),
+                process=False,
+            )
+            args.output_mesh.parent.mkdir(parents=True, exist_ok=True)
+            mesh.export(args.output_mesh)
+            mesh.export(args.output_stl)
+            return args.output_mesh, args.output_stl
+
+        with patch.object(service_module, "run_provider_job", side_effect=fake_provider):
+            response = self.client.post(
+                "/run/image-to-mesh",
+                files={"file": ("object.png", b"fake-image-bytes", "image/png")},
+                data={"provider": "triposg", "provider_device": "cpu"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["status"], "stl-emitted")
+        self.assertFalse(data["stl_passes_hard_checks"])
+        self.assertIn("stl_is_watertight", data["stl_failed_checks"])
+        self.assertIn("stl_is_volume", data["stl_failed_checks"])
+
+    def test_image_to_mesh_runner_rejects_unknown_provider(self):
+        response = self.client.post(
+            "/run/image-to-mesh",
+            files={"file": ("object.png", b"fake-image-bytes", "image/png")},
+            data={"provider": "not-real"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Unsupported image_to_mesh provider", response.json()["detail"])
 
 
 if __name__ == "__main__":

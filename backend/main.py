@@ -5,6 +5,7 @@ import aiohttp
 import asyncio
 import re
 import math
+import time
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -178,6 +179,11 @@ async def process_image(
     job_id = uuid4().hex
     job_dir = OUTPUT_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
+    request_started = time.perf_counter()
+    timings: dict[str, float] = {}
+
+    def record_timing(name: str, started: float) -> None:
+        timings[name] = round(time.perf_counter() - started, 3)
 
     upload_suffix = Path(file.filename or "").suffix or ".jpg"
     with NamedTemporaryFile(delete=False, suffix=upload_suffix, dir=job_dir) as temp_file:
@@ -193,6 +199,7 @@ async def process_image(
             selected_model,
             device,
         )
+        stage_started = time.perf_counter()
         completed_image_path, applied_completion_mode = complete_image(
             temp_file_path,
             output_dir=str(job_dir),
@@ -208,8 +215,10 @@ async def process_image(
             seed=completion_seed,
             inpaint_max_dimension=completion_inpaint_max_dimension,
         )
+        record_timing("completion_seconds", stage_started)
         image_for_depth = completed_image_path
 
+        stage_started = time.perf_counter()
         depth_data_path = process_image_get_depth_data(
             image_for_depth,
             output_dir=str(job_dir),
@@ -217,11 +226,13 @@ async def process_image(
             model_name=selected_model,
             device=device,
         )
+        record_timing("depth_seconds", stage_started)
         logger.info(f"Depth data saved as: {depth_data_path}")
         
         # Generate 3D model
         logger.info("Generating 3D model...")
         stl_path = job_dir / "output_model.stl"
+        stage_started = time.perf_counter()
         depth_data_to_3d_model(
             depth_data_path,
             output_stl_path=str(stl_path),
@@ -237,12 +248,14 @@ async def process_image(
             high_percentile=high_percentile,
             base_border_px=base_border_px,
         )
+        record_timing("stl_seconds", stage_started)
         logger.info(f"3D model saved as: {stl_path}")
         
         # Check if the STL file was actually created
         if not os.path.exists(stl_path):
             raise FileNotFoundError(f"STL file was not created at {stl_path}")
 
+        stage_started = time.perf_counter()
         diagnostics = json_safe_stl_diagnostics(stl_diagnostics(stl_path))
         diagnostics.update(
             {
@@ -251,6 +264,9 @@ async def process_image(
                 "artifact_contract": "output_model.stl + diagnostics.json",
             }
         )
+        record_timing("diagnostics_seconds", stage_started)
+        timings["total_seconds"] = round(time.perf_counter() - request_started, 3)
+        runtime = get_runtime_info()
         diagnostics_path = job_dir / "diagnostics.json"
         with open(diagnostics_path, "w", encoding="utf-8") as diagnostics_file:
             json.dump(diagnostics, diagnostics_file, indent=2, allow_nan=False)
@@ -291,6 +307,8 @@ async def process_image(
             "completion_seed": completion_seed,
             "completion_inpaint_max_dimension": completion_inpaint_max_dimension,
             "applied_completion_mode": applied_completion_mode,
+            "runtime": runtime,
+            "timings": timings,
             "created_at": datetime.utcnow().isoformat() + "Z",
         }
         with open(job_dir / "metadata.json", "w", encoding="utf-8") as metadata_file:

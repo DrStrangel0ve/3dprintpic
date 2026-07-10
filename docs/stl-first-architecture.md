@@ -55,6 +55,8 @@ Local planner contract smoke on July 10, 2026: the draft planner service compile
 
 Live depth-relief runner contract on July 10, 2026: `/process_image` now writes `output_model.stl`, `diagnostics.json`, and `metadata.json` in each job directory. The response returns `stl_url`, `diagnostics_url`, and inline `stl_diagnostics` using the same watertightness, manifoldness, winding, volume, connected-component, bbox, and face-density fields used by the benchmark promotion gates. This turns the fast 2.5D path into a machine-checkable STL runner while full-mesh and video runners are attached behind the planner ids.
 
+Live single-image mesh runner contract on July 10, 2026: the companion service now exposes `POST /run/image-to-mesh`. It accepts a photo and a provider id from the model catalog, invokes the existing `backend.benchmark.run_image_to_mesh_provider` adapter, normalizes/repairs/scales the mesh, and emits `output_model.stl`, `diagnostics.json`, and `metadata.json` under the same artifact contract as the relief runner. Provider repo paths, provider Python, and runner timeout are server-side environment configuration only. The response distinguishes `printable` from `stl-emitted` by running the hard STL diagnostic gates, and the web app's `Full Mesh STL` route treats failed gates as a blocked emitted artifact rather than a printable model. Provider dependencies remain external, so missing TripoSR/TripoSG/Hunyuan/SPAR3D/SF3D installs fail as runner setup errors instead of pretending a planner response is a finished STL.
+
 ## Evaluation Metrics
 
 The benchmark should rank candidates with STL-facing metrics:

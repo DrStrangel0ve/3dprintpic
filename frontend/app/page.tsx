@@ -34,6 +34,8 @@ const DEFAULT_VIDEO_BACKEND_URL = 'http://localhost:8005';
 const CONFIGURED_BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_BACKEND_URL;
 const CONFIGURED_VIDEO_BACKEND_URL = process.env.NEXT_PUBLIC_VIDEO_BACKEND_URL || DEFAULT_VIDEO_BACKEND_URL;
 const PROCESS_IMAGE_TIMEOUT_MS = 10 * 60 * 1000;
+const IMAGE_TO_MESH_TIMEOUT_MS = 60 * 60 * 1000;
+const FULL_MESH_RUNNER_STL_POSTPROCESS = 'trimesh-repair';
 
 type MediaKind = 'photo' | 'video';
 type PhotoScope = 'whole-image' | 'object-selection';
@@ -95,7 +97,26 @@ type StlDiagnostics = {
   stl_bbox_aspect_ratio?: number | null;
   stl_nonmanifold_edge_count?: number;
   stl_degenerate_face_count?: number;
+  stl_passes_hard_checks?: boolean;
+  stl_failed_checks?: string[];
 };
+
+type RuntimeInfo = {
+  torch?: string | null;
+  cuda_available?: boolean;
+  cuda_version?: string | null;
+  device?: string;
+  error?: string;
+};
+
+type BackendHealth = {
+  status?: string;
+  runtime?: RuntimeInfo;
+  default_depth_provider?: string;
+  default_depth_model?: string;
+};
+
+type StageTimings = Record<string, number>;
 
 type PrinterPresetId = 'bambulab-p1s' | 'custom';
 
@@ -336,6 +357,24 @@ function fileSizeLabel(bytes: number) {
   return `${bytes} B`;
 }
 
+function secondsLabel(seconds?: number) {
+  if (typeof seconds !== 'number' || Number.isNaN(seconds)) return '-';
+  if (seconds < 1) return `${Math.round(seconds * 1000)} ms`;
+  return `${seconds.toFixed(seconds >= 10 ? 1 : 2)} s`;
+}
+
+function timingLabel(key: string) {
+  const labels: Record<string, string> = {
+    completion_seconds: 'Complete',
+    depth_seconds: 'Depth',
+    provider_seconds: 'Provider',
+    stl_seconds: 'STL mesh',
+    diagnostics_seconds: 'Checks',
+    total_seconds: 'Total',
+  };
+  return labels[key] || key.replace(/_/g, ' ');
+}
+
 function normalizeCatalog(data: Partial<ModelCatalog>): ModelCatalog {
   return {
     service: data.service || fallbackModelCatalog.service,
@@ -366,6 +405,11 @@ function modelFor(catalog: ModelCatalog, group: ModelGroup, modelId: string) {
 
 function modelLabel(catalog: ModelCatalog, group: ModelGroup, modelId: string) {
   return modelFor(catalog, group, modelId)?.label || modelId;
+}
+
+function failedChecksLabel(value: unknown) {
+  if (Array.isArray(value) && value.length) return value.join(', ');
+  return 'hard STL checks';
 }
 
 function availabilityTone(availability?: string) {
@@ -541,6 +585,9 @@ export default function Home() {
   const [processedSTL, setProcessedSTL] = useState('');
   const [diagnosticsUrl, setDiagnosticsUrl] = useState('');
   const [stlDiagnostics, setStlDiagnostics] = useState<StlDiagnostics | null>(null);
+  const [backendRuntime, setBackendRuntime] = useState<RuntimeInfo | null>(null);
+  const [backendRuntimeState, setBackendRuntimeState] = useState<'checking' | 'ready' | 'unavailable'>('checking');
+  const [stageTimings, setStageTimings] = useState<StageTimings | null>(null);
   const [completedPreview, setCompletedPreview] = useState('');
   const [plannerResponse, setPlannerResponse] = useState<PlannerResponse | null>(null);
   const [runState, setRunState] = useState<RunState>('idle');
@@ -595,6 +642,36 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
 
+    const loadBackendRuntime = async () => {
+      setBackendRuntimeState('checking');
+      try {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 2500);
+        const response = await fetch(`${backendUrl}/health`, { signal: controller.signal });
+        window.clearTimeout(timeout);
+        if (!response.ok) throw new Error(`Backend health ${response.status}`);
+        const data = (await response.json()) as BackendHealth;
+        if (!cancelled) {
+          setBackendRuntime(data.runtime || null);
+          setBackendRuntimeState('ready');
+        }
+      } catch {
+        if (!cancelled) {
+          setBackendRuntime(null);
+          setBackendRuntimeState('unavailable');
+        }
+      }
+    };
+
+    loadBackendRuntime();
+    return () => {
+      cancelled = true;
+    };
+  }, [backendUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
+
     const loadModelCatalog = async () => {
       setCatalogState('loading');
       try {
@@ -633,6 +710,7 @@ export default function Home() {
     setProcessedSTL('');
     setDiagnosticsUrl('');
     setStlDiagnostics(null);
+    setStageTimings(null);
     setCompletedPreview('');
     setPlannerResponse(null);
     setRunState('idle');
@@ -845,6 +923,7 @@ export default function Home() {
     setProcessedSTL('');
     setDiagnosticsUrl('');
     setStlDiagnostics(null);
+    setStageTimings(null);
     setCompletedPreview('');
     setPlannerResponse(null);
     setRunState('idle');
@@ -876,8 +955,18 @@ export default function Home() {
     setProcessedSTL('');
     setDiagnosticsUrl('');
     setStlDiagnostics(null);
+    setStageTimings(null);
     setCompletedPreview('');
     setPlannerResponse(null);
+
+    if (mediaKind === 'photo' && photoTarget === 'full-mesh' && stlPostprocessModel !== FULL_MESH_RUNNER_STL_POSTPROCESS) {
+      setRunState('blocked');
+      setStatusText('Repair adapter not attached');
+      setError(
+        `${modelLabel(modelCatalog, 'stl_postprocess', stlPostprocessModel)} is still planner-only for live Full Mesh STL runs. Select Trimesh repair to run the current image-to-mesh pipeline.`,
+      );
+      return;
+    }
 
     if (mediaKind === 'photo' && photoTarget === 'depth-relief') {
       setRunState('running');
@@ -929,6 +1018,11 @@ export default function Home() {
         setProcessedSTL(stlUrl);
         setDiagnosticsUrl(data.diagnostics_url ? `${backendUrl}${data.diagnostics_url}` : '');
         setStlDiagnostics(data.stl_diagnostics || null);
+        if (data.runtime) {
+          setBackendRuntime(data.runtime);
+          setBackendRuntimeState('ready');
+        }
+        setStageTimings(data.timings || null);
         setCompletedPreview(data.completed_image_url ? `${backendUrl}${data.completed_image_url}` : previewUrl);
         setRunState('ready');
         setStatusText('STL ready');
@@ -941,7 +1035,7 @@ export default function Home() {
     }
 
     setRunState('running');
-    setStatusText('Planning model stack');
+    setStatusText(mediaKind === 'photo' && photoTarget === 'full-mesh' ? 'Running image-to-mesh' : 'Planning model stack');
     try {
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 5000);
@@ -955,8 +1049,49 @@ export default function Home() {
       if (!response.ok) throw new Error(`Planner ${response.status}`);
       const data = (await response.json()) as PlannerResponse;
       setPlannerResponse(data);
+
+      if (mediaKind === 'photo' && photoTarget === 'full-mesh') {
+        const formData = new FormData();
+        formData.append('file', file, file.name || 'photo.jpg');
+        formData.append('provider', meshBackend);
+        formData.append('provider_device', 'cuda');
+        formData.append('mesh_repair', 'printable');
+        formData.append('mesh_target_max_dimension', String(printVolume.target_dimension_mm));
+        formData.append('mesh_min_bbox_dimension', '12');
+        formData.append('mesh_max_bbox_aspect_ratio', '2.25');
+        formData.append('mesh_target_faces', '40000');
+        formData.append('num_inference_steps', '50');
+        formData.append('guidance_scale', '7.0');
+        formData.append('low_vram', 'true');
+        formData.append('disable_progress', 'true');
+
+        const runnerController = new AbortController();
+        const runnerTimeout = window.setTimeout(() => runnerController.abort(), IMAGE_TO_MESH_TIMEOUT_MS);
+        const runnerResponse = await fetch(`${videoBackendUrl}/run/image-to-mesh`, {
+          method: 'POST',
+          body: formData,
+          signal: runnerController.signal,
+        });
+        window.clearTimeout(runnerTimeout);
+        if (!runnerResponse.ok) throw new Error(`Image-to-mesh runner ${runnerResponse.status}`);
+        const runnerData = await runnerResponse.json();
+        setProcessedSTL(runnerData.stl_url ? `${videoBackendUrl}${runnerData.stl_url}` : '');
+        setDiagnosticsUrl(runnerData.diagnostics_url ? `${videoBackendUrl}${runnerData.diagnostics_url}` : '');
+        setStlDiagnostics(runnerData.stl_diagnostics || null);
+        setStageTimings(runnerData.timings || null);
+        setCompletedPreview(previewUrl);
+        const passesHardChecks = Boolean(runnerData.stl_passes_hard_checks);
+        setStatusText(passesHardChecks ? 'Printable STL ready' : 'STL emitted; checks failed');
+        setRunState(passesHardChecks ? 'ready' : 'blocked');
+        if (!passesHardChecks) {
+          setError(`STL was emitted but failed ${failedChecksLabel(runnerData.stl_failed_checks)}.`);
+        }
+        return;
+      } else {
+        setStatusText('Planner ready');
+      }
+
       setRunState('ready');
-      setStatusText('Planner ready');
     } catch (planError) {
       setPlannerResponse({
         status: 'local-plan',
@@ -964,14 +1099,33 @@ export default function Home() {
         execution_mode: 'planner-offline',
         metrics: modelCatalog.metrics,
       });
-      setRunState('ready');
-      setStatusText('Local plan ready');
-      setError(planError instanceof Error ? `Companion planner unavailable: ${planError.message}` : 'Companion planner unavailable');
+      if (mediaKind === 'photo' && photoTarget === 'full-mesh') {
+        setRunState('error');
+        setStatusText('Run failed');
+        setError(planError instanceof Error ? planError.message : String(planError));
+      } else {
+        setRunState('ready');
+        setStatusText('Local plan ready');
+        setError(planError instanceof Error ? `Companion planner unavailable: ${planError.message}` : 'Companion planner unavailable');
+      }
     }
   };
 
   const canRun = Boolean(file) && runState !== 'running';
   const isPhoto = mediaKind === 'photo';
+  const runtimeLabel =
+    backendRuntimeState === 'checking'
+      ? 'Checking'
+      : backendRuntimeState === 'unavailable'
+        ? 'Unavailable'
+        : backendRuntime?.cuda_available
+          ? 'CUDA'
+          : 'CPU';
+  const timingEntries = stageTimings
+    ? ['completion_seconds', 'depth_seconds', 'provider_seconds', 'stl_seconds', 'diagnostics_seconds', 'total_seconds']
+        .filter((key) => typeof stageTimings[key] === 'number')
+        .map((key) => [key, stageTimings[key]] as const)
+    : [];
 
   return (
     <main className="min-h-screen bg-zinc-50 text-zinc-950">
@@ -1541,6 +1695,27 @@ export default function Home() {
 
             {error && <div className="mt-3 border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
 
+            <div className="mt-3 border border-zinc-200 bg-zinc-50 p-3 text-xs">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="font-semibold text-zinc-800">Backend Runtime</span>
+                <span
+                  className={classNames(
+                    'border px-2 py-1 font-medium',
+                    backendRuntime?.cuda_available && backendRuntimeState === 'ready' && 'border-emerald-700 bg-emerald-50 text-emerald-900',
+                    !backendRuntime?.cuda_available && backendRuntimeState === 'ready' && 'border-orange-700 bg-orange-50 text-orange-900',
+                    backendRuntimeState === 'checking' && 'border-blue-700 bg-blue-50 text-blue-900',
+                    backendRuntimeState === 'unavailable' && 'border-red-700 bg-red-50 text-red-900',
+                  )}
+                >
+                  {runtimeLabel}
+                </span>
+              </div>
+              <div className="break-words font-medium text-zinc-900">{backendRuntime?.device || 'Waiting for backend health'}</div>
+              <div className="mt-1 text-zinc-500">
+                Torch {backendRuntime?.torch || '-'} / CUDA {backendRuntime?.cuda_version || '-'}
+              </div>
+            </div>
+
             {mediaKind === 'photo' && photoTarget === 'depth-relief' && (
               <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
                 <div className="border border-zinc-200 bg-zinc-50 p-2">
@@ -1566,6 +1741,20 @@ export default function Home() {
                 <div className="border border-zinc-200 bg-zinc-50 p-2">
                   <div className="font-medium text-zinc-500">Border</div>
                   <div className="mt-1 font-semibold">{baseBorderPx}px</div>
+                </div>
+              </div>
+            )}
+
+            {timingEntries.length > 0 && (
+              <div className="mt-3 border border-zinc-200 bg-white p-3">
+                <div className="mb-2 text-sm font-semibold">Stage Timings</div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {timingEntries.map(([key, seconds]) => (
+                    <div key={key} className="flex items-center justify-between border border-zinc-200 bg-zinc-50 px-2 py-1.5">
+                      <span className="text-zinc-600">{timingLabel(key)}</span>
+                      <span className="font-semibold">{secondsLabel(seconds)}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

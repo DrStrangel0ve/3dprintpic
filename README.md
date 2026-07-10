@@ -34,12 +34,11 @@ uvicorn main:app --host 0.0.0.0 --reload --port 8004
 
 Video/selection planner
 ```bash
-cd backend/
-.\.venv\Scripts\Activate.ps1
-uvicorn video_selection_service:app --host 0.0.0.0 --reload --port 8005
+.\backend\.venv\Scripts\Activate.ps1
+python -m uvicorn backend.video_selection_service:app --host 0.0.0.0 --reload --port 8005
 ```
 
-The planner exposes the model catalog and creates run plans for object selection, frame selection, camera matching, video reconstruction, direct image-to-mesh, and STL repair. It is intentionally lightweight: it makes the video/selection model stack present in the app while the heavy model runners are attached behind the same ids.
+The planner exposes the model catalog and creates run plans for object selection, frame selection, camera matching, video reconstruction, direct image-to-mesh, and STL repair. It also exposes `POST /run/image-to-mesh`, which runs an installed provider such as TripoSR API, TripoSG, Hunyuan3D Shape, SPAR3D, or Stable Fast 3D behind the selected model id and writes `output_model.stl`, `diagnostics.json`, and `metadata.json`. Provider repositories/checkpoints still need to be installed separately and configured on the server with environment variables; request bodies cannot choose provider repo paths or Python executables.
 
 The webapp includes printer-volume constraints for STL sizing. The default preset is `Bambu Lab P1S` with a `256 x 256 x 256 mm` build volume; custom printer dimensions and edge clearance can be set in the output panel. For 2.5D relief STL generation, the usable XY footprint is passed to the backend as `max_xy_size`, the mesh/detail sample budget is passed as `target_dimension`, and the clamped relief height is passed as `z_scale`. The default relief polarity is `raised-print` (`invert=false`) so faces/subjects protrude instead of becoming a recessed mold; switch to `Mold` only when that negative relief is intentional. The relief writer also performs robust percentile normalization, local feature boosting, a gamma relief curve, lower smoothing, and an optional crisp border ring so small features such as noses and sharper rear/side walls survive the depth-to-STL conversion. Each relief job writes `output_model.stl`, `diagnostics.json`, and `metadata.json`; the response includes `diagnostics_url` and inline STL checks for watertightness, manifoldness, positive volume, connected body count, bbox health, and mesh complexity.
 
@@ -72,6 +71,13 @@ DEPTH_MODEL=depth-anything/Depth-Anything-V2-Small-hf
 OUTPUT_DIR=./output
 CORS_ORIGINS=http://localhost:3000,http://localhost:3001
 VIDEO_CORS_ORIGINS=http://localhost:3000,http://localhost:3001
+TRIPOSG_DIR=
+TRIPOSR_DIR=
+HUNYUAN3D_DIR=
+SPAR3D_DIR=
+SF3D_DIR=
+IMAGE_TO_MESH_PROVIDER_PYTHON=
+IMAGE_TO_MESH_TIMEOUT_SECONDS=3600
 MASV_API_KEY=
 MASV_TEAM_ID=
 RBC_ACCESS_TOKEN=

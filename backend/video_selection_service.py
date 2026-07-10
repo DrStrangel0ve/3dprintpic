@@ -1,15 +1,49 @@
 import os
+import json
+import shutil
+import sys
+import time
 from datetime import datetime
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+from types import SimpleNamespace
 from uuid import uuid4
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
+
+try:
+    from .benchmark.run_image_to_mesh_provider import PROVIDERS, run_provider
+    from .benchmark.direct_mesh import MESH_REPAIR_MODES
+    from .stl_diagnostics import json_safe_stl_diagnostics, stl_diagnostics
+except ImportError:  # pragma: no cover - supports running uvicorn from backend/
+    if __package__:
+        raise
+    repo_root = Path(__file__).resolve().parents[1]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    from backend.benchmark.run_image_to_mesh_provider import PROVIDERS, run_provider
+    from backend.benchmark.direct_mesh import MESH_REPAIR_MODES
+    from backend.stl_diagnostics import json_safe_stl_diagnostics, stl_diagnostics
 
 
 load_dotenv()
 
 app = FastAPI(title="3D Print Pic Video and Selection Planner")
+OUTPUT_DIR = Path(os.getenv("VIDEO_OUTPUT_DIR", "./output/video-selection-runs")).resolve()
+SINGLE_IMAGE_PROVIDERS = tuple(provider for provider in PROVIDERS if provider != "source-mesh-bundle-oracle")
+STL_HARD_CHECKS = (
+    "stl_exists",
+    "stl_is_watertight",
+    "stl_is_volume",
+    "stl_is_manifold",
+    "stl_winding_consistent",
+    "stl_positive_volume",
+    "stl_single_component",
+)
 
 DEFAULT_LOCAL_ORIGINS = ["http://localhost:3000", "http://localhost:3001"]
 CORS_ORIGINS = list(
@@ -23,6 +57,69 @@ CORS_ORIGINS = list(
         if origin.strip()
     )
 )
+
+
+def resolve_output_file(file_path: str, allowed_suffixes: tuple[str, ...]) -> Path:
+    requested = Path(file_path)
+    if requested.is_absolute() or ".." in requested.parts:
+        raise HTTPException(status_code=400, detail="Invalid artifact path")
+    resolved = (OUTPUT_DIR / requested).resolve()
+    try:
+        resolved.relative_to(OUTPUT_DIR)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Artifact path escapes output directory") from exc
+    if not resolved.exists() or not resolved.is_file():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    if allowed_suffixes and resolved.suffix.lower() not in allowed_suffixes:
+        raise HTTPException(status_code=400, detail=f"Unsupported artifact type: {resolved.suffix}")
+    return resolved
+
+
+def output_relative_path(path: Path | str) -> str:
+    return Path(path).resolve().relative_to(OUTPUT_DIR).as_posix()
+
+
+def provider_for_model(model_id: str | None) -> str:
+    provider = str(model_id or DEFAULTS["image_to_mesh"]).strip()
+    aliases = {
+        "hunyuan3d": "hunyuan3d-shape",
+        "tripo-sr": "triposr",
+        "triposr-local": "triposr",
+        "tripo-sr-api": "triposr-api",
+    }
+    provider = aliases.get(provider, provider)
+    if provider not in SINGLE_IMAGE_PROVIDERS:
+        expected = ", ".join(SINGLE_IMAGE_PROVIDERS)
+        raise HTTPException(status_code=400, detail=f"Unsupported image_to_mesh provider '{provider}'. Valid: {expected}")
+    return provider
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def provider_runtime_config(provider: str) -> dict[str, object]:
+    env_prefix = provider.upper().replace("-", "_")
+    provider_dir = os.getenv(f"{env_prefix}_DIR") or os.getenv("IMAGE_TO_MESH_PROVIDER_DIR") or None
+    provider_python = os.getenv(f"{env_prefix}_PYTHON") or os.getenv("IMAGE_TO_MESH_PROVIDER_PYTHON") or sys.executable
+    timeout = _env_int(f"{env_prefix}_TIMEOUT_SECONDS", _env_int("IMAGE_TO_MESH_TIMEOUT_SECONDS", 3600))
+    return {
+        "provider_dir": provider_dir,
+        "provider_python": provider_python,
+        "timeout": timeout,
+    }
+
+
+def stl_gate_result(diagnostics: dict) -> tuple[bool, list[str]]:
+    failed_checks = [key for key in STL_HARD_CHECKS if not bool(diagnostics.get(key))]
+    return not failed_checks, failed_checks
+
+
+def run_provider_job(args):
+    return run_provider(args)
 
 app.add_middleware(
     CORSMiddleware,
@@ -320,7 +417,8 @@ async def health():
     return {
         "status": "ok",
         "service": "video-selection-planner",
-        "mode": "planner-only",
+        "mode": "planner-plus-runner",
+        "runner_modes": ["image-to-mesh"],
         "generated_at": datetime.utcnow().isoformat() + "Z",
     }
 
@@ -329,11 +427,12 @@ async def health():
 async def models():
     return {
         "service": "video-selection-planner",
-        "mode": "planner-only",
+        "mode": "planner-plus-runner",
         "defaults": DEFAULTS,
         "groups": MODEL_GROUPS,
         "metrics": STL_METRICS,
-        "notes": "This companion service exposes the video, selection, camera, direct-mesh, and STL-repair model surface. Heavy runners can attach behind the same ids.",
+        "runner_modes": ["image-to-mesh"],
+        "notes": "This companion service exposes the video, selection, camera, direct-mesh, and STL-repair model surface. The image-to-mesh runner can attach heavy providers behind the same ids.",
     }
 
 
@@ -382,6 +481,174 @@ async def plan(payload: dict):
             "promotion_gate": "all hard STL checks must pass before model promotion",
         },
     }
+
+
+@app.post("/run/image-to-mesh")
+async def run_image_to_mesh(
+    file: UploadFile = File(...),
+    provider: str | None = Form(None),
+    provider_device: str = Form("cuda"),
+    model_name: str | None = Form(None),
+    mesh_repair: str = Form("printable"),
+    mesh_target_max_dimension: float = Form(96.0),
+    mesh_min_bbox_dimension: float = Form(12.0),
+    mesh_max_bbox_aspect_ratio: float = Form(0.0),
+    mesh_target_faces: int = Form(40000),
+    low_vram: bool = Form(True),
+    chunk_size: int = Form(8192),
+    mc_resolution: int = Form(256),
+    texture_resolution: int | None = Form(None),
+    num_inference_steps: int = Form(50),
+    guidance_scale: float = Form(7.0),
+    octree_resolution: int = Form(256),
+    num_chunks: int = Form(8000),
+    seed: int | None = Form(None),
+    disable_progress: bool = Form(True),
+):
+    selected_provider = provider_for_model(provider)
+    if mesh_repair not in MESH_REPAIR_MODES:
+        expected = ", ".join(MESH_REPAIR_MODES)
+        raise HTTPException(status_code=400, detail=f"Unsupported mesh_repair '{mesh_repair}'. Valid: {expected}")
+    runtime_config = provider_runtime_config(selected_provider)
+
+    job_id = uuid4().hex
+    job_dir = OUTPUT_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    request_started = time.perf_counter()
+    upload_suffix = Path(file.filename or "").suffix or ".png"
+    with NamedTemporaryFile(delete=False, suffix=upload_suffix, dir=job_dir) as temp_file:
+        shutil.copyfileobj(file.file, temp_file)
+        input_path = Path(temp_file.name)
+
+    output_mesh = job_dir / "output_mesh.glb"
+    raw_output_mesh = job_dir / "output_mesh_raw.glb"
+    output_stl = job_dir / "output_model.stl"
+    provider_args = SimpleNamespace(
+        provider=selected_provider,
+        input_image=input_path,
+        input_bundle=None,
+        output_mesh=output_mesh,
+        output_stl=output_stl,
+        raw_output_mesh=raw_output_mesh,
+        provider_dir=runtime_config["provider_dir"],
+        provider_output_dir=job_dir / f"{selected_provider}_raw",
+        python=runtime_config["provider_python"],
+        timeout=runtime_config["timeout"],
+        low_vram=bool(low_vram),
+        provider_device=provider_device,
+        chunk_size=int(chunk_size),
+        mc_resolution=int(mc_resolution),
+        texture_resolution=texture_resolution,
+        remesh_option=None,
+        mesh_repair=mesh_repair,
+        mesh_target_max_dimension=float(mesh_target_max_dimension or 0.0),
+        mesh_min_bbox_dimension=float(mesh_min_bbox_dimension or 0.0),
+        mesh_max_bbox_aspect_ratio=float(mesh_max_bbox_aspect_ratio or 0.0),
+        mesh_target_bbox_extents=None,
+        mesh_target_faces=int(mesh_target_faces or 0),
+        provider_arg=[],
+        model_name=model_name,
+        num_inference_steps=int(num_inference_steps),
+        guidance_scale=float(guidance_scale),
+        octree_resolution=int(octree_resolution),
+        num_chunks=int(num_chunks),
+        seed=seed,
+        mc_algo=None,
+        disable_progress=bool(disable_progress),
+        prefetch_only=False,
+    )
+
+    started_at = datetime.utcnow().isoformat() + "Z"
+    try:
+        stage_started = time.perf_counter()
+        mesh_path, stl_path = await run_in_threadpool(run_provider_job, provider_args)
+        provider_seconds = round(time.perf_counter() - stage_started, 3)
+        stl_path = Path(stl_path or output_stl)
+        if not stl_path.exists():
+            raise FileNotFoundError(f"Provider did not write an STL at {stl_path}")
+        stage_started = time.perf_counter()
+        diagnostics = json_safe_stl_diagnostics(stl_diagnostics(stl_path))
+        diagnostics.update(
+            {
+                "job_id": job_id,
+                "runner": "image-to-mesh",
+                "provider": selected_provider,
+                "artifact_contract": "output_model.stl + diagnostics.json",
+            }
+        )
+        stl_passes_hard_checks, stl_failed_checks = stl_gate_result(diagnostics)
+        diagnostics["stl_passes_hard_checks"] = stl_passes_hard_checks
+        diagnostics["stl_failed_checks"] = stl_failed_checks
+        diagnostics_seconds = round(time.perf_counter() - stage_started, 3)
+        timings = {
+            "provider_seconds": provider_seconds,
+            "diagnostics_seconds": diagnostics_seconds,
+            "total_seconds": round(time.perf_counter() - request_started, 3),
+        }
+        diagnostics_path = job_dir / "diagnostics.json"
+        diagnostics_path.write_text(json.dumps(diagnostics, indent=2, allow_nan=False), encoding="utf-8")
+        provider_python_configured = bool(
+            os.getenv(f"{selected_provider.upper().replace('-', '_')}_PYTHON")
+            or os.getenv("IMAGE_TO_MESH_PROVIDER_PYTHON")
+        )
+        metadata = {
+            "job_id": job_id,
+            "source_filename": file.filename,
+            "service": "video-selection-planner",
+            "runner": "image-to-mesh",
+            "provider": selected_provider,
+            "provider_dir_configured": bool(runtime_config["provider_dir"]),
+            "provider_python_configured": provider_python_configured,
+            "provider_device": provider_device,
+            "provider_timeout_seconds": runtime_config["timeout"],
+            "mesh_repair": mesh_repair,
+            "mesh_target_max_dimension": mesh_target_max_dimension,
+            "mesh_min_bbox_dimension": mesh_min_bbox_dimension,
+            "mesh_max_bbox_aspect_ratio": mesh_max_bbox_aspect_ratio,
+            "mesh_target_faces": mesh_target_faces,
+            "timings": timings,
+            "started_at": started_at,
+            "finished_at": datetime.utcnow().isoformat() + "Z",
+        }
+        metadata_path = job_dir / "metadata.json"
+        metadata_path.write_text(json.dumps(metadata, indent=2, allow_nan=False), encoding="utf-8")
+
+        mesh_relative = output_relative_path(mesh_path)
+        stl_relative = output_relative_path(stl_path)
+        diagnostics_relative = output_relative_path(diagnostics_path)
+        metadata_relative = output_relative_path(metadata_path)
+        return {
+            **metadata,
+            "status": "printable" if stl_passes_hard_checks else "stl-emitted",
+            "stl_passes_hard_checks": stl_passes_hard_checks,
+            "stl_failed_checks": stl_failed_checks,
+            "output_mesh": mesh_relative,
+            "output_mesh_url": f"/artifacts/{mesh_relative}",
+            "stl_model": stl_relative,
+            "stl_url": f"/artifacts/{stl_relative}",
+            "diagnostics": diagnostics_relative,
+            "diagnostics_url": f"/artifacts/{diagnostics_relative}",
+            "metadata": metadata_relative,
+            "metadata_url": f"/artifacts/{metadata_relative}",
+            "stl_diagnostics": diagnostics,
+            "timings": timings,
+        }
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+    finally:
+        try:
+            input_path.unlink()
+        except OSError:
+            pass
+
+
+@app.get("/artifacts/{file_path:path}")
+async def get_artifact(file_path: str):
+    resolved_path = resolve_output_file(file_path, (".stl", ".json", ".glb", ".gltf", ".obj", ".ply", ".png", ".jpg", ".jpeg", ".webp"))
+    media_type = "application/json" if resolved_path.suffix.lower() == ".json" else None
+    return FileResponse(resolved_path, media_type=media_type)
 
 
 if __name__ == "__main__":
