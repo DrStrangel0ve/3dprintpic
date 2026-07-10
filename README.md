@@ -40,7 +40,7 @@ python -m uvicorn backend.video_selection_service:app --host 0.0.0.0 --reload --
 
 The planner exposes the model catalog and creates run plans for object selection, frame selection, camera matching, video reconstruction, direct image-to-mesh, and STL repair. It also exposes `GET /providers/image-to-mesh` for lightweight provider preflight and `POST /run/image-to-mesh` for actual STL generation. The runner uses an installed provider such as TripoSR API, TripoSG, Hunyuan3D Shape, SPAR3D, or Stable Fast 3D behind the selected model id and writes `output_model.stl`, `diagnostics.json`, and `metadata.json`. Provider repositories/checkpoints still need to be installed separately and configured on the server with environment variables; request bodies cannot choose provider repo paths or Python executables.
 
-The webapp includes printer-volume constraints for STL sizing. The default preset is `Bambu Lab P1S` with a `256 x 256 x 256 mm` build volume; custom printer dimensions and edge clearance can be set in the output panel. For 2.5D relief STL generation, the usable XY footprint is passed to the backend as `max_xy_size`, the mesh/detail sample budget is passed as `target_dimension`, and the clamped relief height is passed as `z_scale`. The default relief polarity is `raised-print` (`invert=false`) so faces/subjects protrude instead of becoming a recessed mold; switch to `Mold` only when that negative relief is intentional. The relief writer also performs robust percentile normalization, local feature boosting, a gamma relief curve, lower smoothing, and an optional crisp border ring so small features such as noses and sharper rear/side walls survive the depth-to-STL conversion. Each relief job writes `output_model.stl`, `diagnostics.json`, and `metadata.json`; the response includes `diagnostics_url` and inline STL checks for watertightness, manifoldness, positive volume, connected body count, bbox health, and mesh complexity.
+The webapp includes printer-volume constraints for STL sizing. The default preset is `Bambu Lab P1S` with a `256 x 256 x 256 mm` build volume; custom printer dimensions, print scale, and edge clearance can be set in the output panel. For 2.5D relief STL generation, the scaled physical XY footprint is passed to the backend as `max_xy_size`, the mesh/detail sample budget is passed as `target_dimension`, and the clamped relief height is passed as `z_scale`. The default relief polarity is `raised-print`, and the backend now chooses the effective invert setting from the actual depth model semantics so near-high relative depth models and far-high metric depth models both make faces/subjects protrude; switch to `Mold` only when negative relief is intentional. The relief writer also performs robust percentile normalization, local feature boosting, a gamma relief curve, lower smoothing, and an optional crisp border ring so small features such as noses and sharper rear/side walls survive the depth-to-STL conversion. Each relief job writes `output_model.stl`, `diagnostics.json`, and `metadata.json`; the response includes `diagnostics_url` and inline STL checks for watertightness, manifoldness, positive volume, connected body count, bbox health, and mesh complexity.
 
 For an NVIDIA GPU such as a 3080 Ti, install the CUDA build instead:
 
@@ -67,7 +67,7 @@ Backend `.env` values:
 
 ```bash
 DEPTH_PROVIDER=transformers
-DEPTH_MODEL=apple/DepthPro-hf
+DEPTH_MODEL=depth-anything/Depth-Anything-V2-Large-hf
 OUTPUT_DIR=./output
 CORS_ORIGINS=http://localhost:3000,http://localhost:3001
 VIDEO_CORS_ORIGINS=http://localhost:3000,http://localhost:3001
@@ -95,8 +95,8 @@ COHERE_API_KEY=
 
 ## Model direction
 
-- Current default: `Apple Depth Pro` through the local Transformers depth pipeline for sharper metric depth and cleaner relief edges.
-- Quality options: choose Depth Anything V2 Metric Indoor/Outdoor for metric-scene alternatives, or Depth Anything V2 Base/Large when you want relative-depth fallbacks.
+- Current default: `Depth Anything V2 Large` through the local Transformers depth pipeline because it is the best verified CUDA-backed relief-depth option in the current local workflow.
+- Quality options: choose Apple Depth Pro for sharp metric-detail experiments after its weights are preloaded, Depth Anything V2 Metric Indoor/Outdoor for metric-scene alternatives, or Depth Anything V2 Base/Small when you want lighter relative-depth fallbacks. Depth Pro runs write fallback metadata when the local cache is incomplete and the backend uses the effective model semantics when choosing raised-print versus mold polarity.
 - Fallback: `Sapiens Depth` for human-centric depth estimation through the remote Gradio Space.
 - Current fast completion helpers: optional mirror-completion and mirror seam repair before depth estimation, useful for roughly symmetric front-facing subjects when one side is cut off.
 - Current modern completion providers: optional AMUSED Inpaint, DreamShaper Inpaint, SDXL Inpaint, FLUX.1 Fill, Qwen Image Inpaint, and Qwen Image Edit paths through Diffusers. These use learned priors instead of simple mirroring; AMUSED/DreamShaper/SDXL are the practical local GPU baselines, while Qwen/FLUX are much larger and may need model access, downloads, CPU offload, and long first runs.

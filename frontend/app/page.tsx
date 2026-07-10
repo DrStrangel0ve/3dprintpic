@@ -36,6 +36,7 @@ const CONFIGURED_VIDEO_BACKEND_URL = process.env.NEXT_PUBLIC_VIDEO_BACKEND_URL |
 const PROCESS_IMAGE_TIMEOUT_MS = 10 * 60 * 1000;
 const IMAGE_TO_MESH_TIMEOUT_MS = 60 * 60 * 1000;
 const FULL_MESH_RUNNER_STL_POSTPROCESS = 'trimesh-repair';
+const DEPTH_PRO_MODEL_ID = 'apple/DepthPro-hf';
 
 type MediaKind = 'photo' | 'video';
 type PhotoScope = 'whole-image' | 'object-selection';
@@ -138,6 +139,27 @@ type BackendHealth = {
 
 type StageTimings = Record<string, number>;
 
+type DepthRunMetadata = {
+  provider?: string;
+  requested_model?: string;
+  effective_model?: string;
+  fallback_model?: string | null;
+  fallback_reason?: string | null;
+};
+
+type DepthPreloadStatus = {
+  model_id?: string;
+  status?: 'idle' | 'missing' | 'downloading' | 'ready' | 'error' | string;
+  message?: string;
+  downloaded_bytes?: number;
+  total_bytes?: number;
+  progress_percent?: number;
+  complete?: boolean;
+  missing_files?: string[];
+  incomplete_file_count?: number;
+  error?: string | null;
+};
+
 type PrinterPresetId = 'bambulab-p1s' | 'custom';
 
 type PrinterPreset = {
@@ -158,7 +180,9 @@ type PrintVolumePlan = {
   usable_x_mm: number;
   usable_y_mm: number;
   usable_z_mm: number;
+  max_target_dimension_mm: number;
   target_dimension_mm: number;
+  print_scale_percent: number;
   max_relief_height_mm: number;
 };
 
@@ -185,10 +209,17 @@ const inpaintBackends = ['Mirror prior', 'SDXL inpaint', 'FLUX Fill', 'Qwen Imag
 const resolutionMultipliers = [1, 1.5, 2, 3];
 const depthModels: DepthModelOption[] = [
   {
-    id: 'apple/DepthPro-hf',
+    id: 'depth-anything/Depth-Anything-V2-Large-hf',
+    label: 'Depth Anything V2 Large',
+    tier: 'Best verified',
+    notes: 'Best CUDA-backed option verified locally for relief STL generation.',
+    farIsHigh: false,
+  },
+  {
+    id: DEPTH_PRO_MODEL_ID,
     label: 'Apple Depth Pro',
-    tier: 'Best detail',
-    notes: 'Sharp metric depth with strong boundaries; best first try for faces and wall edges.',
+    tier: 'Experimental detail',
+    notes: 'Sharp metric-depth candidate; large first download, use after preload.',
     farIsHigh: true,
   },
   {
@@ -204,13 +235,6 @@ const depthModels: DepthModelOption[] = [
     tier: 'Metric outdoor',
     notes: 'Good for larger outdoor scenes.',
     farIsHigh: true,
-  },
-  {
-    id: 'depth-anything/Depth-Anything-V2-Large-hf',
-    label: 'Depth Anything V2 Large',
-    tier: 'Relative detail',
-    notes: 'Strong relative depth fallback when metric models are too heavy.',
-    farIsHigh: false,
   },
   {
     id: 'depth-anything/Depth-Anything-V2-Base-hf',
@@ -442,6 +466,21 @@ function timingLabel(key: string) {
   return labels[key] || key.replace(/_/g, ' ');
 }
 
+function depthPreloadLabel(status?: string) {
+  if (status === 'ready') return 'Cached';
+  if (status === 'downloading') return 'Downloading';
+  if (status === 'error') return 'Failed';
+  if (status === 'missing') return 'Not cached';
+  return 'Checking';
+}
+
+function depthPreloadTone(status?: string) {
+  if (status === 'ready') return 'border-emerald-700 bg-emerald-50 text-emerald-900';
+  if (status === 'downloading') return 'border-blue-700 bg-blue-50 text-blue-900';
+  if (status === 'error') return 'border-red-700 bg-red-50 text-red-900';
+  return 'border-orange-700 bg-orange-50 text-orange-900';
+}
+
 function normalizeCatalog(data: Partial<ModelCatalog>): ModelCatalog {
   return {
     service: data.service || fallbackModelCatalog.service,
@@ -639,6 +678,7 @@ function workflowSteps({
 export default function Home() {
   const [backendUrl, setBackendUrl] = useState(DEFAULT_BACKEND_URL);
   const [videoBackendUrl, setVideoBackendUrl] = useState(DEFAULT_VIDEO_BACKEND_URL);
+  const [backendConfigReady, setBackendConfigReady] = useState(false);
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog>(fallbackModelCatalog);
   const [catalogState, setCatalogState] = useState<CatalogState>('loading');
   const [providerReadiness, setProviderReadiness] = useState<Record<string, ProviderReadiness>>({});
@@ -651,7 +691,7 @@ export default function Home() {
   const [videoScope, setVideoScope] = useState<VideoScope>('selected-frames');
   const [selectedFrameCount, setSelectedFrameCount] = useState(12);
   const [frameStep, setFrameStep] = useState(8);
-  const [depthModel, setDepthModel] = useState('apple/DepthPro-hf');
+  const [depthModel, setDepthModel] = useState('depth-anything/Depth-Anything-V2-Large-hf');
   const [depthScale, setDepthScale] = useState(42);
   const [baseThickness, setBaseThickness] = useState(2.4);
   const [reliefPolarity, setReliefPolarity] = useState<ReliefPolarity>('raised-print');
@@ -665,6 +705,7 @@ export default function Home() {
   const [printerMaxY, setPrinterMaxY] = useState(256);
   const [printerMaxZ, setPrinterMaxZ] = useState(256);
   const [printerClearance, setPrinterClearance] = useState(0);
+  const [printScalePercent, setPrintScalePercent] = useState(100);
   const [meshBackend, setMeshBackend] = useState(fallbackModelCatalog.defaults.image_to_mesh);
   const [inpaintBackend, setInpaintBackend] = useState(inpaintBackends[0]);
   const [selectionModel, setSelectionModel] = useState(fallbackModelCatalog.defaults.selection);
@@ -678,6 +719,11 @@ export default function Home() {
   const [backendRuntime, setBackendRuntime] = useState<RuntimeInfo | null>(null);
   const [backendRuntimeState, setBackendRuntimeState] = useState<'checking' | 'ready' | 'unavailable'>('checking');
   const [stageTimings, setStageTimings] = useState<StageTimings | null>(null);
+  const [depthRunMetadata, setDepthRunMetadata] = useState<DepthRunMetadata | null>(null);
+  const [depthProPreload, setDepthProPreload] = useState<DepthPreloadStatus | null>(null);
+  const [depthProPreloadState, setDepthProPreloadState] = useState<'checking' | 'ready' | 'unavailable'>('checking');
+  const [depthProPreloadStarting, setDepthProPreloadStarting] = useState(false);
+  const [depthProPreloadPollKey, setDepthProPreloadPollKey] = useState(0);
   const [completedPreview, setCompletedPreview] = useState('');
   const [plannerResponse, setPlannerResponse] = useState<PlannerResponse | null>(null);
   const [runState, setRunState] = useState<RunState>('idle');
@@ -697,7 +743,9 @@ export default function Home() {
     const usableX = Math.max(1, Math.floor(printerMaxX - printerClearance * 2));
     const usableY = Math.max(1, Math.floor(printerMaxY - printerClearance * 2));
     const usableZ = Math.max(1, Math.floor(printerMaxZ - printerClearance));
-    const targetDimension = Math.max(1, Math.floor(Math.min(usableX, usableY)));
+    const maxTargetDimension = Math.max(1, Math.floor(Math.min(usableX, usableY)));
+    const scaledTargetDimension = Math.max(1, Math.floor(maxTargetDimension * (printScalePercent / 100)));
+    const targetDimension = Math.min(maxTargetDimension, Math.max(10, scaledTargetDimension));
     return {
       preset: printerPreset,
       label: currentPrinterPreset.label,
@@ -708,10 +756,12 @@ export default function Home() {
       usable_x_mm: usableX,
       usable_y_mm: usableY,
       usable_z_mm: usableZ,
+      max_target_dimension_mm: maxTargetDimension,
       target_dimension_mm: targetDimension,
+      print_scale_percent: printScalePercent,
       max_relief_height_mm: Math.max(1, usableZ - baseThickness),
     };
-  }, [printerPreset, currentPrinterPreset.label, printerMaxX, printerMaxY, printerMaxZ, printerClearance, baseThickness]);
+  }, [printerPreset, currentPrinterPreset.label, printerMaxX, printerMaxY, printerMaxZ, printerClearance, printScalePercent, baseThickness]);
   const effectiveReliefHeight = Math.min(depthScale, printVolume.max_relief_height_mm);
   const reliefSliderMax = Math.max(12, Math.min(96, Math.floor(printVolume.max_relief_height_mm)));
   const reliefTargetDimension = Math.max(64, Math.round(printVolume.target_dimension_mm * meshResolutionMultiplier));
@@ -729,16 +779,21 @@ export default function Home() {
   useEffect(() => {
     setBackendUrl(CONFIGURED_BACKEND_URL);
     setVideoBackendUrl(CONFIGURED_VIDEO_BACKEND_URL);
+    setBackendConfigReady(true);
   }, []);
 
   useEffect(() => {
+    if (!backendConfigReady) return;
+
     let cancelled = false;
+    let retryTimer: number | undefined;
 
     const loadBackendRuntime = async () => {
       setBackendRuntimeState('checking');
+      let timeout: number | undefined;
       try {
         const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), 2500);
+        timeout = window.setTimeout(() => controller.abort(), 2500);
         const response = await fetch(`${backendUrl}/health`, { signal: controller.signal });
         window.clearTimeout(timeout);
         if (!response.ok) throw new Error(`Backend health ${response.status}`);
@@ -748,9 +803,11 @@ export default function Home() {
           setBackendRuntimeState('ready');
         }
       } catch {
+        if (timeout) window.clearTimeout(timeout);
         if (!cancelled) {
           setBackendRuntime(null);
           setBackendRuntimeState('unavailable');
+          retryTimer = window.setTimeout(loadBackendRuntime, 5000);
         }
       }
     };
@@ -758,8 +815,48 @@ export default function Home() {
     loadBackendRuntime();
     return () => {
       cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
     };
-  }, [backendUrl]);
+  }, [backendUrl, backendConfigReady]);
+
+  useEffect(() => {
+    if (!backendConfigReady) return;
+
+    let cancelled = false;
+    let pollTimer: number | undefined;
+
+    const loadDepthProPreloadStatus = async () => {
+      setDepthProPreloadState('checking');
+      let timeout: number | undefined;
+      try {
+        const controller = new AbortController();
+        timeout = window.setTimeout(() => controller.abort(), 4000);
+        const response = await fetch(`${backendUrl}/depth/preload/depthpro/status`, { signal: controller.signal });
+        window.clearTimeout(timeout);
+        if (!response.ok) throw new Error(`Depth Pro preload ${response.status}`);
+        const data = (await response.json()) as DepthPreloadStatus;
+        if (!cancelled) {
+          setDepthProPreload(data);
+          setDepthProPreloadState('ready');
+          if (data.status === 'downloading') {
+            pollTimer = window.setTimeout(loadDepthProPreloadStatus, 2500);
+          }
+        }
+      } catch {
+        if (timeout) window.clearTimeout(timeout);
+        if (!cancelled) {
+          setDepthProPreload(null);
+          setDepthProPreloadState('unavailable');
+        }
+      }
+    };
+
+    loadDepthProPreloadStatus();
+    return () => {
+      cancelled = true;
+      if (pollTimer) window.clearTimeout(pollTimer);
+    };
+  }, [backendUrl, backendConfigReady, depthProPreloadPollKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -834,6 +931,7 @@ export default function Home() {
     setDiagnosticsUrl('');
     setStlDiagnostics(null);
     setStageTimings(null);
+    setDepthRunMetadata(null);
     setCompletedPreview('');
     setPlannerResponse(null);
     setRunState('idle');
@@ -1060,6 +1158,7 @@ export default function Home() {
     setDiagnosticsUrl('');
     setStlDiagnostics(null);
     setStageTimings(null);
+    setDepthRunMetadata(null);
     setCompletedPreview('');
     setPlannerResponse(null);
     setRunState('idle');
@@ -1080,6 +1179,34 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
+  const startDepthProPreload = async () => {
+    setDepthProPreloadStarting(true);
+    try {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 10000);
+      const response = await fetch(`${backendUrl}/depth/preload/depthpro`, {
+        method: 'POST',
+        signal: controller.signal,
+      });
+      window.clearTimeout(timeout);
+      if (!response.ok) throw new Error(`Depth Pro preload ${response.status}`);
+      const data = (await response.json()) as DepthPreloadStatus;
+      setDepthProPreload(data);
+      setDepthProPreloadState('ready');
+      setDepthProPreloadPollKey((value) => value + 1);
+    } catch (preloadError) {
+      setDepthProPreload({
+        model_id: DEPTH_PRO_MODEL_ID,
+        status: 'error',
+        message: preloadError instanceof Error ? preloadError.message : String(preloadError),
+        error: preloadError instanceof Error ? preloadError.message : String(preloadError),
+      });
+      setDepthProPreloadState('ready');
+    } finally {
+      setDepthProPreloadStarting(false);
+    }
+  };
+
   const runPipeline = async () => {
     if (!file) {
       setRunState('blocked');
@@ -1092,6 +1219,7 @@ export default function Home() {
     setDiagnosticsUrl('');
     setStlDiagnostics(null);
     setStageTimings(null);
+    setDepthRunMetadata(null);
     setCompletedPreview('');
     setPlannerResponse(null);
 
@@ -1153,6 +1281,7 @@ export default function Home() {
         formData.append('printer_max_y_mm', String(printVolume.max_y_mm));
         formData.append('printer_max_z_mm', String(printVolume.max_z_mm));
         formData.append('printer_clearance_mm', String(printVolume.clearance_mm));
+        formData.append('print_scale_percent', String(printVolume.print_scale_percent));
 
         const controller = new AbortController();
         const timeout = window.setTimeout(() => controller.abort(), PROCESS_IMAGE_TIMEOUT_MS);
@@ -1174,6 +1303,7 @@ export default function Home() {
           setBackendRuntimeState('ready');
         }
         setStageTimings(data.timings || null);
+        setDepthRunMetadata(data.depth_metadata || null);
         setCompletedPreview(data.completed_image_url ? `${backendUrl}${data.completed_image_url}` : previewUrl);
         setRunState('ready');
         setStatusText('STL ready');
@@ -1277,6 +1407,13 @@ export default function Home() {
         .filter((key) => typeof stageTimings[key] === 'number')
         .map((key) => [key, stageTimings[key]] as const)
     : [];
+  const depthProStatus = depthProPreload?.status || (depthProPreloadState === 'checking' ? 'checking' : 'missing');
+  const depthProProgress = Math.max(0, Math.min(100, depthProPreload?.progress_percent || 0));
+  const depthProBytes =
+    typeof depthProPreload?.downloaded_bytes === 'number' && typeof depthProPreload?.total_bytes === 'number'
+      ? `${fileSizeLabel(depthProPreload.downloaded_bytes)} / ${fileSizeLabel(depthProPreload.total_bytes)}`
+      : '';
+  const depthProIsBusy = depthProPreloadStarting || depthProStatus === 'downloading';
 
   return (
     <main className="min-h-screen bg-zinc-50 text-zinc-950">
@@ -1474,6 +1611,35 @@ export default function Home() {
                       </select>
                       <span className="mt-1 block text-xs text-zinc-500">{selectedDepthModel.notes}</span>
                     </label>
+
+                    {selectedDepthModel.id === DEPTH_PRO_MODEL_ID && (
+                      <div className="border border-zinc-200 bg-zinc-50 p-3 text-xs">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <span className="font-semibold text-zinc-800">Depth Pro Cache</span>
+                          <span className={classNames('border px-2 py-1 font-medium', depthPreloadTone(depthProStatus))}>
+                            {depthPreloadLabel(depthProStatus)}
+                          </span>
+                        </div>
+                        <div className="h-2 overflow-hidden bg-zinc-200">
+                          <div className="h-full bg-blue-700" style={{ width: `${depthProProgress}%` }} />
+                        </div>
+                        <div className="mt-2 flex items-center justify-between gap-2 text-zinc-600">
+                          <span>{depthProBytes || depthProPreload?.message || 'Checking cache'}</span>
+                          <span>{depthProProgress.toFixed(1)}%</span>
+                        </div>
+                        {depthProPreload?.error && <div className="mt-2 text-red-700">{depthProPreload.error}</div>}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="mt-3 h-10 w-full gap-2"
+                          onClick={startDepthProPreload}
+                          disabled={depthProIsBusy || depthProStatus === 'ready'}
+                        >
+                          {depthProIsBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                          {depthProStatus === 'ready' ? 'Cached' : depthProIsBusy ? 'Preloading' : 'Preload Depth Pro'}
+                        </Button>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-2">
                       <button
@@ -1863,6 +2029,16 @@ export default function Home() {
 
             {error && <div className="mt-3 border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
 
+            {depthRunMetadata?.fallback_reason && (
+              <div className="mt-3 border border-orange-200 bg-orange-50 p-3 text-xs text-orange-900">
+                <div className="font-semibold">Depth fallback used</div>
+                <div className="mt-1">{depthRunMetadata.fallback_reason}</div>
+                {depthRunMetadata.effective_model && (
+                  <div className="mt-1 text-orange-800">Effective model: {depthRunMetadata.effective_model}</div>
+                )}
+              </div>
+            )}
+
             <div className="mt-3 border border-zinc-200 bg-zinc-50 p-3 text-xs">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="font-semibold text-zinc-800">Backend Runtime</span>
@@ -2047,9 +2223,25 @@ export default function Home() {
               />
             </label>
 
+            <label className="mt-3 block text-sm font-medium text-zinc-700">
+              Print size
+              <input
+                className="mt-2 w-full accent-blue-700"
+                type="range"
+                min="10"
+                max="100"
+                step="5"
+                value={printScalePercent}
+                onChange={(event) => setPrintScalePercent(Number(event.target.value))}
+              />
+              <span className="text-xs text-zinc-500">
+                {printScalePercent}% / {printVolume.target_dimension_mm} mm XY
+              </span>
+            </label>
+
             <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
               <div className="border border-zinc-200 bg-zinc-50 p-3">
-                <div className="text-xs font-medium uppercase text-zinc-500">Max STL XY</div>
+                <div className="text-xs font-medium uppercase text-zinc-500">STL XY</div>
                 <div className="font-semibold">{printVolume.target_dimension_mm} mm</div>
               </div>
               <div className="border border-zinc-200 bg-zinc-50 p-3">

@@ -7,6 +7,8 @@ import argparse
 
 _DEPTH_PIPELINE_CACHE = {}
 _INPAINT_PIPELINE_CACHE = {}
+DEPTHPRO_MODEL_ID = "apple/DepthPro-hf"
+DEFAULT_DEPTH_FALLBACK_MODEL = "depth-anything/Depth-Anything-V2-Large-hf"
 
 MODERN_INPAINT_MODELS = {
     "sdxl-inpaint": {
@@ -665,7 +667,20 @@ def process_image_get_depth_data_transformers(
     output_dir="./output",
     model_name="depth-anything/Depth-Anything-V2-Small-hf",
     device="auto",
+    requested_model_name=None,
+    fallback_reason=None,
 ):
+    model_name = model_name or "depth-anything/Depth-Anything-V2-Small-hf"
+    if model_name == DEPTHPRO_MODEL_ID:
+        return process_image_get_depth_data_depthpro(
+            input_image_path,
+            output_dir=output_dir,
+            model_name=model_name,
+            device=device,
+            requested_model_name=requested_model_name,
+            fallback_reason=fallback_reason,
+        )
+
     try:
         import torch
         from PIL import Image
@@ -710,6 +725,145 @@ def process_image_get_depth_data_transformers(
         depth_image = result["depth"]
         depth_data = np.asarray(depth_image, dtype=np.float32)
 
+    return _save_depth_outputs(
+        depth_data,
+        output_dir,
+        metadata={
+            "provider": "transformers",
+            "requested_model": requested_model_name or model_name,
+            "effective_model": model_name,
+            "fallback_model": model_name if fallback_reason else None,
+            "fallback_reason": fallback_reason,
+        },
+    )
+
+
+def process_image_get_depth_data_depthpro(
+    input_image_path,
+    output_dir="./output",
+    model_name=DEPTHPRO_MODEL_ID,
+    device="auto",
+    requested_model_name=None,
+    fallback_reason=None,
+):
+    try:
+        import torch
+        from PIL import Image
+        from transformers import DepthProForDepthEstimation, DepthProImageProcessor
+    except ImportError as exc:
+        return _run_depth_fallback(
+            input_image_path,
+            output_dir,
+            requested_model_name or model_name,
+            device,
+            f"Apple Depth Pro dependencies are unavailable: {exc}",
+        )
+
+    if not _hf_model_has_local_weights(model_name):
+        return _run_depth_fallback(
+            input_image_path,
+            output_dir,
+            requested_model_name or model_name,
+            device,
+            "Apple Depth Pro weights are not fully cached yet; used verified local fallback instead.",
+        )
+
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        resolved_device = _resolve_torch_device(device)
+        dtype = torch.float16 if resolved_device == "cuda" else torch.float32
+        cache_key = ("depthpro", model_name, resolved_device, str(dtype))
+        if cache_key not in _DEPTH_PIPELINE_CACHE:
+            processor = DepthProImageProcessor.from_pretrained(model_name, local_files_only=True)
+            model_kwargs = {
+                "local_files_only": True,
+                "use_fov_model": False,
+                "attn_implementation": "sdpa",
+            }
+            try:
+                model_kwargs["dtype"] = dtype
+                model = DepthProForDepthEstimation.from_pretrained(model_name, **model_kwargs)
+            except TypeError:
+                model_kwargs.pop("dtype", None)
+                model_kwargs["torch_dtype"] = dtype
+                model = DepthProForDepthEstimation.from_pretrained(model_name, **model_kwargs)
+            model.to(resolved_device)
+            model.eval()
+            _DEPTH_PIPELINE_CACHE[cache_key] = (processor, model, resolved_device, dtype)
+
+        processor, model, resolved_device, dtype = _DEPTH_PIPELINE_CACHE[cache_key]
+        image = Image.open(input_image_path).convert("RGB")
+        inputs = processor(images=image, return_tensors="pt")
+        prepared_inputs = {}
+        for key, value in inputs.items():
+            if hasattr(value, "to"):
+                if torch.is_floating_point(value):
+                    prepared_inputs[key] = value.to(device=resolved_device, dtype=dtype)
+                else:
+                    prepared_inputs[key] = value.to(device=resolved_device)
+            else:
+                prepared_inputs[key] = value
+
+        with torch.inference_mode():
+            outputs = model(**prepared_inputs)
+
+        post_processed_output = processor.post_process_depth_estimation(
+            outputs,
+            target_sizes=[(image.height, image.width)],
+        )
+        depth_data = post_processed_output[0]["predicted_depth"].detach().float().cpu().numpy()
+        return _save_depth_outputs(
+            depth_data,
+            output_dir,
+            metadata={
+                "provider": "depthpro",
+                "requested_model": requested_model_name or model_name,
+                "effective_model": model_name,
+                "fallback_model": None,
+                "fallback_reason": fallback_reason,
+            },
+        )
+    except Exception as exc:
+        return _run_depth_fallback(
+            input_image_path,
+            output_dir,
+            requested_model_name or model_name,
+            device,
+            f"Apple Depth Pro failed locally ({type(exc).__name__}: {exc}); used verified local fallback instead.",
+        )
+
+
+def _run_depth_fallback(input_image_path, output_dir, requested_model_name, device, reason):
+    fallback_model = os.getenv("DEPTH_FALLBACK_MODEL", DEFAULT_DEPTH_FALLBACK_MODEL)
+    if fallback_model == requested_model_name:
+        raise RuntimeError(reason)
+    print(reason)
+    return process_image_get_depth_data_transformers(
+        input_image_path,
+        output_dir=output_dir,
+        model_name=fallback_model,
+        device=device,
+        requested_model_name=requested_model_name,
+        fallback_reason=reason,
+    )
+
+
+def _hf_model_has_local_weights(model_name):
+    try:
+        from huggingface_hub import try_to_load_from_cache
+    except Exception:
+        return False
+
+    for filename in ("model.safetensors", "pytorch_model.bin"):
+        cached = try_to_load_from_cache(model_name, filename)
+        if isinstance(cached, str) and os.path.exists(cached) and not cached.endswith(".incomplete"):
+            return True
+    return False
+
+
+def _save_depth_outputs(depth_data, output_dir, metadata=None):
+    from PIL import Image
+
     depth_data = np.squeeze(depth_data).astype(np.float32)
     finite_mask = np.isfinite(depth_data)
     if not np.any(finite_mask):
@@ -723,12 +877,19 @@ def process_image_get_depth_data_transformers(
 
     npy_path = os.path.join(output_dir, "output_depth_data.npy")
     preview_path = os.path.join(output_dir, "output_depth_preview.png")
+    metadata_path = os.path.join(output_dir, "output_depth_metadata.json")
     np.save(npy_path, depth_data)
 
     preview_data = np.nan_to_num(depth_data, nan=0.0, posinf=1.0, neginf=0.0)
     if np.max(preview_data) > np.min(preview_data):
         preview_data = (preview_data - np.min(preview_data)) / (np.max(preview_data) - np.min(preview_data))
     Image.fromarray((preview_data * 255).astype(np.uint8)).save(preview_path)
+
+    if metadata:
+        import json
+
+        with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+            json.dump(metadata, metadata_file, indent=2)
 
     print(f"Depth data saved successfully to {npy_path}")
     return npy_path

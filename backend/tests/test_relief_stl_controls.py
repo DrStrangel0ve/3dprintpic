@@ -1,14 +1,80 @@
+import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 from stl import mesh
 
+from backend import pic_to_3d
 from backend.pic_to_3d import _flatten_border, _shape_relief_values, depth_data_to_3d_model
 
 
 class ReliefStlControlsTest(unittest.TestCase):
+    def test_save_depth_outputs_writes_normalized_depth_preview_and_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir)
+            depth_path = pic_to_3d._save_depth_outputs(
+                np.array([[2.0, 4.0], [6.0, 10.0]], dtype=np.float32),
+                output_dir,
+                metadata={
+                    "provider": "transformers",
+                    "requested_model": "apple/DepthPro-hf",
+                    "effective_model": "depth-anything/Depth-Anything-V2-Large-hf",
+                    "fallback_reason": "fallback",
+                },
+            )
+
+            depth = np.load(depth_path)
+            metadata = json.loads((output_dir / "output_depth_metadata.json").read_text(encoding="utf-8"))
+            preview_exists = (output_dir / "output_depth_preview.png").exists()
+
+        self.assertAlmostEqual(float(depth.min()), 0.0)
+        self.assertAlmostEqual(float(depth.max()), 1.0)
+        self.assertTrue(preview_exists)
+        self.assertEqual(metadata["requested_model"], "apple/DepthPro-hf")
+        self.assertEqual(metadata["effective_model"], "depth-anything/Depth-Anything-V2-Large-hf")
+
+    def test_depth_fallback_preserves_requested_model_and_reason(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with patch.object(pic_to_3d, "process_image_get_depth_data_transformers", return_value="depth.npy") as fallback:
+                result = pic_to_3d._run_depth_fallback(
+                    "input.png",
+                    tmp_dir,
+                    "apple/DepthPro-hf",
+                    "cpu",
+                    "Depth Pro unavailable",
+                )
+
+        self.assertEqual(result, "depth.npy")
+        fallback.assert_called_once_with(
+            "input.png",
+            output_dir=tmp_dir,
+            model_name=pic_to_3d.DEFAULT_DEPTH_FALLBACK_MODEL,
+            device="cpu",
+            requested_model_name="apple/DepthPro-hf",
+            fallback_reason="Depth Pro unavailable",
+        )
+
+    def test_depth_fallback_rejects_recursive_fallback_model(self):
+        with (
+            tempfile.TemporaryDirectory() as tmp_dir,
+            patch.dict(os.environ, {"DEPTH_FALLBACK_MODEL": "apple/DepthPro-hf"}),
+            patch.object(pic_to_3d, "process_image_get_depth_data_transformers") as fallback,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Depth Pro unavailable"):
+                pic_to_3d._run_depth_fallback(
+                    "input.png",
+                    tmp_dir,
+                    "apple/DepthPro-hf",
+                    "cpu",
+                    "Depth Pro unavailable",
+                )
+
+        fallback.assert_not_called()
+
     def test_detail_boost_lifts_local_features(self):
         base = np.tile(np.linspace(0.2, 0.8, 41, dtype=np.float32), (41, 1))
         base[20, 20] += 0.08

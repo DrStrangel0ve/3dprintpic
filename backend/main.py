@@ -6,6 +6,7 @@ import asyncio
 import re
 import math
 import time
+from threading import Lock, Thread
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -67,17 +68,31 @@ MASV_TEAM_ID = os.getenv("MASV_TEAM_ID")
 RBC_ACCESS_TOKEN = os.getenv("RBC_ACCESS_TOKEN")
 RBC_API_BASE_URL = "https://paywithpretendpointsapi.onrender.com/api/v1"
 DEFAULT_DEPTH_PROVIDER = os.getenv("DEPTH_PROVIDER", "transformers")
-DEFAULT_DEPTH_MODEL = os.getenv("DEPTH_MODEL", "apple/DepthPro-hf")
+DEFAULT_DEPTH_MODEL = os.getenv("DEPTH_MODEL", "depth-anything/Depth-Anything-V2-Large-hf")
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "./output")).resolve()
+DEPTHPRO_MODEL_ID = "apple/DepthPro-hf"
+DEPTHPRO_PRIMARY_WEIGHT_FILE = "model.safetensors"
+DEPTHPRO_REQUIRED_FILES = ("model.safetensors", "config.json", "preprocessor_config.json")
+DEPTHPRO_EXPECTED_BYTES = 1_904_996_876
+DEPTH_PRELOAD_LOCK = Lock()
+DEPTH_PRELOAD_STATE = {
+    "model_id": DEPTHPRO_MODEL_ID,
+    "status": "idle",
+    "message": "",
+    "started_at": None,
+    "finished_at": None,
+    "error": None,
+    "total_bytes": DEPTHPRO_EXPECTED_BYTES,
+}
 
 DEPTH_MODELS = [
     {
         "id": "apple/DepthPro-hf",
         "label": "Apple Depth Pro",
         "provider": "transformers",
-        "recommended": True,
+        "recommended": False,
         "depth_value_semantics": "metric_far_high",
-        "notes": "Best current local default for sharp metric edges and high-frequency relief detail.",
+        "notes": "Sharp metric depth candidate; large first download, keep experimental until preloaded.",
     },
     {
         "id": "depth-anything/Depth-Anything-V2-Metric-Indoor-Large-hf",
@@ -115,11 +130,158 @@ DEPTH_MODELS = [
         "id": "depth-anything/Depth-Anything-V2-Large-hf",
         "label": "Depth Anything V2 Large",
         "provider": "transformers",
-        "recommended": False,
+        "recommended": True,
         "depth_value_semantics": "relative_close_high",
-        "notes": "Highest quality Depth Anything V2 option; expensive first download.",
+        "notes": "Best verified local quality option for CUDA relief generation.",
     },
 ]
+
+
+def depth_model_far_is_high(model_id: str | None) -> bool:
+    for model in DEPTH_MODELS:
+        if model.get("id") == model_id:
+            return model.get("depth_value_semantics") == "metric_far_high"
+    return False
+
+
+def relief_invert_for_model(model_id: str | None, relief_polarity: str, requested_invert: bool) -> bool:
+    if relief_polarity not in ("raised-print", "mold"):
+        return requested_invert
+    far_is_high = depth_model_far_is_high(model_id)
+    return far_is_high if relief_polarity == "raised-print" else not far_is_high
+
+
+def _hf_model_cache_dir(model_id: str) -> Path:
+    try:
+        from huggingface_hub.constants import HF_HUB_CACHE
+
+        return Path(HF_HUB_CACHE) / f"models--{model_id.replace('/', '--')}"
+    except Exception:
+        return Path.home() / ".cache" / "huggingface" / "hub" / f"models--{model_id.replace('/', '--')}"
+
+
+def _hf_cached_file_path(model_id: str, filename: str) -> Path | None:
+    try:
+        from huggingface_hub import try_to_load_from_cache
+
+        cached = try_to_load_from_cache(model_id, filename)
+        if isinstance(cached, str):
+            path = Path(cached)
+            if path.exists() and not path.name.endswith(".incomplete"):
+                return path
+    except Exception:
+        return None
+    return None
+
+
+def _depthpro_remote_total_bytes() -> int:
+    try:
+        from huggingface_hub import HfApi
+
+        info = HfApi().model_info(DEPTHPRO_MODEL_ID, files_metadata=True)
+        total = sum(getattr(sibling, "size", None) or 0 for sibling in (info.siblings or []))
+        return int(total or DEPTHPRO_EXPECTED_BYTES)
+    except Exception:
+        return DEPTHPRO_EXPECTED_BYTES
+
+
+def _depthpro_cache_status() -> dict:
+    cache_dir = _hf_model_cache_dir(DEPTHPRO_MODEL_ID)
+    total_bytes = int(DEPTH_PRELOAD_STATE.get("total_bytes") or DEPTHPRO_EXPECTED_BYTES)
+    complete_weight_path = _hf_cached_file_path(DEPTHPRO_MODEL_ID, DEPTHPRO_PRIMARY_WEIGHT_FILE)
+    complete_files = {
+        filename: _hf_cached_file_path(DEPTHPRO_MODEL_ID, filename) is not None
+        for filename in DEPTHPRO_REQUIRED_FILES
+    }
+    missing_files = [filename for filename, present in complete_files.items() if not present]
+
+    incomplete_files = list(cache_dir.glob("**/*.incomplete")) if cache_dir.exists() else []
+    incomplete_weight_bytes = max((path.stat().st_size for path in incomplete_files), default=0)
+    complete_weight_bytes = complete_weight_path.stat().st_size if complete_weight_path else 0
+    downloaded_bytes = complete_weight_bytes or min(incomplete_weight_bytes, total_bytes)
+    progress = 100.0 if complete_weight_path else min(99.0, (downloaded_bytes / total_bytes) * 100.0 if total_bytes else 0.0)
+
+    with DEPTH_PRELOAD_LOCK:
+        state = dict(DEPTH_PRELOAD_STATE)
+
+    if complete_weight_path and not missing_files:
+        derived_status = "ready"
+        message = "Apple Depth Pro weights are cached."
+    elif state.get("status") == "downloading":
+        derived_status = "downloading"
+        message = state.get("message") or "Downloading Apple Depth Pro weights."
+    elif state.get("status") == "error":
+        derived_status = "error"
+        message = state.get("message") or "Apple Depth Pro preload failed."
+    else:
+        derived_status = "missing"
+        message = "Apple Depth Pro weights are not fully cached."
+
+    return {
+        "model_id": DEPTHPRO_MODEL_ID,
+        "status": derived_status,
+        "message": message,
+        "downloaded_bytes": int(downloaded_bytes),
+        "total_bytes": int(total_bytes),
+        "progress_percent": round(progress, 1),
+        "complete": bool(complete_weight_path and not missing_files),
+        "complete_files": complete_files,
+        "missing_files": missing_files,
+        "incomplete_file_count": len(incomplete_files),
+        "cache_dir": str(cache_dir),
+        "started_at": state.get("started_at"),
+        "finished_at": state.get("finished_at"),
+        "error": state.get("error"),
+    }
+
+
+def _depthpro_preload_worker(force: bool = False) -> None:
+    total_bytes = _depthpro_remote_total_bytes()
+    with DEPTH_PRELOAD_LOCK:
+        DEPTH_PRELOAD_STATE.update(
+            {
+                "status": "downloading",
+                "message": "Downloading Apple Depth Pro weights.",
+                "started_at": datetime.utcnow().isoformat() + "Z",
+                "finished_at": None,
+                "error": None,
+                "total_bytes": total_bytes,
+            }
+        )
+
+    try:
+        from huggingface_hub import hf_hub_download
+
+        for filename in DEPTHPRO_REQUIRED_FILES:
+            hf_hub_download(
+                DEPTHPRO_MODEL_ID,
+                filename,
+                resume_download=True,
+                force_download=force,
+            )
+        status = _depthpro_cache_status()
+        if not status["complete"]:
+            raise RuntimeError("Depth Pro download finished but required files are still missing.")
+        with DEPTH_PRELOAD_LOCK:
+            DEPTH_PRELOAD_STATE.update(
+                {
+                    "status": "ready",
+                    "message": "Apple Depth Pro weights are cached.",
+                    "finished_at": datetime.utcnow().isoformat() + "Z",
+                    "error": None,
+                }
+            )
+    except Exception as exc:
+        logger.exception("Apple Depth Pro preload failed")
+        with DEPTH_PRELOAD_LOCK:
+            DEPTH_PRELOAD_STATE.update(
+                {
+                    "status": "error",
+                    "message": "Apple Depth Pro preload failed.",
+                    "finished_at": datetime.utcnow().isoformat() + "Z",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
 
 
 def is_relative_to(path: Path, base: Path) -> bool:
@@ -180,6 +342,7 @@ async def process_image(
     printer_max_y_mm: float | None = Form(None),
     printer_max_z_mm: float | None = Form(None),
     printer_clearance_mm: float | None = Form(None),
+    print_scale_percent: float | None = Form(None),
     relief_polarity: str = Form("raised-print"),
     mesh_resolution_multiplier: float | None = Form(None),
     invert: bool = Form(False),
@@ -255,6 +418,13 @@ async def process_image(
         )
         record_timing("depth_seconds", stage_started)
         logger.info(f"Depth data saved as: {depth_data_path}")
+        depth_metadata_path = job_dir / "output_depth_metadata.json"
+        depth_metadata = {}
+        if depth_metadata_path.exists():
+            with open(depth_metadata_path, encoding="utf-8") as depth_metadata_file:
+                depth_metadata = json.load(depth_metadata_file)
+        effective_depth_model = depth_metadata.get("effective_model") or selected_model
+        effective_invert = relief_invert_for_model(effective_depth_model, relief_polarity, invert)
         
         # Generate 3D model
         logger.info("Generating 3D model...")
@@ -266,7 +436,7 @@ async def process_image(
             target_dimension=target_dimension,
             z_scale=z_scale,
             max_xy_size=max_xy_size,
-            invert=invert,
+            invert=effective_invert,
             sigma=sigma,
             relief_gamma=relief_gamma,
             detail_boost=detail_boost,
@@ -302,7 +472,11 @@ async def process_image(
             "job_id": job_id,
             "source_filename": file.filename,
             "depth_provider": depth_provider,
-            "depth_model": selected_model,
+            "depth_model": effective_depth_model,
+            "requested_depth_model": selected_model,
+            "depth_fallback_model": depth_metadata.get("fallback_model"),
+            "depth_fallback_reason": depth_metadata.get("fallback_reason"),
+            "depth_metadata": depth_metadata,
             "device": device,
             "target_dimension": target_dimension,
             "z_scale": z_scale,
@@ -313,10 +487,12 @@ async def process_image(
                 "max_y_mm": printer_max_y_mm,
                 "max_z_mm": printer_max_z_mm,
                 "clearance_mm": printer_clearance_mm,
+                "print_scale_percent": print_scale_percent,
             },
             "relief_polarity": relief_polarity,
             "mesh_resolution_multiplier": mesh_resolution_multiplier,
-            "invert": invert,
+            "invert": effective_invert,
+            "requested_invert": invert,
             "sigma": sigma,
             "relief_gamma": relief_gamma,
             "detail_boost": detail_boost,
@@ -665,6 +841,40 @@ async def health():
         "output_dir": str(OUTPUT_DIR),
         "runtime": get_runtime_info(),
     }
+
+
+@app.get("/depth/preload/depthpro/status")
+async def depthpro_preload_status():
+    return _depthpro_cache_status()
+
+
+@app.post("/depth/preload/depthpro")
+async def start_depthpro_preload(force: bool = Query(False)):
+    status = _depthpro_cache_status()
+    if status["complete"]:
+        return status
+
+    already_downloading = False
+    with DEPTH_PRELOAD_LOCK:
+        if DEPTH_PRELOAD_STATE.get("status") == "downloading":
+            already_downloading = True
+        else:
+            DEPTH_PRELOAD_STATE.update(
+                {
+                    "status": "downloading",
+                    "message": "Starting Apple Depth Pro preload.",
+                    "started_at": datetime.utcnow().isoformat() + "Z",
+                    "finished_at": None,
+                    "error": None,
+                }
+            )
+
+    if already_downloading:
+        return _depthpro_cache_status()
+
+    thread = Thread(target=_depthpro_preload_worker, kwargs={"force": force}, daemon=True)
+    thread.start()
+    return _depthpro_cache_status()
 
 
 @app.get("/models")
