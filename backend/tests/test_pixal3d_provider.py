@@ -14,6 +14,7 @@ from PIL import Image
 
 from backend.benchmark import run_image_to_mesh_provider as provider_module
 from backend.benchmark.mesh_rendering import load_mesh
+from backend.benchmark.preflight_image_to_mesh_providers import provider_preflight_row
 
 
 class Pixal3DProviderTest(unittest.TestCase):
@@ -32,6 +33,26 @@ class Pixal3DProviderTest(unittest.TestCase):
                 resolved = provider_module.resolve_provider_dir("pixal3d", None)
 
         self.assertEqual(resolved, provider_dir)
+
+    def test_preflight_accepts_official_inference_entrypoint(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider_dir = Path(temp_dir) / "Pixal3D"
+            provider_dir.mkdir()
+            (provider_dir / "inference.py").write_text("# official CLI entrypoint\n", encoding="utf-8")
+            row = provider_preflight_row(
+                {
+                    "provider": "pixal3d",
+                    "provider_dir": str(provider_dir),
+                    "provider_python": sys.executable,
+                    "wrapper_python": sys.executable,
+                },
+                experiment_names=["pixal3d_raw"],
+            )
+
+        self.assertTrue(row["runnable"])
+        self.assertEqual(row["readiness"], "ready")
+        self.assertEqual(row["checks"]["entrypoint"], "inference.py")
+        self.assertTrue(row["checks"]["entrypoint_found"])
 
     def test_parser_builds_exact_pixal3d_cli(self):
         observed = {}

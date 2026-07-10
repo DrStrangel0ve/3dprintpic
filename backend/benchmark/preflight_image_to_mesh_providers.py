@@ -90,8 +90,11 @@ def provider_dir_env_names(provider: str) -> list[str]:
 
 def provider_entrypoint(provider: str) -> Path | None:
     if provider in CLI_PROVIDERS:
-        if CLI_PROVIDERS[provider].get("runner") == "triposg-module":
+        runner = CLI_PROVIDERS[provider].get("runner")
+        if runner == "triposg-module":
             return Path("scripts/inference_triposg.py")
+        if runner == "pixal3d-inference":
+            return Path("inference.py")
         return Path("run.py")
     if provider == TRIPOSR_API_PROVIDER:
         return Path("tsr/system.py")
