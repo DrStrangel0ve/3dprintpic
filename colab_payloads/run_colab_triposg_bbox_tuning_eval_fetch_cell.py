@@ -10,8 +10,8 @@ import urllib.request
 PAYLOAD_URL = "https://raw.githubusercontent.com/DrStrangel0ve/3dprintpic/codex/3d-completion-benchmark-g4/colab_payloads/modelnet10_heldout10_stl_first_triposg_bbox_tuning_colab_inputs.tar.gz"
 ARCHIVE_PATH = pathlib.Path("/content/modelnet10_heldout10_stl_first_triposg_bbox_tuning_colab_inputs.tar.gz")
 EXTRACT_ROOT = pathlib.Path("/content/3dprintpic_colab_inputs/modelnet10_heldout10_stl_first_triposg_bbox_tuning")
-EXPECTED_SHA256 = "1a753f3600fad25f7baada60404fe137b2edb8a1c7cd6cf1fd9457c4b30de2d5"
-EXPECTED_SIZE = 1624837
+EXPECTED_SHA256 = "dd2db2e9854c0806180715eaf1d2dc193784293f71eca39a90205ee38b306675"
+EXPECTED_SIZE = 1625710
 LAUNCH_ENV = {}
 
 ARCHIVE_PATH.parent.mkdir(parents=True, exist_ok=True)
