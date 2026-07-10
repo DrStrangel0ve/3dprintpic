@@ -7,7 +7,7 @@ import subprocess
 import tarfile
 import urllib.request
 
-PAYLOAD_URL = "https://raw.githubusercontent.com/DrStrangel0ve/3dprintpic/codex/3d-completion-benchmark-g4/colab_payloads/modelnet10_heldout10_stl_first_triposg_inferred_adaptive_colab_inputs.tar.gz"
+PAYLOAD_URL = "https://raw.githubusercontent.com/DrStrangel0ve/3dprintpic/bec81c69e8cc284082c1293b31f10682767abe43/colab_payloads/modelnet10_heldout10_stl_first_triposg_inferred_adaptive_colab_inputs.tar.gz"
 ARCHIVE_PATH = pathlib.Path("/content/modelnet10_heldout10_stl_first_triposg_inferred_adaptive_colab_inputs.tar.gz")
 EXTRACT_ROOT = pathlib.Path("/content/3dprintpic_colab_inputs/modelnet10_heldout10_stl_first_triposg_inferred_adaptive")
 EXPECTED_SHA256 = "4556853d62b9150dda9ea74b684c410f2ddba2cdc99ead8946b1187d5299d3d3"
