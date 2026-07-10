@@ -70,6 +70,7 @@ from backend.benchmark.run_stl_first_smoke import (
     build_optimize_command as build_stl_first_optimize_command,
     method_failure_rows,
     shell_token as stl_first_shell_token,
+    write_config_only as write_stl_first_config_only,
     write_architecture_report as write_stl_first_architecture_report,
 )
 from backend.benchmark.run_triposr_repair_smoke import build_experiments, rows_from_csv
@@ -89,6 +90,55 @@ from backend.pic_to_3d import (
 
 
 class StlExportRegressionTests(unittest.TestCase):
+    def stl_first_args(self, **overrides):
+        defaults = {
+            "include_source_oracle": True,
+            "include_triposr_api": False,
+            "include_raw_direct_mesh": False,
+            "triposr_direct_inputs": ["masked"],
+            "include_hunyuan3d_shape": False,
+            "include_triposg": False,
+            "include_source_multiview_oracle": False,
+            "include_visual_hull_multiview": False,
+            "multiview_command": None,
+            "multiview_name": "mv_recon",
+            "multiview_primary_input": "masked",
+            "multiview_output_ext": "ply",
+            "visual_hull_resolution": 40,
+            "visual_hull_grid_extent": 1.7,
+            "visual_hull_ortho_scale": 2.0,
+            "visual_hull_mask_dilate": 2,
+            "provider_python": "python",
+            "provider_device": "cuda",
+            "triposr_python": "/content/triposr-venv/bin/python",
+            "triposr_dir": "/content/TripoSR",
+            "hunyuan3d_dir": "/content/Hunyuan3D",
+            "triposg_python": "/content/triposg-venv/bin/python",
+            "triposg_dir": "/content/TripoSG",
+            "triposg_direct_inputs": ["masked"],
+            "hunyuan_num_inference_steps": 24,
+            "hunyuan_guidance_scale": 4.0,
+            "hunyuan_octree_resolution": 192,
+            "hunyuan_num_chunks": 4096,
+            "hunyuan_low_vram": True,
+            "triposg_num_inference_steps": 8,
+            "triposg_guidance_scale": 3.5,
+            "triposg_seed": None,
+            "chunk_size": 256,
+            "mc_resolution": 64,
+            "mesh_repair": "printable",
+            "mesh_target_max_dimension": 0.0,
+            "mesh_min_bbox_dimension": 0.0,
+            "mesh_max_bbox_aspect_ratio": 0.0,
+            "mesh_target_bbox_source": "none",
+            "direct_mesh_reference_method": "mirror",
+            "mesh_target_faces": 0,
+            "direct_mesh_timeout": 123,
+            "write_config": "",
+        }
+        defaults.update(overrides)
+        return SimpleNamespace(**defaults)
+
     def test_force_positive_stl_volume_flips_negative_winding_once(self):
         import trimesh
         from stl import mesh
@@ -2112,6 +2162,44 @@ class StlExportRegressionTests(unittest.TestCase):
 
         self.assertNotIn("triposr_api_masked_repaired_direct_mesh", by_name)
         self.assertIn("--mesh-target-faces 40000", by_name[expected_direct_names[-1]]["direct_mesh_command"])
+
+    def test_stl_first_smoke_can_write_generated_triposg_bbox_config(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "triposg_generated.json"
+            args = self.stl_first_args(
+                write_config=str(config_path),
+                include_triposg=True,
+                triposg_direct_inputs=["masked", "mirror", "biharmonic"],
+                triposg_num_inference_steps=50,
+                triposg_guidance_scale=7.0,
+                mesh_target_bbox_source="mirror",
+                direct_mesh_reference_method="mirror",
+                mesh_target_faces=40000,
+                direct_mesh_timeout=3600,
+            )
+
+            report = write_stl_first_config_only(args)
+            experiments = json.loads(config_path.read_text(encoding="utf-8"))
+
+        by_name = {experiment["name"]: experiment for experiment in experiments}
+        self.assertEqual(report["config"], str(config_path.resolve()))
+        self.assertEqual(
+            report["experiments"],
+            [
+                "masked",
+                "mirror",
+                "biharmonic",
+                "source_mesh_oracle",
+                "triposg_masked_repaired_stl_mirror_bbox_direct_mesh",
+                "triposg_mirror_prefill_repaired_stl_mirror_bbox_direct_mesh",
+                "triposg_biharmonic_prefill_repaired_stl_mirror_bbox_direct_mesh",
+            ],
+        )
+        self.assertEqual(report["experiment_count"], 7)
+        candidate = by_name["triposg_biharmonic_prefill_repaired_stl_mirror_bbox_direct_mesh"]
+        self.assertEqual(candidate["direct_mesh_reference_method"], "mirror")
+        self.assertIn('--mesh-target-bbox-extents "{mirror_bbox_extents}"', candidate["direct_mesh_command"])
+        self.assertIn("--mesh-target-faces 40000", candidate["direct_mesh_command"])
 
     def test_stl_first_smoke_shell_token_matches_current_platform(self):
         token = stl_first_shell_token(Path("C:/Program Files/Python/python.exe"))

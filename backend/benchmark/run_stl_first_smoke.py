@@ -442,6 +442,17 @@ def write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
+def write_config_only(args: argparse.Namespace) -> dict:
+    config_path = Path(args.write_config).resolve()
+    experiments = build_experiments(args)
+    write_json(config_path, experiments)
+    return {
+        "config": str(config_path),
+        "experiment_count": len(experiments),
+        "experiments": [experiment["name"] for experiment in experiments],
+    }
+
+
 def write_architecture_report(experiment_dir: Path, output_dir: Path, label: str = "stl_first_smoke") -> dict:
     if not (experiment_dir / "aggregate_summary.csv").exists() and not (
         experiment_dir / "summary_metrics.csv"
@@ -646,6 +657,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--repo-dir", default=".")
     parser.add_argument("--output-dir", default="backend/output/completion-benchmark/experiments/stl_first_reconstruction_smoke")
+    parser.add_argument(
+        "--write-config",
+        default=None,
+        help="Write the generated STL-first experiment config to this path and exit before dataset/benchmark work.",
+    )
     parser.add_argument("--manifest", default=None)
     parser.add_argument("--dataset-source", choices=("procedural", "mesh-dir"), default="procedural")
     parser.add_argument("--dataset-count", type=int, default=2)
@@ -787,7 +803,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    summary = run_smoke(parse_args())
+    args = parse_args()
+    if args.write_config:
+        print(json.dumps(write_config_only(args), indent=2))
+        return
+    summary = run_smoke(args)
     print(json.dumps(summary, indent=2))
     if (
         summary.get("dataset", {}).get("returncode")
