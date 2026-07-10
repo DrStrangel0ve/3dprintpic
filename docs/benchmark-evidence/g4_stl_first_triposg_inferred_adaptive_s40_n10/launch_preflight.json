@@ -1,0 +1,12 @@
+{
+  "archive": "/content/modelnet10_heldout10_stl_first_triposg_inferred_adaptive_colab_inputs.tar.gz",
+  "archive_sha256": "4556853d62b9150dda9ea74b684c410f2ddba2cdc99ead8946b1187d5299d3d3",
+  "extract_root": "/content/3dprintpic_colab_inputs/modelnet10_heldout10_stl_first_triposg_inferred_adaptive",
+  "gpu_preflight": "/content/3dprintpic_colab_inputs/modelnet10_heldout10_stl_first_triposg_inferred_adaptive/gpu_preflight.json",
+  "manifest": "/content/3dprintpic_colab_inputs/modelnet10_heldout10_stl_first_triposg_inferred_adaptive/inputs/manifest.jsonl",
+  "manifest_rows": 10,
+  "repo_dir": "/content/3dprintpic",
+  "repo_ref": "008f45b676960c38390080bee644f18883602433",
+  "repo_remote": "https://github.com/DrStrangel0ve/3dprintpic.git",
+  "resolved_commit": "008f45b676960c38390080bee644f18883602433"
+}
