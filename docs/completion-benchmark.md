@@ -1618,6 +1618,36 @@ The TripoSG control arm is immutable in the same run: `VAST-AI/TripoSG` is pinne
 
 Runtime retention note: the notebook preserved the complete result summary and archive digest, but the idle-cost automation disconnected the runtime before the archive/contact sheet could be copied locally. That automation is paused for the next measured batch so compact evidence can be captured before deliberate disconnect.
 
+### Pixal3D G4 five-sample result
+
+The pinned follow-up completed on the same G4 as `g4_stl_first_pixal3d_vs_triposg_s40_n5_r5` at commit `a19def7`. It evaluated five packaged ModelNet rows, seeded both direct providers with `42`, reused content-addressed Pixal3D and TripoSG geometry caches, and restored the depth baselines after scoping Hugging Face offline mode to Pixal-only processes. The complete machine-readable trail is [pixal3d-g4-s40-n5-r1-r5.json](benchmark-evidence/pixal3d-g4-s40-n5-r1-r5.json).
+
+| method | n | STL-quality score vs masked | mesh Chamfer med | mesh H95 med | bbox aspect med | complexity log1p med | printable samples |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `source_mesh_oracle` | 5 | 2.8629 | 0.0510 | 0.2687 | 1.4115 | 5.6857 | 5/5 (diagnostic only) |
+| `pixal3d_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh` | 5 | 1.2783 | 0.1822 | 0.4822 | 2.0006 | 5.4596 | 5/5 |
+| `triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh` | 5 | 0.9521 | 0.1264 | 0.3492 | 2.0006 | 9.5266 | 5/5 |
+| `biharmonic` | 5 | 0.1674 | 0.1604 | 0.4186 | 1.9407 | 11.1779 | 5/5 |
+| `mirror` | 5 | 0.0394 | 0.1568 | 0.4698 | 2.0006 | 11.2083 | 5/5 |
+| `masked` | 5 | 0.0000 | 0.1748 | 0.4505 | 1.9613 | 11.1885 | 5/5 |
+| `pixal3d_biharmonic_prefill_raw_direct_mesh` | 5 | -17.9783 | 0.1232 | 0.3276 | 1.5988 | 14.4826 | 0/5 |
+
+The final decision is `hold`, despite Pixal3D's higher composite score and complete printability. Against the TripoSG incumbent, Pixal3D won only `3/5` paired objectives, its CI95 lower bound was `-0.2112`, and every paired surface-regression gate failed. Median paired Chamfer and H95 ratios were `1.4415x` and `1.3600x`; worst-sample ratios were `1.5485x` and `2.4093x`, above the `1.10x` ceiling. The selector is doing the intended job: low polygon count and watertightness cannot compensate for losing the hidden-side surface.
+
+The repair investigation used measured limits rather than repeatedly raising an arbitrary ceiling:
+
+| run | change | Pixal repaired coverage | measured outcome |
+| --- | --- | ---: | --- |
+| `r1` | initial five-row package | 5/5 | invalid comparison because Pixal offline mode poisoned depth baselines; old repair also produced distorted proportions |
+| `r2` | provider-scoped offline mode, 50k ceiling | 1/5 | one residual stopped at `51,234` faces, then the one-failure budget skipped three rows |
+| `r3` | 64k ceiling | 2/5 | next residual stopped at `64,704`; two rows remained unobserved |
+| `r4` | failure budget raised to five, no repair change | 2/5 | all blocked residuals measured at `64,704`, `68,336`, and `103,036` faces |
+| `r5` | bounded 131,072-face pre-repair ceiling | 5/5 | no OOM; all final STLs passed hard printability gates |
+
+The 131,072-face ceiling still reduces Pixal's `964,623-998,737` raw faces by at least `7.6x` before topology work. It is a resource guard, not a quality target. The printable fallback emits only `40-128` final faces on these samples, which explains why the raw Pixal meshes have competitive surface metrics while the repaired meshes regress. The next Pixal experiment should keep these exact cached raw meshes and compare shape-preserving component filtering and hole closing against the current coarse fallback; promotion thresholds should not be relaxed.
+
+All five compact evidence bundles were copied locally before disconnect, checksum-verified, and contain the result summary, selection decision, per-sample metrics, provider preflight, contact sheet, failure logs, and run-log tail. The final full archive was `655,742,061` bytes with SHA256 `c75c59822fbcecce3224e20420d1ef655f917bf6457f52e311d80d4e59512e09`; the final compact bundle was `1,254,954` bytes with SHA256 `8bac48828f71d49be6b48e15dfa6380a4801b3a5d5a42f1c2dae8593f3f317de`.
+
 ## Kaggle
 
 A GPU-enabled Kaggle kernel scaffold lives in `backend/benchmark/kaggle`.
