@@ -19,6 +19,11 @@ from backend.benchmark.run_image_to_mesh_provider import (
     provider_dir_config_key,
     resolve_provider_dir,
 )
+from backend.benchmark.pixal3d_models import (
+    DEFAULT_PIXAL3D_MODEL,
+    DEFAULT_PIXAL3D_REMBG_MODEL,
+    pixal3d_model_specs,
+)
 
 
 BUILTIN_PROVIDERS = {SOURCE_MESH_BUNDLE_ORACLE_PROVIDER, MULTIVIEW_VISUAL_HULL_PROVIDER}
@@ -66,7 +71,7 @@ def parse_provider_command(command: str) -> dict | None:
     provider = flag_value(tokens, "--provider")
     if provider not in PROVIDERS:
         return None
-    return {
+    parsed = {
         "command": command,
         "tokens": tokens,
         "provider": provider,
@@ -74,6 +79,20 @@ def parse_provider_command(command: str) -> dict | None:
         "provider_python": flag_value(tokens, "--provider-python"),
         "wrapper_python": tokens[0] if tokens else "",
     }
+    if provider == "pixal3d":
+        specs = pixal3d_model_specs(
+            model_repo=flag_value(tokens, "--pixal3d-model-path") or DEFAULT_PIXAL3D_MODEL,
+            model_revision=flag_value(tokens, "--pixal3d-model-revision") or "",
+            moge_revision=flag_value(tokens, "--pixal3d-moge-revision") or "",
+            dinov3_revision=flag_value(tokens, "--pixal3d-dinov3-revision") or "",
+            rembg_repo=flag_value(tokens, "--pixal3d-rembg-model") or DEFAULT_PIXAL3D_REMBG_MODEL,
+            rembg_revision=flag_value(tokens, "--pixal3d-rembg-revision") or "",
+        )
+        parsed["provider_models"] = {
+            name: {"repo_id": spec["repo_id"], "revision": spec["revision"]}
+            for name, spec in specs.items()
+        }
+    return parsed
 
 
 def provider_dir_env_names(provider: str) -> list[str]:
@@ -117,6 +136,18 @@ def provider_preflight_row(parsed: dict, experiment_names: list[str] | None = No
     if not provider_python_found:
         setup_errors.append("Provider Python executable is unavailable.")
 
+    if provider == "pixal3d":
+        revisions = [
+            str(spec.get("revision") or "").strip()
+            for spec in (parsed.get("provider_models") or {}).values()
+        ]
+        revisions_present = sum(bool(revision) for revision in revisions)
+        revisions_complete = revisions_present in {0, 4}
+        checks["model_revisions_complete"] = revisions_complete
+        checks["model_revisions_pinned"] = revisions_present == 4
+        if not revisions_complete:
+            setup_errors.append("Pixal3D model revisions must be supplied together for all four snapshots.")
+
     provider_dir = None
     provider_dir_resolved = False
     if provider in BUILTIN_PROVIDERS:
@@ -158,6 +189,7 @@ def provider_preflight_row(parsed: dict, experiment_names: list[str] | None = No
         "provider_python": provider_python,
         "provider_dir_configured": bool(parsed.get("provider_dir")),
         "provider_dir_env_names": provider_dir_env_names(provider),
+        "provider_models": parsed.get("provider_models", {}),
         "setup_errors": setup_errors,
         "checks": checks,
     }
@@ -178,6 +210,7 @@ def experiment_provider_commands(experiments: list[dict]) -> dict[str, list[str]
                 "provider_dir": parsed.get("provider_dir") or "",
                 "provider_python": parsed.get("provider_python") or "",
                 "wrapper_python": parsed.get("wrapper_python") or "",
+                "provider_models": parsed.get("provider_models") or {},
             },
             sort_keys=True,
         )

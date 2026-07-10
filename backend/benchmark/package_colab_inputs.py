@@ -15,6 +15,17 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 from backend.benchmark.rank_methods import SCORE_PROFILES
+from backend.benchmark.pixal3d_models import (
+    DEFAULT_PIXAL3D_DINOV3_MODEL,
+    DEFAULT_PIXAL3D_DINOV3_REVISION,
+    DEFAULT_PIXAL3D_MODEL,
+    DEFAULT_PIXAL3D_MODEL_REVISION,
+    DEFAULT_PIXAL3D_MOGE_MODEL,
+    DEFAULT_PIXAL3D_MOGE_REVISION,
+    DEFAULT_PIXAL3D_REMBG_MODEL,
+    DEFAULT_PIXAL3D_REMBG_REVISION,
+    pixal3d_model_specs,
+)
 
 
 DEFAULT_PATH_FIELDS = (
@@ -486,6 +497,14 @@ def build_pixal3d_setup_prelude() -> str:
         "PIXAL3D_DEPS_SRC=\"${PIXAL3D_DEPS_SRC:-/content/pixal3d-deps-src}\"\n"
         "PIXAL3D_REF=\"${PIXAL3D_REF:-cdbb2bbffbf4e6f298b5f2af3d1d76a8d823d2af}\"\n"
         "MOGE_REF=\"${MOGE_REF:-07444410f1e33f402353b99d6ccd26bd31e469e8}\"\n"
+        f"PIXAL3D_MODEL_ID=\"${{PIXAL3D_MODEL_ID:-{DEFAULT_PIXAL3D_MODEL}}}\"\n"
+        f"PIXAL3D_MODEL_REVISION=\"${{PIXAL3D_MODEL_REVISION:-{DEFAULT_PIXAL3D_MODEL_REVISION}}}\"\n"
+        f"PIXAL3D_MOGE_MODEL_ID=\"${{PIXAL3D_MOGE_MODEL_ID:-{DEFAULT_PIXAL3D_MOGE_MODEL}}}\"\n"
+        f"PIXAL3D_MOGE_REVISION=\"${{PIXAL3D_MOGE_REVISION:-{DEFAULT_PIXAL3D_MOGE_REVISION}}}\"\n"
+        f"PIXAL3D_DINOV3_MODEL_ID=\"${{PIXAL3D_DINOV3_MODEL_ID:-{DEFAULT_PIXAL3D_DINOV3_MODEL}}}\"\n"
+        f"PIXAL3D_DINOV3_REVISION=\"${{PIXAL3D_DINOV3_REVISION:-{DEFAULT_PIXAL3D_DINOV3_REVISION}}}\"\n"
+        f"PIXAL3D_REMBG_MODEL_ID=\"${{PIXAL3D_REMBG_MODEL_ID:-{DEFAULT_PIXAL3D_REMBG_MODEL}}}\"\n"
+        f"PIXAL3D_REMBG_REVISION=\"${{PIXAL3D_REMBG_REVISION:-{DEFAULT_PIXAL3D_REMBG_REVISION}}}\"\n"
         "TRELLIS2_DIR=\"${TRELLIS2_DIR:-/content/TRELLIS.2}\"\n"
         "TRELLIS2_REF=\"${TRELLIS2_REF:-75fbf0183001ed9876c8dbb35de6b68552ee08bd}\"\n"
         "CUMESH_DIR=\"${CUMESH_DIR:-$PIXAL3D_DEPS_SRC/CuMesh}\"\n"
@@ -495,7 +514,7 @@ def build_pixal3d_setup_prelude() -> str:
         "NVDIFFRAST_DIR=\"${NVDIFFRAST_DIR:-$PIXAL3D_DEPS_SRC/nvdiffrast}\"\n"
         "NVDIFFRAST_REF=\"${NVDIFFRAST_REF:-253ac4fcea7de5f396371124af597e6cc957bfae}\"\n"
         "export PIXAL3D_DIR PIXAL3D_VENV PIXAL3D_DEPS_SRC PIXAL3D_REF MOGE_REF TRELLIS2_DIR TRELLIS2_REF CUMESH_DIR CUMESH_REF FLEXGEMM_DIR FLEXGEMM_REF NVDIFFRAST_DIR NVDIFFRAST_REF\n"
-        "export PIXAL3D_REMBG_MODEL=\"${PIXAL3D_REMBG_MODEL:-ZhengPeng7/BiRefNet}\"\n"
+        "export PIXAL3D_MODEL_ID PIXAL3D_MODEL_REVISION PIXAL3D_MOGE_MODEL_ID PIXAL3D_MOGE_REVISION PIXAL3D_DINOV3_MODEL_ID PIXAL3D_DINOV3_REVISION PIXAL3D_REMBG_MODEL_ID PIXAL3D_REMBG_REVISION\n"
         "export ATTN_BACKEND=\"${ATTN_BACKEND:-sdpa}\"\n"
         "export CUDA_HOME=\"${CUDA_HOME:-/usr/local/cuda}\"\n"
         "export PATH=\"$CUDA_HOME/bin:$PATH\"\n"
@@ -510,29 +529,7 @@ def build_pixal3d_setup_prelude() -> str:
         "git -C \"$PIXAL3D_DIR\" checkout --detach \"$PIXAL3D_REF\"\n"
         "git -C \"$PIXAL3D_DIR\" reset --hard \"$PIXAL3D_REF\"\n"
         "test \"$(git -C \"$PIXAL3D_DIR\" rev-parse HEAD)\" = \"$PIXAL3D_REF\"\n"
-        "python - <<'PY'\n"
-        "import os\n"
-        "from pathlib import Path\n"
-        "root = Path(os.environ['PIXAL3D_DIR'])\n"
-        "pipeline = root / 'pixal3d' / 'pipelines' / 'pixal3d_image_to_3d.py'\n"
-        "text = pipeline.read_text(encoding='utf-8')\n"
-        "if 'import os\\n' not in text:\n"
-        "    text = text.replace('from typing import *\\n', 'from typing import *\\nimport os\\n', 1)\n"
-        "needle = \"        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**args['rembg_model']['args'])\"\n"
-        "replacement = (\n"
-        "    \"        rembg_args = dict(args['rembg_model']['args'])\\n\"\n"
-        "    \"        rembg_model_override = os.environ.get('PIXAL3D_REMBG_MODEL')\\n\"\n"
-        "    \"        if rembg_model_override:\\n\"\n"
-        "    \"            rembg_args['model_name'] = rembg_model_override\\n\"\n"
-        "    \"        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**rembg_args)\"\n"
-        ")\n"
-        "if replacement not in text:\n"
-        "    if needle not in text:\n"
-        "        raise SystemExit('Pixal3D rembg override patch target not found')\n"
-        "    text = text.replace(needle, replacement, 1)\n"
-        "pipeline.write_text(text, encoding='utf-8')\n"
-        "print(f\"Pixal3D setup checkpoint: rembg override={os.environ['PIXAL3D_REMBG_MODEL']}\")\n"
-        "PY\n"
+        "python -m backend.benchmark.patch_pixal3d_sources --pixal3d-dir \"$PIXAL3D_DIR\"\n"
         "if [[ ! -d \"$TRELLIS2_DIR/.git\" ]]; then\n"
         "  rm -rf \"$TRELLIS2_DIR\"\n"
         "  git clone --filter=blob:none --recurse-submodules https://github.com/microsoft/TRELLIS.2 \"$TRELLIS2_DIR\"\n"
@@ -662,21 +659,44 @@ def build_pixal3d_setup_prelude() -> str:
         "echo \"Pixal3D setup checkpoint: official CLI imports ok\"\n"
         "if [[ \"${PIXAL3D_PREFETCH:-1}\" == \"1\" ]]; then\n"
         "  \"$PIXAL3D_PYTHON\" - <<'PY'\n"
+        "import os\n"
+        "import shlex\n"
+        "from pathlib import Path\n"
         "from huggingface_hub import snapshot_download\n"
-        "for repo_id in (\n"
-        "    'TencentARC/Pixal3D',\n"
-        "    'Ruicheng/moge-2-vitl',\n"
-        "    'camenduru/dinov3-vitl16-pretrain-lvd1689m',\n"
-        "    'ZhengPeng7/BiRefNet',\n"
-        "):\n"
-        "    path = snapshot_download(repo_id=repo_id)\n"
-        "    print(f'Pixal3D prefetched {repo_id}: {path}')\n"
+        "specs = (\n"
+        "    ('pixal3d', os.environ['PIXAL3D_MODEL_ID'], os.environ['PIXAL3D_MODEL_REVISION'], 'pipeline.json'),\n"
+        "    ('moge', os.environ['PIXAL3D_MOGE_MODEL_ID'], os.environ['PIXAL3D_MOGE_REVISION'], 'model.pt'),\n"
+        "    ('dinov3', os.environ['PIXAL3D_DINOV3_MODEL_ID'], os.environ['PIXAL3D_DINOV3_REVISION'], 'config.json'),\n"
+        "    ('rembg', os.environ['PIXAL3D_REMBG_MODEL_ID'], os.environ['PIXAL3D_REMBG_REVISION'], 'config.json'),\n"
+        ")\n"
+        "resolved = {}\n"
+        "for name, repo_id, revision, required_file in specs:\n"
+        "    path = Path(snapshot_download(repo_id=repo_id, revision=revision)).resolve()\n"
+        "    required_path = path / required_file\n"
+        "    if not required_path.is_file():\n"
+        "        raise SystemExit(f'Pixal3D {name} snapshot is missing {required_file}: {required_path}')\n"
+        "    resolved[name] = path\n"
+        "    print(f'Pixal3D prefetched {repo_id}@{revision}: {path}')\n"
+        "exports = {\n"
+        "    'PIXAL3D_MODEL_PATH': resolved['pixal3d'],\n"
+        "    'PIXAL3D_MOGE_MODEL_PATH': resolved['moge'] / 'model.pt',\n"
+        "    'PIXAL3D_DINOV3_MODEL_PATH': resolved['dinov3'],\n"
+        "    'PIXAL3D_REMBG_MODEL': resolved['rembg'],\n"
+        "    'HF_HUB_OFFLINE': '1',\n"
+        "    'TRANSFORMERS_OFFLINE': '1',\n"
+        "}\n"
+        "os.environ.update({name: str(value) for name, value in exports.items()})\n"
+        "Path('/tmp/pixal3d_model_paths.sh').write_text(\n"
+        "    '\\n'.join(f'export {name}={shlex.quote(str(value))}' for name, value in exports.items()) + '\\n',\n"
+        "    encoding='utf-8',\n"
+        ")\n"
         "from pixal3d.pipelines.rembg import BiRefNet\n"
-        "model_name = __import__('os').environ['PIXAL3D_REMBG_MODEL']\n"
+        "model_name = os.environ['PIXAL3D_REMBG_MODEL']\n"
         "rembg = BiRefNet(model_name=model_name)\n"
         "del rembg\n"
         "print(f'Pixal3D rembg model load verified: {model_name}')\n"
         "PY\n"
+        "  source /tmp/pixal3d_model_paths.sh\n"
         "  if [[ \"${PIXAL3D_PREFETCH_NAF:-1}\" == \"1\" ]]; then\n"
         "    \"$PIXAL3D_PYTHON\" - <<'PY'\n"
         "import torch\n"
@@ -1658,6 +1678,14 @@ def package_inputs(
         "include_triposr_setup": include_triposr_setup,
         "include_triposg_setup": include_triposg_setup,
         "include_pixal3d_setup": include_pixal3d_setup,
+        "pixal3d_model_snapshots": (
+            {
+                name: {"repo_id": spec["repo_id"], "revision": spec["revision"]}
+                for name, spec in pixal3d_model_specs().items()
+            }
+            if include_pixal3d_setup
+            else {}
+        ),
         "include_hunyuan3d_setup": include_hunyuan3d_setup,
         "colab_env": colab_env,
         "run_script_in_archive": "run_colab_eval.sh" if include_run_script else "",

@@ -171,10 +171,36 @@
     "interpretation": "provisional_only",
     "reason": "n=1 and Pixal3D regressed surface Chamfer and Hausdorff95 versus TripoSG despite winning the composite score; add explicit geometry-regression gates before a model-level promotion"
   },
+  "post_run_selector_replay": {
+    "selector_commit": "816b0e6d7b7655dfc6f27ab65977dc568aa804a7",
+    "decision": "hold",
+    "max_ratio_vs_current": 1.1,
+    "mesh_surface_chamfer_ratio_vs_current": 1.4417918782490318,
+    "mesh_surface_hausdorff95_ratio_vs_current": 1.3484897725965386,
+    "failed_checks": [
+      "paired_mesh_surface_chamfer_ratio_vs_current",
+      "paired_mesh_surface_hausdorff95_ratio_vs_current"
+    ]
+  },
+  "followup_model_pinning": {
+    "status": "implemented",
+    "snapshot_layouts_verified_against_hugging_face_api": true,
+    "cache_identity_includes_all_four_repo_ids_and_revisions": true,
+    "runtime_uses_local_snapshot_paths": true,
+    "mo_ge_runtime_path": "<snapshot>/model.pt",
+    "hugging_face_runtime_offline_after_resolution": true
+  },
   "validation": {
     "backend_tests": 220,
     "backend_tests_passed": 220,
     "generated_runner_bash_syntax": "passed"
+  },
+  "followup_validation": {
+    "backend_tests": 227,
+    "backend_tests_passed": 227,
+    "generated_runner_bash_syntax": "passed",
+    "snapshot_required_files_verified": 4,
+    "snapshot_revision_matches_verified": 4
   },
   "artifact_retention": {
     "notebook_output_retained": true,
@@ -184,8 +210,7 @@
   "next_experiment": {
     "sample_count": "5-10",
     "required_changes": [
-      "add paired surface-accuracy non-regression gates versus the current direct-mesh method",
-      "pin Hugging Face model snapshot revisions in setup and cache provenance",
+      "run the pinned Pixal3D and TripoSG methods on the same held-out rows",
       "capture compact result evidence before disconnecting the runtime"
     ]
   }

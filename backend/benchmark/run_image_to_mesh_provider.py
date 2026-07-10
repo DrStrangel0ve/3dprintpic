@@ -24,6 +24,15 @@ from backend.benchmark.direct_mesh import (
     repair_mesh_for_printable_stl,
 )
 from backend.benchmark.mesh_rendering import camera_transform, load_mesh, mesh_in_render_frame
+from backend.benchmark.pixal3d_models import (
+    DEFAULT_PIXAL3D_DINOV3_REVISION,
+    DEFAULT_PIXAL3D_MODEL,
+    DEFAULT_PIXAL3D_MODEL_REVISION,
+    DEFAULT_PIXAL3D_MOGE_REVISION,
+    DEFAULT_PIXAL3D_REMBG_MODEL,
+    DEFAULT_PIXAL3D_REMBG_REVISION,
+    pixal3d_model_specs,
+)
 
 
 MESH_EXTENSIONS = (".glb", ".gltf", ".obj", ".ply", ".stl")
@@ -227,6 +236,94 @@ def provider_git_revision(provider_dir: Path) -> str:
     return completed.stdout.strip() if completed.returncode == 0 else ""
 
 
+def pixal3d_provider_models(args: argparse.Namespace) -> dict[str, dict[str, str]]:
+    specs = pixal3d_model_specs(
+        model_repo=getattr(args, "pixal3d_model_path", None) or DEFAULT_PIXAL3D_MODEL,
+        model_revision=getattr(args, "pixal3d_model_revision", None) or "",
+        moge_revision=getattr(args, "pixal3d_moge_revision", None) or "",
+        dinov3_revision=getattr(args, "pixal3d_dinov3_revision", None) or "",
+        rembg_repo=getattr(args, "pixal3d_rembg_model", None) or DEFAULT_PIXAL3D_REMBG_MODEL,
+        rembg_revision=getattr(args, "pixal3d_rembg_revision", None) or "",
+    )
+    return {
+        name: {"repo_id": spec["repo_id"], "revision": spec["revision"]}
+        for name, spec in specs.items()
+    }
+
+
+def pixal3d_model_revisions_pinned(args: argparse.Namespace) -> bool:
+    revisions = {
+        "model": getattr(args, "pixal3d_model_revision", None),
+        "moge": getattr(args, "pixal3d_moge_revision", None),
+        "dinov3": getattr(args, "pixal3d_dinov3_revision", None),
+        "rembg": getattr(args, "pixal3d_rembg_revision", None),
+    }
+    present = {name for name, revision in revisions.items() if str(revision or "").strip()}
+    if present and len(present) != len(revisions):
+        missing = ", ".join(sorted(set(revisions) - present))
+        raise ValueError(f"Pixal3D model revisions must be supplied together; missing: {missing}")
+    return len(present) == len(revisions)
+
+
+def resolve_pixal3d_model_snapshots(args: argparse.Namespace) -> dict[str, Path]:
+    from huggingface_hub import snapshot_download
+
+    provider_models = pixal3d_provider_models(args)
+    specs = pixal3d_model_specs(
+        model_repo=getattr(args, "pixal3d_model_path", None) or DEFAULT_PIXAL3D_MODEL,
+        model_revision=getattr(args, "pixal3d_model_revision", None) or DEFAULT_PIXAL3D_MODEL_REVISION,
+        moge_revision=getattr(args, "pixal3d_moge_revision", None) or DEFAULT_PIXAL3D_MOGE_REVISION,
+        dinov3_revision=getattr(args, "pixal3d_dinov3_revision", None) or DEFAULT_PIXAL3D_DINOV3_REVISION,
+        rembg_repo=getattr(args, "pixal3d_rembg_model", None) or DEFAULT_PIXAL3D_REMBG_MODEL,
+        rembg_revision=getattr(args, "pixal3d_rembg_revision", None) or DEFAULT_PIXAL3D_REMBG_REVISION,
+    )
+    paths: dict[str, Path] = {}
+    for name, spec in specs.items():
+        configured_path = Path(spec["repo_id"]).expanduser()
+        if configured_path.exists():
+            snapshot_path = configured_path.resolve()
+        else:
+            snapshot_path = Path(
+                snapshot_download(repo_id=spec["repo_id"], revision=spec["revision"])
+            ).resolve()
+        required_path = snapshot_path / spec["required_file"]
+        if not required_path.is_file():
+            raise FileNotFoundError(
+                f"Pinned Pixal3D {name} snapshot is missing {spec['required_file']}: {required_path}"
+            )
+        paths[name] = snapshot_path
+
+    args.pixal3d_model_path = str(paths["pixal3d"])
+    os.environ.update(
+        {
+            "PIXAL3D_MODEL_PATH": str(paths["pixal3d"]),
+            "PIXAL3D_MOGE_MODEL_PATH": str(paths["moge"] / "model.pt"),
+            "PIXAL3D_DINOV3_MODEL_PATH": str(paths["dinov3"]),
+            "PIXAL3D_REMBG_MODEL": str(paths["rembg"]),
+            "HF_HUB_OFFLINE": "1",
+            "TRANSFORMERS_OFFLINE": "1",
+        }
+    )
+    print(
+        json.dumps(
+            {
+                "event": "pixal3d_model_snapshots",
+                "models": provider_models,
+                "paths": {
+                    "pixal3d": str(paths["pixal3d"]),
+                    "moge": str(paths["moge"] / "model.pt"),
+                    "dinov3": str(paths["dinov3"]),
+                    "rembg": str(paths["rembg"]),
+                },
+            },
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+    return paths
+
+
 def cli_provider_cache_payload(
     args: argparse.Namespace,
     provider_dir: Path,
@@ -247,17 +344,19 @@ def cli_provider_cache_payload(
         for path in source_files
         if path.exists()
     }
+    provider_environment_names = [
+        "ATTN_BACKEND",
+        "SPARSE_ATTN_BACKEND",
+        "SPARSE_CONV_BACKEND",
+    ]
+    if args.provider == PIXAL3D_PROVIDER and not pixal3d_model_revisions_pinned(args):
+        provider_environment_names.append("PIXAL3D_REMBG_MODEL")
     provider_environment = {
         name: os.environ.get(name, "")
-        for name in (
-            "ATTN_BACKEND",
-            "PIXAL3D_REMBG_MODEL",
-            "SPARSE_ATTN_BACKEND",
-            "SPARSE_CONV_BACKEND",
-        )
+        for name in provider_environment_names
         if os.environ.get(name)
     }
-    return {
+    payload = {
         "provider": args.provider,
         "provider_revision": provider_git_revision(provider_dir),
         "run_entry_sha256": sha256_file(run_entry),
@@ -266,6 +365,9 @@ def cli_provider_cache_payload(
         "input_sha256": input_sha256,
         "command": normalized_command,
     }
+    if args.provider == PIXAL3D_PROVIDER:
+        payload["provider_models"] = pixal3d_provider_models(args)
+    return payload
 
 
 def cli_provider_cache_key(payload: dict) -> str:
@@ -353,6 +455,7 @@ def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_outpu
 
 def run_cli_provider(args: argparse.Namespace) -> Path:
     provider_dir = resolve_provider_dir(args.provider, args.provider_dir)
+    pixal3d_pinned = args.provider == PIXAL3D_PROVIDER and pixal3d_model_revisions_pinned(args)
     runner = CLI_PROVIDERS[args.provider].get("runner")
     if runner == "triposg-module":
         run_entry = provider_dir / "scripts" / "inference_triposg.py"
@@ -399,6 +502,8 @@ def run_cli_provider(args: argparse.Namespace) -> Path:
                 flush=True,
             )
             return reused_mesh
+    if pixal3d_pinned:
+        resolve_pixal3d_model_snapshots(args)
     started_at = time.time()
     command = cli_provider_command(args, provider_dir, raw_output_dir)
     subprocess.run(command, cwd=provider_dir, check=True, timeout=args.timeout)
@@ -877,6 +982,11 @@ def main() -> None:
         default=None,
         help="Optional Pixal3D local model path or Hugging Face repository.",
     )
+    parser.add_argument("--pixal3d-model-revision", default=None)
+    parser.add_argument("--pixal3d-moge-revision", default=None)
+    parser.add_argument("--pixal3d-dinov3-revision", default=None)
+    parser.add_argument("--pixal3d-rembg-model", default=DEFAULT_PIXAL3D_REMBG_MODEL)
+    parser.add_argument("--pixal3d-rembg-revision", default=None)
     parser.add_argument(
         "--mesh-repair",
         choices=MESH_REPAIR_MODES,

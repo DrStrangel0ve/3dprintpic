@@ -9,6 +9,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.benchmark.package_colab_inputs import package_inputs
+from backend.benchmark.patch_pixal3d_sources import patch_pixal3d_sources
+from backend.benchmark.pixal3d_models import (
+    DEFAULT_PIXAL3D_DINOV3_REVISION,
+    DEFAULT_PIXAL3D_MODEL_REVISION,
+    DEFAULT_PIXAL3D_MOGE_REVISION,
+    DEFAULT_PIXAL3D_REMBG_REVISION,
+)
 from backend.benchmark.run_stl_first_smoke import build_experiments, parse_args
 
 
@@ -63,6 +70,14 @@ class Pixal3DColabSetupTest(unittest.TestCase):
 
         self.assertTrue(report["include_pixal3d_setup"])
         self.assertEqual(report["colab_env"], {"PIXAL3D_SETUP_ONLY": "1"})
+        self.assertEqual(
+            report["pixal3d_model_snapshots"]["pixal3d"]["revision"],
+            DEFAULT_PIXAL3D_MODEL_REVISION,
+        )
+        self.assertEqual(
+            report["pixal3d_model_snapshots"]["rembg"]["revision"],
+            DEFAULT_PIXAL3D_REMBG_REVISION,
+        )
         self.assertLess(
             run_script.index("--query-gpu=name,memory.total"),
             run_script.index('PIXAL3D_DIR="${PIXAL3D_DIR:-/content/Pixal3D}"'),
@@ -78,9 +93,22 @@ class Pixal3DColabSetupTest(unittest.TestCase):
         self.assertIn('PIXAL3D_VENV="${PIXAL3D_VENV:-/content/pixal3d-venv}"', run_script)
         self.assertIn("python -m virtualenv --system-site-packages", run_script)
         self.assertIn('export ATTN_BACKEND="${ATTN_BACKEND:-sdpa}"', run_script)
-        self.assertIn('export PIXAL3D_REMBG_MODEL="${PIXAL3D_REMBG_MODEL:-ZhengPeng7/BiRefNet}"', run_script)
-        self.assertIn("Pixal3D rembg override patch target not found", run_script)
-        self.assertIn("rembg_args['model_name'] = rembg_model_override", run_script)
+        for revision in (
+            DEFAULT_PIXAL3D_MODEL_REVISION,
+            DEFAULT_PIXAL3D_MOGE_REVISION,
+            DEFAULT_PIXAL3D_DINOV3_REVISION,
+            DEFAULT_PIXAL3D_REMBG_REVISION,
+        ):
+            self.assertIn(revision, run_script)
+        self.assertIn("snapshot_download(repo_id=repo_id, revision=revision)", run_script)
+        self.assertNotIn("snapshot_download(repo_id=repo_id)\n", run_script)
+        self.assertIn("source /tmp/pixal3d_model_paths.sh", run_script)
+        self.assertIn("'PIXAL3D_MOGE_MODEL_PATH': resolved['moge'] / 'model.pt'", run_script)
+        self.assertIn("HF_HUB_OFFLINE", run_script)
+        self.assertIn(
+            'python -m backend.benchmark.patch_pixal3d_sources --pixal3d-dir "$PIXAL3D_DIR"',
+            run_script,
+        )
         self.assertIn("Pixal3D rembg model load verified", run_script)
         self.assertNotIn("briaai/RMBG-2.0", run_script)
         self.assertIn("nvcc --version", run_script)
@@ -108,6 +136,44 @@ class Pixal3DColabSetupTest(unittest.TestCase):
         self.assertIn("valeoai/NAF", run_script)
         self.assertIn("PIXAL3D_SETUP_ONLY", run_script)
         self.assertIn("Provider setup only requested; skipping benchmark stages", run_script)
+
+
+class Pixal3DSourcePatchTest(unittest.TestCase):
+    def test_official_source_adaptation_is_complete_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "Pixal3D"
+            pipeline = root / "pixal3d" / "pipelines" / "pixal3d_image_to_3d.py"
+            pipeline.parent.mkdir(parents=True)
+            pipeline.write_text(
+                "from typing import *\n"
+                "class Pipeline:\n"
+                "    @classmethod\n"
+                "    def from_pretrained(cls, args):\n"
+                "        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**args['rembg_model']['args'])\n",
+                encoding="utf-8",
+            )
+            inference = root / "inference.py"
+            inference.write_text(
+                "import os\n"
+                "MOGE_MODEL_NAME = \"Ruicheng/moge-2-vitl\"\n"
+                + "\n".join(
+                    '    \"model_name\": \"camenduru/dinov3-vitl16-pretrain-lvd1689m\",'
+                    for _ in range(4)
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            first = patch_pixal3d_sources(root)
+            second = patch_pixal3d_sources(root)
+            pipeline_text = pipeline.read_text(encoding="utf-8")
+            inference_text = inference.read_text(encoding="utf-8")
+
+        self.assertEqual(first["pipeline_sha256"], second["pipeline_sha256"])
+        self.assertEqual(first["inference_sha256"], second["inference_sha256"])
+        self.assertIn("rembg_args['model_name'] = rembg_model_override", pipeline_text)
+        self.assertIn("PIXAL3D_MOGE_MODEL_PATH", inference_text)
+        self.assertEqual(inference_text.count("PIXAL3D_DINOV3_MODEL_PATH"), 4)
 
 
 class Pixal3DSTLSmokeConfigTest(unittest.TestCase):
@@ -160,6 +226,10 @@ class Pixal3DSTLSmokeConfigTest(unittest.TestCase):
             self.assertIn("--seed 17", command)
             self.assertIn("--pixal3d-fov 0.2", command)
             self.assertIn("--pixal3d-model-path TencentARC/Pixal3D", command)
+            self.assertIn(f"--pixal3d-model-revision {DEFAULT_PIXAL3D_MODEL_REVISION}", command)
+            self.assertIn(f"--pixal3d-moge-revision {DEFAULT_PIXAL3D_MOGE_REVISION}", command)
+            self.assertIn(f"--pixal3d-dinov3-revision {DEFAULT_PIXAL3D_DINOV3_REVISION}", command)
+            self.assertIn(f"--pixal3d-rembg-revision {DEFAULT_PIXAL3D_REMBG_REVISION}", command)
             self.assertIn("--provider-mesh-cache-dir /content/pixal3d-provider-cache", command)
         self.assertNotIn("--mesh-repair", raw_command)
         self.assertNotIn("--mesh-target-bbox-extents", raw_command)

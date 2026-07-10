@@ -47,7 +47,7 @@
     "direct_mesh_input": "biharmonic",
     "direct_mesh_output_ext": "glb",
     "direct_mesh_timeout": 3600,
-    "direct_mesh_command": "/content/pixal3d-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider pixal3d --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --provider-dir /content/Pixal3D --pixal3d-resolution 1024 --seed 42 --pixal3d-model-path TencentARC/Pixal3D --provider-mesh-cache-dir /content/pixal3d-provider-cache"
+    "direct_mesh_command": "/content/pixal3d-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider pixal3d --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --provider-dir /content/Pixal3D --pixal3d-resolution 1024 --seed 42 --pixal3d-model-path TencentARC/Pixal3D --pixal3d-model-revision 0b31f9160aa400719af409098bff7936a932f726 --pixal3d-moge-revision 39c4d5e957afe587e04eec59dc2bcc3be5ecd968 --pixal3d-dinov3-revision 3c276edd87d6f6e569ff0c4400e086807d0f3881 --pixal3d-rembg-model ZhengPeng7/BiRefNet --pixal3d-rembg-revision e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4 --provider-mesh-cache-dir /content/pixal3d-provider-cache"
   },
   {
     "name": "pixal3d_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
@@ -58,7 +58,7 @@
     "direct_mesh_input": "biharmonic",
     "direct_mesh_output_ext": "glb",
     "direct_mesh_timeout": 3600,
-    "direct_mesh_command": "/content/pixal3d-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider pixal3d --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --provider-dir /content/Pixal3D --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --mesh-repair printable --mesh-target-bbox-extents \"{inferred_bbox_extents}\" --mesh-target-faces 40000 --mesh-max-normalized-face-density-log1p 9.95 --pixal3d-resolution 1024 --seed 42 --pixal3d-model-path TencentARC/Pixal3D --provider-mesh-cache-dir /content/pixal3d-provider-cache",
+    "direct_mesh_command": "/content/pixal3d-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider pixal3d --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --provider-dir /content/Pixal3D --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --mesh-repair printable --mesh-target-bbox-extents \"{inferred_bbox_extents}\" --mesh-target-faces 40000 --mesh-max-normalized-face-density-log1p 9.95 --pixal3d-resolution 1024 --seed 42 --pixal3d-model-path TencentARC/Pixal3D --pixal3d-model-revision 0b31f9160aa400719af409098bff7936a932f726 --pixal3d-moge-revision 39c4d5e957afe587e04eec59dc2bcc3be5ecd968 --pixal3d-dinov3-revision 3c276edd87d6f6e569ff0c4400e086807d0f3881 --pixal3d-rembg-model ZhengPeng7/BiRefNet --pixal3d-rembg-revision e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4 --provider-mesh-cache-dir /content/pixal3d-provider-cache",
     "direct_mesh_bbox_source": "inferred",
     "direct_mesh_reference_method": "mirror",
     "oracle_diagnostic": false

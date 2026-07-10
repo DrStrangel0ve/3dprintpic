@@ -22,6 +22,14 @@ from backend.benchmark.ingest_stl_results import (
     summarize_run as summarize_stl_run,
 )
 from backend.benchmark.direct_mesh import direct_mesh_bbox_uses_hidden_source
+from backend.benchmark.pixal3d_models import (
+    DEFAULT_PIXAL3D_DINOV3_REVISION,
+    DEFAULT_PIXAL3D_MODEL,
+    DEFAULT_PIXAL3D_MODEL_REVISION,
+    DEFAULT_PIXAL3D_MOGE_REVISION,
+    DEFAULT_PIXAL3D_REMBG_MODEL,
+    DEFAULT_PIXAL3D_REMBG_REVISION,
+)
 
 
 DEFAULT_DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Small-hf"
@@ -240,6 +248,16 @@ def pixal3d_command(args: argparse.Namespace, repaired: bool) -> str:
         str(args.pixal3d_seed),
         "--pixal3d-model-path",
         args.pixal3d_model_path,
+        "--pixal3d-model-revision",
+        args.pixal3d_model_revision,
+        "--pixal3d-moge-revision",
+        args.pixal3d_moge_revision,
+        "--pixal3d-dinov3-revision",
+        args.pixal3d_dinov3_revision,
+        "--pixal3d-rembg-model",
+        args.pixal3d_rembg_model,
+        "--pixal3d-rembg-revision",
+        args.pixal3d_rembg_revision,
         "--provider-mesh-cache-dir",
         args.pixal3d_provider_cache_dir,
     ]
@@ -862,7 +880,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pixal3d-resolution", type=int, choices=(1024, 1536), default=1024)
     parser.add_argument("--pixal3d-seed", type=int, default=42)
     parser.add_argument("--pixal3d-fov", type=float, default=None)
-    parser.add_argument("--pixal3d-model-path", default="TencentARC/Pixal3D")
+    parser.add_argument("--pixal3d-model-path", default=DEFAULT_PIXAL3D_MODEL)
+    parser.add_argument("--pixal3d-model-revision", default=DEFAULT_PIXAL3D_MODEL_REVISION)
+    parser.add_argument("--pixal3d-moge-revision", default=DEFAULT_PIXAL3D_MOGE_REVISION)
+    parser.add_argument("--pixal3d-dinov3-revision", default=DEFAULT_PIXAL3D_DINOV3_REVISION)
+    parser.add_argument("--pixal3d-rembg-model", default=DEFAULT_PIXAL3D_REMBG_MODEL)
+    parser.add_argument("--pixal3d-rembg-revision", default=DEFAULT_PIXAL3D_REMBG_REVISION)
     parser.add_argument("--pixal3d-provider-cache-dir", default=DEFAULT_PIXAL3D_PROVIDER_CACHE_DIR)
     parser.add_argument("--pixal3d-low-vram", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--pixal3d-include-raw", action=argparse.BooleanOptionalAction, default=True)
