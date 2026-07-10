@@ -29,6 +29,9 @@ DEFAULT_TRIPOSR_PYTHON = "/content/triposr-venv/bin/python"
 DEFAULT_TRIPOSR_DIR = "/content/TripoSR"
 DEFAULT_TRIPOSG_PYTHON = "/content/triposg-venv/bin/python"
 DEFAULT_TRIPOSG_DIR = "/content/TripoSG"
+DEFAULT_PIXAL3D_PYTHON = "/content/pixal3d-venv/bin/python"
+DEFAULT_PIXAL3D_DIR = "/content/Pixal3D"
+DEFAULT_PIXAL3D_PROVIDER_CACHE_DIR = "/content/pixal3d-provider-cache"
 SOURCE_MULTIVIEW_ORACLE_NAME = "source_mesh_bundle_multiview_oracle"
 VISUAL_HULL_MULTIVIEW_NAME = "visual_hull_multiview_repaired_mesh"
 MESH_TARGET_BBOX_PLACEHOLDERS = {
@@ -229,6 +232,42 @@ def triposg_command(args: argparse.Namespace, repaired: bool) -> str:
     )
 
 
+def pixal3d_command(args: argparse.Namespace, repaired: bool) -> str:
+    pixal3d_extra = [
+        "--pixal3d-resolution",
+        str(args.pixal3d_resolution),
+        "--seed",
+        str(args.pixal3d_seed),
+        "--pixal3d-model-path",
+        args.pixal3d_model_path,
+        "--provider-mesh-cache-dir",
+        args.pixal3d_provider_cache_dir,
+    ]
+    if args.pixal3d_fov is not None:
+        pixal3d_extra.extend(["--pixal3d-fov", str(args.pixal3d_fov)])
+    if args.pixal3d_low_vram:
+        pixal3d_extra.append("--low-vram")
+    return image_to_mesh_command(
+        python=args.pixal3d_python,
+        provider="pixal3d",
+        provider_dir=args.pixal3d_dir,
+        provider_device=args.provider_device,
+        timeout=args.direct_mesh_timeout,
+        output_mesh_repair=args.mesh_repair if repaired else "none",
+        output_mesh_raw=repaired,
+        raw_output_ext="glb",
+        mesh_target_max_dimension=getattr(args, "mesh_target_max_dimension", 0.0) if repaired else 0.0,
+        mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0) if repaired else 0.0,
+        mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0) if repaired else 0.0,
+        mesh_target_bbox_source=getattr(args, "mesh_target_bbox_source", "none") if repaired else "none",
+        mesh_target_faces=getattr(args, "mesh_target_faces", 0) if repaired else 0,
+        mesh_max_normalized_face_density_log1p=(
+            getattr(args, "mesh_max_normalized_face_density_log1p", 0.0) if repaired else 0.0
+        ),
+        output_extra=pixal3d_extra,
+    )
+
+
 def source_multiview_oracle_command(args: argparse.Namespace) -> str:
     return image_to_mesh_command(
         python=args.provider_python,
@@ -370,6 +409,37 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                     "direct_mesh_output_ext": "glb",
                     "direct_mesh_timeout": args.direct_mesh_timeout,
                     "direct_mesh_command": triposg_command(args, repaired=True),
+                    **reference_fields,
+                }
+            )
+    if getattr(args, "include_pixal3d", False):
+        for direct_input in args.pixal3d_direct_inputs:
+            input_suffix = "masked" if direct_input == "masked" else f"{direct_input}_prefill"
+            if args.pixal3d_include_raw:
+                experiments.append(
+                    {
+                        "name": f"pixal3d_{input_suffix}_raw_direct_mesh",
+                        "method": "external-image-to-mesh",
+                        "stl_mode": STL_MODE_SINGLE_IMAGE_MESH,
+                        "skip_depth": True,
+                        "emit_stl": True,
+                        "direct_mesh_input": direct_input,
+                        "direct_mesh_output_ext": "glb",
+                        "direct_mesh_timeout": args.direct_mesh_timeout,
+                        "direct_mesh_command": pixal3d_command(args, repaired=False),
+                    }
+                )
+            experiments.append(
+                {
+                    "name": f"pixal3d_{input_suffix}_repaired{direct_suffix}",
+                    "method": "external-image-to-mesh",
+                    "stl_mode": STL_MODE_SINGLE_IMAGE_MESH,
+                    "skip_depth": True,
+                    "emit_stl": True,
+                    "direct_mesh_input": direct_input,
+                    "direct_mesh_output_ext": "glb",
+                    "direct_mesh_timeout": args.direct_mesh_timeout,
+                    "direct_mesh_command": pixal3d_command(args, repaired=True),
                     **reference_fields,
                 }
             )
@@ -763,6 +833,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--triposg-num-inference-steps", type=int, default=50)
     parser.add_argument("--triposg-guidance-scale", type=float, default=7.0)
     parser.add_argument("--triposg-seed", type=int, default=None)
+    parser.add_argument("--include-pixal3d", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--pixal3d-direct-input",
+        action="append",
+        choices=("masked", "full", "mirror", "biharmonic"),
+        dest="pixal3d_direct_inputs",
+        default=None,
+        help=(
+            "Direct image input mode for Pixal3D candidates. Repeat to compare masked, full, "
+            "mirror-prefill, and biharmonic-prefill variants."
+        ),
+    )
+    parser.add_argument("--pixal3d-python", default=DEFAULT_PIXAL3D_PYTHON)
+    parser.add_argument("--pixal3d-dir", default=DEFAULT_PIXAL3D_DIR)
+    parser.add_argument("--pixal3d-resolution", type=int, choices=(1024, 1536), default=1024)
+    parser.add_argument("--pixal3d-seed", type=int, default=42)
+    parser.add_argument("--pixal3d-fov", type=float, default=None)
+    parser.add_argument("--pixal3d-model-path", default="TencentARC/Pixal3D")
+    parser.add_argument("--pixal3d-provider-cache-dir", default=DEFAULT_PIXAL3D_PROVIDER_CACHE_DIR)
+    parser.add_argument("--pixal3d-low-vram", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--pixal3d-include-raw", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--chunk-size", type=int, default=8192)
     parser.add_argument("--mc-resolution", type=int, default=256)
     parser.add_argument("--mesh-repair", choices=("basic", "convex-hull", "printable"), default="printable")
@@ -857,6 +948,7 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     args.triposr_direct_inputs = args.triposr_direct_inputs or ["masked"]
     args.triposg_direct_inputs = args.triposg_direct_inputs or ["masked"]
+    args.pixal3d_direct_inputs = args.pixal3d_direct_inputs or ["biharmonic"]
     return args
 
 

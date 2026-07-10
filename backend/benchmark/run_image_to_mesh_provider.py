@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -31,10 +32,16 @@ TRIPOSR_API_PROVIDER = "triposr-api"
 HUNYUAN3D_SHAPE_PROVIDER = "hunyuan3d-shape"
 SOURCE_MESH_BUNDLE_ORACLE_PROVIDER = "source-mesh-bundle-oracle"
 MULTIVIEW_VISUAL_HULL_PROVIDER = "multiview-visual-hull"
+PIXAL3D_PROVIDER = "pixal3d"
 DEFAULT_TRIPOSR_MODEL = "stabilityai/TripoSR"
 DEFAULT_HUNYUAN3D_MODEL = "tencent/Hunyuan3D-2.1"
 
 CLI_PROVIDERS = {
+    PIXAL3D_PROVIDER: {
+        "env": "PIXAL3D_DIR",
+        "default_dirs": ("/content/Pixal3D",),
+        "runner": "pixal3d-inference",
+    },
     "spar3d": {
         "env": "SPAR3D_DIR",
         "default_dirs": ("/content/stable-point-aware-3d", "/content/SPAR3D"),
@@ -202,6 +209,50 @@ def find_mesh_output(output_dir: Path, started_at: float | None = None) -> Path:
     return candidates[0]
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def provider_git_revision(provider_dir: Path) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(provider_dir), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed.stdout.strip() if completed.returncode == 0 else ""
+
+
+def cli_provider_cache_payload(
+    args: argparse.Namespace,
+    provider_dir: Path,
+    run_entry: Path,
+) -> dict:
+    input_sha256 = sha256_file(args.input_image)
+    synthetic_output_dir = Path("__provider_cache_output__")
+    command = cli_provider_command(args, provider_dir, synthetic_output_dir)
+    normalized_command = [
+        f"sha256:{input_sha256}" if str(token) == str(args.input_image) else str(token)
+        for token in command
+    ]
+    return {
+        "provider": args.provider,
+        "provider_revision": provider_git_revision(provider_dir),
+        "run_entry_sha256": sha256_file(run_entry),
+        "input_sha256": input_sha256,
+        "command": normalized_command,
+    }
+
+
+def cli_provider_cache_key(payload: dict) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def export_mesh(source: Path, target: Path) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     if source.resolve() == target.resolve():
@@ -216,6 +267,29 @@ def export_mesh(source: Path, target: Path) -> Path:
 
 def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_output_dir: Path) -> list[str]:
     config = CLI_PROVIDERS[args.provider]
+    if config.get("runner") == "pixal3d-inference":
+        output_path = raw_output_dir / "output.glb"
+        command = [
+            args.python,
+            str(provider_dir / "inference.py"),
+            "--image",
+            str(args.input_image),
+            "--output",
+            str(output_path),
+        ]
+        if args.low_vram:
+            command.append("--low_vram")
+        if args.pixal3d_resolution is not None:
+            command.extend(["--resolution", str(int(args.pixal3d_resolution))])
+        if args.seed is not None:
+            command.extend(["--seed", str(int(args.seed))])
+        if args.pixal3d_fov is not None:
+            command.extend(["--fov", str(float(args.pixal3d_fov))])
+        if args.pixal3d_model_path:
+            command.extend(["--model_path", args.pixal3d_model_path])
+        command.extend(args.provider_arg or [])
+        return command
+
     if config.get("runner") == "triposg-module":
         output_path = raw_output_dir / "output.glb"
         command = [
@@ -259,9 +333,13 @@ def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_outpu
 
 def run_cli_provider(args: argparse.Namespace) -> Path:
     provider_dir = resolve_provider_dir(args.provider, args.provider_dir)
-    if CLI_PROVIDERS[args.provider].get("runner") == "triposg-module":
+    runner = CLI_PROVIDERS[args.provider].get("runner")
+    if runner == "triposg-module":
         run_entry = provider_dir / "scripts" / "inference_triposg.py"
         missing_message = f"{args.provider} provider repo has no scripts/inference_triposg.py: {run_entry}"
+    elif runner == "pixal3d-inference":
+        run_entry = provider_dir / "inference.py"
+        missing_message = f"{args.provider} provider repo has no inference.py: {run_entry}"
     else:
         run_entry = provider_dir / "run.py"
         missing_message = f"{args.provider} provider repo has no run.py: {run_entry}"
@@ -269,10 +347,66 @@ def run_cli_provider(args: argparse.Namespace) -> Path:
         raise FileNotFoundError(missing_message)
     raw_output_dir = args.provider_output_dir or args.output_mesh.parent / f"{args.provider}_raw"
     raw_output_dir.mkdir(parents=True, exist_ok=True)
+    cache_arg = getattr(args, "provider_mesh_cache_dir", None)
+    cache_dir = Path(cache_arg) if cache_arg else None
+    cache_payload = None
+    cache_key = ""
+    if cache_dir:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_payload = cli_provider_cache_payload(args, provider_dir, run_entry)
+        cache_key = cli_provider_cache_key(cache_payload)
+        cache_matches = sorted(
+            path
+            for path in cache_dir.glob(f"{cache_key}.*")
+            if path.is_file() and path.suffix.lower() in MESH_EXTENSIONS
+        )
+        if cache_matches:
+            cached_mesh = cache_matches[0]
+            reused_mesh = raw_output_dir / f"output_cached{cached_mesh.suffix.lower()}"
+            shutil.copyfile(cached_mesh, reused_mesh)
+            print(
+                json.dumps(
+                    {
+                        "event": "provider_mesh_cache",
+                        "status": "hit",
+                        "provider": args.provider,
+                        "cache_key": cache_key,
+                        "path": str(cached_mesh),
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+            return reused_mesh
     started_at = time.time()
     command = cli_provider_command(args, provider_dir, raw_output_dir)
     subprocess.run(command, cwd=provider_dir, check=True, timeout=args.timeout)
-    return find_mesh_output(raw_output_dir, started_at=started_at)
+    provider_mesh = find_mesh_output(raw_output_dir, started_at=started_at)
+    if cache_dir and cache_payload is not None:
+        cached_mesh = cache_dir / f"{cache_key}{provider_mesh.suffix.lower()}"
+        temporary_mesh = cache_dir / f".{cache_key}.{os.getpid()}.tmp{provider_mesh.suffix.lower()}"
+        shutil.copyfile(provider_mesh, temporary_mesh)
+        os.replace(temporary_mesh, cached_mesh)
+        (cache_dir / f"{cache_key}.json").write_text(
+            json.dumps(cache_payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        print(
+            json.dumps(
+                {
+                    "event": "provider_mesh_cache",
+                    "status": "stored",
+                    "provider": args.provider,
+                    "cache_key": cache_key,
+                    "path": str(cached_mesh),
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+    return provider_mesh
 
 
 def run_hunyuan_shape(args: argparse.Namespace) -> Path:
@@ -680,6 +814,12 @@ def main() -> None:
     parser.add_argument("--provider-dir", default=None)
     parser.add_argument("--provider-output-dir", type=Path, default=None)
     parser.add_argument(
+        "--provider-mesh-cache-dir",
+        type=Path,
+        default=None,
+        help="Optional content-addressed cache for raw CLI-provider meshes before STL repair or scaling.",
+    )
+    parser.add_argument(
         "--python",
         "--provider-python",
         dest="python",
@@ -693,6 +833,24 @@ def main() -> None:
     parser.add_argument("--mc-resolution", type=int, default=256)
     parser.add_argument("--texture-resolution", type=int, default=None)
     parser.add_argument("--remesh-option", choices=("none", "triangle", "quad"), default=None)
+    parser.add_argument(
+        "--pixal3d-resolution",
+        type=int,
+        choices=(1024, 1536),
+        default=None,
+        help="Optional Pixal3D pipeline resolution. Omit to use Pixal3D's low-VRAM-aware default.",
+    )
+    parser.add_argument(
+        "--pixal3d-fov",
+        type=float,
+        default=None,
+        help="Optional Pixal3D manual camera field of view in radians. Omit for automatic estimation.",
+    )
+    parser.add_argument(
+        "--pixal3d-model-path",
+        default=None,
+        help="Optional Pixal3D local model path or Hugging Face repository.",
+    )
     parser.add_argument(
         "--mesh-repair",
         choices=MESH_REPAIR_MODES,
@@ -774,7 +932,7 @@ def main() -> None:
         help="Hunyuan3D mesh extraction octree resolution. The official app defaults to 256 for standard decode.",
     )
     parser.add_argument("--num-chunks", type=int, default=8000, help="Hunyuan3D VAE mesh extraction chunks.")
-    parser.add_argument("--seed", type=int, default=None, help="Optional Hunyuan3D generator seed.")
+    parser.add_argument("--seed", type=int, default=None, help="Optional provider random seed.")
     parser.add_argument("--mc-algo", default=None, help="Optional Hunyuan3D surface extraction algorithm.")
     parser.add_argument("--disable-progress", action="store_true", help="Disable provider progress bars in logs.")
     parser.add_argument("--visual-hull-resolution", type=int, default=64)

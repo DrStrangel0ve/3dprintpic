@@ -479,6 +479,188 @@ def build_triposg_setup_prelude() -> str:
     )
 
 
+def build_pixal3d_setup_prelude() -> str:
+    return (
+        "PIXAL3D_DIR=\"${PIXAL3D_DIR:-/content/Pixal3D}\"\n"
+        "PIXAL3D_VENV=\"${PIXAL3D_VENV:-/content/pixal3d-venv}\"\n"
+        "PIXAL3D_DEPS_SRC=\"${PIXAL3D_DEPS_SRC:-/content/pixal3d-deps-src}\"\n"
+        "PIXAL3D_REF=\"${PIXAL3D_REF:-cdbb2bbffbf4e6f298b5f2af3d1d76a8d823d2af}\"\n"
+        "MOGE_REF=\"${MOGE_REF:-07444410f1e33f402353b99d6ccd26bd31e469e8}\"\n"
+        "TRELLIS2_DIR=\"${TRELLIS2_DIR:-/content/TRELLIS.2}\"\n"
+        "TRELLIS2_REF=\"${TRELLIS2_REF:-75fbf0183001ed9876c8dbb35de6b68552ee08bd}\"\n"
+        "CUMESH_DIR=\"${CUMESH_DIR:-$PIXAL3D_DEPS_SRC/CuMesh}\"\n"
+        "CUMESH_REF=\"${CUMESH_REF:-12289e1062f0603f2f0d0771b02e1395d247f26f}\"\n"
+        "FLEXGEMM_DIR=\"${FLEXGEMM_DIR:-$PIXAL3D_DEPS_SRC/FlexGEMM}\"\n"
+        "FLEXGEMM_REF=\"${FLEXGEMM_REF:-6dd94a859c26ee8246888502eada3dd8ad85532e}\"\n"
+        "NVDIFFRAST_DIR=\"${NVDIFFRAST_DIR:-$PIXAL3D_DEPS_SRC/nvdiffrast}\"\n"
+        "NVDIFFRAST_REF=\"${NVDIFFRAST_REF:-253ac4fcea7de5f396371124af597e6cc957bfae}\"\n"
+        "export PIXAL3D_DIR PIXAL3D_VENV PIXAL3D_DEPS_SRC PIXAL3D_REF MOGE_REF TRELLIS2_DIR TRELLIS2_REF CUMESH_DIR CUMESH_REF FLEXGEMM_DIR FLEXGEMM_REF NVDIFFRAST_DIR NVDIFFRAST_REF\n"
+        "export ATTN_BACKEND=\"${ATTN_BACKEND:-sdpa}\"\n"
+        "export CUDA_HOME=\"${CUDA_HOME:-/usr/local/cuda}\"\n"
+        "export PATH=\"$CUDA_HOME/bin:$PATH\"\n"
+        "export LD_LIBRARY_PATH=\"$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}\"\n"
+        "export MAX_JOBS=\"${MAX_JOBS:-4}\"\n"
+        "mkdir -p \"$PIXAL3D_DEPS_SRC\"\n"
+        "if [[ ! -d \"$PIXAL3D_DIR/.git\" ]]; then\n"
+        "  rm -rf \"$PIXAL3D_DIR\"\n"
+        "  git clone --filter=blob:none https://github.com/TencentARC/Pixal3D \"$PIXAL3D_DIR\"\n"
+        "fi\n"
+        "git -C \"$PIXAL3D_DIR\" fetch --filter=blob:none origin \"$PIXAL3D_REF\" || git -C \"$PIXAL3D_DIR\" fetch --filter=blob:none origin master\n"
+        "git -C \"$PIXAL3D_DIR\" checkout --detach \"$PIXAL3D_REF\"\n"
+        "git -C \"$PIXAL3D_DIR\" reset --hard \"$PIXAL3D_REF\"\n"
+        "test \"$(git -C \"$PIXAL3D_DIR\" rev-parse HEAD)\" = \"$PIXAL3D_REF\"\n"
+        "if [[ ! -d \"$TRELLIS2_DIR/.git\" ]]; then\n"
+        "  rm -rf \"$TRELLIS2_DIR\"\n"
+        "  git clone --filter=blob:none --recurse-submodules https://github.com/microsoft/TRELLIS.2 \"$TRELLIS2_DIR\"\n"
+        "fi\n"
+        "git -C \"$TRELLIS2_DIR\" fetch --filter=blob:none origin \"$TRELLIS2_REF\" || git -C \"$TRELLIS2_DIR\" fetch --filter=blob:none origin main\n"
+        "git -C \"$TRELLIS2_DIR\" checkout --detach \"$TRELLIS2_REF\"\n"
+        "git -C \"$TRELLIS2_DIR\" reset --hard \"$TRELLIS2_REF\"\n"
+        "test \"$(git -C \"$TRELLIS2_DIR\" rev-parse HEAD)\" = \"$TRELLIS2_REF\"\n"
+        "git -C \"$TRELLIS2_DIR\" submodule update --init --recursive\n"
+        "if [[ ! -d \"$CUMESH_DIR/.git\" ]]; then\n"
+        "  rm -rf \"$CUMESH_DIR\"\n"
+        "  git clone --filter=blob:none --recurse-submodules https://github.com/JeffreyXiang/CuMesh.git \"$CUMESH_DIR\"\n"
+        "fi\n"
+        "git -C \"$CUMESH_DIR\" fetch --filter=blob:none origin \"$CUMESH_REF\" || git -C \"$CUMESH_DIR\" fetch --filter=blob:none origin main\n"
+        "git -C \"$CUMESH_DIR\" checkout --detach \"$CUMESH_REF\"\n"
+        "git -C \"$CUMESH_DIR\" reset --hard \"$CUMESH_REF\"\n"
+        "test \"$(git -C \"$CUMESH_DIR\" rev-parse HEAD)\" = \"$CUMESH_REF\"\n"
+        "git -C \"$CUMESH_DIR\" submodule update --init --recursive\n"
+        "if [[ ! -d \"$FLEXGEMM_DIR/.git\" ]]; then\n"
+        "  rm -rf \"$FLEXGEMM_DIR\"\n"
+        "  git clone --filter=blob:none --recurse-submodules https://github.com/JeffreyXiang/FlexGEMM.git \"$FLEXGEMM_DIR\"\n"
+        "fi\n"
+        "git -C \"$FLEXGEMM_DIR\" fetch --filter=blob:none origin \"$FLEXGEMM_REF\" || git -C \"$FLEXGEMM_DIR\" fetch --filter=blob:none origin main\n"
+        "git -C \"$FLEXGEMM_DIR\" checkout --detach \"$FLEXGEMM_REF\"\n"
+        "git -C \"$FLEXGEMM_DIR\" reset --hard \"$FLEXGEMM_REF\"\n"
+        "test \"$(git -C \"$FLEXGEMM_DIR\" rev-parse HEAD)\" = \"$FLEXGEMM_REF\"\n"
+        "git -C \"$FLEXGEMM_DIR\" submodule update --init --recursive\n"
+        "if [[ ! -d \"$NVDIFFRAST_DIR/.git\" ]]; then\n"
+        "  rm -rf \"$NVDIFFRAST_DIR\"\n"
+        "  git clone --filter=blob:none --branch v0.4.0 https://github.com/NVlabs/nvdiffrast.git \"$NVDIFFRAST_DIR\"\n"
+        "fi\n"
+        "git -C \"$NVDIFFRAST_DIR\" fetch --filter=blob:none origin \"$NVDIFFRAST_REF\" || git -C \"$NVDIFFRAST_DIR\" fetch --filter=blob:none origin v0.4.0\n"
+        "git -C \"$NVDIFFRAST_DIR\" checkout --detach \"$NVDIFFRAST_REF\"\n"
+        "git -C \"$NVDIFFRAST_DIR\" reset --hard \"$NVDIFFRAST_REF\"\n"
+        "test \"$(git -C \"$NVDIFFRAST_DIR\" rev-parse HEAD)\" = \"$NVDIFFRAST_REF\"\n"
+        "python -m pip install -q virtualenv\n"
+        "if [[ ! -x \"$PIXAL3D_VENV/bin/python\" ]]; then\n"
+        "  python -m virtualenv --system-site-packages \"$PIXAL3D_VENV\"\n"
+        "fi\n"
+        "PIXAL3D_PYTHON=\"$PIXAL3D_VENV/bin/python\"\n"
+        "export PIXAL3D_PYTHON\n"
+        "export PYTHONPATH=\"$PIXAL3D_DIR:${PYTHONPATH:-}\"\n"
+        "if ! command -v nvcc >/dev/null 2>&1; then\n"
+        "  echo \"Pixal3D CUDA extension build requires nvcc\" >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "nvcc --version\n"
+        "if ! nvcc --version | grep -Eq 'release 12\\.8([, ]|$)'; then\n"
+        "  echo \"Pixal3D G4 setup requires a CUDA 12.8 toolkit to match Torch cu128\" >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "PIXAL3D_TORCH_CUDA_ARCH=\"$(\"$PIXAL3D_PYTHON\" - <<'PY'\n"
+        "import torch\n"
+        "if not torch.__version__.split('+', 1)[0].startswith('2.11.'):\n"
+        "    raise SystemExit(f'Pixal3D pinned NATTEN wheel requires Torch 2.11.x, got {torch.__version__}')\n"
+        "if torch.version.cuda != '12.8':\n"
+        "    raise SystemExit(f'Pixal3D G4 setup requires Torch cu128, got CUDA {torch.version.cuda}')\n"
+        "if not torch.cuda.is_available():\n"
+        "    raise SystemExit('Pixal3D setup requires CUDA')\n"
+        "major, minor = torch.cuda.get_device_capability(0)\n"
+        "print(f'{major}.{minor}')\n"
+        "PY\n"
+        ")\"\n"
+        "export TORCH_CUDA_ARCH_LIST=\"${TORCH_CUDA_ARCH_LIST:-$PIXAL3D_TORCH_CUDA_ARCH}\"\n"
+        "PIXAL3D_CMAKE_CUDA_ARCH=\"${PIXAL3D_TORCH_CUDA_ARCH/./}\"\n"
+        "export CMAKE_CUDA_ARCHITECTURES=\"${CMAKE_CUDA_ARCHITECTURES:-$PIXAL3D_CMAKE_CUDA_ARCH}\"\n"
+        "echo \"Pixal3D setup checkpoint: Torch cu128, nvcc 12.8, CUDA arch $TORCH_CUDA_ARCH_LIST\"\n"
+        "if ! \"$PIXAL3D_PYTHON\" - <<'PY'\n"
+        "import importlib\n"
+        "required = (\n"
+        "    'torch', 'torchvision', 'cv2', 'trimesh', 'fast_simplification', 'natten',\n"
+        "    'moge.model.v2', 'o_voxel', 'cumesh', 'flex_gemm', 'nvdiffrast.torch',\n"
+        "    'pixal3d.pipelines',\n"
+        ")\n"
+        "for name in required:\n"
+        "    importlib.import_module(name)\n"
+        "from pixal3d.pipelines import Pixal3DImageTo3DPipeline\n"
+        "PY\n"
+        "then\n"
+        "  \"$PIXAL3D_PYTHON\" -m pip install -U pip setuptools wheel ninja cmake packaging\n"
+        "  \"$PIXAL3D_PYTHON\" - <<'PY'\n"
+        "import os\n"
+        "from pathlib import Path\n"
+        "source = Path(os.environ['PIXAL3D_DIR']) / 'requirements.txt'\n"
+        "target = Path('/tmp/pixal3d_requirements_colab.txt')\n"
+        "lines = [\n"
+        "    raw for raw in source.read_text(encoding='utf-8').splitlines()\n"
+        "    if 'github.com/microsoft/MoGe' not in raw\n"
+        "]\n"
+        "target.write_text('\\n'.join(lines) + '\\n', encoding='utf-8')\n"
+        "print(f'Pixal3D requirements without unpinned MoGe: {target}')\n"
+        "PY\n"
+        "  \"$PIXAL3D_PYTHON\" -m pip install -r /tmp/pixal3d_requirements_colab.txt\n"
+        "  \"$PIXAL3D_PYTHON\" -m pip install --no-deps \"git+https://github.com/microsoft/MoGe.git@$MOGE_REF\"\n"
+        "  \"$PIXAL3D_PYTHON\" -m pip install fast-simplification huggingface-hub\n"
+        "  \"$PIXAL3D_PYTHON\" -m pip install https://github.com/LDYang694/Storages/releases/download/20260430/utils3d-0.0.2-py3-none-any.whl\n"
+        "  \"$PIXAL3D_PYTHON\" -m pip install --no-deps 'natten==0.21.6+torch2110cu128' -f https://whl.natten.org\n"
+        "  \"$PIXAL3D_PYTHON\" -m pip install -v --no-build-isolation \"$NVDIFFRAST_DIR\"\n"
+        "  \"$PIXAL3D_PYTHON\" -m pip install -v --no-build-isolation \"$CUMESH_DIR\"\n"
+        "  \"$PIXAL3D_PYTHON\" -m pip install -v --no-build-isolation \"$FLEXGEMM_DIR\"\n"
+        "  \"$PIXAL3D_PYTHON\" -m pip install -v --no-build-isolation \"$TRELLIS2_DIR/o-voxel\"\n"
+        "fi\n"
+        "\"$PIXAL3D_PYTHON\" - <<'PY'\n"
+        "import importlib\n"
+        "import torch\n"
+        "required = (\n"
+        "    'torchvision', 'cv2', 'trimesh', 'fast_simplification', 'natten',\n"
+        "    'moge.model.v2', 'o_voxel', 'cumesh', 'flex_gemm', 'nvdiffrast.torch',\n"
+        "    'pixal3d.pipelines',\n"
+        ")\n"
+        "for name in required:\n"
+        "    importlib.import_module(name)\n"
+        "from pixal3d.pipelines import Pixal3DImageTo3DPipeline\n"
+        "if not torch.__version__.split('+', 1)[0].startswith('2.11.') or torch.version.cuda != '12.8':\n"
+        "    raise SystemExit(f'Pixal3D dependency install changed the pinned Torch/cu128 stack: {torch.__version__}, CUDA {torch.version.cuda}')\n"
+        "if not torch.cuda.is_available():\n"
+        "    raise SystemExit('Pixal3D setup requires CUDA, but torch.cuda.is_available() is false')\n"
+        "props = torch.cuda.get_device_properties(0)\n"
+        "total_gb = props.total_memory / (1024 ** 3)\n"
+        "print(f'Pixal3D CUDA device: {props.name}, VRAM={total_gb:.1f} GB, capability={torch.cuda.get_device_capability(0)}')\n"
+        "if total_gb < 10:\n"
+        "    raise SystemExit(f'Pixal3D needs at least about 10 GB VRAM in low-VRAM mode, got {total_gb:.1f} GB')\n"
+        "print(f'Pixal3D torch={torch.__version__}, attention_backend={__import__(\"os\").environ.get(\"ATTN_BACKEND\")}')\n"
+        "PY\n"
+        "echo \"Pixal3D setup checkpoint: Python and CUDA deps importable\"\n"
+        "(cd \"$PIXAL3D_DIR\" && \"$PIXAL3D_PYTHON\" inference.py --help >/tmp/pixal3d_inference_help.txt)\n"
+        "echo \"Pixal3D setup checkpoint: official CLI imports ok\"\n"
+        "if [[ \"${PIXAL3D_PREFETCH:-1}\" == \"1\" ]]; then\n"
+        "  \"$PIXAL3D_PYTHON\" - <<'PY'\n"
+        "from huggingface_hub import snapshot_download\n"
+        "for repo_id in (\n"
+        "    'TencentARC/Pixal3D',\n"
+        "    'Ruicheng/moge-2-vitl',\n"
+        "    'camenduru/dinov3-vitl16-pretrain-lvd1689m',\n"
+        "    'ZhengPeng7/BiRefNet',\n"
+        "):\n"
+        "    path = snapshot_download(repo_id=repo_id)\n"
+        "    print(f'Pixal3D prefetched {repo_id}: {path}')\n"
+        "PY\n"
+        "  if [[ \"${PIXAL3D_PREFETCH_NAF:-1}\" == \"1\" ]]; then\n"
+        "    \"$PIXAL3D_PYTHON\" - <<'PY'\n"
+        "import torch\n"
+        "model = torch.hub.load('valeoai/NAF', 'naf', pretrained=True, device='cpu', trust_repo=True)\n"
+        "del model\n"
+        "print('Pixal3D prefetched valeoai/NAF')\n"
+        "PY\n"
+        "  fi\n"
+        "  echo \"Pixal3D setup checkpoint: weights prefetched\"\n"
+        "fi\n"
+    )
+
+
 def build_hunyuan3d_setup_prelude() -> str:
     return (
         "HUNYUAN3D_DIR=\"${HUNYUAN3D_DIR:-/content/Hunyuan3D-2.1}\"\n"
@@ -611,6 +793,7 @@ def build_colab_run_script(
     colab_min_gpu_memory_gb: float | None = None,
     include_triposr_setup: bool = False,
     include_triposg_setup: bool = False,
+    include_pixal3d_setup: bool = False,
     include_hunyuan3d_setup: bool = False,
 ) -> str:
     archive_default = colab_archive_path or f"/content/{archive_filename}"
@@ -687,6 +870,8 @@ def build_colab_run_script(
         provider_setup += build_triposr_setup_prelude()
     if include_triposg_setup:
         provider_setup += build_triposg_setup_prelude()
+    if include_pixal3d_setup:
+        provider_setup += build_pixal3d_setup_prelude()
     if include_hunyuan3d_setup:
         provider_setup += build_hunyuan3d_setup_prelude()
 
@@ -805,7 +990,7 @@ def build_colab_run_script(
         "    payload['lora_adapter'] = os.environ['LORA_ADAPTER_PATH']\n"
         "print(json.dumps(payload, indent=2, sort_keys=True))\n"
         "PY\n"
-        "if [[ \"${COLAB_PROVIDER_SETUP_ONLY:-0}\" == \"1\" || \"${HUNYUAN3D_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSR_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSG_SETUP_ONLY:-0}\" == \"1\" ]]; then\n"
+        "if [[ \"${COLAB_PROVIDER_SETUP_ONLY:-0}\" == \"1\" || \"${HUNYUAN3D_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSR_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSG_SETUP_ONLY:-0}\" == \"1\" || \"${PIXAL3D_SETUP_ONLY:-0}\" == \"1\" ]]; then\n"
         "  echo \"Provider setup only requested; skipping benchmark stages\"\n"
         "  exit 0\n"
         "fi\n"
@@ -922,7 +1107,7 @@ def build_colab_run_script(
         "        'markdown': str(md_path),\n"
         "        'log': str(log_path),\n"
         "    }\n"
-        "    if os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1':\n"
+        "    if os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1' or os.environ.get('PIXAL3D_SETUP_ONLY') == '1':\n"
         "        result['reason'] = 'provider_setup_only'\n"
         "        return result\n"
         "    if not output_root.exists():\n"
@@ -996,7 +1181,7 @@ def build_colab_run_script(
         "    'run_name': os.environ['RUN_NAME'],\n"
         "    'run_status': run_status,\n"
         "    'failure_stage': 'gpu_preflight' if run_status and gpu_preflight_summary.get('ok') is False else '',\n"
-        "    'provider_setup_only': os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1',\n"
+        "    'provider_setup_only': os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1' or os.environ.get('PIXAL3D_SETUP_ONLY') == '1',\n"
         "    'output_root': str(output_root),\n"
         "    'output_root_exists': output_root.exists(),\n"
         "    'run_log': str(run_log),\n"
@@ -1310,6 +1495,7 @@ def package_inputs(
     colab_min_gpu_memory_gb: float | None = None,
     include_triposr_setup: bool = False,
     include_triposg_setup: bool = False,
+    include_pixal3d_setup: bool = False,
     include_hunyuan3d_setup: bool = False,
     colab_env: dict[str, str] | None = None,
     report_path: Path | None = None,
@@ -1394,6 +1580,7 @@ def package_inputs(
                 colab_min_gpu_memory_gb=colab_min_gpu_memory_gb,
                 include_triposr_setup=include_triposr_setup,
                 include_triposg_setup=include_triposg_setup,
+                include_pixal3d_setup=include_pixal3d_setup,
                 include_hunyuan3d_setup=include_hunyuan3d_setup,
             )
             add_text_file(tar, "run_colab_eval.sh", run_script_text, mode=0o755)
@@ -1441,6 +1628,7 @@ def package_inputs(
         "colab_min_gpu_memory_gb": colab_min_gpu_memory_gb,
         "include_triposr_setup": include_triposr_setup,
         "include_triposg_setup": include_triposg_setup,
+        "include_pixal3d_setup": include_pixal3d_setup,
         "include_hunyuan3d_setup": include_hunyuan3d_setup,
         "colab_env": colab_env,
         "run_script_in_archive": "run_colab_eval.sh" if include_run_script else "",
@@ -1562,6 +1750,11 @@ def parse_args() -> argparse.Namespace:
         help="Embed a Colab setup prelude for /content/TripoSG and /content/triposg-venv before running eval.",
     )
     parser.add_argument(
+        "--include-pixal3d-setup",
+        action="store_true",
+        help="Embed a pinned Colab setup prelude for /content/Pixal3D and /content/pixal3d-venv before running eval.",
+    )
+    parser.add_argument(
         "--include-hunyuan3d-setup",
         action="store_true",
         help="Embed a Colab setup prelude for /content/Hunyuan3D-2.1 and /content/hunyuan3d-venv before running eval.",
@@ -1641,6 +1834,7 @@ def main() -> None:
         colab_min_gpu_memory_gb=args.colab_min_gpu_memory_gb,
         include_triposr_setup=args.include_triposr_setup,
         include_triposg_setup=args.include_triposg_setup,
+        include_pixal3d_setup=args.include_pixal3d_setup,
         include_hunyuan3d_setup=args.include_hunyuan3d_setup,
         colab_env=parse_colab_env(args.colab_env),
         report_path=Path(args.report) if args.report else None,
