@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -65,6 +66,11 @@ class TripoSGPinningTest(unittest.TestCase):
 
         self.assertIn(f"--triposg-model-revision {DEFAULT_TRIPOSG_MODEL_REVISION}", command)
         self.assertIn(f"--triposg-rembg-revision {DEFAULT_TRIPOSG_REMBG_REVISION}", command)
+        self.assertIn("--seed 42", command)
+        self.assertIn(
+            "--provider-mesh-cache-dir /content/triposg-provider-cache",
+            command,
+        )
         self.assertEqual(
             parsed["provider_models"],
             {
@@ -100,6 +106,29 @@ class TripoSGPinningTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "must be supplied together"):
             provider_module.triposg_model_revisions_pinned(partial)
+
+    def test_comparison_configs_pin_seed_and_raw_mesh_cache(self):
+        config_root = Path(__file__).parents[1] / "benchmark" / "experiment_configs"
+        for filename in (
+            "modelnet10_60_balanced_stl_quality_pixal3d_triposg_s40_n1.json",
+            "modelnet10_60_balanced_stl_quality_trellis2_triposg_s40_n1.json",
+        ):
+            experiments = json.loads(
+                (config_root / filename).read_text(encoding="utf-8")
+            )
+            triposg = next(
+                experiment
+                for experiment in experiments
+                if experiment["name"]
+                == "triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh"
+            )
+            command = triposg["direct_mesh_command"]
+            self.assertIn("--seed 42", command, filename)
+            self.assertIn(
+                "--provider-mesh-cache-dir /content/triposg-provider-cache",
+                command,
+                filename,
+            )
 
 
 if __name__ == "__main__":

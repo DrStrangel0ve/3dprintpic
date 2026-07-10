@@ -225,6 +225,16 @@ def triposg_command(args: argparse.Namespace, repaired: bool) -> str:
     ]
     if args.triposg_seed is not None:
         triposg_extra.extend(["--seed", str(args.triposg_seed)])
+    triposg_extra.extend(
+        [
+            "--provider-mesh-cache-dir",
+            getattr(
+                args,
+                "triposg_provider_cache_dir",
+                "/content/triposg-provider-cache",
+            ),
+        ]
+    )
     return image_to_mesh_command(
         python=args.triposg_python,
         provider="triposg",
@@ -870,7 +880,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--triposg-dir", default=DEFAULT_TRIPOSG_DIR)
     parser.add_argument("--triposg-num-inference-steps", type=int, default=50)
     parser.add_argument("--triposg-guidance-scale", type=float, default=7.0)
-    parser.add_argument("--triposg-seed", type=int, default=None)
+    parser.add_argument("--triposg-seed", type=int, default=42)
+    parser.add_argument(
+        "--triposg-provider-cache-dir",
+        default="/content/triposg-provider-cache",
+        help="Content-addressed raw mesh cache used to make seeded TripoSG comparisons resumable.",
+    )
     parser.add_argument("--triposg-model-revision", default=DEFAULT_TRIPOSG_MODEL_REVISION)
     parser.add_argument("--triposg-rembg-revision", default=DEFAULT_TRIPOSG_REMBG_REVISION)
     parser.add_argument("--include-pixal3d", action=argparse.BooleanOptionalAction, default=False)
