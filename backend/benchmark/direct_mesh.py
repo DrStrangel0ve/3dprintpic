@@ -326,10 +326,26 @@ def _convex_hull_mesh(mesh):
     return hull
 
 
-def repair_mesh_for_printable_stl(mesh_path: Path, output_path: Path, mode: str = "printable") -> Path:
+def repair_mesh_for_printable_stl(
+    mesh_path: Path,
+    output_path: Path,
+    mode: str = "printable",
+    *,
+    target_faces: int = 0,
+) -> Path:
     if mode not in MESH_REPAIR_MODES or mode == "none":
         raise ValueError(f"Unsupported mesh repair mode: {mode}")
     mesh = load_mesh(mesh_path)
+    target_faces = int(target_faces or 0)
+    if target_faces > 0 and len(mesh.faces) > target_faces:
+        original_faces = len(mesh.faces)
+        mesh = _simplify_to_face_count(mesh, target_faces)
+        if len(mesh.faces) > target_faces:
+            raise RuntimeError(
+                "Mesh repair preconditioning could not satisfy the face budget before topology repair: "
+                f"faces={original_faces}, target={target_faces}, remaining={len(mesh.faces)}. "
+                "Install fast-simplification or use a provider with native face-count control."
+            )
     if mode == "convex-hull":
         repaired = _convex_hull_mesh(mesh)
     else:

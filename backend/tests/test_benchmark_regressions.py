@@ -18,7 +18,12 @@ from PIL import Image
 
 from backend.benchmark.backfill_surface_metrics import backfill_surface_metrics
 from backend.benchmark.backfill_lora_provenance import backfill_lora_root, backfill_split_audit
-from backend.benchmark import colab_g4_orchestrator, run_completion_benchmark, run_image_to_mesh_provider
+from backend.benchmark import (
+    colab_g4_orchestrator,
+    direct_mesh,
+    run_completion_benchmark,
+    run_image_to_mesh_provider,
+)
 from backend.benchmark.combine_optimize_runs import combine_runs
 from backend.benchmark.compare_optimize_runs import add_score_deltas, compare_run, render_markdown
 from backend.benchmark.direct_mesh import (
@@ -1223,6 +1228,33 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(diagnostics["stl_single_component"])
         self.assertTrue(diagnostics["stl_positive_volume"])
 
+    def test_printable_mesh_repair_preconditions_dense_mesh_to_face_budget(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dense_path = root / "dense_sphere.ply"
+            repaired_path = root / "repaired.stl"
+            dense = trimesh.creation.icosphere(subdivisions=4)
+            dense.export(dense_path)
+
+            with patch.object(direct_mesh, "_clean_mesh", wraps=direct_mesh._clean_mesh) as clean_mesh:
+                repair_mesh_for_printable_stl(
+                    dense_path,
+                    repaired_path,
+                    mode="printable",
+                    target_faces=512,
+                )
+                repair_input_faces = len(clean_mesh.call_args.args[0].faces)
+
+            diagnostics = stl_diagnostics(repaired_path)
+
+        self.assertGreater(len(dense.faces), 512)
+        self.assertLessEqual(repair_input_faces, 512)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_is_volume"])
+        self.assertTrue(diagnostics["stl_single_component"])
+
     def test_printable_mesh_gate_rejects_degenerate_faces(self):
         tetra_faces = np.array(
             [
@@ -1405,6 +1437,50 @@ class StlExportRegressionTests(unittest.TestCase):
         expected_target = max_faces_for_normalized_bbox_complexity((96.0, 48.0, 24.0), 8.0)
         self.assertEqual(observed_targets, [expected_target])
         self.assertLessEqual(diagnostics["stl_faces_per_normalized_bbox_volume_log1p"], 8.01)
+
+    def test_provider_passes_adaptive_face_target_into_printable_repair(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_image = root / "input.png"
+            provider_mesh = root / "provider.ply"
+            output_mesh = root / "output.ply"
+            output_stl = root / "output.stl"
+            Image.new("RGB", (8, 8), "white").save(input_image)
+            trimesh.creation.icosphere(subdivisions=4).export(provider_mesh)
+            args = SimpleNamespace(
+                provider="triposg",
+                input_image=input_image,
+                input_bundle=None,
+                output_mesh=output_mesh,
+                output_stl=output_stl,
+                raw_output_mesh=None,
+                mesh_repair="printable",
+                mesh_target_max_dimension=0.0,
+                mesh_min_bbox_dimension=0.0,
+                mesh_max_bbox_aspect_ratio=0.0,
+                mesh_target_bbox_extents=(96.0, 48.0, 24.0),
+                mesh_target_faces=40000,
+                mesh_max_normalized_face_density_log1p=8.0,
+            )
+
+            with (
+                patch.object(run_image_to_mesh_provider, "run_cli_provider", return_value=provider_mesh),
+                patch.object(
+                    run_image_to_mesh_provider,
+                    "repair_mesh_for_printable_stl",
+                    wraps=repair_mesh_for_printable_stl,
+                ) as repair_mesh,
+            ):
+                run_image_to_mesh_provider.run_provider(args)
+
+            diagnostics = stl_diagnostics(output_stl)
+
+        expected_target = max_faces_for_normalized_bbox_complexity((96.0, 48.0, 24.0), 8.0)
+        self.assertEqual(repair_mesh.call_args.kwargs["target_faces"], expected_target)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
 
     def test_image_to_mesh_provider_wrapper_can_repair_unprintable_mesh(self):
         with tempfile.TemporaryDirectory() as temp_dir:

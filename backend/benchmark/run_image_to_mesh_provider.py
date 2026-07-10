@@ -791,7 +791,12 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
         raw_output_mesh.parent.mkdir(parents=True, exist_ok=True)
         if output_mesh.resolve() != raw_output_mesh.resolve():
             shutil.copy2(output_mesh, raw_output_mesh)
-        output_mesh = repair_mesh_for_printable_stl(raw_output_mesh, args.output_mesh, args.mesh_repair)
+        output_mesh = repair_mesh_for_printable_stl(
+            raw_output_mesh,
+            args.output_mesh,
+            args.mesh_repair,
+            target_faces=args.mesh_target_faces,
+        )
 
     if (
         args.mesh_target_max_dimension > 0
