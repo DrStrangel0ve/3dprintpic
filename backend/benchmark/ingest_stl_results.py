@@ -8,7 +8,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from backend.benchmark.rank_methods import SCORE_MODES, SCORE_PROFILES, parse_weights, rank_summary_rows
+from backend.benchmark.rank_methods import SCORE_MODES, SCORE_PROFILES, parse_float, parse_weights, rank_summary_rows
 from backend.benchmark.report_run import format_number, markdown_table
 from backend.benchmark.stl_modes import STL_MODE_SOURCE_MESH_ORACLE, STL_MODES, infer_stl_mode
 from backend.benchmark.select_completion_candidate import json_safe, load_per_sample_rows, load_summary_rows
@@ -41,6 +41,26 @@ COMPACT_METRICS = (
     "stl_bbox_aspect_ratio_median",
     "stl_faces_per_bbox_volume_log1p_median",
     "stl_faces_median",
+)
+
+PROMOTION_MINIMUMS = (
+    ("success_rate", 1.0, "Success"),
+    ("stl_exists_median", 1.0, "STL Exists"),
+    ("stl_is_watertight_median", 1.0, "Watertight"),
+    ("stl_is_volume_median", 1.0, "Volume Mesh"),
+    ("stl_is_manifold_median", 1.0, "Manifold"),
+    ("stl_winding_consistent_median", 1.0, "Winding"),
+    ("stl_positive_volume_median", 1.0, "Positive Volume"),
+    ("stl_single_component_median", 1.0, "Single Body"),
+    ("stl_bbox_has_volume_median", 1.0, "3D BBox"),
+)
+
+PROMOTION_MAXIMUMS = (
+    ("stl_nonmanifold_edge_count_log1p_median", 0.0, "Nonmanifold Edges log1p"),
+    ("stl_degenerate_face_ratio_median", 0.0, "Degenerate Face Ratio"),
+    ("stl_component_excess_log1p_median", 0.0, "Body Excess log1p"),
+    ("stl_bbox_aspect_ratio_median", 10.0, "BBox Aspect"),
+    ("stl_faces_per_bbox_volume_log1p_median", 10.0, "Face Density log1p"),
 )
 
 
@@ -153,7 +173,55 @@ def method_stl_mode(row: dict) -> str:
 def compact_row(row: dict) -> dict:
     compact = {key: row.get(key, "") for key in COMPACT_METRICS if key in row}
     compact["stl_mode"] = method_stl_mode(row)
+    gates = promotion_gate_results(row)
+    compact["promotion_eligible"] = all(gate["passed"] for gate in gates)
+    compact["failed_promotion_gates"] = ", ".join(gate["name"] for gate in gates if not gate["passed"])
     return compact
+
+
+def metric_value(row: dict, field: str) -> float:
+    if field not in row or str(row.get(field, "")).strip() == "":
+        return float("nan")
+    return parse_float(row.get(field))
+
+
+def promotion_gate_results(row: dict) -> list[dict]:
+    mode = method_stl_mode(row)
+    gates = [
+        {
+            "name": "deployable_stl_mode",
+            "passed": mode in DEPLOYABLE_STL_MODES,
+            "value": mode,
+            "threshold": ",".join(DEPLOYABLE_STL_MODES),
+        }
+    ]
+    for field, minimum, label in PROMOTION_MINIMUMS:
+        value = metric_value(row, field)
+        gates.append(
+            {
+                "name": label,
+                "field": field,
+                "passed": value >= minimum,
+                "value": None if value != value else value,
+                "threshold": f">= {minimum}",
+            }
+        )
+    for field, maximum, label in PROMOTION_MAXIMUMS:
+        value = metric_value(row, field)
+        gates.append(
+            {
+                "name": label,
+                "field": field,
+                "passed": value <= maximum,
+                "value": None if value != value else value,
+                "threshold": f"<= {maximum}",
+            }
+        )
+    return gates
+
+
+def promotion_eligible(row: dict) -> bool:
+    return all(gate["passed"] for gate in promotion_gate_results(row))
 
 
 def best_by_mode(ranked_rows: list[dict]) -> list[dict]:
@@ -169,6 +237,13 @@ def best_by_mode(ranked_rows: list[dict]) -> list[dict]:
 def first_deployable(ranked_rows: list[dict]) -> dict:
     for row in ranked_rows:
         if method_stl_mode(row) in DEPLOYABLE_STL_MODES:
+            return compact_row(row)
+    return {}
+
+
+def first_promotion_eligible(ranked_rows: list[dict]) -> dict:
+    for row in ranked_rows:
+        if promotion_eligible(row):
             return compact_row(row)
     return {}
 
@@ -209,6 +284,7 @@ def summarize_run(
         "baseline_method": baseline_method,
         "used_metrics": used_metrics,
         "deployable_winner": first_deployable(ranked_rows),
+        "promotion_eligible_winner": first_promotion_eligible(ranked_rows),
         "oracle_diagnostic_winner": first_oracle(ranked_rows),
         "best_by_stl_mode": best_by_mode(ranked_rows),
         "ranked_methods": [compact_row(row) for row in ranked_rows[:top]],
@@ -275,6 +351,8 @@ def mode_table_rows(rows: list[dict]) -> list[list[str]]:
                 format_number(row.get("stl_is_manifold_median")),
                 format_number(row.get("stl_single_component_median")),
                 format_number(row.get("stl_faces_per_bbox_volume_log1p_median")),
+                "yes" if row.get("promotion_eligible") else "no",
+                row.get("failed_promotion_gates", ""),
             ]
         )
     return table
@@ -303,6 +381,7 @@ def render_markdown(report: dict) -> str:
     ]
     for run in report.get("runs", []):
         deployable = run.get("deployable_winner") or {}
+        promotion = run.get("promotion_eligible_winner") or {}
         oracle = run.get("oracle_diagnostic_winner") or {}
         lines.extend(
             [
@@ -312,7 +391,8 @@ def render_markdown(report: dict) -> str:
                 f"- Summary: `{run.get('summary_path', '')}`",
                 f"- Summary rows: `{run.get('summary_rows', 0)}`",
                 f"- Per-sample rows: `{run.get('per_sample_rows', 0)}`",
-                f"- Deployable winner: `{deployable.get('method', '<none>')}` ({deployable.get('stl_mode', '')}) score `{format_number(deployable.get('rank_score'))}`",
+                f"- Deployable score leader: `{deployable.get('method', '<none>')}` ({deployable.get('stl_mode', '')}) score `{format_number(deployable.get('rank_score'))}`",
+                f"- Promotion-eligible winner: `{promotion.get('method', '<none>')}` ({promotion.get('stl_mode', '')}) score `{format_number(promotion.get('rank_score'))}`",
             ]
         )
         if oracle:
@@ -338,6 +418,8 @@ def render_markdown(report: dict) -> str:
                         "Manifold",
                         "Single Body",
                         "Face Density",
+                        "Promote",
+                        "Gate Failures",
                     ],
                     mode_table_rows(run.get("best_by_stl_mode", [])),
                 ),
@@ -358,6 +440,8 @@ def render_markdown(report: dict) -> str:
                         "Manifold",
                         "Single Body",
                         "Face Density",
+                        "Promote",
+                        "Gate Failures",
                     ],
                     mode_table_rows(run.get("ranked_methods", [])),
                 ),

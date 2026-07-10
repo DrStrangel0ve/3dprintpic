@@ -2009,6 +2009,23 @@ class StlExportRegressionTests(unittest.TestCase):
                     "stl_faces_per_bbox_volume_log1p_median": "4.9",
                 },
                 {
+                    "method": "vggt_multiview_repaired",
+                    "base_method": "external-multiview-to-mesh",
+                    "stl_mode": "multiview-mesh",
+                    "n": "2",
+                    "attempted_n": "2",
+                    "success_rate": "1.0",
+                    "error_count": "0",
+                    "mesh_surface_chamfer_l1_median": "0.18",
+                    "mesh_surface_hausdorff95_median": "0.24",
+                    "stl_is_watertight_median": "1.0",
+                    "stl_is_volume_median": "1.0",
+                    "stl_is_manifold_median": "1.0",
+                    "stl_positive_volume_median": "1.0",
+                    "stl_single_component_median": "1.0",
+                    "stl_faces_per_bbox_volume_log1p_median": "5.2",
+                },
+                {
                     "method": "source_mesh_oracle",
                     "base_method": "source-mesh-oracle",
                     "stl_mode": "source-mesh-oracle",
@@ -2026,6 +2043,18 @@ class StlExportRegressionTests(unittest.TestCase):
                     "stl_faces_per_bbox_volume_log1p_median": "4.0",
                 },
             ]
+            for row in rows:
+                row.update(
+                    {
+                        "stl_exists_median": "1.0",
+                        "stl_winding_consistent_median": "1.0",
+                        "stl_bbox_has_volume_median": "1.0",
+                        "stl_nonmanifold_edge_count_log1p_median": "0.0",
+                        "stl_degenerate_face_ratio_median": "0.0",
+                        "stl_component_excess_log1p_median": "0.0",
+                        "stl_bbox_aspect_ratio_median": "2.0",
+                    }
+                )
             with (experiment_dir / "aggregate_summary.csv").open("w", newline="", encoding="utf-8") as csv_file:
                 writer = csv.DictWriter(csv_file, fieldnames=list(rows[0].keys()))
                 writer.writeheader()
@@ -2037,9 +2066,11 @@ class StlExportRegressionTests(unittest.TestCase):
 
         leaders = {row["stl_mode"]: row["method"] for row in report["best_by_stl_mode"]}
         self.assertEqual(report["deployable_winner"]["method"], "triposr_repaired")
+        self.assertEqual(report["promotion_eligible_winner"]["method"], "triposr_repaired")
         self.assertEqual(report["oracle_diagnostic_winner"]["method"], "source_mesh_oracle")
         self.assertEqual(leaders["depth-relief"], "mirror")
         self.assertEqual(leaders["single-image-mesh"], "triposr_repaired")
+        self.assertEqual(leaders["multiview-mesh"], "vggt_multiview_repaired")
         self.assertTrue(Path(report["report_json"]).name.endswith(".json"))
         self.assertIn("Architecture Leaders", markdown)
 
@@ -4572,6 +4603,24 @@ class StlResultIngestRegressionTests(unittest.TestCase):
                 "stl_faces_per_bbox_volume_log1p_median": "5.4",
             },
             {
+                "method": "vggt_multiview_repaired",
+                "base_method": "external-multiview-to-mesh",
+                "stl_mode": "multiview-mesh",
+                "n": "2",
+                "attempted_n": "2",
+                "success_rate": "1.0",
+                "error_count": "0",
+                "mesh_surface_chamfer_l1_median": "0.18",
+                "mesh_surface_hausdorff95_median": "0.24",
+                "silhouette_iou_masked_median": "0.78",
+                "stl_is_watertight_median": "1.0",
+                "stl_is_volume_median": "1.0",
+                "stl_is_manifold_median": "1.0",
+                "stl_positive_volume_median": "1.0",
+                "stl_single_component_median": "1.0",
+                "stl_faces_per_bbox_volume_log1p_median": "5.2",
+            },
+            {
                 "method": "source_mesh_oracle",
                 "base_method": "source-mesh-oracle",
                 "stl_mode": "source-mesh-oracle",
@@ -4590,6 +4639,18 @@ class StlResultIngestRegressionTests(unittest.TestCase):
                 "stl_faces_per_bbox_volume_log1p_median": "4.0",
             },
         ]
+        for row in summary_rows:
+            row.update(
+                {
+                    "stl_exists_median": "1.0",
+                    "stl_winding_consistent_median": "1.0",
+                    "stl_bbox_has_volume_median": "1.0",
+                    "stl_nonmanifold_edge_count_log1p_median": "0.0",
+                    "stl_degenerate_face_ratio_median": "0.0",
+                    "stl_component_excess_log1p_median": "0.0",
+                    "stl_bbox_aspect_ratio_median": "2.0",
+                }
+            )
         fieldnames = list(summary_rows[0].keys())
         with (run_dir / "aggregate_summary.csv").open("w", newline="", encoding="utf-8") as csv_file:
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
@@ -4621,11 +4682,40 @@ class StlResultIngestRegressionTests(unittest.TestCase):
         leaders = {row["stl_mode"]: row["method"] for row in run["best_by_stl_mode"]}
 
         self.assertEqual(run["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
+        self.assertEqual(run["promotion_eligible_winner"]["method"], "hunyuan3d_shape_repaired")
         self.assertEqual(run["oracle_diagnostic_winner"]["method"], "source_mesh_oracle")
         self.assertEqual(leaders["depth-relief"], "mirror")
         self.assertEqual(leaders["single-image-mesh"], "hunyuan3d_shape_repaired")
+        self.assertEqual(leaders["multiview-mesh"], "vggt_multiview_repaired")
         self.assertIn("Source-mesh oracle rows are kept as diagnostics", markdown)
         self.assertIn("Architecture Leaders", markdown)
+
+    def test_stl_result_ingest_separates_score_leader_from_promotion_winner(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = self.write_stl_result_run(root / "run")
+            summary_path = run_dir / "aggregate_summary.csv"
+            with summary_path.open(newline="", encoding="utf-8") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+            bad_direct = next(row for row in rows if row["method"] == "hunyuan3d_shape_repaired")
+            bad_direct["mesh_surface_chamfer_l1_median"] = "0.01"
+            bad_direct["mesh_surface_hausdorff95_median"] = "0.02"
+            bad_direct["stl_degenerate_face_ratio_median"] = "0.01"
+            with summary_path.open("w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=list(rows[0].keys()))
+                writer.writeheader()
+                writer.writerows(rows)
+
+            report = summarize_stl_inputs([str(run_dir)], output_dir=root / "ingested", top=5)
+            markdown = render_stl_ingest_markdown(report)
+
+        run = report["runs"][0]
+        blocked_direct = next(row for row in run["ranked_methods"] if row["method"] == "hunyuan3d_shape_repaired")
+        self.assertEqual(run["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
+        self.assertEqual(run["promotion_eligible_winner"]["method"], "vggt_multiview_repaired")
+        self.assertFalse(blocked_direct["promotion_eligible"])
+        self.assertIn("Degenerate Face Ratio", blocked_direct["failed_promotion_gates"])
+        self.assertIn("Promotion-eligible winner", markdown)
 
     def test_stl_result_ingest_extracts_colab_style_archive(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -4647,6 +4737,7 @@ class StlResultIngestRegressionTests(unittest.TestCase):
         self.assertTrue(report["inputs"][0]["extracted_to"])
         self.assertIn("ingested", report["runs"][0]["run_dir"])
         self.assertEqual(report["runs"][0]["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
+        self.assertEqual(report["runs"][0]["promotion_eligible_winner"]["method"], "hunyuan3d_shape_repaired")
 
 
 class CompletionMethodRegressionTests(unittest.TestCase):

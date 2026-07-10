@@ -400,6 +400,7 @@ def write_architecture_report(experiment_dir: Path, output_dir: Path, label: str
         "report_json": str(report_path),
         "report_markdown": str(markdown_path),
         "deployable_winner": run.get("deployable_winner", {}),
+        "promotion_eligible_winner": run.get("promotion_eligible_winner", {}),
         "oracle_diagnostic_winner": run.get("oracle_diagnostic_winner", {}),
         "best_by_stl_mode": run.get("best_by_stl_mode", []),
         "ranked_methods": run.get("ranked_methods", []),
@@ -544,6 +545,7 @@ def run_smoke(args: argparse.Namespace) -> dict:
     if architecture_report:
         summary["architecture_report"] = architecture_report
         summary["deployable_winner"] = architecture_report.get("deployable_winner", {})
+        summary["promotion_eligible_winner"] = architecture_report.get("promotion_eligible_winner", {})
         summary["oracle_diagnostic_winner"] = architecture_report.get("oracle_diagnostic_winner", {})
         summary["best_by_stl_mode"] = architecture_report.get("best_by_stl_mode", [])
     summary["selection_decision"] = read_json(experiment_dir / "selection_decision.json")
