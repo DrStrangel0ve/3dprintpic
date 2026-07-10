@@ -275,6 +275,8 @@ def per_sample_gate_results(row: dict, per_sample_rows: list[dict] | None = None
                 "value": len(sample_rows) - len(failed),
                 "threshold": f"{len(sample_rows)}/{len(sample_rows)} samples >= {minimum}",
                 "detail": f"failed_samples={','.join(failed[:10])}" if failed else "",
+                "failed_sample_count": len(failed),
+                "failed_samples": failed,
             }
         )
     for summary_field, maximum, label in PROMOTION_MAXIMUMS:
@@ -294,6 +296,8 @@ def per_sample_gate_results(row: dict, per_sample_rows: list[dict] | None = None
                 "value": len(sample_rows) - len(failed),
                 "threshold": f"{len(sample_rows)}/{len(sample_rows)} samples <= {maximum}",
                 "detail": f"failed_samples={','.join(failed[:10])}" if failed else "",
+                "failed_sample_count": len(failed),
+                "failed_samples": failed,
             }
         )
     return gates
@@ -339,6 +343,49 @@ def promotion_gate_results(row: dict, per_sample_rows: list[dict] | None = None)
 
 def promotion_eligible(row: dict, per_sample_rows: list[dict] | None = None) -> bool:
     return all(gate["passed"] for gate in promotion_gate_results(row, per_sample_rows))
+
+
+def gate_value_label(value) -> str:
+    if value is None:
+        return ""
+    number = parse_float(value)
+    if number == number:
+        return format_number(number)
+    return str(value)
+
+
+def gate_detail_label(gate: dict) -> str:
+    failed_samples = gate.get("failed_samples") or []
+    if failed_samples:
+        samples = [str(sample) for sample in failed_samples]
+        suffix = f", +{len(samples) - 12}" if len(samples) > 12 else ""
+        return "failed_samples=" + ",".join(samples[:12]) + suffix
+    return str(gate.get("detail") or "")
+
+
+def gate_failure_rows(ranked_rows: list[dict], per_sample_rows: list[dict] | None = None) -> list[dict]:
+    rows = []
+    for row in ranked_rows:
+        method = row.get("method", "")
+        mode = method_stl_mode(row)
+        for gate in promotion_gate_results(row, per_sample_rows):
+            if gate.get("passed"):
+                continue
+            rows.append(
+                {
+                    "method": method,
+                    "stl_mode": mode,
+                    "rank_score": row.get("rank_score", ""),
+                    "gate": gate.get("name", ""),
+                    "field": gate.get("field", ""),
+                    "value": gate.get("value"),
+                    "threshold": gate.get("threshold", ""),
+                    "detail": gate_detail_label(gate),
+                    "failed_sample_count": gate.get("failed_sample_count", 0),
+                    "failed_samples": gate.get("failed_samples", []),
+                }
+            )
+    return rows
 
 
 def best_by_mode(ranked_rows: list[dict], per_sample_rows: list[dict] | None = None) -> list[dict]:
@@ -410,6 +457,7 @@ def summarize_run(
         "oracle_diagnostic_winner": first_oracle(ranked_rows, per_sample_rows),
         "best_by_stl_mode": best_by_mode(ranked_rows, per_sample_rows),
         "ranked_methods": [compact_row(row, per_sample_rows) for row in ranked_rows[:top]],
+        "gate_failures": gate_failure_rows(ranked_rows[:top], per_sample_rows),
     }
 
 
@@ -475,6 +523,24 @@ def mode_table_rows(rows: list[dict]) -> list[list[str]]:
                 format_number(scale_free_complexity(row)),
                 "yes" if row.get("promotion_eligible") else "no",
                 row.get("failed_promotion_gates", ""),
+            ]
+        )
+    return table
+
+
+def gate_failure_table_rows(rows: list[dict]) -> list[list[str]]:
+    table = []
+    for row in rows:
+        table.append(
+            [
+                row.get("method", ""),
+                row.get("stl_mode", ""),
+                format_number(row.get("rank_score")),
+                row.get("gate", ""),
+                row.get("field", ""),
+                gate_value_label(row.get("value")),
+                str(row.get("threshold", "")),
+                row.get("detail", ""),
             ]
         )
     return table
@@ -566,6 +632,13 @@ def render_markdown(report: dict) -> str:
                         "Gate Failures",
                     ],
                     mode_table_rows(run.get("ranked_methods", [])),
+                ),
+                "",
+                "### Promotion Gate Failures",
+                "",
+                markdown_table(
+                    ["Method", "STL Mode", "Score", "Gate", "Field", "Value", "Threshold", "Detail"],
+                    gate_failure_table_rows(run.get("gate_failures", [])),
                 ),
                 "",
             ]

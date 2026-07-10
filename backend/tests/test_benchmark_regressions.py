@@ -5183,13 +5183,23 @@ class StlResultIngestRegressionTests(unittest.TestCase):
                 writer.writerows(rows)
 
             report = summarize_stl_inputs([str(run_dir)], output_dir=root / "ingested", top=5)
+            markdown = render_stl_ingest_markdown(report)
 
         run = report["runs"][0]
         blocked_direct = next(row for row in run["ranked_methods"] if row["method"] == "hunyuan3d_shape_repaired")
+        sample_gate = next(
+            row
+            for row in run["gate_failures"]
+            if row["method"] == "hunyuan3d_shape_repaired" and row["gate"] == "Sample Manifold"
+        )
         self.assertEqual(run["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
         self.assertEqual(run["promotion_eligible_winner"]["method"], "vggt_multiview_repaired")
         self.assertFalse(blocked_direct["promotion_eligible"])
         self.assertIn("Sample Manifold", blocked_direct["failed_promotion_gates"])
+        self.assertEqual(sample_gate["failed_sample_count"], 1)
+        self.assertEqual(sample_gate["failed_samples"], ["b"])
+        self.assertIn("Promotion Gate Failures", markdown)
+        self.assertIn("failed_samples=b", markdown)
 
     def test_stl_result_ingest_extracts_colab_style_archive(self):
         with tempfile.TemporaryDirectory() as temp_dir:
