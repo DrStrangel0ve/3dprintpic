@@ -802,10 +802,12 @@ def build_inline_colab_launcher(
     encoded = base64.b64encode(archive_path.read_bytes()).decode("ascii")
     chunks = [encoded[index : index + chunk_size] for index in range(0, len(encoded), chunk_size)]
     chunks_text = ",\n".join(f"    {json.dumps(chunk)}" for chunk in chunks)
+    result_summary_snippet = build_colab_result_summary_snippet()
     script = (
         "# Paste this into one Colab Python cell to upload and launch the packaged benchmark.\n"
         "import base64\n"
         "import hashlib\n"
+        "import json\n"
         "import os\n"
         "import pathlib\n"
         "import subprocess\n"
@@ -852,7 +854,9 @@ def build_inline_colab_launcher(
         "if LAUNCH_ENV:\n"
         "    print({'launch_env': LAUNCH_ENV})\n"
         "print(f'Launching {run_script} with {ARCHIVE_PATH}')\n"
-        "subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)\n"
+        "completed = subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=False, env=env)\n"
+        f"{result_summary_snippet}"
+        "completed.check_returncode()\n"
     )
     return script, {
         "inline_colab_chunk_count": len(chunks),
@@ -874,9 +878,11 @@ def build_fetch_colab_launcher(
     if not payload_url:
         raise ValueError("--fetch-colab-payload-url is required when writing --fetch-colab-launcher")
     launch_env = dict(colab_env or {})
+    result_summary_snippet = build_colab_result_summary_snippet()
     return (
         "# Paste this into one Colab Python cell to download and launch the packaged benchmark.\n"
         "import hashlib\n"
+        "import json\n"
         "import os\n"
         "import pathlib\n"
         "import subprocess\n"
@@ -925,7 +931,52 @@ def build_fetch_colab_launcher(
         "if LAUNCH_ENV:\n"
         "    print({'launch_env': LAUNCH_ENV})\n"
         "print(f'Launching {run_script} with {ARCHIVE_PATH}')\n"
-        "subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)\n"
+        "completed = subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=False, env=env)\n"
+        f"{result_summary_snippet}"
+        "completed.check_returncode()\n"
+    )
+
+
+def build_colab_result_summary_snippet() -> str:
+    return (
+        "\n"
+        "def _colab_sha256_file(path):\n"
+        "    digest = hashlib.sha256()\n"
+        "    with pathlib.Path(path).open('rb') as handle:\n"
+        "        for chunk in iter(lambda: handle.read(1024 * 1024), b''):\n"
+        "            digest.update(chunk)\n"
+        "    return digest.hexdigest()\n"
+        "\n"
+        "def _print_colab_result_summary():\n"
+        "    summary_path = EXTRACT_ROOT / 'results_summary.json'\n"
+        "    summary = {}\n"
+        "    if summary_path.exists():\n"
+        "        try:\n"
+        "            summary = json.loads(summary_path.read_text(encoding='utf-8'))\n"
+        "            print('---RESULTS_SUMMARY_JSON---')\n"
+        "            print(json.dumps(summary, indent=2, sort_keys=True))\n"
+        "        except Exception as exc:\n"
+        "            print({'results_summary_read_error': f'{type(exc).__name__}: {exc}', 'path': str(summary_path)})\n"
+        "    else:\n"
+        "        print({'results_summary_missing': str(summary_path)})\n"
+        "    archive_candidates = []\n"
+        "    archive_value = summary.get('results_archive') or summary.get('result_archive')\n"
+        "    if archive_value:\n"
+        "        archive_candidates.append(pathlib.Path(archive_value))\n"
+        "    archive_candidates.extend(sorted(pathlib.Path('/content').glob('*results*.tar.gz')))\n"
+        "    seen = set()\n"
+        "    archives = []\n"
+        "    for archive in archive_candidates:\n"
+        "        archive = pathlib.Path(archive)\n"
+        "        key = str(archive)\n"
+        "        if key in seen or not archive.exists():\n"
+        "            continue\n"
+        "        seen.add(key)\n"
+        "        archives.append({'path': key, 'bytes': archive.stat().st_size, 'sha256': _colab_sha256_file(archive)})\n"
+        "    print('---RESULT_ARCHIVES_JSON---')\n"
+        "    print(json.dumps(archives, indent=2, sort_keys=True))\n"
+        "\n"
+        "_print_colab_result_summary()\n"
     )
 
 

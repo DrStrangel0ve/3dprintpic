@@ -2798,7 +2798,10 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("run_colab_eval.sh", launcher_text)
         self.assertIn("EXPECTED_SHA256", launcher_text)
         self.assertIn("env['EXTRACT_ROOT'] = str(EXTRACT_ROOT)", launcher_text)
-        self.assertIn("subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)", launcher_text)
+        self.assertIn("completed = subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=False, env=env)", launcher_text)
+        self.assertIn("---RESULTS_SUMMARY_JSON---", launcher_text)
+        self.assertIn("---RESULT_ARCHIVES_JSON---", launcher_text)
+        self.assertIn("completed.check_returncode()", launcher_text)
 
     def test_package_inputs_rejects_inline_launcher_without_run_script(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2856,10 +2859,11 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
             run_mock.assert_called_once()
             args, kwargs = run_mock.call_args
             self.assertEqual(args[0], ["bash", str(extracted_script), str(materialized_archive)])
-            self.assertTrue(kwargs["check"])
+            self.assertFalse(kwargs["check"])
             self.assertEqual(kwargs["env"]["EXTRACT_ROOT"], str(root / "extract"))
             self.assertEqual(kwargs["env"]["EXPECTED_SHA256"], expected_sha)
             self.assertEqual(kwargs["env"]["TRIPOSG_SETUP_ONLY"], "1")
+            run_mock.return_value.check_returncode.assert_called_once()
 
     def test_inline_colab_launcher_rejects_non_positive_chunk_size(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2940,14 +2944,20 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertEqual(notebook_json["metadata"]["kernelspec"]["name"], "python3")
         self.assertIn(payload_url, notebook_source)
         self.assertIn(report["output_sha256"], notebook_source)
-        self.assertIn("subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)", notebook_source)
+        self.assertIn("completed = subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=False, env=env)", notebook_source)
+        self.assertIn("---RESULTS_SUMMARY_JSON---", notebook_source)
+        self.assertIn("---RESULT_ARCHIVES_JSON---", notebook_source)
+        self.assertIn("completed.check_returncode()", notebook_source)
         self.assertIn("urllib.request.urlopen(PAYLOAD_URL)", launcher_text)
         self.assertIn("EXPECTED_SIZE", launcher_text)
         self.assertIn('"TRIPOSG_SETUP_ONLY": "1"', launcher_text)
         self.assertIn("env['EXTRACT_ROOT'] = str(EXTRACT_ROOT)", launcher_text)
         self.assertIn("env['EXPECTED_SHA256'] = EXPECTED_SHA256", launcher_text)
         self.assertIn("for key, value in LAUNCH_ENV.items():", launcher_text)
-        self.assertIn("subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=True, env=env)", launcher_text)
+        self.assertIn("completed = subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=False, env=env)", launcher_text)
+        self.assertIn("---RESULTS_SUMMARY_JSON---", launcher_text)
+        self.assertIn("---RESULT_ARCHIVES_JSON---", launcher_text)
+        self.assertIn("completed.check_returncode()", launcher_text)
 
     def test_package_inputs_writes_deterministic_archive(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -3035,11 +3045,12 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
             run_mock.assert_called_once()
             args, kwargs = run_mock.call_args
             self.assertEqual(args[0], ["bash", str(extracted_script), str(materialized_archive)])
-            self.assertTrue(kwargs["check"])
+            self.assertFalse(kwargs["check"])
             self.assertEqual(kwargs["env"]["EXTRACT_ROOT"], str(root / "extract"))
             self.assertEqual(kwargs["env"]["EXPECTED_SHA256"], expected_sha)
             self.assertEqual(kwargs["env"]["TRIPOSG_SETUP_ONLY"], "1")
             self.assertEqual(kwargs["env"]["HUNYUAN3D_PREFETCH"], "0")
+            run_mock.return_value.check_returncode.assert_called_once()
 
     def test_parse_colab_env_validates_key_value_pairs(self):
         self.assertEqual(
