@@ -47,10 +47,12 @@ from backend.benchmark.optimize_completion import (
     load_experiments,
     run_experiment,
     training_metadata,
+    write_image_to_mesh_provider_preflight,
     write_experiment_report,
     write_modern_cache_preflight,
     write_selection_decision,
 )
+from backend.benchmark.preflight_image_to_mesh_providers import parse_provider_command, provider_preflight_row
 from backend.benchmark.preflight_modern_providers import provider_rows
 from backend.benchmark.make_artifact_contact_sheet import (
     depth_error_image,
@@ -2193,6 +2195,7 @@ class StlExportRegressionTests(unittest.TestCase):
                     target_dimension=-1,
                     z_scale=10,
                     sigma=0,
+                    base_border_px=0,
                 )
 
 
@@ -4152,6 +4155,69 @@ class OptimizeCompletionRegressionTests(unittest.TestCase):
         self.assertEqual(report["plans"][0]["provider"], "sdxl-inpaint")
         self.assertEqual(report["plans"][0]["experiment_names"], ["sdxl_candidate"])
         self.assertFalse(report["plans"][0]["cache_status"]["complete"])
+
+    def test_image_to_mesh_provider_preflight_accepts_configured_triposg_command(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            provider_dir = root / "TripoSG"
+            scripts_dir = provider_dir / "scripts"
+            scripts_dir.mkdir(parents=True)
+            (scripts_dir / "inference_triposg.py").write_text("# provider entrypoint\n", encoding="utf-8")
+            command = (
+                f'"{sys.executable}" -m backend.benchmark.run_image_to_mesh_provider '
+                f'--provider triposg --provider-dir "{provider_dir}" --input-image "{{input_image}}" '
+                f'--output-mesh "{{output_mesh}}" --output-stl "{{output_stl}}"'
+            )
+
+            parsed = parse_provider_command(command)
+            self.assertIsNotNone(parsed)
+            row = provider_preflight_row(parsed, experiment_names=["triposg_candidate"])
+
+        self.assertEqual(parsed["provider"], "triposg")
+        self.assertTrue(row["runnable"])
+        self.assertEqual(row["readiness"], "ready")
+        self.assertEqual(row["experiment_names"], ["triposg_candidate"])
+        self.assertTrue(row["checks"]["entrypoint_found"])
+        self.assertEqual(row["checks"]["entrypoint"], "scripts/inference_triposg.py")
+
+    def test_image_to_mesh_provider_preflight_report_can_fail_fast(self):
+        def fake_preflight(_experiments):
+            return [
+                {
+                    "provider": "triposg",
+                    "readiness": "missing",
+                    "runnable": False,
+                    "experiment_names": ["triposg_candidate"],
+                    "setup_errors": ["Provider repo is missing. Configure one of: TRIPOSG_DIR."],
+                    "checks": {"provider_dir_resolved": False},
+                }
+            ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+            args = SimpleNamespace(require_image_to_mesh_providers=True)
+            experiments = [
+                {"name": "mirror", "method": "mirror"},
+                {
+                    "name": "triposg_candidate",
+                    "method": "external-image-to-mesh",
+                    "direct_mesh_command": (
+                        f'"{sys.executable}" -m backend.benchmark.run_image_to_mesh_provider '
+                        '--provider triposg --input-image "{input_image}" --output-mesh "{output_mesh}" '
+                        '--output-stl "{output_stl}"'
+                    ),
+                },
+            ]
+
+            with self.assertRaisesRegex(RuntimeError, "triposg.*Provider repo is missing"):
+                write_image_to_mesh_provider_preflight(args, experiments, output_dir, preflight=fake_preflight)
+
+            report = json.loads((output_dir / "image_to_mesh_provider_preflight.json").read_text(encoding="utf-8"))
+
+        self.assertTrue(report["require_runnable"])
+        self.assertEqual(report["rows"][0]["provider"], "triposg")
+        self.assertFalse(report["rows"][0]["runnable"])
+        self.assertEqual(report["rows"][0]["experiment_names"], ["triposg_candidate"])
 
     def test_write_selection_decision_emits_json_and_markdown_for_sweep(self):
         with tempfile.TemporaryDirectory() as temp_dir:

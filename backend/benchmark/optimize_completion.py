@@ -12,6 +12,10 @@ from pathlib import Path
 from backend.benchmark.cache_provider import provider_plan
 from backend.benchmark.direct_mesh import DIRECT_MESH_INPUT_MODES, MESH_REPAIR_MODES, is_direct_mesh_method
 from backend.benchmark.make_artifact_contact_sheet import make_contact_sheet, parse_csv_arg
+from backend.benchmark.preflight_image_to_mesh_providers import (
+    preflight_experiments as preflight_image_to_mesh_experiments,
+    write_preflight_report as write_image_to_mesh_preflight_report,
+)
 from backend.benchmark.report_run import (
     baseline_delta_rows,
     baseline_delta_table,
@@ -189,6 +193,35 @@ def write_modern_cache_preflight(args, experiments: list[dict], output_dir: Path
         raise RuntimeError(
             "Modern provider cache incomplete. Run `python -m backend.benchmark.cache_provider "
             "<provider> --download` before a scored sweep, or omit --require-modern-cache. "
+            f"Details: {details}. See {path}"
+        )
+    return path
+
+
+def write_image_to_mesh_provider_preflight(
+    args,
+    experiments: list[dict],
+    output_dir: Path,
+    preflight=preflight_image_to_mesh_experiments,
+) -> Path | None:
+    rows = preflight(experiments)
+    if not rows:
+        return None
+    path = output_dir / "image_to_mesh_provider_preflight.json"
+    write_image_to_mesh_preflight_report(
+        path,
+        rows,
+        require_runnable=bool(getattr(args, "require_image_to_mesh_providers", False)),
+    )
+    missing = [row for row in rows if not row.get("runnable")]
+    if missing and getattr(args, "require_image_to_mesh_providers", False):
+        details = "; ".join(
+            f"{row.get('provider', '<unknown>')}: {', '.join(row.get('setup_errors') or ['setup incomplete'])}"
+            for row in missing
+        )
+        raise RuntimeError(
+            "Image-to-mesh provider setup incomplete. Configure provider repos/Python before a scored direct-mesh sweep, "
+            "or omit --require-image-to-mesh-providers. "
             f"Details: {details}. See {path}"
         )
     return path
@@ -557,6 +590,7 @@ def write_resolved_config(args, experiments: list[dict], output_dir: Path) -> Pa
             "direct_mesh_timeout": getattr(args, "direct_mesh_timeout", 1800),
             "direct_mesh_reference_output_dir": getattr(args, "direct_mesh_reference_output_dir", None),
             "direct_mesh_reference_method": getattr(args, "direct_mesh_reference_method", "mirror"),
+            "require_image_to_mesh_providers": getattr(args, "require_image_to_mesh_providers", False),
             "source_mesh_repair": getattr(args, "source_mesh_repair", "none"),
             "prompt": args.prompt,
             "steps": args.steps,
@@ -1011,6 +1045,11 @@ def main() -> None:
     parser.add_argument("--modern-cache-full", action="store_true", help="With --require-modern-cache, require every provider repo file instead of the fp16 benchmark subset.")
     parser.add_argument("--modern-cache-revision", default=None, help="Optional provider cache revision checked by --require-modern-cache.")
     parser.add_argument("--modern-cache-local-dir", default=None, help="Optional local cache directory checked by --require-modern-cache.")
+    parser.add_argument(
+        "--require-image-to-mesh-providers",
+        action="store_true",
+        help="Fail fast if any run_image_to_mesh_provider direct-mesh command has missing provider setup.",
+    )
     parser.add_argument("--select-candidate", action="store_true", help="Write selection_decision.json/.md after ranking the sweep.")
     parser.add_argument("--candidate-method", default=None, help="Candidate method to evaluate for selection. Defaults to the top non-baseline method.")
     parser.add_argument("--current-method", default=None, help="Current/default method that a candidate must beat before promotion.")
@@ -1062,6 +1101,7 @@ def main() -> None:
         ):
             raise ValueError(f"{experiment['name']}: emit_stl requires depth generation; remove skip_depth")
     write_resolved_config(args, experiments, output_dir)
+    write_image_to_mesh_provider_preflight(args, experiments, output_dir)
     if args.require_modern_cache:
         write_modern_cache_preflight(args, experiments, output_dir)
     summaries = [(experiment, run_experiment(args, experiment, output_dir)) for experiment in experiments]

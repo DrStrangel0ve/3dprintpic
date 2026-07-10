@@ -491,7 +491,7 @@ def evaluate_direct_mesh_sample(sample, method, output_dir, args):
         **experiment_key(sample, method, args),
         "sample_id": sample["id"],
         "method": method,
-        "stl_mode": infer_stl_mode(method, emit_stl=args.emit_stl),
+        "stl_mode": infer_stl_mode(method, emit_stl=getattr(args, "emit_stl", False)),
         "raw_completed_image": str(input_image),
         "completed_image": str(input_image),
         "direct_mesh_input_image": str(input_image),
@@ -518,7 +518,7 @@ def evaluate_sample(sample, method, raw_completed_path, completed_path, output_d
         **experiment_key(sample, method, args),
         "sample_id": sample["id"],
         "method": method,
-        "stl_mode": infer_stl_mode(method, emit_stl=args.emit_stl),
+        "stl_mode": infer_stl_mode(method, emit_stl=getattr(args, "emit_stl", False)),
         "raw_completed_image": raw_completed_path,
         "completed_image": completed_path,
         **sample_artifact_fields(sample),
@@ -606,7 +606,7 @@ def evaluate_sample(sample, method, raw_completed_path, completed_path, output_d
         else:
             row["silhouette_iou_masked"] = silhouette_iou(gt_depth, aligned_depth, mask)
 
-        if args.emit_stl:
+        if getattr(args, "emit_stl", False):
             stl_path = output_dir / "output_model.stl"
             depth_data_to_3d_model(
                 depth_path,
@@ -725,7 +725,7 @@ def failure_row(sample, method, args, error_type: str, error: str, *, traceback_
         "asset_category": sample.get("asset_category", ""),
         "asset_source_split": sample.get("asset_source_split", ""),
         "asset_key": sample.get("asset_key", ""),
-        "stl_mode": infer_stl_mode(method, emit_stl=args.emit_stl),
+        "stl_mode": infer_stl_mode(method, emit_stl=getattr(args, "emit_stl", False)),
         "skipped": bool(skipped),
         "error_type": error_type,
         "error": error,
