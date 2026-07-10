@@ -212,6 +212,8 @@ Colab G4 10-row TripoSG prefill eval evidence on July 10, 2026 SGT: the eval not
 
 All deployable methods produced watertight, volume, positive-volume, manifold, winding-consistent, and single-component STL medians of `1.0` on the 10-row slice. The selection decision was `hold` for `triposg_mirror_prefill_repaired_stl_scaled_compact_direct_mesh`, failing paired win-rate, paired CI, score-margin-vs-current, paired-win-rate-vs-current, and paired-CI-vs-current gates. The important result is that TripoSG is now a functioning direct image-to-STL backend, but under the current `stl-quality` objective it is not promotion-ready: `mirror` remains the deployable winner, while `triposg_biharmonic_prefill` is the most geometrically promising direct-mesh variant by Chamfer/H95 and should be the next tuning target for crop/mask/bbox scaling rather than replacing the default path.
 
+The next TripoSG calibration slice is wired as `backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_triposg_bbox_tuning_candidates.json`. It keeps the same STL baselines and source-mesh oracle, then compares TripoSG masked, mirror-prefill, and biharmonic-prefill direct meshes normalized to the deployable `{mirror_bbox_extents}` target. It also includes `triposg_biharmonic_prefill_repaired_stl_aspect_clamped2p25_direct_mesh` to separate exact mirror-bbox fitting from a softer aspect-only calibration. Run it on the same held-out rows as `g4_stl_first_triposg_bbox_tuning_s40_n10`, with `triposg_biharmonic_prefill_repaired_stl_mirror_bbox_direct_mesh` as the main candidate and `mirror` as the current method.
+
 One-time Colab setup:
 
 ```bash

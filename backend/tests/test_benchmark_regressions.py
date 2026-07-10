@@ -3925,6 +3925,58 @@ class OptimizeCompletionRegressionTests(unittest.TestCase):
         self.assertIn("mirror-seam-repair", names)
         self.assertNotIn("mirror_seam_repair", names)
 
+    def test_triposg_bbox_tuning_config_uses_mirror_bbox_placeholder(self):
+        config_path = (
+            Path(__file__).resolve().parents[2]
+            / "backend"
+            / "benchmark"
+            / "experiment_configs"
+            / "modelnet10_60_balanced_stl_quality_triposg_bbox_tuning_candidates.json"
+        )
+
+        self.assertTrue(config_path.exists(), f"Missing experiment config: {config_path}")
+        experiments = load_experiments(str(config_path))
+        by_name = {experiment["name"]: experiment for experiment in experiments}
+
+        expected_baselines = {
+            "masked": "masked",
+            "mirror": "mirror",
+            "biharmonic": "biharmonic",
+            "source_mesh_oracle": "source-mesh-oracle",
+        }
+        for name, method in expected_baselines.items():
+            self.assertIn(name, by_name)
+            self.assertEqual(by_name[name]["method"], method)
+
+        expected_direct_inputs = {
+            "triposg_masked_repaired_stl_mirror_bbox_direct_mesh": "masked",
+            "triposg_mirror_prefill_repaired_stl_mirror_bbox_direct_mesh": "mirror",
+            "triposg_biharmonic_prefill_repaired_stl_mirror_bbox_direct_mesh": "biharmonic",
+        }
+        for name, direct_input in expected_direct_inputs.items():
+            self.assertIn(name, by_name)
+            experiment = by_name[name]
+            command = experiment["direct_mesh_command"]
+            self.assertEqual(experiment["method"], "external-image-to-mesh")
+            self.assertEqual(experiment["stl_mode"], "single-image-mesh")
+            self.assertEqual(experiment["direct_mesh_input"], direct_input)
+            self.assertIn("--provider triposg", command)
+            self.assertIn('--mesh-target-bbox-extents "{mirror_bbox_extents}"', command)
+            self.assertIn("--mesh-repair printable", command)
+            self.assertIn("--mesh-target-faces 40000", command)
+
+        for name in [
+            "triposg_mirror_prefill_repaired_stl_mirror_bbox_direct_mesh",
+            "triposg_biharmonic_prefill_repaired_stl_mirror_bbox_direct_mesh",
+        ]:
+            self.assertEqual(by_name[name]["direct_mesh_reference_method"], "mirror")
+
+        aspect_clamped = by_name[
+            "triposg_biharmonic_prefill_repaired_stl_aspect_clamped2p25_direct_mesh"
+        ]
+        self.assertEqual(aspect_clamped["direct_mesh_input"], "biharmonic")
+        self.assertIn("--mesh-max-bbox-aspect-ratio 2.25", aspect_clamped["direct_mesh_command"])
+
     def test_per_sample_annotation_preserves_rendered_prompt_and_labels_variant(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             run_dir = Path(temp_dir)
