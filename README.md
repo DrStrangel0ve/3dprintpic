@@ -66,8 +66,8 @@ Open http://localhost:3000.
 Backend `.env` values:
 
 ```bash
-DEPTH_PROVIDER=depth-anything-v2
-DEPTH_MODEL=depth-anything/Depth-Anything-V2-Small-hf
+DEPTH_PROVIDER=transformers
+DEPTH_MODEL=apple/DepthPro-hf
 OUTPUT_DIR=./output
 CORS_ORIGINS=http://localhost:3000,http://localhost:3001
 VIDEO_CORS_ORIGINS=http://localhost:3000,http://localhost:3001
@@ -95,8 +95,8 @@ COHERE_API_KEY=
 
 ## Model direction
 
-- Current default: `Depth Anything V2 Small` for fast local single-image depth maps.
-- Quality options: choose `Depth Anything V2 Base` or `Large` in the UI when you can wait for a larger download and slower first run.
+- Current default: `Apple Depth Pro` through the local Transformers depth pipeline for sharper metric depth and cleaner relief edges.
+- Quality options: choose Depth Anything V2 Metric Indoor/Outdoor for metric-scene alternatives, or Depth Anything V2 Base/Large when you want relative-depth fallbacks.
 - Fallback: `Sapiens Depth` for human-centric depth estimation through the remote Gradio Space.
 - Current fast completion helpers: optional mirror-completion and mirror seam repair before depth estimation, useful for roughly symmetric front-facing subjects when one side is cut off.
 - Current modern completion providers: optional AMUSED Inpaint, DreamShaper Inpaint, SDXL Inpaint, FLUX.1 Fill, Qwen Image Inpaint, and Qwen Image Edit paths through Diffusers. These use learned priors instead of simple mirroring; AMUSED/DreamShaper/SDXL are the practical local GPU baselines, while Qwen/FLUX are much larger and may need model access, downloads, CPU offload, and long first runs.

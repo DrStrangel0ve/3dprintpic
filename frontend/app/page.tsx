@@ -148,6 +148,14 @@ type PipelineStep = {
   detail: string;
 };
 
+type DepthModelOption = {
+  id: string;
+  label: string;
+  tier: string;
+  notes: string;
+  farIsHigh: boolean;
+};
+
 const photoTargets: Array<{ value: PhotoTarget; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { value: 'depth-relief', label: '2.5D Relief STL', icon: ScanLine },
   { value: 'full-mesh', label: 'Full Mesh STL', icon: Cuboid },
@@ -155,10 +163,49 @@ const photoTargets: Array<{ value: PhotoTarget; label: string; icon: React.Compo
 
 const inpaintBackends = ['Mirror prior', 'SDXL inpaint', 'FLUX Fill', 'Qwen Image Edit'];
 const resolutionMultipliers = [1, 1.5, 2, 3];
-const depthModels = [
-  { id: 'depth-anything/Depth-Anything-V2-Small-hf', label: 'Depth Anything V2 Small' },
-  { id: 'depth-anything/Depth-Anything-V2-Base-hf', label: 'Depth Anything V2 Base' },
-  { id: 'depth-anything/Depth-Anything-V2-Large-hf', label: 'Depth Anything V2 Large' },
+const depthModels: DepthModelOption[] = [
+  {
+    id: 'apple/DepthPro-hf',
+    label: 'Apple Depth Pro',
+    tier: 'Best detail',
+    notes: 'Sharp metric depth with strong boundaries; best first try for faces and wall edges.',
+    farIsHigh: true,
+  },
+  {
+    id: 'depth-anything/Depth-Anything-V2-Metric-Indoor-Large-hf',
+    label: 'DA V2 Metric Indoor Large',
+    tier: 'Metric indoor',
+    notes: 'Good for room, person, furniture, and object photos.',
+    farIsHigh: true,
+  },
+  {
+    id: 'depth-anything/Depth-Anything-V2-Metric-Outdoor-Large-hf',
+    label: 'DA V2 Metric Outdoor Large',
+    tier: 'Metric outdoor',
+    notes: 'Good for larger outdoor scenes.',
+    farIsHigh: true,
+  },
+  {
+    id: 'depth-anything/Depth-Anything-V2-Large-hf',
+    label: 'Depth Anything V2 Large',
+    tier: 'Relative detail',
+    notes: 'Strong relative depth fallback when metric models are too heavy.',
+    farIsHigh: false,
+  },
+  {
+    id: 'depth-anything/Depth-Anything-V2-Base-hf',
+    label: 'Depth Anything V2 Base',
+    tier: 'Balanced',
+    notes: 'Good default for iteration speed and quality.',
+    farIsHigh: false,
+  },
+  {
+    id: 'depth-anything/Depth-Anything-V2-Small-hf',
+    label: 'Depth Anything V2 Small',
+    tier: 'Fast',
+    notes: 'Fastest option for quick previews.',
+    farIsHigh: false,
+  },
 ];
 
 const printerPresets: PrinterPreset[] = [
@@ -459,7 +506,7 @@ function workflowSteps({
       {
         icon: ScanLine,
         label: 'Estimate depth',
-        detail: 'Depth Anything V2 local GPU',
+        detail: 'Local GPU depth model',
       },
       {
         icon: Layers3,
@@ -561,7 +608,7 @@ export default function Home() {
   const [videoScope, setVideoScope] = useState<VideoScope>('selected-frames');
   const [selectedFrameCount, setSelectedFrameCount] = useState(12);
   const [frameStep, setFrameStep] = useState(8);
-  const [depthModel, setDepthModel] = useState('depth-anything/Depth-Anything-V2-Base-hf');
+  const [depthModel, setDepthModel] = useState('apple/DepthPro-hf');
   const [depthScale, setDepthScale] = useState(42);
   const [baseThickness, setBaseThickness] = useState(2.4);
   const [reliefPolarity, setReliefPolarity] = useState<ReliefPolarity>('raised-print');
@@ -624,7 +671,8 @@ export default function Home() {
   const effectiveReliefHeight = Math.min(depthScale, printVolume.max_relief_height_mm);
   const reliefSliderMax = Math.max(12, Math.min(96, Math.floor(printVolume.max_relief_height_mm)));
   const reliefTargetDimension = Math.max(64, Math.round(printVolume.target_dimension_mm * meshResolutionMultiplier));
-  const reliefInvert = reliefPolarity === 'mold';
+  const selectedDepthModel = depthModels.find((model) => model.id === depthModel) || depthModels[0];
+  const reliefInvert = reliefPolarity === 'raised-print' ? selectedDepthModel.farIsHigh : !selectedDepthModel.farIsHigh;
 
   const applyPrinterPreset = (presetId: PrinterPresetId) => {
     const preset = printerPresets.find((candidate) => candidate.id === presetId) || printerPresets[0];
@@ -783,8 +831,11 @@ export default function Home() {
               target: photoTarget,
               selection_model: photoScope === 'object-selection' ? selectionModel : null,
               depth: {
-                provider: 'depth-anything-v2',
+                provider: 'transformers',
                 model: depthModel,
+                model_label: selectedDepthModel.label,
+                model_tier: selectedDepthModel.tier,
+                depth_values: selectedDepthModel.farIsHigh ? 'farther pixels are higher' : 'nearer pixels are higher',
                 relief_height_mm: depthScale,
                 effective_relief_height_mm: effectiveReliefHeight,
                 base_thickness_mm: baseThickness,
@@ -857,6 +908,7 @@ export default function Home() {
       featureBoost,
       reliefGamma,
       baseBorderPx,
+      selectedDepthModel,
     ],
   );
 
@@ -980,7 +1032,7 @@ export default function Home() {
 
         const formData = new FormData();
         formData.append('file', file, file.name || 'photo.jpg');
-        formData.append('depth_provider', 'depth-anything-v2');
+        formData.append('depth_provider', 'transformers');
         formData.append('depth_model', depthModel);
         formData.append('device', 'auto');
         formData.append('completion_mode', 'none');
@@ -1317,10 +1369,11 @@ export default function Home() {
                       >
                         {depthModels.map((model) => (
                           <option key={model.id} value={model.id}>
-                            {model.label}
+                            {model.label} - {model.tier}
                           </option>
                         ))}
                       </select>
+                      <span className="mt-1 block text-xs text-zinc-500">{selectedDepthModel.notes}</span>
                     </label>
 
                     <div className="grid grid-cols-2 gap-2">

@@ -66,30 +66,57 @@ MASV_API_KEY = os.getenv("MASV_API_KEY")
 MASV_TEAM_ID = os.getenv("MASV_TEAM_ID")
 RBC_ACCESS_TOKEN = os.getenv("RBC_ACCESS_TOKEN")
 RBC_API_BASE_URL = "https://paywithpretendpointsapi.onrender.com/api/v1"
-DEFAULT_DEPTH_PROVIDER = os.getenv("DEPTH_PROVIDER", "depth-anything-v2")
-DEFAULT_DEPTH_MODEL = os.getenv("DEPTH_MODEL", "depth-anything/Depth-Anything-V2-Small-hf")
+DEFAULT_DEPTH_PROVIDER = os.getenv("DEPTH_PROVIDER", "transformers")
+DEFAULT_DEPTH_MODEL = os.getenv("DEPTH_MODEL", "apple/DepthPro-hf")
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "./output")).resolve()
 
 DEPTH_MODELS = [
     {
+        "id": "apple/DepthPro-hf",
+        "label": "Apple Depth Pro",
+        "provider": "transformers",
+        "recommended": True,
+        "depth_value_semantics": "metric_far_high",
+        "notes": "Best current local default for sharp metric edges and high-frequency relief detail.",
+    },
+    {
+        "id": "depth-anything/Depth-Anything-V2-Metric-Indoor-Large-hf",
+        "label": "Depth Anything V2 Metric Indoor Large",
+        "provider": "transformers",
+        "recommended": False,
+        "depth_value_semantics": "metric_far_high",
+        "notes": "Strong metric indoor model; good fallback for room/person/object photos.",
+    },
+    {
+        "id": "depth-anything/Depth-Anything-V2-Metric-Outdoor-Large-hf",
+        "label": "Depth Anything V2 Metric Outdoor Large",
+        "provider": "transformers",
+        "recommended": False,
+        "depth_value_semantics": "metric_far_high",
+        "notes": "Metric outdoor model for street, landscape, and larger-scene photos.",
+    },
+    {
         "id": "depth-anything/Depth-Anything-V2-Small-hf",
         "label": "Depth Anything V2 Small",
-        "provider": "depth-anything-v2",
-        "recommended": True,
+        "provider": "transformers",
+        "recommended": False,
+        "depth_value_semantics": "relative_close_high",
         "notes": "Fast local default for iterative STL generation.",
     },
     {
         "id": "depth-anything/Depth-Anything-V2-Base-hf",
         "label": "Depth Anything V2 Base",
-        "provider": "depth-anything-v2",
+        "provider": "transformers",
         "recommended": False,
+        "depth_value_semantics": "relative_close_high",
         "notes": "Better detail with a larger download and slower first run.",
     },
     {
         "id": "depth-anything/Depth-Anything-V2-Large-hf",
         "label": "Depth Anything V2 Large",
-        "provider": "depth-anything-v2",
+        "provider": "transformers",
         "recommended": False,
+        "depth_value_semantics": "relative_close_high",
         "notes": "Highest quality Depth Anything V2 option; expensive first download.",
     },
 ]
@@ -646,8 +673,8 @@ async def get_models():
         "default_provider": DEFAULT_DEPTH_PROVIDER,
         "providers": [
             {
-                "id": "depth-anything-v2",
-                "label": "Depth Anything V2",
+                "id": "transformers",
+                "label": "Local Transformers depth",
                 "model": DEFAULT_DEPTH_MODEL,
                 "local": True,
                 "gpu_supported": True,
