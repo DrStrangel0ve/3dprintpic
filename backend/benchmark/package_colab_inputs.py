@@ -154,6 +154,109 @@ def parse_colab_env(items: Iterable[str] | None) -> dict[str, str]:
     return env
 
 
+def build_colab_gpu_preflight_script() -> str:
+    return (
+        "python - <<'PY' | tee \"$GPU_PREFLIGHT_PATH\"\n"
+        "import json, os, re, shutil, subprocess\n"
+        "\n"
+        "required_name = os.environ.get('COLAB_REQUIRE_GPU_NAME_REGEX', '').strip()\n"
+        "min_memory_raw = os.environ.get('COLAB_MIN_GPU_MEMORY_GB', '').strip()\n"
+        "min_memory_gb = None\n"
+        "errors = []\n"
+        "if min_memory_raw:\n"
+        "    try:\n"
+        "        min_memory_gb = float(min_memory_raw)\n"
+        "    except ValueError:\n"
+        "        errors.append(f'invalid COLAB_MIN_GPU_MEMORY_GB={min_memory_raw!r}')\n"
+        "    else:\n"
+        "        if min_memory_gb < 0:\n"
+        "            errors.append(f'COLAB_MIN_GPU_MEMORY_GB must be non-negative, got {min_memory_gb}')\n"
+        "\n"
+        "query_error = ''\n"
+        "gpus = []\n"
+        "if shutil.which('nvidia-smi'):\n"
+        "    try:\n"
+        "        output = subprocess.check_output(\n"
+        "            [\n"
+        "                'nvidia-smi',\n"
+        "                '--query-gpu=name,memory.total',\n"
+        "                '--format=csv,noheader,nounits',\n"
+        "            ],\n"
+        "            text=True,\n"
+        "            stderr=subprocess.STDOUT,\n"
+        "        )\n"
+        "    except subprocess.CalledProcessError as exc:\n"
+        "        query_error = exc.output.strip() or f'nvidia-smi exited with {exc.returncode}'\n"
+        "    else:\n"
+        "        for line in output.splitlines():\n"
+        "            line = line.strip()\n"
+        "            if not line:\n"
+        "                continue\n"
+        "            name, _, memory_text = line.partition(',')\n"
+        "            name = name.strip()\n"
+        "            memory_text = memory_text.strip()\n"
+        "            memory_mib = None\n"
+        "            if memory_text:\n"
+        "                try:\n"
+        "                    memory_mib = float(memory_text)\n"
+        "                except ValueError:\n"
+        "                    pass\n"
+        "            gpu = {'index': len(gpus), 'name': name, 'memory_total_mib': memory_mib}\n"
+        "            if memory_mib is not None:\n"
+        "                gpu['memory_total_gb'] = memory_mib / 1024.0\n"
+        "            gpus.append(gpu)\n"
+        "else:\n"
+        "    query_error = 'nvidia-smi not found'\n"
+        "\n"
+        "eligible = list(gpus)\n"
+        "if required_name:\n"
+        "    try:\n"
+        "        pattern = re.compile(required_name, re.IGNORECASE)\n"
+        "    except re.error as exc:\n"
+        "        errors.append(f'invalid COLAB_REQUIRE_GPU_NAME_REGEX={required_name!r}: {exc}')\n"
+        "        eligible = []\n"
+        "    else:\n"
+        "        eligible = [gpu for gpu in eligible if pattern.search(gpu.get('name') or '')]\n"
+        "if min_memory_gb is not None:\n"
+        "    eligible = [gpu for gpu in eligible if (gpu.get('memory_total_gb') or 0.0) >= min_memory_gb]\n"
+        "\n"
+        "guard_requested = bool(required_name or min_memory_raw)\n"
+        "if guard_requested:\n"
+        "    if query_error:\n"
+        "        errors.append(query_error)\n"
+        "    elif not gpus:\n"
+        "        errors.append('no NVIDIA GPUs reported by nvidia-smi')\n"
+        "    elif not eligible:\n"
+        "        seen = ', '.join(\n"
+        "            f\"{gpu.get('name') or 'unknown'} ({gpu.get('memory_total_gb', 0.0):.1f} GB)\"\n"
+        "            for gpu in gpus\n"
+        "        )\n"
+        "        errors.append(\n"
+        "            'no GPU satisfied COLAB_REQUIRE_GPU_NAME_REGEX='\n"
+        "            f'{required_name!r} and COLAB_MIN_GPU_MEMORY_GB={min_memory_raw!r}; saw {seen}'\n"
+        "        )\n"
+        "\n"
+        "payload = {\n"
+        "    'ok': not errors,\n"
+        "    'guard_requested': guard_requested,\n"
+        "    'requirements': {\n"
+        "        'name_regex': required_name,\n"
+        "        'min_memory_gb': min_memory_gb,\n"
+        "    },\n"
+        "    'cuda_visible_devices': os.environ.get('CUDA_VISIBLE_DEVICES', ''),\n"
+        "    'nvidia_smi_available': bool(shutil.which('nvidia-smi')),\n"
+        "    'nvidia_smi_error': query_error,\n"
+        "    'gpus': gpus,\n"
+        "    'eligible_gpus': eligible,\n"
+        "    'errors': errors,\n"
+        "}\n"
+        "print(json.dumps(payload, indent=2, sort_keys=True))\n"
+        "if errors:\n"
+        "    raise SystemExit('Colab GPU preflight failed: ' + '; '.join(errors))\n"
+        "PY\n"
+    )
+
+
 def rewrite_manifest_rows(
     rows: Iterable[dict],
     *,
@@ -504,6 +607,8 @@ def build_colab_run_script(
     allow_missing_split_audit: bool,
     contact_sheet_methods: str | None,
     contact_sheet_max_samples: int | None,
+    colab_require_gpu_name_regex: str | None = None,
+    colab_min_gpu_memory_gb: float | None = None,
     include_triposr_setup: bool = False,
     include_triposg_setup: bool = False,
     include_hunyuan3d_setup: bool = False,
@@ -587,10 +692,13 @@ def build_colab_run_script(
 
     lora_adapter_path = colab_path(lora_path, Path("pytorch_lora_weights.safetensors")) if lora_path else ""
     lora_report_path = colab_path(lora_path, Path("training_report.json")) if lora_path else ""
+    gpu_preflight_path = colab_path(extract_root, Path("gpu_preflight.json"))
     preflight_path = colab_path(extract_root, Path("launch_preflight.json"))
     results_summary_path = colab_path(extract_root, Path("results_summary.json"))
     run_log_path = colab_path(extract_root, Path("run_colab_eval.log"))
     results_archive_path = f"/content/{run_name}_results.tar.gz"
+    gpu_name_default = colab_require_gpu_name_regex or ""
+    gpu_memory_default = "" if colab_min_gpu_memory_gb is None else str(colab_min_gpu_memory_gb)
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n\n"
@@ -608,8 +716,17 @@ def build_colab_run_script(
         f"LORA_PATH={shell_join([lora_path or ''])}\n"
         f"LORA_ADAPTER_PATH={shell_join([lora_adapter_path])}\n"
         f"LORA_REPORT_PATH={shell_join([lora_report_path])}\n"
+        f"GPU_PREFLIGHT_PATH={shell_join([gpu_preflight_path])}\n"
         f"PREFLIGHT_PATH={shell_join([preflight_path])}\n"
-        "export ARCHIVE_PATH EXTRACT_ROOT REPO_DIR REPO_REMOTE REPO_REF RUN_NAME RUN_LOG OUTPUT_ROOT RESULTS_SUMMARY RESULTS_ARCHIVE MANIFEST_PATH LORA_PATH LORA_ADAPTER_PATH LORA_REPORT_PATH PREFLIGHT_PATH\n"
+        "COLAB_REQUIRE_GPU_NAME_REGEX=\"${COLAB_REQUIRE_GPU_NAME_REGEX:-}\"\n"
+        "if [[ -z \"$COLAB_REQUIRE_GPU_NAME_REGEX\" ]]; then\n"
+        f"  COLAB_REQUIRE_GPU_NAME_REGEX={shell_join([gpu_name_default])}\n"
+        "fi\n"
+        "COLAB_MIN_GPU_MEMORY_GB=\"${COLAB_MIN_GPU_MEMORY_GB:-}\"\n"
+        "if [[ -z \"$COLAB_MIN_GPU_MEMORY_GB\" ]]; then\n"
+        f"  COLAB_MIN_GPU_MEMORY_GB={shell_join([gpu_memory_default])}\n"
+        "fi\n"
+        "export ARCHIVE_PATH EXTRACT_ROOT REPO_DIR REPO_REMOTE REPO_REF RUN_NAME RUN_LOG OUTPUT_ROOT RESULTS_SUMMARY RESULTS_ARCHIVE MANIFEST_PATH LORA_PATH LORA_ADAPTER_PATH LORA_REPORT_PATH GPU_PREFLIGHT_PATH PREFLIGHT_PATH COLAB_REQUIRE_GPU_NAME_REGEX COLAB_MIN_GPU_MEMORY_GB\n"
         "mkdir -p \"$EXTRACT_ROOT\" \"$(dirname \"$RUN_LOG\")\" \"$(dirname \"$RESULTS_SUMMARY\")\" \"$(dirname \"$RESULTS_ARCHIVE\")\"\n"
         "set +e\n"
         "(\n"
@@ -618,6 +735,7 @@ def build_colab_run_script(
         "export PYTORCH_CUDA_ALLOC_CONF=\"${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}\"\n"
         "export CUDA_MODULE_LOADING=\"${CUDA_MODULE_LOADING:-LAZY}\"\n"
         "export MALLOC_ARENA_MAX=\"${MALLOC_ARENA_MAX:-2}\"\n"
+        f"{build_colab_gpu_preflight_script()}"
         "if [[ -n \"${EXPECTED_SHA256:-}\" ]]; then\n"
         "  actual_sha=\"$(sha256sum \"$ARCHIVE_PATH\" | awk '{print $1}')\"\n"
         "  if [[ \"$actual_sha\" != \"$EXPECTED_SHA256\" ]]; then\n"
@@ -672,6 +790,7 @@ def build_colab_run_script(
         "    'repo_ref': os.environ['REPO_REF'],\n"
         "    'resolved_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),\n"
         "    'extract_root': os.environ['EXTRACT_ROOT'],\n"
+        "    'gpu_preflight': os.environ['GPU_PREFLIGHT_PATH'],\n"
         "    'manifest': str(manifest),\n"
         "    'manifest_rows': sum(1 for line in manifest.read_text().splitlines() if line.strip()),\n"
         "}\n"
@@ -767,6 +886,7 @@ def build_colab_run_script(
         "\n"
         "output_root = pathlib.Path(os.environ['OUTPUT_ROOT'])\n"
         "run_log = pathlib.Path(os.environ['RUN_LOG'])\n"
+        "gpu_preflight = pathlib.Path(os.environ['GPU_PREFLIGHT_PATH'])\n"
         "preflight = pathlib.Path(os.environ['PREFLIGHT_PATH'])\n"
         "summary_path = pathlib.Path(os.environ['RESULTS_SUMMARY'])\n"
         "archive_path = pathlib.Path(os.environ['RESULTS_ARCHIVE'])\n"
@@ -782,6 +902,7 @@ def build_colab_run_script(
         "    'output_root': str(output_root),\n"
         "    'output_root_exists': output_root.exists(),\n"
         "    'run_log': str(run_log),\n"
+        "    'gpu_preflight': str(gpu_preflight),\n"
         "    'preflight': str(preflight),\n"
         "    'results_archive': str(archive_path),\n"
         "    'orchestrator_result': str(orchestrator_result) if orchestrator_result.exists() else '',\n"
@@ -792,6 +913,7 @@ def build_colab_run_script(
         "summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + '\\n', encoding='utf-8')\n"
         "archive_path.parent.mkdir(parents=True, exist_ok=True)\n"
         "with tarfile.open(archive_path, 'w:gz') as tar:\n"
+        "    add_if_exists(tar, gpu_preflight, 'gpu_preflight.json')\n"
         "    add_if_exists(tar, preflight, 'launch_preflight.json')\n"
         "    add_if_exists(tar, run_log, 'run_colab_eval.log')\n"
         "    add_if_exists(tar, summary_path, 'results_summary.json')\n"
@@ -1081,6 +1203,8 @@ def package_inputs(
     allow_missing_split_audit: bool = False,
     contact_sheet_methods: str | None = None,
     contact_sheet_max_samples: int | None = None,
+    colab_require_gpu_name_regex: str | None = None,
+    colab_min_gpu_memory_gb: float | None = None,
     include_triposr_setup: bool = False,
     include_triposg_setup: bool = False,
     include_hunyuan3d_setup: bool = False,
@@ -1106,6 +1230,8 @@ def package_inputs(
         raise ValueError("--fetch-colab-payload-url is required when writing a fetch Colab launcher")
     if inline_colab_chunk_size <= 0:
         raise ValueError("--inline-colab-chunk-size must be positive")
+    if colab_min_gpu_memory_gb is not None and colab_min_gpu_memory_gb < 0:
+        raise ValueError("--colab-min-gpu-memory-gb must be non-negative")
     rows = load_jsonl(manifest)
     selected = select_rows(rows, start_index, limit)
     cache_provider_list = list(cache_providers)
@@ -1161,6 +1287,8 @@ def package_inputs(
                 allow_missing_split_audit=allow_missing_split_audit,
                 contact_sheet_methods=contact_sheet_methods,
                 contact_sheet_max_samples=contact_sheet_max_samples,
+                colab_require_gpu_name_regex=colab_require_gpu_name_regex,
+                colab_min_gpu_memory_gb=colab_min_gpu_memory_gb,
                 include_triposr_setup=include_triposr_setup,
                 include_triposg_setup=include_triposg_setup,
                 include_hunyuan3d_setup=include_hunyuan3d_setup,
@@ -1206,6 +1334,8 @@ def package_inputs(
         "allow_missing_split_audit": allow_missing_split_audit,
         "contact_sheet_methods": contact_sheet_methods or "",
         "contact_sheet_max_samples": contact_sheet_max_samples,
+        "colab_require_gpu_name_regex": colab_require_gpu_name_regex or "",
+        "colab_min_gpu_memory_gb": colab_min_gpu_memory_gb,
         "include_triposr_setup": include_triposr_setup,
         "include_triposg_setup": include_triposg_setup,
         "include_hunyuan3d_setup": include_hunyuan3d_setup,
@@ -1308,6 +1438,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--contact-sheet-methods", default=None)
     parser.add_argument("--contact-sheet-max-samples", type=int, default=None)
     parser.add_argument(
+        "--colab-require-gpu-name-regex",
+        default=None,
+        help="Embed a generated-runner GPU name regex guard, for example 'RTX PRO 6000|Blackwell|G4'.",
+    )
+    parser.add_argument(
+        "--colab-min-gpu-memory-gb",
+        type=float,
+        default=None,
+        help="Embed a generated-runner minimum GPU memory guard before provider setup begins.",
+    )
+    parser.add_argument(
         "--include-triposr-setup",
         action="store_true",
         help="Embed a Colab setup prelude for /content/TripoSR and /content/triposr-venv before running eval.",
@@ -1393,6 +1534,8 @@ def main() -> None:
         allow_missing_split_audit=args.allow_missing_split_audit,
         contact_sheet_methods=args.contact_sheet_methods,
         contact_sheet_max_samples=args.contact_sheet_max_samples,
+        colab_require_gpu_name_regex=args.colab_require_gpu_name_regex,
+        colab_min_gpu_memory_gb=args.colab_min_gpu_memory_gb,
         include_triposr_setup=args.include_triposr_setup,
         include_triposg_setup=args.include_triposg_setup,
         include_hunyuan3d_setup=args.include_hunyuan3d_setup,

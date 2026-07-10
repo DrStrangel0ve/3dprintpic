@@ -2721,6 +2721,8 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                 candidate_method="dreamshaper_weighted_lora",
                 current_method="mirror",
                 require_image_to_mesh_providers=True,
+                colab_require_gpu_name_regex="RTX PRO 6000|Blackwell",
+                colab_min_gpu_memory_gb=90,
             )
             with tarfile.open(archive, "r:gz") as tar:
                 names = set(tar.getnames())
@@ -2738,6 +2740,8 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertTrue(report["require_image_to_mesh_providers"])
         self.assertEqual(report["candidate_method"], "dreamshaper_weighted_lora")
         self.assertEqual(report["current_method"], "mirror")
+        self.assertEqual(report["colab_require_gpu_name_regex"], "RTX PRO 6000|Blackwell")
+        self.assertEqual(report["colab_min_gpu_memory_gb"], 90)
         self.assertIn("inputs/files/backend/output/completion-benchmark/modelnet/sample_full.png", names)
         self.assertIn("inputs/files/data/modelnet10/chair.off", names)
         self.assertIn("lora/weighted_surface/pytorch_lora_weights.safetensors", names)
@@ -2750,6 +2754,13 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn('git clone --filter=blob:none "$REPO_REMOTE" "$REPO_DIR"', archive_run_script)
         self.assertIn("git fetch", archive_run_script)
         self.assertIn("EXPECTED_SHA256", archive_run_script)
+        self.assertIn("GPU_PREFLIGHT_PATH=/content/inputs/modelnet/gpu_preflight.json", archive_run_script)
+        self.assertIn("COLAB_REQUIRE_GPU_NAME_REGEX='RTX PRO 6000|Blackwell'", archive_run_script)
+        self.assertIn("COLAB_MIN_GPU_MEMORY_GB=90", archive_run_script)
+        self.assertIn("--query-gpu=name,memory.total", archive_run_script)
+        self.assertIn("gpu_preflight.json", archive_run_script)
+        self.assertIn("'gpu_preflight': os.environ['GPU_PREFLIGHT_PATH']", archive_run_script)
+        self.assertIn("add_if_exists(tar, gpu_preflight, 'gpu_preflight.json')", archive_run_script)
         self.assertIn("launch_preflight.json", archive_run_script)
         self.assertIn("manifest_rows", archive_run_script)
         self.assertIn("pytorch_lora_weights.safetensors", archive_run_script)
@@ -3337,12 +3348,18 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                 score_profile="stl-quality",
                 candidate_method="triposg_masked_repaired_direct_mesh",
                 current_method="mirror",
+                colab_require_gpu_name_regex="RTX PRO 6000|Blackwell",
+                colab_min_gpu_memory_gb=90,
                 include_triposg_setup=True,
             )
             with tarfile.open(archive, "r:gz") as tar:
                 archive_run_script = tar.extractfile("run_colab_eval.sh").read().decode("utf-8")
 
         self.assertTrue(report["include_triposg_setup"])
+        self.assertEqual(report["colab_require_gpu_name_regex"], "RTX PRO 6000|Blackwell")
+        self.assertEqual(report["colab_min_gpu_memory_gb"], 90)
+        self.assertLess(archive_run_script.index("COLAB_REQUIRE_GPU_NAME_REGEX='RTX PRO 6000|Blackwell'"), archive_run_script.index('TRIPOSG_DIR="${TRIPOSG_DIR:-/content/TripoSG}"'))
+        self.assertLess(archive_run_script.index("--query-gpu=name,memory.total"), archive_run_script.index('TRIPOSG_DIR="${TRIPOSG_DIR:-/content/TripoSG}"'))
         self.assertIn("https://github.com/VAST-AI-Research/TripoSG", archive_run_script)
         self.assertIn("TRIPOSG_REF=", archive_run_script)
         self.assertIn("fc5c40990181e2a756c4e0b1c2f4d6b5202faf8c", archive_run_script)
@@ -3413,12 +3430,18 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                 score_profile="stl-quality",
                 candidate_method="hunyuan3d_shape_masked_repaired_stl_mirror_bbox_direct_mesh",
                 current_method="mirror",
+                colab_require_gpu_name_regex="RTX PRO 6000|Blackwell",
+                colab_min_gpu_memory_gb=90,
                 include_hunyuan3d_setup=True,
             )
             with tarfile.open(archive, "r:gz") as tar:
                 archive_run_script = tar.extractfile("run_colab_eval.sh").read().decode("utf-8")
 
         self.assertTrue(report["include_hunyuan3d_setup"])
+        self.assertEqual(report["colab_require_gpu_name_regex"], "RTX PRO 6000|Blackwell")
+        self.assertEqual(report["colab_min_gpu_memory_gb"], 90)
+        self.assertLess(archive_run_script.index("COLAB_REQUIRE_GPU_NAME_REGEX='RTX PRO 6000|Blackwell'"), archive_run_script.index('HUNYUAN3D_DIR="${HUNYUAN3D_DIR:-/content/Hunyuan3D-2.1}"'))
+        self.assertLess(archive_run_script.index("--query-gpu=name,memory.total"), archive_run_script.index('HUNYUAN3D_DIR="${HUNYUAN3D_DIR:-/content/Hunyuan3D-2.1}"'))
         self.assertIn("https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1", archive_run_script)
         self.assertIn(
             'HUNYUAN3D_REF="${HUNYUAN3D_REF:-82920d643c0dc2f7bfd7255f45f62d386edfe60c}"',
