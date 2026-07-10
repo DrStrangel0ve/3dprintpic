@@ -1587,6 +1587,33 @@ Cheap baseline command for the next STL-quality run:
 
 Local 3080 Ti smoke result (`modelnet10_60_balanced_stl_quality_baseline_s40_n2`, `start-index=40`, `limit=2`): `mirror` ranked first at `0.7766`, `biharmonic` second at `0.2333`, and `masked` stayed at `0.0000`. All three methods completed `2/2` samples and emitted STL meshes with median `stl_is_watertight=1`, `stl_is_volume=1`, `stl_winding_consistent=1`, `stl_single_component=1`, `stl_bbox_has_volume=1`, and `stl_positive_volume=1`. This confirms the fixed 2.5D relief exporter is now a valid STL baseline for the next direct image-to-mesh comparison.
 
+### Pixal3D G4 STL sanity result
+
+The first official Pixal3D STL-first comparison ran on the Colab G4 RTX PRO 6000 Blackwell runtime against the promoted TripoSG path and the existing depth-relief baselines. The final successful run was `g4_stl_first_pixal3d_vs_triposg_s40_n1_r4` on commit `c18fbde`, using packaged ModelNet row `40` (`mesh_dir_757e06b221_v00`), Pixal3D resolution `1024`, seed `42`, inferred deployable bbox calibration, and the `stl-quality` profile. The full structured record is [pixal3d-g4-s40-n1-r4.json](benchmark-evidence/pixal3d-g4-s40-n1-r4.json).
+
+The setup uses the pinned official Pixal3D source commit and replaces the gated `briaai/RMBG-2.0` checkpoint from the published pipeline config with public `ZhengPeng7/BiRefNet`. Both Pixal methods consume the same content-addressed raw mesh cache entry (`1a1d35d...`), so raw-versus-repaired comparisons do not rerun diffusion or compare different stochastic meshes.
+
+| method | n | STL-quality score vs masked | mesh Chamfer | mesh H95 | normalized face-density log1p | watertight / manifold / volume / one component |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `pixal3d_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh` | 1 | 1.4021 | 0.1822 | 0.4241 | 5.2001 | yes / yes / yes / yes |
+| `source_mesh_oracle` | 1 | 1.0043 | 0.2464 | 0.4186 | 5.6857 | yes / yes / yes / yes |
+| `triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh` | 1 | 0.8420 | 0.1264 | 0.3145 | 9.9499 | yes / yes / yes / yes |
+| `biharmonic` | 1 | 0.0964 | 0.1604 | 0.4017 | 11.1779 | yes / yes / yes / yes |
+| `mirror` | 1 | 0.0834 | 0.1617 | 0.4066 | 11.1662 | yes / yes / yes / yes |
+| `masked` | 1 | 0.0000 | 0.1677 | 0.4153 | 11.1885 | yes / yes / yes / yes |
+| `pixal3d_biharmonic_prefill_raw_direct_mesh` | 1 | -18.5190 | 0.1521 | 0.3655 | 14.7317 | no / no / no / no |
+
+Failure-to-fix sequence:
+
+- `r1` reached both provider preflights but Pixal3D failed on the gated background-removal model.
+- `r2` generated the first real Pixal mesh with public BiRefNet. The raw output had `993,925` faces, `437` components, and `1,404` nonmanifold edges; printable repair was killed with exit `137`.
+- `r3` reused the exact cached mesh and reduced it to `40,478` faces before topology work. The first safety guard rejected that bounded residual because it required the final `10,923`-face budget too early.
+- `r4` accepted the residual under a `50,000`-face topology ceiling, selected the largest repaired component, applied printable fallback and final complexity processing, and emitted a watertight, manifold, positive-volume, single-component STL. The result archive was `121,229,396` bytes with SHA256 `2116aeace7c7ce8597d4c1193f2bd6be320dafda8b2506c7516d92a5f59dbc30`.
+
+The selector reported `promote` with no failed STL gates, but this is a one-row sanity result, not a model-level promotion. TripoSG still has substantially better surface accuracy on this sample (`0.1264` versus `0.1822` Chamfer and `0.3145` versus `0.4241` H95). Pixal3D's repaired output wins the current composite partly through very low mesh complexity, so the next harness change must add explicit paired surface-accuracy non-regression gates before scaling to `5-10` held-out rows. This prevents a coarse printable hull from winning mainly because it is cheap.
+
+Runtime retention note: the notebook preserved the complete result summary and archive digest, but the idle-cost automation disconnected the runtime before the archive/contact sheet could be copied locally. That automation is paused for the next measured batch so compact evidence can be captured before deliberate disconnect.
+
 ## Kaggle
 
 A GPU-enabled Kaggle kernel scaffold lives in `backend/benchmark/kaggle`.
