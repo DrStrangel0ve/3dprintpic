@@ -1299,7 +1299,7 @@ class StlExportRegressionTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "repaired.stl"
-            residual = SimpleNamespace(faces=np.zeros((51_234, 3), dtype=np.int64))
+            residual = SimpleNamespace(faces=np.zeros((103_036, 3), dtype=np.int64))
             printable = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
             with (
                 patch.object(direct_mesh, "load_mesh", return_value=residual),

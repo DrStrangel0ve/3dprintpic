@@ -16,7 +16,7 @@ from backend.pic_to_3d import _masked_edit_image
 DIRECT_MESH_METHODS = {"source-mesh-oracle", "external-image-to-mesh", "external-multiview-to-mesh"}
 DIRECT_MESH_INPUT_MODES = ("masked", "full", "mirror", "biharmonic")
 MESH_REPAIR_MODES = ("none", "basic", "convex-hull", "printable")
-MIN_SAFE_TOPOLOGY_REPAIR_FACES = 64_000
+MIN_SAFE_TOPOLOGY_REPAIR_FACES = 131_072
 DIRECT_MESH_BBOX_SOURCES = ("none", "source", "mirror", "inferred", "reference")
 DIRECT_MESH_BBOX_PLACEHOLDERS = {
     "source": "{source_bbox_extents}",
