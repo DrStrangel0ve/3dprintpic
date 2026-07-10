@@ -230,9 +230,17 @@ class Trellis2ProviderTest(unittest.TestCase):
                 self.assertEqual(os.environ["TRANSFORMERS_OFFLINE"], "0")
 
     def test_wrapper_uses_official_512_api_and_glb_coordinates(self):
-        observed: dict[str, object] = {}
+        observed: dict[str, object] = {"events": []}
+
+        class FakeBiRefNetModel:
+            def float(self):
+                observed["events"].append("rembg.float")
+                return self
 
         class FakePipeline:
+            def __init__(self):
+                self.rembg_model = SimpleNamespace(model=FakeBiRefNetModel())
+
             @classmethod
             def from_pretrained(cls, path):
                 observed["snapshot"] = path
@@ -256,9 +264,11 @@ class Trellis2ProviderTest(unittest.TestCase):
                 return cls()
 
             def cuda(self):
+                observed["events"].append("pipeline.cuda")
                 observed["cuda"] = True
 
             def run(self, image, **kwargs):
+                observed["events"].append("pipeline.run")
                 observed["image"] = image
                 observed["run_kwargs"] = kwargs
                 return [
@@ -368,7 +378,21 @@ class Trellis2ProviderTest(unittest.TestCase):
         self.assertEqual(observed["pipeline_models"], expected_pipeline_models)
         self.assertEqual(observed["dinov3_path"], snapshots["dinov3"])
         self.assertEqual(observed["rembg_path"], snapshots["rembg"])
+        self.assertEqual(
+            observed["events"],
+            ["rembg.float", "pipeline.cuda", "pipeline.run"],
+        )
         self.assertTrue(output_exists)
+
+    def test_rembg_dtype_normalization_tolerates_missing_nested_model(self):
+        pipelines = (
+            SimpleNamespace(),
+            SimpleNamespace(rembg_model=SimpleNamespace()),
+        )
+
+        for pipeline in pipelines:
+            with self.subTest(pipeline=pipeline):
+                trellis2_models._normalize_rembg_model_to_float32(pipeline)
 
     def test_preflight_requires_exact_model_source_and_official_entrypoint(self):
         with tempfile.TemporaryDirectory() as temp_dir:

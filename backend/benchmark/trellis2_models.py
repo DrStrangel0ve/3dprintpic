@@ -251,6 +251,14 @@ def _vertices_in_glb_coordinates(vertices):
     return converted
 
 
+def _normalize_rembg_model_to_float32(pipeline) -> None:
+    rembg_model = getattr(pipeline, "rembg_model", None)
+    model = getattr(rembg_model, "model", None)
+    convert_to_float = getattr(model, "float", None)
+    if callable(convert_to_float):
+        convert_to_float()
+
+
 def run_trellis2(
     *,
     provider_dir: Path,
@@ -277,6 +285,7 @@ def run_trellis2(
 
     with _offline_pipeline_snapshot(snapshots) as snapshot_path:
         pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(snapshot_path))
+    _normalize_rembg_model_to_float32(pipeline)
     pipeline.cuda()
     with Image.open(input_image) as image_file:
         image = image_file.copy()
