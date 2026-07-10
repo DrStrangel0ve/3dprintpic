@@ -20,6 +20,7 @@ from backend.benchmark import preflight_image_to_mesh_providers as preflight_mod
 from backend.benchmark import run_image_to_mesh_provider as provider_module
 from backend.benchmark import trellis2_models
 from backend.benchmark.trellis2_models import (
+    DEFAULT_TRELLIS2_ATTENTION_BACKEND,
     DEFAULT_TRELLIS2_DINOV3_MODEL,
     DEFAULT_TRELLIS2_DINOV3_REVISION,
     DEFAULT_TRELLIS2_MODEL,
@@ -235,6 +236,10 @@ class Trellis2ProviderTest(unittest.TestCase):
             @classmethod
             def from_pretrained(cls, path):
                 observed["snapshot"] = path
+                observed["attention_backend"] = os.environ.get("ATTN_BACKEND")
+                observed["sparse_attention_backend"] = os.environ.get(
+                    "SPARSE_ATTN_BACKEND"
+                )
                 manifest = json.loads(
                     (Path(path) / "pipeline.json").read_text(encoding="utf-8")
                 )
@@ -307,6 +312,10 @@ class Trellis2ProviderTest(unittest.TestCase):
                     "trellis2.pipelines": fake_pipelines,
                     "trimesh": fake_trimesh_module,
                 },
+            ), patch.dict(
+                os.environ,
+                {"ATTN_BACKEND": "sdpa", "SPARSE_ATTN_BACKEND": "sdpa"},
+                clear=False,
             ):
                 result = trellis2_models.run_trellis2(
                     provider_dir=provider_dir,
@@ -319,6 +328,11 @@ class Trellis2ProviderTest(unittest.TestCase):
 
         self.assertEqual(result, output_mesh)
         self.assertNotEqual(observed["snapshot"], str(snapshots["trellis2"]))
+        self.assertEqual(observed["attention_backend"], DEFAULT_TRELLIS2_ATTENTION_BACKEND)
+        self.assertEqual(
+            observed["sparse_attention_backend"],
+            DEFAULT_TRELLIS2_ATTENTION_BACKEND,
+        )
         self.assertTrue(observed["cuda"])
         self.assertEqual(
             observed["run_kwargs"],

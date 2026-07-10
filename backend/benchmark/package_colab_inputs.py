@@ -542,6 +542,10 @@ def build_trellis2_setup_prelude() -> str:
         "  echo \"The reproducible TRELLIS.2 Colab setup installs xformers; got TRELLIS2_ATTN_BACKEND=$TRELLIS2_ATTN_BACKEND\" >&2\n"
         "  exit 2\n"
         "fi\n"
+        "TRELLIS2_HAD_ATTN_BACKEND=\"${ATTN_BACKEND+x}\"\n"
+        "TRELLIS2_PREVIOUS_ATTN_BACKEND=\"${ATTN_BACKEND-}\"\n"
+        "TRELLIS2_HAD_SPARSE_ATTN_BACKEND=\"${SPARSE_ATTN_BACKEND+x}\"\n"
+        "TRELLIS2_PREVIOUS_SPARSE_ATTN_BACKEND=\"${SPARSE_ATTN_BACKEND-}\"\n"
         "export TRELLIS2_DIR TRELLIS2_VENV TRELLIS2_DEPS_SRC TRELLIS2_REF TRELLIS2_MODEL_ID TRELLIS2_MODEL_REVISION TRELLIS2_RESOLUTION TRELLIS2_ATTN_BACKEND TRELLIS2_XFORMERS_VERSION\n"
         "export TRELLIS2_CUMESH_DIR TRELLIS2_CUMESH_REF TRELLIS2_FLEXGEMM_DIR TRELLIS2_FLEXGEMM_REF TRELLIS2_NVDIFFRAST_DIR TRELLIS2_NVDIFFRAST_REF\n"
         "export ATTN_BACKEND=\"$TRELLIS2_ATTN_BACKEND\"\n"
@@ -674,6 +678,17 @@ def build_trellis2_setup_prelude() -> str:
         "  \"$TRELLIS2_PYTHON\" -m backend.benchmark.run_image_to_mesh_provider --provider trellis2 --provider-dir \"$TRELLIS2_DIR\" --trellis2-model-path \"$TRELLIS2_MODEL_ID\" --trellis2-model-revision \"$TRELLIS2_MODEL_REVISION\" --trellis2-resolution \"$TRELLIS2_RESOLUTION\" --seed 42 --timeout 3600 --prefetch-only\n"
         "  echo \"TRELLIS.2 setup checkpoint: pinned model prefetched\"\n"
         "fi\n"
+        "if [[ \"$TRELLIS2_HAD_ATTN_BACKEND\" == \"x\" ]]; then\n"
+        "  export ATTN_BACKEND=\"$TRELLIS2_PREVIOUS_ATTN_BACKEND\"\n"
+        "else\n"
+        "  unset ATTN_BACKEND\n"
+        "fi\n"
+        "if [[ \"$TRELLIS2_HAD_SPARSE_ATTN_BACKEND\" == \"x\" ]]; then\n"
+        "  export SPARSE_ATTN_BACKEND=\"$TRELLIS2_PREVIOUS_SPARSE_ATTN_BACKEND\"\n"
+        "else\n"
+        "  unset SPARSE_ATTN_BACKEND\n"
+        "fi\n"
+        "echo \"TRELLIS.2 setup checkpoint: caller attention environment restored\"\n"
     )
 
 

@@ -24,6 +24,7 @@ DEFAULT_TRELLIS2_REMBG_MODEL = "ZhengPeng7/BiRefNet"
 DEFAULT_TRELLIS2_REMBG_REVISION = "e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4"
 DEFAULT_TRELLIS2_RESOLUTION = 512
 DEFAULT_TRELLIS2_SEED = 42
+DEFAULT_TRELLIS2_ATTENTION_BACKEND = "xformers"
 TRELLIS2_RESOLUTIONS = (DEFAULT_TRELLIS2_RESOLUTION,)
 
 _OFFICIAL_TRELLIS2_DINOV3_MODEL = "facebook/dinov3-vitl16-pretrain-lvd1689m"
@@ -267,6 +268,8 @@ def run_trellis2(
     snapshots = resolve_trellis2_model_snapshots(model_repo, model_revision)
     provider_dir = provider_dir.resolve()
     sys.path.insert(0, str(provider_dir))
+    os.environ["ATTN_BACKEND"] = DEFAULT_TRELLIS2_ATTENTION_BACKEND
+    os.environ["SPARSE_ATTN_BACKEND"] = DEFAULT_TRELLIS2_ATTENTION_BACKEND
 
     import trimesh
     from PIL import Image

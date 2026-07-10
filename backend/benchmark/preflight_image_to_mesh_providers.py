@@ -29,6 +29,7 @@ from backend.benchmark.pixal3d_models import (
 )
 from backend.benchmark.triposg_models import triposg_model_specs
 from backend.benchmark.trellis2_models import (
+    DEFAULT_TRELLIS2_ATTENTION_BACKEND,
     DEFAULT_TRELLIS2_MODEL,
     DEFAULT_TRELLIS2_MODEL_REVISION,
     DEFAULT_TRELLIS2_RESOLUTION,
@@ -129,9 +130,12 @@ def probe_trellis2_provider_python(
     provider_python: str,
     provider_dir: Path,
     *,
+    attention_backend: str = DEFAULT_TRELLIS2_ATTENTION_BACKEND,
     timeout_seconds: int = 60,
 ) -> dict:
     env = os.environ.copy()
+    env["ATTN_BACKEND"] = attention_backend
+    env["SPARSE_ATTN_BACKEND"] = attention_backend
     current_pythonpath = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = os.pathsep.join(
         part for part in (str(provider_dir), current_pythonpath) if part

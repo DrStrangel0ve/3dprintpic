@@ -105,6 +105,12 @@ class Trellis2ColabSetupTest(unittest.TestCase):
         )
         self.assertIn("TRELLIS2_SETUP_ONLY", run_script)
         self.assertIn("trellis2_provider_preflight.json", run_script)
+        self.assertIn('TRELLIS2_HAD_ATTN_BACKEND="${ATTN_BACKEND+x}"', run_script)
+        self.assertIn(
+            'TRELLIS2_HAD_SPARSE_ATTN_BACKEND="${SPARSE_ATTN_BACKEND+x}"',
+            run_script,
+        )
+        self.assertIn("caller attention environment restored", run_script)
 
     def test_probe_uses_provider_python_and_rejects_sdpa_for_sparse_attention(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -141,24 +147,15 @@ class Trellis2ColabSetupTest(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content, encoding="utf-8")
 
-            with patch.dict(
-                os.environ,
-                {"ATTN_BACKEND": "xformers", "SPARSE_ATTN_BACKEND": "xformers"},
-                clear=False,
-            ):
-                ready = preflight_module.probe_trellis2_provider_python(
-                    sys.executable,
-                    provider_dir,
-                )
-            with patch.dict(
-                os.environ,
-                {"ATTN_BACKEND": "sdpa", "SPARSE_ATTN_BACKEND": "sdpa"},
-                clear=False,
-            ):
-                invalid = preflight_module.probe_trellis2_provider_python(
-                    sys.executable,
-                    provider_dir,
-                )
+            ready = preflight_module.probe_trellis2_provider_python(
+                sys.executable,
+                provider_dir,
+            )
+            invalid = preflight_module.probe_trellis2_provider_python(
+                sys.executable,
+                provider_dir,
+                attention_backend="sdpa",
+            )
 
         self.assertTrue(ready["pipelines_importable"])
         self.assertTrue(ready["pipeline_class_importable"])
