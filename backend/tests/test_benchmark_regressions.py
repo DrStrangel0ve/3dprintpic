@@ -2908,6 +2908,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn(payload_url, launcher_text)
         self.assertIn(report["output_sha256"], launcher_text)
         self.assertEqual(notebook_json["nbformat"], 4)
+        self.assertEqual(notebook_json["metadata"]["accelerator"], "GPU")
         self.assertEqual(notebook_json["metadata"]["kernelspec"]["name"], "python3")
         self.assertIn(payload_url, notebook_source)
         self.assertIn(report["output_sha256"], notebook_source)

@@ -936,6 +936,7 @@ def build_colab_notebook_launcher(*, launcher_text: str, title: str) -> str:
         "nbformat": 4,
         "nbformat_minor": 5,
         "metadata": {
+            "accelerator": "GPU",
             "kernelspec": {
                 "name": "python3",
                 "display_name": "Python 3",
