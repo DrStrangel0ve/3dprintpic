@@ -237,9 +237,14 @@ class Trellis2ProviderTest(unittest.TestCase):
                 observed["events"].append("rembg.float")
                 return self
 
+        class FakeDinoModel:
+            def __init__(self):
+                self.model = SimpleNamespace(layer=object())
+
         class FakePipeline:
             def __init__(self):
                 self.rembg_model = SimpleNamespace(model=FakeBiRefNetModel())
+                self.image_cond_model = SimpleNamespace(model=FakeDinoModel())
 
             @classmethod
             def from_pretrained(cls, path):
@@ -264,6 +269,10 @@ class Trellis2ProviderTest(unittest.TestCase):
                 return cls()
 
             def cuda(self):
+                observed["dinov3_layout_normalized"] = (
+                    self.image_cond_model.model.layer
+                    is self.image_cond_model.model.model.layer
+                )
                 observed["events"].append("pipeline.cuda")
                 observed["cuda"] = True
 
@@ -382,6 +391,7 @@ class Trellis2ProviderTest(unittest.TestCase):
             observed["events"],
             ["rembg.float", "pipeline.cuda", "pipeline.run"],
         )
+        self.assertTrue(observed["dinov3_layout_normalized"])
         self.assertTrue(output_exists)
 
     def test_rembg_dtype_normalization_tolerates_missing_nested_model(self):
@@ -393,6 +403,25 @@ class Trellis2ProviderTest(unittest.TestCase):
         for pipeline in pipelines:
             with self.subTest(pipeline=pipeline):
                 trellis2_models._normalize_rembg_model_to_float32(pipeline)
+
+    def test_dinov3_layout_normalization_tolerates_supported_and_missing_models(self):
+        existing_layers = object()
+        nested_layers = object()
+        supported_model = SimpleNamespace(layer=existing_layers)
+        nested_model = SimpleNamespace(model=SimpleNamespace(layer=nested_layers))
+        pipelines = (
+            SimpleNamespace(),
+            SimpleNamespace(image_cond_model=SimpleNamespace()),
+            SimpleNamespace(image_cond_model=SimpleNamespace(model=supported_model)),
+            SimpleNamespace(image_cond_model=SimpleNamespace(model=nested_model)),
+        )
+
+        for pipeline in pipelines:
+            with self.subTest(pipeline=pipeline):
+                trellis2_models._normalize_dinov3_model_layout(pipeline)
+
+        self.assertIs(supported_model.layer, existing_layers)
+        self.assertIs(nested_model.layer, nested_layers)
 
     def test_preflight_requires_exact_model_source_and_official_entrypoint(self):
         with tempfile.TemporaryDirectory() as temp_dir:

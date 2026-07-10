@@ -259,6 +259,20 @@ def _normalize_rembg_model_to_float32(pipeline) -> None:
         convert_to_float()
 
 
+def _normalize_dinov3_model_layout(pipeline) -> None:
+    image_cond_model = getattr(pipeline, "image_cond_model", None)
+    model = getattr(image_cond_model, "model", None)
+    if model is None or getattr(model, "layer", None) is not None:
+        return
+
+    # Transformers 5.x nests DINOv3 blocks under model.layer; TRELLIS.2
+    # reads them directly from layer while extracting intermediate features.
+    encoder = getattr(model, "model", None)
+    layers = getattr(encoder, "layer", None)
+    if layers is not None:
+        object.__setattr__(model, "layer", layers)
+
+
 def run_trellis2(
     *,
     provider_dir: Path,
@@ -286,6 +300,7 @@ def run_trellis2(
     with _offline_pipeline_snapshot(snapshots) as snapshot_path:
         pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(snapshot_path))
     _normalize_rembg_model_to_float32(pipeline)
+    _normalize_dinov3_model_layout(pipeline)
     pipeline.cuda()
     with Image.open(input_image) as image_file:
         image = image_file.copy()
