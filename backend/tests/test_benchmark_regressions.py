@@ -1299,7 +1299,7 @@ class StlExportRegressionTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "repaired.stl"
-            residual = trimesh.creation.icosphere(subdivisions=4)
+            residual = SimpleNamespace(faces=np.zeros((51_234, 3), dtype=np.int64))
             printable = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
             with (
                 patch.object(direct_mesh, "load_mesh", return_value=residual),
@@ -1317,12 +1317,17 @@ class StlExportRegressionTests(unittest.TestCase):
 
         simplify.assert_called_once_with(residual, 128, strict=True)
         self.assertGreater(len(residual.faces), 128)
-        self.assertLessEqual(len(residual.faces), 50_000)
+        self.assertLessEqual(len(residual.faces), direct_mesh.MIN_SAFE_TOPOLOGY_REPAIR_FACES)
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_is_volume"])
 
     def test_printable_mesh_repair_rejects_residual_above_safe_topology_limit(self):
-        residual = SimpleNamespace(faces=np.zeros((50_001, 3), dtype=np.int64))
+        residual = SimpleNamespace(
+            faces=np.zeros(
+                (direct_mesh.MIN_SAFE_TOPOLOGY_REPAIR_FACES + 1, 3),
+                dtype=np.int64,
+            )
+        )
         with tempfile.TemporaryDirectory() as temp_dir:
             with (
                 patch.object(direct_mesh, "load_mesh", return_value=residual),

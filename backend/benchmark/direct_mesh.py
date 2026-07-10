@@ -16,6 +16,7 @@ from backend.pic_to_3d import _masked_edit_image
 DIRECT_MESH_METHODS = {"source-mesh-oracle", "external-image-to-mesh", "external-multiview-to-mesh"}
 DIRECT_MESH_INPUT_MODES = ("masked", "full", "mirror", "biharmonic")
 MESH_REPAIR_MODES = ("none", "basic", "convex-hull", "printable")
+MIN_SAFE_TOPOLOGY_REPAIR_FACES = 64_000
 DIRECT_MESH_BBOX_SOURCES = ("none", "source", "mirror", "inferred", "reference")
 DIRECT_MESH_BBOX_PLACEHOLDERS = {
     "source": "{source_bbox_extents}",
@@ -346,7 +347,7 @@ def repair_mesh_for_printable_stl(
     if target_faces > 0 and len(mesh.faces) > target_faces:
         original_faces = len(mesh.faces)
         mesh = _simplify_to_face_count(mesh, target_faces, strict=True)
-        safe_repair_faces = max(50_000, target_faces * 4)
+        safe_repair_faces = max(MIN_SAFE_TOPOLOGY_REPAIR_FACES, target_faces * 4)
         if len(mesh.faces) > safe_repair_faces:
             raise RuntimeError(
                 "Mesh repair preconditioning could not reach the safe topology-repair limit: "
