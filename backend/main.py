@@ -104,6 +104,8 @@ PANOPTIC_SELECTION_MODEL_ID = os.getenv("SELECTION_PANOPTIC_MODEL", "facebook/de
 SELECTION_PRECOMPUTE_LOCK = Lock()
 SELECTION_PRECOMPUTE_CACHE: dict[str, dict] = {}
 SELECTION_PRECOMPUTE_MAX_ENTRIES = int(os.getenv("SELECTION_PRECOMPUTE_MAX_ENTRIES", "12"))
+RELIEF_MIN_DETAIL_DIMENSION = int(os.getenv("RELIEF_MIN_DETAIL_DIMENSION", "192"))
+RELIEF_MAX_DETAIL_DIMENSION = int(os.getenv("RELIEF_MAX_DETAIL_DIMENSION", "900"))
 
 DEPTH_MODELS = [
     {
@@ -169,6 +171,53 @@ def relief_invert_for_model(model_id: str | None, relief_polarity: str, requeste
         return requested_invert
     far_is_high = depth_model_far_is_high(model_id)
     return far_is_high if relief_polarity == "raised-print" else not far_is_high
+
+
+def _positive_float(value: float | None) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or number <= 0:
+        return None
+    return number
+
+
+def resolve_relief_target_dimension(
+    target_dimension: int,
+    *,
+    max_xy_size: float | None = None,
+    printer_max_x_mm: float | None = None,
+    printer_max_y_mm: float | None = None,
+    printer_clearance_mm: float | None = None,
+    mesh_resolution_multiplier: float | None = None,
+) -> int:
+    if int(target_dimension) == -1:
+        return -1
+
+    requested = max(2, int(round(float(target_dimension))))
+    multiplier = max(1.0, _positive_float(mesh_resolution_multiplier) or 1.0)
+    floors = [requested, RELIEF_MIN_DETAIL_DIMENSION]
+
+    physical_xy = _positive_float(max_xy_size)
+    if physical_xy is not None:
+        floors.append(int(round(physical_xy * multiplier)))
+
+    max_x = _positive_float(printer_max_x_mm)
+    max_y = _positive_float(printer_max_y_mm)
+    if max_x is not None and max_y is not None:
+        clearance = max(0.0, float(printer_clearance_mm or 0.0))
+        usable_xy = max(1.0, min(max_x - clearance * 2, max_y - clearance * 2))
+        floors.append(int(round(usable_xy * multiplier)))
+
+    return min(max(floors), max(RELIEF_MIN_DETAIL_DIMENSION, RELIEF_MAX_DETAIL_DIMENSION))
+
+
+def relief_sample_pitch_mm(max_xy_size: float | None, target_dimension: int) -> float | None:
+    physical_xy = _positive_float(max_xy_size)
+    if physical_xy is None or target_dimension in (-1, 0, 1):
+        return None
+    return physical_xy / float(max(1, target_dimension - 1))
 
 
 def _hf_model_cache_dir(model_id: str) -> Path:
@@ -1212,6 +1261,16 @@ async def process_image(
         relief_value_transform = depth_metadata.get("relief_value_transform")
         if not relief_value_transform:
             relief_value_transform = relief_value_transform_for_model(effective_depth_model)
+        requested_target_dimension = target_dimension
+        effective_target_dimension = resolve_relief_target_dimension(
+            target_dimension,
+            max_xy_size=max_xy_size,
+            printer_max_x_mm=printer_max_x_mm,
+            printer_max_y_mm=printer_max_y_mm,
+            printer_clearance_mm=printer_clearance_mm,
+            mesh_resolution_multiplier=mesh_resolution_multiplier,
+        )
+        effective_sample_pitch_mm = relief_sample_pitch_mm(max_xy_size, effective_target_dimension)
         
         # Generate 3D model
         logger.info("Generating 3D model...")
@@ -1220,7 +1279,7 @@ async def process_image(
         depth_data_to_3d_model(
             depth_data_path,
             output_stl_path=str(stl_path),
-            target_dimension=target_dimension,
+            target_dimension=effective_target_dimension,
             z_scale=z_scale,
             max_xy_size=max_xy_size,
             invert=effective_invert,
@@ -1266,7 +1325,9 @@ async def process_image(
             "depth_fallback_reason": depth_metadata.get("fallback_reason"),
             "depth_metadata": depth_metadata,
             "device": device,
-            "target_dimension": target_dimension,
+            "target_dimension": effective_target_dimension,
+            "requested_target_dimension": requested_target_dimension,
+            "relief_sample_pitch_mm": effective_sample_pitch_mm,
             "z_scale": z_scale,
             "max_xy_size": max_xy_size,
             "printer": {
@@ -1279,6 +1340,11 @@ async def process_image(
             },
             "relief_polarity": relief_polarity,
             "mesh_resolution_multiplier": mesh_resolution_multiplier,
+            "size_aware_detail": {
+                "min_detail_dimension": RELIEF_MIN_DETAIL_DIMENSION,
+                "max_detail_dimension": RELIEF_MAX_DETAIL_DIMENSION,
+                "applied": effective_target_dimension != requested_target_dimension,
+            },
             "invert": effective_invert,
             "requested_invert": invert,
             "relief_value_transform": relief_value_transform,

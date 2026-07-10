@@ -2,7 +2,7 @@ import os
 import shutil
 import numpy as np
 from stl import mesh
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, zoom
 import argparse
 
 _DEPTH_PIPELINE_CACHE = {}
@@ -995,6 +995,47 @@ def _smooth_nan_aware(values, sigma):
     return smoothed
 
 
+def _resize_nan_aware(values, target_shape):
+    target_height, target_width = (int(target_shape[0]), int(target_shape[1]))
+    if target_height <= 0 or target_width <= 0:
+        raise ValueError("target_shape must contain positive dimensions")
+    if values.shape == (target_height, target_width):
+        return values
+
+    valid = np.isfinite(values)
+    filled = np.where(valid, values, 0.0).astype(np.float32, copy=False)
+    weights = valid.astype(np.float32)
+    factors = (target_height / values.shape[0], target_width / values.shape[1])
+    resized_values = zoom(filled, factors, order=1)
+    resized_weights = zoom(weights, factors, order=1)
+
+    if resized_values.shape != (target_height, target_width):
+        resized_values = resized_values[:target_height, :target_width]
+        resized_weights = resized_weights[:target_height, :target_width]
+        pad_height = target_height - resized_values.shape[0]
+        pad_width = target_width - resized_values.shape[1]
+        if pad_height > 0 or pad_width > 0:
+            resized_values = np.pad(resized_values, ((0, max(0, pad_height)), (0, max(0, pad_width))), mode="edge")
+            resized_weights = np.pad(resized_weights, ((0, max(0, pad_height)), (0, max(0, pad_width))), mode="edge")
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        resized = resized_values / resized_weights
+    resized[resized_weights <= 1e-6] = np.nan
+    return resized.astype(np.float32, copy=False)
+
+
+def _target_shape_for_max_dimension(shape, target_dimension):
+    target_dimension = int(round(float(target_dimension)))
+    if target_dimension < 2:
+        raise ValueError("target_dimension must be at least 2 or -1")
+    height, width = shape
+    max_dimension = max(height, width)
+    if max_dimension <= target_dimension:
+        return height, width
+    scale = target_dimension / float(max_dimension)
+    return max(2, int(round(height * scale))), max(2, int(round(width * scale)))
+
+
 def _normalize_relief_values(values, low_percentile=1.0, high_percentile=99.0):
     normalized = values.astype(np.float32, copy=True)
     finite = normalized[np.isfinite(normalized)]
@@ -1144,13 +1185,12 @@ def depth_data_to_3d_model(
 
     # Skip downsampling if target_dimension is -1
     if target_dimension != -1:
-        # Adjust the downsample resolution dynamically based on the maximum dimension
-        max_dimension = max(data.shape)
-        downsample_res = max(1, -(-max_dimension // target_dimension))
-        print(f"Downsampling resolution: {downsample_res}")
-
-        # Downsample the data to reduce the resolution
-        data = data[::downsample_res, ::downsample_res]
+        target_shape = _target_shape_for_max_dimension(data.shape, target_dimension)
+        if target_shape != data.shape:
+            print(f"Resizing depth grid from {data.shape} to {target_shape}")
+            data = _resize_nan_aware(data, target_shape)
+        else:
+            print(f"Keeping depth grid resolution: {data.shape}")
     else:
         print("Skipping downsampling as target_dimension is -1")
 

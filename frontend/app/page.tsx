@@ -255,7 +255,8 @@ const photoTargets: Array<{ value: PhotoTarget; label: string; icon: React.Compo
 ];
 
 const inpaintBackends = ['Mirror prior', 'SDXL inpaint', 'FLUX Fill', 'Qwen Image Edit'];
-const resolutionMultipliers = [1, 1.5, 2, 3];
+const reliefDetailSamples = { min: 192, max: 900 };
+const resolutionMultipliers = [1.5, 2, 3, 4];
 const depthModels: DepthModelOption[] = [
   {
     id: 'depth-anything/Depth-Anything-V2-Large-hf',
@@ -766,8 +767,8 @@ export default function Home() {
   const [depthScale, setDepthScale] = useState(42);
   const [baseThickness, setBaseThickness] = useState(2.4);
   const [reliefPolarity, setReliefPolarity] = useState<ReliefPolarity>('raised-print');
-  const [detailSmoothing, setDetailSmoothing] = useState(0.6);
-  const [featureBoost, setFeatureBoost] = useState(1.4);
+  const [detailSmoothing, setDetailSmoothing] = useState(0.35);
+  const [featureBoost, setFeatureBoost] = useState(1.7);
   const [reliefGamma, setReliefGamma] = useState(0.75);
   const [baseBorderPx, setBaseBorderPx] = useState(2);
   const [meshResolutionMultiplier, setMeshResolutionMultiplier] = useState(2);
@@ -851,7 +852,11 @@ export default function Home() {
   }, [printerPreset, currentPrinterPreset.label, printerMaxX, printerMaxY, printerMaxZ, printerClearance, printScalePercent, baseThickness]);
   const effectiveReliefHeight = Math.min(depthScale, printVolume.max_relief_height_mm);
   const reliefSliderMax = Math.max(12, Math.min(96, Math.floor(printVolume.max_relief_height_mm)));
-  const reliefTargetDimension = Math.max(64, Math.round(printVolume.target_dimension_mm * meshResolutionMultiplier));
+  const reliefTargetDimension = Math.min(
+    reliefDetailSamples.max,
+    Math.max(reliefDetailSamples.min, Math.round(printVolume.max_target_dimension_mm * meshResolutionMultiplier)),
+  );
+  const reliefSamplePitch = printVolume.target_dimension_mm / Math.max(1, reliefTargetDimension - 1);
   const selectedDepthModel = depthModels.find((model) => model.id === depthModel) || depthModels[0];
   const reliefInvert = reliefPolarity === 'raised-print' ? selectedDepthModel.farIsHigh : !selectedDepthModel.farIsHigh;
 
@@ -1125,6 +1130,8 @@ export default function Home() {
                 max_xy_size_mm: printVolume.target_dimension_mm,
                 mesh_resolution_dimension: reliefTargetDimension,
                 resolution_multiplier: meshResolutionMultiplier,
+                sample_pitch_mm: Number(reliefSamplePitch.toFixed(3)),
+                detail_basis_mm: printVolume.max_target_dimension_mm,
                 polarity: reliefPolarity,
                 invert_depth: reliefInvert,
                 smoothing_sigma: detailSmoothing,
@@ -1196,6 +1203,7 @@ export default function Home() {
       effectiveReliefHeight,
       reliefTargetDimension,
       meshResolutionMultiplier,
+      reliefSamplePitch,
       reliefPolarity,
       reliefInvert,
       detailSmoothing,
@@ -2362,10 +2370,16 @@ export default function Home() {
                         >
                           {resolutionMultipliers.map((multiplier) => (
                             <option key={multiplier} value={multiplier}>
-                              {multiplier}x ({Math.round(printVolume.target_dimension_mm * multiplier)} samples)
+                              {multiplier}x ({Math.min(
+                                reliefDetailSamples.max,
+                                Math.max(reliefDetailSamples.min, Math.round(printVolume.max_target_dimension_mm * multiplier)),
+                              )} samples)
                             </option>
                           ))}
                         </select>
+                        <span className="text-xs text-zinc-500">
+                          {reliefTargetDimension} samples, {reliefSamplePitch.toFixed(2)} mm/sample at selected size
+                        </span>
                       </label>
                       <label className="text-sm font-medium text-zinc-700">
                         Crisp border

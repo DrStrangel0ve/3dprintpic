@@ -55,6 +55,30 @@ class MainStlContractTest(unittest.TestCase):
         )
         self.assertTrue(main_module.relief_invert_for_model("unknown", "manual", requested_invert=True))
 
+    def test_relief_target_dimension_uses_printer_size_before_export(self):
+        resolved = main_module.resolve_relief_target_dimension(
+            80,
+            max_xy_size=40,
+            printer_max_x_mm=256,
+            printer_max_y_mm=256,
+            printer_clearance_mm=0,
+            mesh_resolution_multiplier=2,
+        )
+
+        self.assertEqual(resolved, 512)
+        self.assertAlmostEqual(main_module.relief_sample_pitch_mm(40, resolved), 40 / 511)
+
+    def test_relief_target_dimension_is_capped_for_extreme_custom_printers(self):
+        resolved = main_module.resolve_relief_target_dimension(
+            200,
+            max_xy_size=1000,
+            printer_max_x_mm=1000,
+            printer_max_y_mm=1000,
+            mesh_resolution_multiplier=4,
+        )
+
+        self.assertEqual(resolved, main_module.RELIEF_MAX_DETAIL_DIMENSION)
+
     def test_process_image_emits_output_model_and_diagnostics_json(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_root = Path(temp_dir) / "output"
@@ -77,11 +101,16 @@ class MainStlContractTest(unittest.TestCase):
                     "/process_image",
                     files={"file": ("relief.png", b"fake-image-bytes", "image/png")},
                     data={
-                        "target_dimension": "-1",
+                        "target_dimension": "80",
                         "z_scale": "10",
+                        "max_xy_size": "40",
                         "invert": "false",
                         "sigma": "0",
                         "base_border_px": "0",
+                        "printer_max_x_mm": "256",
+                        "printer_max_y_mm": "256",
+                        "printer_clearance_mm": "0",
+                        "mesh_resolution_multiplier": "2",
                     },
                 )
                 self.assertEqual(response.status_code, 200, response.text)
@@ -95,12 +124,19 @@ class MainStlContractTest(unittest.TestCase):
                 self.assertTrue(payload["stl_diagnostics"]["stl_is_watertight"])
                 self.assertTrue(payload["stl_diagnostics"]["stl_is_volume"])
                 self.assertTrue(payload["stl_diagnostics"]["stl_is_manifold"])
+                self.assertEqual(payload["requested_target_dimension"], 80)
+                self.assertEqual(payload["target_dimension"], 512)
+                self.assertAlmostEqual(payload["relief_sample_pitch_mm"], 40 / 511)
+                self.assertTrue(payload["size_aware_detail"]["applied"])
 
                 diagnostics_response = client.get(payload["diagnostics_url"])
                 self.assertEqual(diagnostics_response.status_code, 200)
                 diagnostics = diagnostics_response.json()
                 self.assertEqual(diagnostics["job_id"], payload["job_id"])
                 self.assertTrue(diagnostics["stl_positive_volume"])
+                metadata = json.loads((output_root / payload["job_id"] / "metadata.json").read_text(encoding="utf-8"))
+                self.assertEqual(metadata["target_dimension"], payload["target_dimension"])
+                self.assertEqual(metadata["requested_target_dimension"], payload["requested_target_dimension"])
 
     def test_process_image_reports_depth_fallback_and_uses_effective_polarity(self):
         with tempfile.TemporaryDirectory() as temp_dir:

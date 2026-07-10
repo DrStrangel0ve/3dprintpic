@@ -12,6 +12,7 @@ from backend import pic_to_3d
 from backend.pic_to_3d import (
     RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
     _flatten_border,
+    _resize_nan_aware,
     _shape_relief_values,
     depth_data_to_3d_model,
     relief_value_transform_for_model,
@@ -209,6 +210,46 @@ class ReliefStlControlsTest(unittest.TestCase):
             self.assertAlmostEqual(max(extents[0], extents[1]), 40.0, places=4)
             self.assertGreater(extents[2], 11.0)
             self.assertLessEqual(extents[2], 12.1)
+
+    def test_depth_resize_preserves_near_target_detail_instead_of_stride_halving(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            depth_path = tmp_path / "depth.npy"
+            stl_path = tmp_path / "near_target.stl"
+            data = np.linspace(0.0, 1.0, 65 * 65, dtype=np.float32).reshape(65, 65)
+            data[30:35, 30:35] += 0.2
+            np.save(depth_path, data)
+
+            depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(stl_path),
+                target_dimension=64,
+                z_scale=8,
+                invert=False,
+                sigma=0,
+                detail_boost=0,
+                relief_gamma=1.0,
+                low_percentile=0,
+                high_percentile=100,
+                base_border_px=0,
+                max_xy_size=24,
+            )
+
+            stl_mesh = mesh.Mesh.from_file(str(stl_path))
+            vertices = stl_mesh.vectors.reshape(-1, 3)
+            extents = vertices.max(axis=0) - vertices.min(axis=0)
+
+            self.assertGreater(len(stl_mesh.vectors), 10000)
+            self.assertAlmostEqual(max(extents[0], extents[1]), 24.0, places=4)
+
+    def test_nan_aware_resize_preserves_object_cutout_holes(self):
+        values = np.ones((20, 20), dtype=np.float32)
+        values[8:12, 8:12] = np.nan
+
+        resized = _resize_nan_aware(values, (10, 10))
+
+        self.assertTrue(np.isnan(resized[4:6, 4:6]).all())
+        self.assertTrue(np.isfinite(resized[0, 0]))
 
     def test_base_border_survives_final_smoothing(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
