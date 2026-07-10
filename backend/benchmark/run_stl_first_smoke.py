@@ -250,19 +250,21 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
             }
         )
     if getattr(args, "include_triposg", False):
-        experiments.append(
-            {
-                "name": "triposg_masked_repaired_direct_mesh",
-                "method": "external-image-to-mesh",
-                "stl_mode": STL_MODE_SINGLE_IMAGE_MESH,
-                "skip_depth": True,
-                "emit_stl": True,
-                "direct_mesh_input": "masked",
-                "direct_mesh_output_ext": "glb",
-                "direct_mesh_timeout": args.direct_mesh_timeout,
-                "direct_mesh_command": triposg_command(args, repaired=True),
-            }
-        )
+        for direct_input in args.triposg_direct_inputs:
+            input_suffix = "masked" if direct_input == "masked" else f"{direct_input}_prefill"
+            experiments.append(
+                {
+                    "name": f"triposg_{input_suffix}_repaired_direct_mesh",
+                    "method": "external-image-to-mesh",
+                    "stl_mode": STL_MODE_SINGLE_IMAGE_MESH,
+                    "skip_depth": True,
+                    "emit_stl": True,
+                    "direct_mesh_input": direct_input,
+                    "direct_mesh_output_ext": "glb",
+                    "direct_mesh_timeout": args.direct_mesh_timeout,
+                    "direct_mesh_command": triposg_command(args, repaired=True),
+                }
+            )
     if getattr(args, "include_source_multiview_oracle", False):
         experiments.append(
             {
@@ -575,6 +577,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hunyuan-num-chunks", type=int, default=8000)
     parser.add_argument("--hunyuan-low-vram", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--include-triposg", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--triposg-direct-input",
+        action="append",
+        choices=("masked", "full", "mirror", "biharmonic"),
+        dest="triposg_direct_inputs",
+        default=None,
+        help=(
+            "Direct image input mode for repaired TripoSG candidates. Repeat to compare "
+            "masked, full, mirror-prefill, and biharmonic-prefill variants."
+        ),
+    )
     parser.add_argument("--triposg-python", default=DEFAULT_TRIPOSG_PYTHON)
     parser.add_argument("--triposg-dir", default=DEFAULT_TRIPOSG_DIR)
     parser.add_argument("--triposg-num-inference-steps", type=int, default=50)
@@ -633,6 +646,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--continue-on-error", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
     args.triposr_direct_inputs = args.triposr_direct_inputs or ["masked"]
+    args.triposg_direct_inputs = args.triposg_direct_inputs or ["masked"]
     return args
 
 

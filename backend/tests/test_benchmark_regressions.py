@@ -1858,6 +1858,7 @@ class StlExportRegressionTests(unittest.TestCase):
             hunyuan3d_dir="/content/Hunyuan3D",
             triposg_python="/content/triposg-venv/bin/python",
             triposg_dir="/content/TripoSG",
+            triposg_direct_inputs=["masked", "mirror", "biharmonic"],
             hunyuan_num_inference_steps=24,
             hunyuan_guidance_scale=4.0,
             hunyuan_octree_resolution=192,
@@ -1910,6 +1911,17 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("--guidance-scale 3.5", by_name["triposg_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("--seed 99", by_name["triposg_masked_repaired_direct_mesh"]["direct_mesh_command"])
         self.assertIn("--mesh-target-faces 512", by_name["triposg_masked_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertEqual(by_name["triposg_mirror_prefill_repaired_direct_mesh"]["direct_mesh_input"], "mirror")
+        self.assertIn("--provider triposg", by_name["triposg_mirror_prefill_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertIn("--mesh-target-max-dimension 96.0", by_name["triposg_mirror_prefill_repaired_direct_mesh"]["direct_mesh_command"])
+        self.assertEqual(
+            by_name["triposg_biharmonic_prefill_repaired_direct_mesh"]["direct_mesh_input"],
+            "biharmonic",
+        )
+        self.assertIn(
+            "--mesh-target-faces 512",
+            by_name["triposg_biharmonic_prefill_repaired_direct_mesh"]["direct_mesh_command"],
+        )
         self.assertEqual(by_name["source_mesh_bundle_multiview_oracle"]["method"], "external-multiview-to-mesh")
         self.assertEqual(by_name["source_mesh_bundle_multiview_oracle"]["stl_mode"], "multiview-mesh")
         self.assertIn("--provider source-mesh-bundle-oracle", by_name["source_mesh_bundle_multiview_oracle"]["direct_mesh_command"])
