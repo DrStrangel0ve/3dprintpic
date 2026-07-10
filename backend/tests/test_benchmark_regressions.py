@@ -49,7 +49,13 @@ from backend.benchmark.ingest_stl_results import (
     render_markdown as render_stl_ingest_markdown,
     summarize_inputs as summarize_stl_inputs,
 )
-from backend.benchmark.package_colab_inputs import build_fetch_colab_launcher, build_inline_colab_launcher, package_inputs, parse_colab_env
+from backend.benchmark.package_colab_inputs import (
+    build_compact_results_archive,
+    build_fetch_colab_launcher,
+    build_inline_colab_launcher,
+    package_inputs,
+    parse_colab_env,
+)
 from backend.benchmark.optimize_completion import (
     annotate_per_sample_metrics,
     experiment_metadata,
@@ -3698,6 +3704,12 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("run_colab_eval.log", archive_run_script)
         self.assertIn("results_summary.json", archive_run_script)
         self.assertIn("g4_test_eval_results.tar.gz", archive_run_script)
+        self.assertIn("g4_test_eval_results_compact.tar.gz", archive_run_script)
+        self.assertIn("RESULTS_COMPACT_ARCHIVE", archive_run_script)
+        self.assertIn("'results_compact_archive': str(compact_archive_path)", archive_run_script)
+        self.assertIn("build_compact_results_archive(", archive_run_script)
+        self.assertIn("(summary_path, 'results_summary.json')", archive_run_script)
+        self.assertIn('echo "Compact results archive: $RESULTS_COMPACT_ARCHIVE"', archive_run_script)
         self.assertIn("STL_INGEST_DIR", archive_run_script)
         self.assertIn("g4_test_eval_stl_first_ingest", archive_run_script)
         self.assertIn("'backend.benchmark.ingest_stl_results'", archive_run_script)
@@ -3802,6 +3814,8 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("completed = subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=False, env=env)", launcher_text)
         self.assertIn("---RESULTS_SUMMARY_JSON---", launcher_text)
         self.assertIn("---RESULT_ARCHIVES_JSON---", launcher_text)
+        self.assertIn("'results_compact_archive'", launcher_text)
+        self.assertIn("if not archive_candidates:", launcher_text)
         self.assertIn("completed.check_returncode()", launcher_text)
 
     def test_package_inputs_rejects_inline_launcher_without_run_script(self):
@@ -3948,6 +3962,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("completed = subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=False, env=env)", notebook_source)
         self.assertIn("---RESULTS_SUMMARY_JSON---", notebook_source)
         self.assertIn("---RESULT_ARCHIVES_JSON---", notebook_source)
+        self.assertIn("'results_compact_archive'", notebook_source)
         self.assertIn("completed.check_returncode()", notebook_source)
         self.assertIn("urllib.request.urlopen(PAYLOAD_URL)", launcher_text)
         self.assertIn("EXPECTED_SIZE", launcher_text)
@@ -3958,6 +3973,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("completed = subprocess.run(['bash', str(run_script), str(ARCHIVE_PATH)], check=False, env=env)", launcher_text)
         self.assertIn("---RESULTS_SUMMARY_JSON---", launcher_text)
         self.assertIn("---RESULT_ARCHIVES_JSON---", launcher_text)
+        self.assertIn("'results_compact_archive'", launcher_text)
         self.assertIn("completed.check_returncode()", launcher_text)
 
     def test_package_inputs_writes_deterministic_archive(self):
@@ -5896,6 +5912,48 @@ class StlResultIngestRegressionTests(unittest.TestCase):
                         }
                     )
         return run_dir
+
+    def test_compact_results_archive_is_ingestable_and_excludes_binary_artifacts(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output_root = root / "compact_run"
+            eval_dir = self.write_stl_result_run(output_root / "experiments" / "eval")
+            (eval_dir / "artifact_contact_sheet.png").write_bytes(b"contact-sheet")
+            (eval_dir / "provider_metrics.json").write_text('{"provider": "stub"}\n', encoding="utf-8")
+            (eval_dir / "provider.log").write_text("provider ok\n", encoding="utf-8")
+            for name in ("output_model.stl", "output_mesh.glb", "depth.npy", "preview.png", "notes.txt"):
+                (eval_dir / name).write_bytes(b"excluded")
+            results_summary = root / "results_summary.json"
+            results_summary.write_text('{"run_status": 0}\n', encoding="utf-8")
+            archive = root / "compact_results.tar.gz"
+
+            metadata = build_compact_results_archive(
+                output_root=output_root,
+                archive_path=archive,
+                extra_files=[(results_summary, "results_summary.json")],
+            )
+            with tarfile.open(archive, "r:gz") as tar:
+                names = set(tar.getnames())
+            archive_sha256 = hashlib.sha256(archive.read_bytes()).hexdigest()
+            ingest_report = summarize_stl_inputs(
+                [str(archive)],
+                output_dir=root / "ingested",
+                top=5,
+            )
+
+        prefix = "output/compact_run/experiments/eval"
+        self.assertEqual(metadata["archive_files"], len(names))
+        self.assertEqual(metadata["archive_sha256"], archive_sha256)
+        self.assertIn("results_summary.json", names)
+        self.assertIn(f"{prefix}/aggregate_summary.csv", names)
+        self.assertIn(f"{prefix}/per_sample_metrics.csv", names)
+        self.assertIn(f"{prefix}/artifact_contact_sheet.png", names)
+        self.assertIn(f"{prefix}/provider_metrics.json", names)
+        self.assertIn(f"{prefix}/provider.log", names)
+        for name in ("output_model.stl", "output_mesh.glb", "depth.npy", "preview.png", "notes.txt"):
+            self.assertNotIn(f"{prefix}/{name}", names)
+        self.assertEqual(len(ingest_report["runs"]), 1)
+        self.assertEqual(ingest_report["runs"][0]["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
 
     def test_stl_result_ingest_reports_deployable_winner_by_architecture(self):
         with tempfile.TemporaryDirectory() as temp_dir:

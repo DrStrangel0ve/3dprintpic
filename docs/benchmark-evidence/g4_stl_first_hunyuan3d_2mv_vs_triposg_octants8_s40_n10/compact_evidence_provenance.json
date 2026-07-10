@@ -1,0 +1,8 @@
+{
+  "compact_archive_bytes": 1110155,
+  "compact_archive_sha256": "09156bbe5d877ba392d5690df9f63d0e972dc041b5f8e676a9b2ecc7990c60c9",
+  "full_results_archive_bytes": 444218826,
+  "full_results_archive_sha256": "65ac1aba0e30c287c48de66cc5514a0796d7f67e14ed47dcf8c20afff2dd8e06",
+  "local_reingest_status": "ok",
+  "run_name": "g4_stl_first_hunyuan3d_2mv_vs_triposg_octants8_s40_n10"
+}

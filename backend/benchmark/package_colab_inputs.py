@@ -67,6 +67,7 @@ DEFAULT_REPO_REMOTE = "https://github.com/DrStrangel0ve/3dprintpic.git"
 DEFAULT_REPO_REF = "codex/3d-completion-benchmark-g4"
 DEFAULT_INLINE_B64_CHUNK_SIZE = 76_000
 DETERMINISTIC_TAR_MTIME = 0
+COMPACT_RESULT_SUFFIXES = frozenset({".csv", ".json", ".jsonl", ".log", ".md"})
 DEFAULT_TRELLIS2_COLAB_PYTHON = "/content/trellis2-venv/bin/python"
 TRELLIS2_XFORMERS_VERSION = "0.0.35"
 TRELLIS2_UTILS3D_REVISION = "9a4eb15e4021b67b12c460c7057d642626897ec8"
@@ -169,6 +170,49 @@ def add_file_once(tar: tarfile.TarFile, source: Path, archive_name: Path, added:
     with source.open("rb") as file:
         tar.addfile(info, fileobj=file)
     added.add(resolved)
+
+
+def build_compact_results_archive(
+    *,
+    output_root: Path,
+    archive_path: Path,
+    extra_files: Iterable[tuple[Path, str | Path]] = (),
+) -> dict:
+    """Archive metrics and provenance while excluding generated mesh/render binaries."""
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    added: set[Path] = set()
+    archive_names: list[str] = []
+    with open_deterministic_tar_gz(archive_path) as tar:
+        for source, archive_name_value in extra_files:
+            if not source.is_file():
+                continue
+            archive_name = Path(archive_name_value)
+            before = len(added)
+            add_file_once(tar, source, archive_name, added)
+            if len(added) > before:
+                archive_names.append(archive_name.as_posix())
+
+        if output_root.exists():
+            for result_path in sorted(path for path in output_root.rglob("*") if path.is_file()):
+                if (
+                    result_path.suffix.lower() not in COMPACT_RESULT_SUFFIXES
+                    and result_path.name != "artifact_contact_sheet.png"
+                ):
+                    continue
+                relative_path = result_path.relative_to(output_root)
+                archive_name = Path("output", output_root.name, *relative_path.parts)
+                before = len(added)
+                add_file_once(tar, result_path, archive_name, added)
+                if len(added) > before:
+                    archive_names.append(archive_name.as_posix())
+
+    return {
+        "archive": str(archive_path),
+        "archive_files": len(archive_names),
+        "archive_names": archive_names,
+        "archive_size": archive_path.stat().st_size,
+        "archive_sha256": file_sha256(archive_path),
+    }
 
 
 def colab_path(extract_root: str, archive_name: Path) -> str:
@@ -1231,6 +1275,7 @@ def build_colab_run_script(
     results_summary_path = colab_path(extract_root, Path("results_summary.json"))
     run_log_path = colab_path(extract_root, Path("run_colab_eval.log"))
     results_archive_path = f"/content/{run_name}_results.tar.gz"
+    results_compact_archive_path = f"/content/{run_name}_results_compact.tar.gz"
     stl_ingest_dir = f"/content/{run_name}_stl_first_ingest"
     stl_ingest_json = f"{stl_ingest_dir}/stl_first_ingest_report.json"
     stl_ingest_md = f"{stl_ingest_dir}/stl_first_ingest_report.md"
@@ -1249,6 +1294,7 @@ def build_colab_run_script(
         "OUTPUT_ROOT=\"${OUTPUT_ROOT:-$REPO_DIR/backend/output/completion-benchmark/colab_g4/$RUN_NAME}\"\n"
         f"RESULTS_SUMMARY=\"${{RESULTS_SUMMARY:-{results_summary_path}}}\"\n"
         f"RESULTS_ARCHIVE=\"${{RESULTS_ARCHIVE:-{results_archive_path}}}\"\n"
+        f"RESULTS_COMPACT_ARCHIVE=\"${{RESULTS_COMPACT_ARCHIVE:-{results_compact_archive_path}}}\"\n"
         f"STL_INGEST_DIR=\"${{STL_INGEST_DIR:-{stl_ingest_dir}}}\"\n"
         f"STL_INGEST_JSON=\"${{STL_INGEST_JSON:-{stl_ingest_json}}}\"\n"
         f"STL_INGEST_MD=\"${{STL_INGEST_MD:-{stl_ingest_md}}}\"\n"
@@ -1268,8 +1314,8 @@ def build_colab_run_script(
         "if [[ -z \"$COLAB_MIN_GPU_MEMORY_GB\" ]]; then\n"
         f"  COLAB_MIN_GPU_MEMORY_GB={shell_join([gpu_memory_default])}\n"
         "fi\n"
-        "export ARCHIVE_PATH EXTRACT_ROOT REPO_DIR REPO_REMOTE REPO_REF RUN_NAME RUN_LOG OUTPUT_ROOT RESULTS_SUMMARY RESULTS_ARCHIVE STL_INGEST_DIR STL_INGEST_JSON STL_INGEST_MD MANIFEST_PATH LORA_PATH LORA_ADAPTER_PATH LORA_REPORT_PATH GPU_PREFLIGHT_PATH PREFLIGHT_PATH TRELLIS2_PREFLIGHT_PATH HUNYUAN3D_2MV_PREFLIGHT_PATH COLAB_REQUIRE_GPU_NAME_REGEX COLAB_MIN_GPU_MEMORY_GB\n"
-        "mkdir -p \"$EXTRACT_ROOT\" \"$(dirname \"$RUN_LOG\")\" \"$(dirname \"$RESULTS_SUMMARY\")\" \"$(dirname \"$RESULTS_ARCHIVE\")\" \"$STL_INGEST_DIR\"\n"
+        "export ARCHIVE_PATH EXTRACT_ROOT REPO_DIR REPO_REMOTE REPO_REF RUN_NAME RUN_LOG OUTPUT_ROOT RESULTS_SUMMARY RESULTS_ARCHIVE RESULTS_COMPACT_ARCHIVE STL_INGEST_DIR STL_INGEST_JSON STL_INGEST_MD MANIFEST_PATH LORA_PATH LORA_ADAPTER_PATH LORA_REPORT_PATH GPU_PREFLIGHT_PATH PREFLIGHT_PATH TRELLIS2_PREFLIGHT_PATH HUNYUAN3D_2MV_PREFLIGHT_PATH COLAB_REQUIRE_GPU_NAME_REGEX COLAB_MIN_GPU_MEMORY_GB\n"
+        "mkdir -p \"$EXTRACT_ROOT\" \"$(dirname \"$RUN_LOG\")\" \"$(dirname \"$RESULTS_SUMMARY\")\" \"$(dirname \"$RESULTS_ARCHIVE\")\" \"$(dirname \"$RESULTS_COMPACT_ARCHIVE\")\" \"$STL_INGEST_DIR\"\n"
         "set +e\n"
         "(\n"
         "set -euo pipefail\n"
@@ -1355,6 +1401,7 @@ def build_colab_run_script(
         "python - <<'PY'\n"
         "from datetime import datetime, timezone\n"
         "import csv, json, os, pathlib, subprocess, sys, tarfile\n"
+        "from backend.benchmark.package_colab_inputs import build_compact_results_archive\n"
         "\n"
         "def add_if_exists(tar: tarfile.TarFile, path: pathlib.Path, arcname: str) -> None:\n"
         "    if path.exists():\n"
@@ -1526,6 +1573,7 @@ def build_colab_run_script(
         "hunyuan3d_2mv_preflight = pathlib.Path(os.environ['HUNYUAN3D_2MV_PREFLIGHT_PATH'])\n"
         "summary_path = pathlib.Path(os.environ['RESULTS_SUMMARY'])\n"
         "archive_path = pathlib.Path(os.environ['RESULTS_ARCHIVE'])\n"
+        "compact_archive_path = pathlib.Path(os.environ['RESULTS_COMPACT_ARCHIVE'])\n"
         "stl_ingest_dir = pathlib.Path(os.environ['STL_INGEST_DIR'])\n"
         "stl_ingest_json = pathlib.Path(os.environ['STL_INGEST_JSON'])\n"
         "stl_ingest_md = pathlib.Path(os.environ['STL_INGEST_MD'])\n"
@@ -1560,6 +1608,7 @@ def build_colab_run_script(
         "    'hunyuan3d_2mv_provider_preflight_expected': hunyuan3d_2mv_preflight_expected,\n"
         "    'hunyuan3d_2mv_provider_preflight_summary': hunyuan3d_2mv_preflight_summary,\n"
         "    'results_archive': str(archive_path),\n"
+        "    'results_compact_archive': str(compact_archive_path),\n"
         "    'stl_first_ingest_report': stl_ingest_report,\n"
         "    'orchestrator_result': str(orchestrator_result) if orchestrator_result.exists() else '',\n"
         "    'selection_decisions': [str(path) for path in selection_decisions],\n"
@@ -1567,6 +1616,21 @@ def build_colab_run_script(
         "    'combined_summaries': combined_summaries,\n"
         "}\n"
         "summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + '\\n', encoding='utf-8')\n"
+        "build_compact_results_archive(\n"
+        "    output_root=output_root,\n"
+        "    archive_path=compact_archive_path,\n"
+        "    extra_files=[\n"
+        "        (gpu_preflight, 'gpu_preflight.json'),\n"
+        "        (preflight, 'launch_preflight.json'),\n"
+        "        (trellis2_preflight, 'trellis2_provider_preflight.json'),\n"
+        "        (hunyuan3d_2mv_preflight, 'hunyuan3d_2mv_provider_preflight.json'),\n"
+        "        (run_log, 'run_colab_eval.log'),\n"
+        "        (summary_path, 'results_summary.json'),\n"
+        "        (stl_ingest_json, 'stl_first_ingest_report.json'),\n"
+        "        (stl_ingest_md, 'stl_first_ingest_report.md'),\n"
+        "        (stl_ingest_dir / 'stl_first_ingest.log', 'stl_first_ingest.log'),\n"
+        "    ],\n"
+        ")\n"
         "archive_path.parent.mkdir(parents=True, exist_ok=True)\n"
         "with tarfile.open(archive_path, 'w:gz') as tar:\n"
         "    add_if_exists(tar, gpu_preflight, 'gpu_preflight.json')\n"
@@ -1582,6 +1646,7 @@ def build_colab_run_script(
         "        tar.add(output_root, arcname=f\"output/{output_root.name}\")\n"
         "print(json.dumps(summary, indent=2, sort_keys=True))\n"
         "PY\n"
+        "echo \"Compact results archive: $RESULTS_COMPACT_ARCHIVE\"\n"
         "echo \"Results archive: $RESULTS_ARCHIVE\"\n"
         "exit \"$run_status\"\n"
     )
@@ -1761,10 +1826,12 @@ def build_colab_result_summary_snippet() -> str:
         "    else:\n"
         "        print({'results_summary_missing': str(summary_path)})\n"
         "    archive_candidates = []\n"
-        "    archive_value = summary.get('results_archive') or summary.get('result_archive')\n"
-        "    if archive_value:\n"
-        "        archive_candidates.append(pathlib.Path(archive_value))\n"
-        "    archive_candidates.extend(sorted(pathlib.Path('/content').glob('*results*.tar.gz')))\n"
+        "    for archive_key in ('results_compact_archive', 'results_archive', 'result_archive'):\n"
+        "        archive_value = summary.get(archive_key)\n"
+        "        if archive_value:\n"
+        "            archive_candidates.append(pathlib.Path(archive_value))\n"
+        "    if not archive_candidates:\n"
+        "        archive_candidates.extend(sorted(pathlib.Path('/content').glob('*results*.tar.gz')))\n"
         "    seen = set()\n"
         "    archives = []\n"
         "    for archive in archive_candidates:\n"
