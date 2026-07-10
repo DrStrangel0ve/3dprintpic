@@ -612,6 +612,8 @@ def run_eval_slices(
             command.extend(["--contact-sheet-methods", args.contact_sheet_methods])
         if args.require_modern_cache:
             command.append("--require-modern-cache")
+        if args.require_image_to_mesh_providers:
+            command.append("--require-image-to-mesh-providers")
         if args.allow_missing_split_audit:
             command.append("--allow-missing-split-audit")
         logger.run(command, cwd=repo_root)
@@ -702,6 +704,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-download-mode", choices=("files", "snapshot"), default="snapshot")
     parser.add_argument("--cache-max-workers", type=int, default=8)
     parser.add_argument("--require-modern-cache", action="store_true")
+    parser.add_argument(
+        "--require-image-to-mesh-providers",
+        action="store_true",
+        help="Fail eval slices before sample work if any direct image-to-mesh provider command is not runnable.",
+    )
 
     parser.add_argument("--train-start", type=int, default=0)
     parser.add_argument("--train-limit", type=int, default=40)

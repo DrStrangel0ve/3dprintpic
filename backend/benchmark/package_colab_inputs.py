@@ -496,6 +496,7 @@ def build_colab_run_script(
     current_method: str | None,
     train_steps: int,
     require_modern_cache: bool,
+    require_image_to_mesh_providers: bool,
     cache_download_mode: str,
     cache_max_workers: int,
     max_method_failures: int,
@@ -567,6 +568,8 @@ def build_colab_run_script(
         command.extend(["--eval-start", str(start)])
     if require_modern_cache:
         command.append("--require-modern-cache")
+    if require_image_to_mesh_providers:
+        command.append("--require-image-to-mesh-providers")
     if allow_missing_split_audit:
         command.append("--allow-missing-split-audit")
     if contact_sheet_methods:
@@ -726,17 +729,32 @@ def build_colab_run_script(
         "    ranked = path / 'ranked_experiments.csv'\n"
         "    selection = path / 'selection_decision.json'\n"
         "    contact_sheet = path / 'artifact_contact_sheet.png'\n"
+        "    image_to_mesh_preflight = path / 'image_to_mesh_provider_preflight.json'\n"
         "    aggregate_rows = read_csv_rows(aggregate)\n"
         "    ranked_rows = read_csv_rows(ranked)\n"
         "    selection_json = read_json_object(selection)\n"
+        "    image_to_mesh_preflight_json = read_json_object(image_to_mesh_preflight)\n"
         "    digest = {\n"
         "        'path': str(path),\n"
         "        'aggregate_summary_exists': aggregate.exists(),\n"
         "        'ranked_experiments_exists': ranked.exists(),\n"
         "        'selection_decision_exists': selection.exists(),\n"
         "        'contact_sheet_exists': contact_sheet.exists(),\n"
+        "        'image_to_mesh_provider_preflight_exists': image_to_mesh_preflight.exists(),\n"
         "        'methods': compact_methods(ranked_rows or aggregate_rows),\n"
         "    }\n"
+        "    if image_to_mesh_preflight_json:\n"
+        "        rows = image_to_mesh_preflight_json.get('rows') or []\n"
+        "        digest['image_to_mesh_provider_readiness'] = [\n"
+        "            {\n"
+        "                'provider': row.get('provider', ''),\n"
+        "                'readiness': row.get('readiness', ''),\n"
+        "                'runnable': row.get('runnable', False),\n"
+        "                'experiment_names': row.get('experiment_names', []),\n"
+        "                'setup_errors': row.get('setup_errors', []),\n"
+        "            }\n"
+        "            for row in rows\n"
+        "        ]\n"
         "    if ranked_rows:\n"
         "        top = ranked_rows[0]\n"
         "        digest['top_method'] = top.get('method', '')\n"
@@ -1055,6 +1073,7 @@ def package_inputs(
     current_method: str | None = "mirror",
     train_steps: int = 20,
     require_modern_cache: bool = True,
+    require_image_to_mesh_providers: bool = False,
     cache_download_mode: str = "snapshot",
     cache_max_workers: int = 8,
     max_method_failures: int = 2,
@@ -1134,6 +1153,7 @@ def package_inputs(
                 current_method=current_method,
                 train_steps=train_steps,
                 require_modern_cache=require_modern_cache,
+                require_image_to_mesh_providers=require_image_to_mesh_providers,
                 cache_download_mode=cache_download_mode,
                 cache_max_workers=cache_max_workers,
                 max_method_failures=max_method_failures,
@@ -1171,6 +1191,7 @@ def package_inputs(
         "cache_providers": cache_provider_list,
         "skip_cache": skip_cache,
         "cache_full": cache_full,
+        "require_image_to_mesh_providers": require_image_to_mesh_providers,
         "cache_download_mode": cache_download_mode,
         "cache_max_workers": cache_max_workers,
         "max_method_failures": max_method_failures,
@@ -1274,6 +1295,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--current-method", default="mirror")
     parser.add_argument("--train-steps", type=int, default=20)
     parser.add_argument("--no-require-modern-cache", action="store_true")
+    parser.add_argument(
+        "--require-image-to-mesh-providers",
+        action="store_true",
+        help="Pass --require-image-to-mesh-providers to the Colab eval orchestrator.",
+    )
     parser.add_argument("--cache-download-mode", choices=("files", "snapshot"), default="snapshot")
     parser.add_argument("--cache-max-workers", type=int, default=8)
     parser.add_argument("--max-method-failures", type=int, default=2)
@@ -1359,6 +1385,7 @@ def main() -> None:
         current_method=args.current_method,
         train_steps=args.train_steps,
         require_modern_cache=not args.no_require_modern_cache,
+        require_image_to_mesh_providers=args.require_image_to_mesh_providers,
         cache_download_mode=args.cache_download_mode,
         cache_max_workers=args.cache_max_workers,
         max_method_failures=args.max_method_failures,

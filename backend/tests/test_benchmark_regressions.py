@@ -2475,6 +2475,7 @@ class ColabG4OrchestratorRegressionTests(unittest.TestCase):
                     "triposr_api_masked_repaired_direct_mesh",
                     "--current-method",
                     "mirror",
+                    "--require-image-to-mesh-providers",
                     "--allow-missing-split-audit",
                 ],
             ):
@@ -2498,6 +2499,7 @@ class ColabG4OrchestratorRegressionTests(unittest.TestCase):
         )
         self.assertIn("--current-method", first_eval_command)
         self.assertEqual(first_eval_command[first_eval_command.index("--current-method") + 1], "mirror")
+        self.assertIn("--require-image-to-mesh-providers", first_eval_command)
         self.assertIn("--candidate-method", combine_command)
         self.assertEqual(
             combine_command[combine_command.index("--candidate-method") + 1],
@@ -2718,6 +2720,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                 eval_limit=10,
                 candidate_method="dreamshaper_weighted_lora",
                 current_method="mirror",
+                require_image_to_mesh_providers=True,
             )
             with tarfile.open(archive, "r:gz") as tar:
                 names = set(tar.getnames())
@@ -2732,6 +2735,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertEqual(report["run_script_in_archive"], "run_colab_eval.sh")
         self.assertEqual(report["run_script"], str(run_script))
         self.assertEqual(report["max_method_failures"], 2)
+        self.assertTrue(report["require_image_to_mesh_providers"])
         self.assertEqual(report["candidate_method"], "dreamshaper_weighted_lora")
         self.assertEqual(report["current_method"], "mirror")
         self.assertIn("inputs/files/backend/output/completion-benchmark/modelnet/sample_full.png", names)
@@ -2759,6 +2763,8 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("eval_summaries", archive_run_script)
         self.assertIn("combined_summaries", archive_run_script)
         self.assertIn("summarize_benchmark_dir", archive_run_script)
+        self.assertIn("image_to_mesh_provider_preflight_exists", archive_run_script)
+        self.assertIn("image_to_mesh_provider_readiness", archive_run_script)
         self.assertIn("'methods': compact_methods(ranked_rows or aggregate_rows)", archive_run_script)
         self.assertIn("'stl_mode'", archive_run_script)
         self.assertIn("'mesh_surface_chamfer_l1_median'", archive_run_script)
@@ -2774,6 +2780,7 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("--eval-start 40", archive_run_script)
         self.assertIn("--eval-start 50", archive_run_script)
         self.assertIn("--max-method-failures 2", archive_run_script)
+        self.assertIn("--require-image-to-mesh-providers", archive_run_script)
         self.assertIn("--candidate-method dreamshaper_weighted_lora", archive_run_script)
         self.assertIn("--current-method mirror", archive_run_script)
         self.assertIn("--manifest /content/inputs/modelnet/inputs/manifest.jsonl", archive_run_script)
