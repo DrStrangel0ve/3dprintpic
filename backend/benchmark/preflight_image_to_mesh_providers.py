@@ -12,12 +12,16 @@ from pathlib import Path
 from backend.benchmark.run_image_to_mesh_provider import (
     CLI_PROVIDERS,
     HUNYUAN3D_SHAPE_PROVIDER,
+    MULTIVIEW_VISUAL_HULL_PROVIDER,
     PROVIDERS,
     SOURCE_MESH_BUNDLE_ORACLE_PROVIDER,
     TRIPOSR_API_PROVIDER,
     provider_dir_config_key,
     resolve_provider_dir,
 )
+
+
+BUILTIN_PROVIDERS = {SOURCE_MESH_BUNDLE_ORACLE_PROVIDER, MULTIVIEW_VISUAL_HULL_PROVIDER}
 
 
 def command_exists(executable: str | None) -> bool:
@@ -112,7 +116,7 @@ def provider_preflight_row(parsed: dict, experiment_names: list[str] | None = No
 
     provider_dir = None
     provider_dir_resolved = False
-    if provider == SOURCE_MESH_BUNDLE_ORACLE_PROVIDER:
+    if provider in BUILTIN_PROVIDERS:
         provider_dir_resolved = True
     elif provider in CLI_PROVIDERS or provider == TRIPOSR_API_PROVIDER:
         try:

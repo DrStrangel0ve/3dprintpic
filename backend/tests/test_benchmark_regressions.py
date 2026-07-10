@@ -1686,6 +1686,88 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
 
+    def test_multiview_visual_hull_provider_exports_printable_stl(self):
+        import trimesh
+        from backend.benchmark.mesh_rendering import CameraSpec, RenderConfig, render_mesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            mesh = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
+            config = RenderConfig(size=48)
+            views = []
+            for index, camera in enumerate(
+                [
+                    CameraSpec(azimuth_deg=0.0, elevation_deg=0.0),
+                    CameraSpec(azimuth_deg=90.0, elevation_deg=0.0),
+                    CameraSpec(azimuth_deg=0.0, elevation_deg=90.0),
+                ]
+            ):
+                result = render_mesh(mesh, camera=camera, config=config, base_color=(120, 150, 180))
+                image_path = root / f"view{index}.png"
+                mask_path = root / f"view{index}_mask.png"
+                Image.fromarray(np.clip(result.rgb * 255, 0, 255).astype(np.uint8)).save(image_path)
+                Image.fromarray(result.silhouette.astype(np.uint8) * 255).save(mask_path)
+                views.append(
+                    {
+                        "index": index,
+                        "sample_id": f"box_v{index}",
+                        "image": str(image_path),
+                        "mask": str(mask_path),
+                        "camera": camera.to_dict(),
+                    }
+                )
+
+            bundle_path = root / "multiview_input.json"
+            output_mesh = root / "visual_hull.ply"
+            output_stl = root / "visual_hull.stl"
+            bundle_path.write_text(
+                json.dumps(
+                    {
+                        "sample_id": "box",
+                        "primary_image": views[0]["image"],
+                        "views": views,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "run_image_to_mesh_provider",
+                    "--provider",
+                    "multiview-visual-hull",
+                    "--input-image",
+                    views[0]["image"],
+                    "--input-bundle",
+                    str(bundle_path),
+                    "--output-mesh",
+                    str(output_mesh),
+                    "--output-stl",
+                    str(output_stl),
+                    "--visual-hull-resolution",
+                    "24",
+                    "--visual-hull-mask-dilate",
+                    "0",
+                    "--mesh-repair",
+                    "printable",
+                ],
+            ):
+                run_image_to_mesh_provider_main()
+
+            diagnostics = stl_diagnostics(output_stl)
+            output_mesh_exists = output_mesh.exists()
+            output_stl_exists = output_stl.exists()
+
+        self.assertTrue(output_mesh_exists)
+        self.assertTrue(output_stl_exists)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_is_volume"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
+        self.assertTrue(diagnostics["stl_bbox_has_volume"])
+
     def test_hunyuan3d_shape_provider_retries_after_partial_model_cache(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1850,10 +1932,15 @@ class StlExportRegressionTests(unittest.TestCase):
             include_hunyuan3d_shape=True,
             include_triposg=True,
             include_source_multiview_oracle=True,
+            include_visual_hull_multiview=True,
             multiview_command='python mv.py "{input_bundle}" "{output_mesh}" "{output_stl}"',
             multiview_name="mv_recon",
             multiview_primary_input="masked",
             multiview_output_ext="ply",
+            visual_hull_resolution=40,
+            visual_hull_grid_extent=1.7,
+            visual_hull_ortho_scale=2.0,
+            visual_hull_mask_dilate=2,
             provider_python="python",
             provider_device="cuda",
             triposr_python="/content/triposr-venv/bin/python",
@@ -1929,6 +2016,13 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertEqual(by_name["source_mesh_bundle_multiview_oracle"]["stl_mode"], "multiview-mesh")
         self.assertIn("--provider source-mesh-bundle-oracle", by_name["source_mesh_bundle_multiview_oracle"]["direct_mesh_command"])
         self.assertIn("--input-bundle \"{input_bundle}\"", by_name["source_mesh_bundle_multiview_oracle"]["direct_mesh_command"])
+        self.assertEqual(by_name["visual_hull_multiview_repaired_mesh"]["method"], "external-multiview-to-mesh")
+        self.assertEqual(by_name["visual_hull_multiview_repaired_mesh"]["stl_mode"], "multiview-mesh")
+        self.assertIn("--provider multiview-visual-hull", by_name["visual_hull_multiview_repaired_mesh"]["direct_mesh_command"])
+        self.assertIn("--input-bundle \"{input_bundle}\"", by_name["visual_hull_multiview_repaired_mesh"]["direct_mesh_command"])
+        self.assertIn("--visual-hull-resolution 40", by_name["visual_hull_multiview_repaired_mesh"]["direct_mesh_command"])
+        self.assertIn("--visual-hull-mask-dilate 2", by_name["visual_hull_multiview_repaired_mesh"]["direct_mesh_command"])
+        self.assertIn("--mesh-repair printable", by_name["visual_hull_multiview_repaired_mesh"]["direct_mesh_command"])
         self.assertEqual(by_name["mv_recon"]["method"], "external-multiview-to-mesh")
         self.assertEqual(by_name["mv_recon"]["stl_mode"], "multiview-mesh")
         self.assertIn("{input_bundle}", by_name["mv_recon"]["direct_mesh_command"])
@@ -4209,6 +4303,23 @@ class OptimizeCompletionRegressionTests(unittest.TestCase):
         self.assertEqual(row["experiment_names"], ["triposg_candidate"])
         self.assertTrue(row["checks"]["entrypoint_found"])
         self.assertEqual(row["checks"]["entrypoint"], "scripts/inference_triposg.py")
+
+    def test_image_to_mesh_provider_preflight_accepts_builtin_visual_hull(self):
+        command = (
+            f'"{sys.executable}" -m backend.benchmark.run_image_to_mesh_provider '
+            '--provider multiview-visual-hull --input-image "{input_image}" '
+            '--input-bundle "{input_bundle}" --output-mesh "{output_mesh}" --output-stl "{output_stl}"'
+        )
+
+        parsed = parse_provider_command(command)
+        self.assertIsNotNone(parsed)
+        row = provider_preflight_row(parsed, experiment_names=["visual_hull"])
+
+        self.assertEqual(parsed["provider"], "multiview-visual-hull")
+        self.assertEqual(row["readiness"], "ready")
+        self.assertTrue(row["runnable"])
+        self.assertEqual(row["experiment_names"], ["visual_hull"])
+        self.assertTrue(row["checks"]["provider_dir_resolved"])
 
     def test_image_to_mesh_provider_preflight_report_can_fail_fast(self):
         def fake_preflight(_experiments):

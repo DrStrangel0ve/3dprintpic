@@ -29,6 +29,7 @@ DEFAULT_TRIPOSR_DIR = "/content/TripoSR"
 DEFAULT_TRIPOSG_PYTHON = "/content/triposg-venv/bin/python"
 DEFAULT_TRIPOSG_DIR = "/content/TripoSG"
 SOURCE_MULTIVIEW_ORACLE_NAME = "source_mesh_bundle_multiview_oracle"
+VISUAL_HULL_MULTIVIEW_NAME = "visual_hull_multiview_repaired_mesh"
 
 
 def utc_now() -> str:
@@ -186,6 +187,35 @@ def source_multiview_oracle_command(args: argparse.Namespace) -> str:
     )
 
 
+def visual_hull_multiview_command(args: argparse.Namespace) -> str:
+    return image_to_mesh_command(
+        python=args.provider_python,
+        provider="multiview-visual-hull",
+        provider_dir=None,
+        provider_device=args.provider_device,
+        timeout=args.direct_mesh_timeout,
+        output_mesh_repair=args.mesh_repair,
+        output_mesh_raw=True,
+        raw_output_ext="ply",
+        mesh_target_max_dimension=getattr(args, "mesh_target_max_dimension", 0.0),
+        mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0),
+        mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
+        mesh_target_faces=getattr(args, "mesh_target_faces", 0),
+        output_extra=[
+            "--input-bundle",
+            '"{input_bundle}"',
+            "--visual-hull-resolution",
+            str(args.visual_hull_resolution),
+            "--visual-hull-grid-extent",
+            str(args.visual_hull_grid_extent),
+            "--visual-hull-ortho-scale",
+            str(args.visual_hull_ortho_scale),
+            "--visual-hull-mask-dilate",
+            str(args.visual_hull_mask_dilate),
+        ],
+    )
+
+
 def build_experiments(args: argparse.Namespace) -> list[dict]:
     experiments = [
         {"name": "masked", "method": "masked", "stl_mode": STL_MODE_DEPTH_RELIEF},
@@ -277,6 +307,20 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                 "direct_mesh_output_ext": "ply",
                 "direct_mesh_timeout": args.direct_mesh_timeout,
                 "direct_mesh_command": source_multiview_oracle_command(args),
+            }
+        )
+    if getattr(args, "include_visual_hull_multiview", False):
+        experiments.append(
+            {
+                "name": VISUAL_HULL_MULTIVIEW_NAME,
+                "method": "external-multiview-to-mesh",
+                "stl_mode": STL_MODE_MULTIVIEW_MESH,
+                "skip_depth": True,
+                "emit_stl": True,
+                "direct_mesh_input": args.multiview_primary_input,
+                "direct_mesh_output_ext": "ply",
+                "direct_mesh_timeout": args.direct_mesh_timeout,
+                "direct_mesh_command": visual_hull_multiview_command(args),
             }
         )
     if args.multiview_command:
@@ -576,6 +620,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mesh-sample-strategy", choices=("random", "balanced"), default="balanced")
     parser.add_argument("--include-source-oracle", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--include-source-multiview-oracle", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--include-visual-hull-multiview", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--include-triposr-api", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--include-hunyuan3d-shape", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--include-raw-direct-mesh", action=argparse.BooleanOptionalAction, default=False)
@@ -649,6 +694,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--multiview-name", default="external_multiview_reconstruction")
     parser.add_argument("--multiview-primary-input", choices=("masked", "full", "mirror", "biharmonic"), default="masked")
     parser.add_argument("--multiview-output-ext", default="glb")
+    parser.add_argument("--visual-hull-resolution", type=int, default=64)
+    parser.add_argument("--visual-hull-grid-extent", type=float, default=1.8)
+    parser.add_argument("--visual-hull-ortho-scale", type=float, default=2.0)
+    parser.add_argument("--visual-hull-mask-dilate", type=int, default=1)
     parser.add_argument("--start-index", type=int, default=0)
     parser.add_argument("--limit", type=int, default=2)
     parser.add_argument("--depth-provider", default="depth-anything-v2")

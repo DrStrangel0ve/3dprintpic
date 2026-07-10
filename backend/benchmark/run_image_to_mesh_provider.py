@@ -13,7 +13,7 @@ import types
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from backend.benchmark.direct_mesh import (
     MESH_REPAIR_MODES,
@@ -21,7 +21,7 @@ from backend.benchmark.direct_mesh import (
     postprocess_mesh_for_stl,
     repair_mesh_for_printable_stl,
 )
-from backend.benchmark.mesh_rendering import load_mesh, mesh_in_render_frame
+from backend.benchmark.mesh_rendering import camera_transform, load_mesh, mesh_in_render_frame
 
 
 MESH_EXTENSIONS = (".glb", ".gltf", ".obj", ".ply", ".stl")
@@ -29,6 +29,7 @@ MESH_EXTENSION_PRIORITY = {".glb": 5, ".gltf": 4, ".obj": 3, ".ply": 2, ".stl": 
 TRIPOSR_API_PROVIDER = "triposr-api"
 HUNYUAN3D_SHAPE_PROVIDER = "hunyuan3d-shape"
 SOURCE_MESH_BUNDLE_ORACLE_PROVIDER = "source-mesh-bundle-oracle"
+MULTIVIEW_VISUAL_HULL_PROVIDER = "multiview-visual-hull"
 DEFAULT_TRIPOSR_MODEL = "stabilityai/TripoSR"
 DEFAULT_HUNYUAN3D_MODEL = "tencent/Hunyuan3D-2.1"
 
@@ -72,7 +73,15 @@ CLI_PROVIDERS = {
 }
 
 PROVIDERS = tuple(
-    sorted((*CLI_PROVIDERS, TRIPOSR_API_PROVIDER, HUNYUAN3D_SHAPE_PROVIDER, SOURCE_MESH_BUNDLE_ORACLE_PROVIDER))
+    sorted(
+        (
+            *CLI_PROVIDERS,
+            TRIPOSR_API_PROVIDER,
+            HUNYUAN3D_SHAPE_PROVIDER,
+            SOURCE_MESH_BUNDLE_ORACLE_PROVIDER,
+            MULTIVIEW_VISUAL_HULL_PROVIDER,
+        )
+    )
 )
 
 
@@ -350,6 +359,123 @@ def run_source_mesh_bundle_oracle(args: argparse.Namespace) -> Path:
     return args.output_mesh
 
 
+def _resolve_bundle_path(value: str | None, bundle_path: Path) -> Path | None:
+    if not value:
+        return None
+    raw = Path(str(value))
+    candidates = [raw] if raw.is_absolute() else [bundle_path.parent / raw, Path.cwd() / raw, raw]
+    return next((candidate for candidate in candidates if candidate.exists()), None)
+
+
+def _derive_silhouette_from_image(image_path: Path) -> np.ndarray:
+    image = Image.open(image_path)
+    if image.mode == "RGBA":
+        alpha = np.asarray(image.getchannel("A"), dtype=np.uint8)
+        return alpha > 127
+    rgb = np.asarray(image.convert("RGB"), dtype=np.float32)
+    corners = np.concatenate(
+        [
+            rgb[:3, :3].reshape(-1, 3),
+            rgb[:3, -3:].reshape(-1, 3),
+            rgb[-3:, :3].reshape(-1, 3),
+            rgb[-3:, -3:].reshape(-1, 3),
+        ],
+        axis=0,
+    )
+    background = np.median(corners, axis=0)
+    distance = np.linalg.norm(rgb - background, axis=2)
+    return distance > max(8.0, float(np.percentile(distance, 70)) * 0.35)
+
+
+def _load_view_silhouette(view: dict, bundle_path: Path, dilate: int) -> tuple[np.ndarray, tuple[int, int]]:
+    mask_path = _resolve_bundle_path(view.get("mask"), bundle_path)
+    image_path = _resolve_bundle_path(view.get("image"), bundle_path)
+    if mask_path is not None:
+        mask_image = Image.open(mask_path).convert("L")
+        if dilate > 0:
+            mask_image = mask_image.filter(ImageFilter.MaxFilter(2 * int(dilate) + 1))
+        mask = np.asarray(mask_image, dtype=np.uint8) > 127
+    elif image_path is not None:
+        mask = _derive_silhouette_from_image(image_path)
+        if dilate > 0:
+            mask_image = Image.fromarray(mask.astype(np.uint8) * 255, mode="L")
+            mask_image = mask_image.filter(ImageFilter.MaxFilter(2 * int(dilate) + 1))
+            mask = np.asarray(mask_image, dtype=np.uint8) > 127
+    else:
+        raise FileNotFoundError(f"Multiview visual hull view has neither mask nor image path: {view}")
+    height, width = mask.shape
+    if not np.any(mask):
+        raise ValueError(f"Multiview visual hull view mask is empty: {mask_path or image_path}")
+    return mask, (height, width)
+
+
+def run_multiview_visual_hull(args: argparse.Namespace) -> Path:
+    if not args.input_bundle:
+        raise ValueError("--input-bundle is required for multiview-visual-hull")
+    bundle_path = Path(args.input_bundle)
+    if not bundle_path.exists():
+        raise FileNotFoundError(f"Input bundle does not exist: {bundle_path}")
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    views = bundle.get("views") or []
+    if not views:
+        raise ValueError(f"Multiview bundle has no views: {bundle_path}")
+
+    resolution = max(8, int(args.visual_hull_resolution))
+    extent = float(args.visual_hull_grid_extent)
+    if not math.isfinite(extent) or extent <= 0:
+        raise ValueError("--visual-hull-grid-extent must be positive")
+    half_extent = extent / 2.0
+    axis = np.linspace(-half_extent, half_extent, resolution, dtype=np.float32)
+    grid_x, grid_y, grid_z = np.meshgrid(axis, axis, axis, indexing="ij")
+    points = np.column_stack(
+        [
+            grid_x.ravel(),
+            grid_y.ravel(),
+            grid_z.ravel(),
+            np.ones(grid_x.size, dtype=np.float32),
+        ]
+    )
+    occupied = np.ones(points.shape[0], dtype=bool)
+    ortho_scale = float(args.visual_hull_ortho_scale)
+    if not math.isfinite(ortho_scale) or ortho_scale <= 0:
+        raise ValueError("--visual-hull-ortho-scale must be positive")
+
+    usable_views = 0
+    for view in views:
+        mask, (height, width) = _load_view_silhouette(view, bundle_path, args.visual_hull_mask_dilate)
+        transform = camera_transform(view.get("camera") or {})
+        projected = (transform @ points.T).T[:, :3]
+        px = np.rint((projected[:, 0] / ortho_scale + 0.5) * (width - 1)).astype(np.int32)
+        py = np.rint((1.0 - (projected[:, 1] / ortho_scale + 0.5)) * (height - 1)).astype(np.int32)
+        inside = (px >= 0) & (px < width) & (py >= 0) & (py < height)
+        visible = np.zeros(points.shape[0], dtype=bool)
+        visible[inside] = mask[py[inside], px[inside]]
+        occupied &= visible
+        usable_views += 1
+
+    volume = occupied.reshape((resolution, resolution, resolution))
+    if usable_views == 0 or not np.any(volume):
+        raise ValueError(f"Visual hull carving produced no occupied voxels from {len(views)} views")
+    if np.all(volume):
+        raise ValueError("Visual hull filled the entire grid; increase --visual-hull-grid-extent")
+
+    from skimage.measure import marching_cubes
+    import trimesh
+
+    padded = np.pad(volume.astype(np.float32), 1, mode="constant", constant_values=0.0)
+    vertices, faces, _normals, _values = marching_cubes(padded, level=0.5)
+    spacing = extent / max(1, resolution - 1)
+    vertices = (vertices - 1.0) * spacing - half_extent
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=True)
+    if not len(mesh.vertices) or not len(mesh.faces):
+        raise ValueError("Visual hull mesh has no triangles")
+    trimesh.repair.fix_normals(mesh)
+    trimesh.repair.fix_winding(mesh)
+    args.output_mesh.parent.mkdir(parents=True, exist_ok=True)
+    mesh.export(args.output_mesh)
+    return args.output_mesh
+
+
 def add_hunyuan_provider_paths(args: argparse.Namespace) -> None:
     provider_dir_value = args.provider_dir or os.environ.get("HUNYUAN3D_DIR")
     if provider_dir_value:
@@ -484,6 +610,8 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
         output_mesh = run_hunyuan_shape(args)
     elif args.provider == SOURCE_MESH_BUNDLE_ORACLE_PROVIDER:
         output_mesh = run_source_mesh_bundle_oracle(args)
+    elif args.provider == MULTIVIEW_VISUAL_HULL_PROVIDER:
+        output_mesh = run_multiview_visual_hull(args)
     else:
         raise ValueError(f"Unsupported provider: {args.provider}")
 
@@ -622,6 +750,10 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=None, help="Optional Hunyuan3D generator seed.")
     parser.add_argument("--mc-algo", default=None, help="Optional Hunyuan3D surface extraction algorithm.")
     parser.add_argument("--disable-progress", action="store_true", help="Disable provider progress bars in logs.")
+    parser.add_argument("--visual-hull-resolution", type=int, default=64)
+    parser.add_argument("--visual-hull-grid-extent", type=float, default=1.8)
+    parser.add_argument("--visual-hull-ortho-scale", type=float, default=2.0)
+    parser.add_argument("--visual-hull-mask-dilate", type=int, default=1)
     parser.add_argument(
         "--prefetch-only",
         action="store_true",
