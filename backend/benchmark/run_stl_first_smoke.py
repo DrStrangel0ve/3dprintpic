@@ -30,6 +30,11 @@ DEFAULT_TRIPOSG_PYTHON = "/content/triposg-venv/bin/python"
 DEFAULT_TRIPOSG_DIR = "/content/TripoSG"
 SOURCE_MULTIVIEW_ORACLE_NAME = "source_mesh_bundle_multiview_oracle"
 VISUAL_HULL_MULTIVIEW_NAME = "visual_hull_multiview_repaired_mesh"
+MESH_TARGET_BBOX_PLACEHOLDERS = {
+    "source": "{source_bbox_extents}",
+    "mirror": "{mirror_bbox_extents}",
+    "reference": "{reference_bbox_extents}",
+}
 
 
 def utc_now() -> str:
@@ -55,6 +60,7 @@ def image_to_mesh_command(
     mesh_target_max_dimension: float = 0.0,
     mesh_min_bbox_dimension: float = 0.0,
     mesh_max_bbox_aspect_ratio: float = 0.0,
+    mesh_target_bbox_source: str = "none",
     mesh_target_faces: int = 0,
     output_extra: list[str] | None = None,
 ) -> str:
@@ -88,10 +94,27 @@ def image_to_mesh_command(
         command.extend(["--mesh-min-bbox-dimension", str(mesh_min_bbox_dimension)])
     if mesh_max_bbox_aspect_ratio > 0:
         command.extend(["--mesh-max-bbox-aspect-ratio", str(mesh_max_bbox_aspect_ratio)])
+    bbox_placeholder = MESH_TARGET_BBOX_PLACEHOLDERS.get(mesh_target_bbox_source)
+    if bbox_placeholder:
+        command.extend(["--mesh-target-bbox-extents", f'"{bbox_placeholder}"'])
     if mesh_target_faces > 0:
         command.extend(["--mesh-target-faces", str(mesh_target_faces)])
     command.extend(output_extra or [])
     return " ".join(command)
+
+
+def direct_mesh_name_suffix(args: argparse.Namespace) -> str:
+    bbox_source = getattr(args, "mesh_target_bbox_source", "none") or "none"
+    if bbox_source == "none":
+        return "_direct_mesh"
+    return f"_stl_{bbox_source}_bbox_direct_mesh"
+
+
+def direct_mesh_reference_fields(args: argparse.Namespace) -> dict:
+    bbox_source = getattr(args, "mesh_target_bbox_source", "none") or "none"
+    if bbox_source == "none":
+        return {}
+    return {"direct_mesh_reference_method": getattr(args, "direct_mesh_reference_method", "mirror")}
 
 
 def triposr_api_command(args: argparse.Namespace, repaired: bool) -> str:
@@ -107,6 +130,7 @@ def triposr_api_command(args: argparse.Namespace, repaired: bool) -> str:
         mesh_target_max_dimension=getattr(args, "mesh_target_max_dimension", 0.0),
         mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0),
         mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
+        mesh_target_bbox_source=getattr(args, "mesh_target_bbox_source", "none"),
         mesh_target_faces=getattr(args, "mesh_target_faces", 0),
         output_extra=["--chunk-size", str(args.chunk_size), "--mc-resolution", str(args.mc_resolution)],
     )
@@ -138,6 +162,7 @@ def hunyuan3d_command(args: argparse.Namespace, repaired: bool) -> str:
         mesh_target_max_dimension=getattr(args, "mesh_target_max_dimension", 0.0),
         mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0),
         mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
+        mesh_target_bbox_source=getattr(args, "mesh_target_bbox_source", "none"),
         mesh_target_faces=getattr(args, "mesh_target_faces", 0),
         output_extra=hunyuan_extra,
     )
@@ -164,6 +189,7 @@ def triposg_command(args: argparse.Namespace, repaired: bool) -> str:
         mesh_target_max_dimension=getattr(args, "mesh_target_max_dimension", 0.0),
         mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0),
         mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
+        mesh_target_bbox_source=getattr(args, "mesh_target_bbox_source", "none"),
         mesh_target_faces=getattr(args, "mesh_target_faces", 0),
         output_extra=triposg_extra,
     )
@@ -182,6 +208,7 @@ def source_multiview_oracle_command(args: argparse.Namespace) -> str:
         mesh_target_max_dimension=getattr(args, "mesh_target_max_dimension", 0.0),
         mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0),
         mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
+        mesh_target_bbox_source=getattr(args, "mesh_target_bbox_source", "none"),
         mesh_target_faces=getattr(args, "mesh_target_faces", 0),
         output_extra=["--input-bundle", '"{input_bundle}"'],
     )
@@ -200,6 +227,7 @@ def visual_hull_multiview_command(args: argparse.Namespace) -> str:
         mesh_target_max_dimension=getattr(args, "mesh_target_max_dimension", 0.0),
         mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0),
         mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
+        mesh_target_bbox_source=getattr(args, "mesh_target_bbox_source", "none"),
         mesh_target_faces=getattr(args, "mesh_target_faces", 0),
         output_extra=[
             "--input-bundle",
@@ -217,6 +245,8 @@ def visual_hull_multiview_command(args: argparse.Namespace) -> str:
 
 
 def build_experiments(args: argparse.Namespace) -> list[dict]:
+    direct_suffix = direct_mesh_name_suffix(args)
+    reference_fields = direct_mesh_reference_fields(args)
     experiments = [
         {"name": "masked", "method": "masked", "stl_mode": STL_MODE_DEPTH_RELIEF},
         {"name": "mirror", "method": "mirror", "stl_mode": STL_MODE_DEPTH_RELIEF},
@@ -239,7 +269,7 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
         if args.include_raw_direct_mesh:
             experiments.append(
                 {
-                    "name": "triposr_api_masked_direct_mesh",
+                    "name": f"triposr_api_masked{direct_suffix}",
                     "method": "external-image-to-mesh",
                     "stl_mode": STL_MODE_SINGLE_IMAGE_MESH,
                     "skip_depth": True,
@@ -248,13 +278,14 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                     "direct_mesh_output_ext": "obj",
                     "direct_mesh_timeout": args.direct_mesh_timeout,
                     "direct_mesh_command": triposr_api_command(args, repaired=False),
+                    **reference_fields,
                 }
             )
         for direct_input in args.triposr_direct_inputs:
             input_suffix = "masked" if direct_input == "masked" else f"{direct_input}_prefill"
             experiments.append(
                 {
-                    "name": f"triposr_api_{input_suffix}_repaired_direct_mesh",
+                    "name": f"triposr_api_{input_suffix}_repaired{direct_suffix}",
                     "method": "external-image-to-mesh",
                     "stl_mode": STL_MODE_SINGLE_IMAGE_MESH,
                     "skip_depth": True,
@@ -263,12 +294,13 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                     "direct_mesh_output_ext": "obj",
                     "direct_mesh_timeout": args.direct_mesh_timeout,
                     "direct_mesh_command": triposr_api_command(args, repaired=True),
+                    **reference_fields,
                 }
             )
     if args.include_hunyuan3d_shape:
         experiments.append(
             {
-                "name": "hunyuan3d_shape_masked_repaired_direct_mesh",
+                "name": f"hunyuan3d_shape_masked_repaired{direct_suffix}",
                 "method": "external-image-to-mesh",
                 "stl_mode": STL_MODE_SINGLE_IMAGE_MESH,
                 "skip_depth": True,
@@ -277,6 +309,7 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                 "direct_mesh_output_ext": "glb",
                 "direct_mesh_timeout": args.direct_mesh_timeout,
                 "direct_mesh_command": hunyuan3d_command(args, repaired=True),
+                **reference_fields,
             }
         )
     if getattr(args, "include_triposg", False):
@@ -284,7 +317,7 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
             input_suffix = "masked" if direct_input == "masked" else f"{direct_input}_prefill"
             experiments.append(
                 {
-                    "name": f"triposg_{input_suffix}_repaired_direct_mesh",
+                    "name": f"triposg_{input_suffix}_repaired{direct_suffix}",
                     "method": "external-image-to-mesh",
                     "stl_mode": STL_MODE_SINGLE_IMAGE_MESH,
                     "skip_depth": True,
@@ -293,6 +326,7 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                     "direct_mesh_output_ext": "glb",
                     "direct_mesh_timeout": args.direct_mesh_timeout,
                     "direct_mesh_command": triposg_command(args, repaired=True),
+                    **reference_fields,
                 }
             )
     if getattr(args, "include_source_multiview_oracle", False):
@@ -307,6 +341,7 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                 "direct_mesh_output_ext": "ply",
                 "direct_mesh_timeout": args.direct_mesh_timeout,
                 "direct_mesh_command": source_multiview_oracle_command(args),
+                **reference_fields,
             }
         )
     if getattr(args, "include_visual_hull_multiview", False):
@@ -321,6 +356,7 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                 "direct_mesh_output_ext": "ply",
                 "direct_mesh_timeout": args.direct_mesh_timeout,
                 "direct_mesh_command": visual_hull_multiview_command(args),
+                **reference_fields,
             }
         )
     if args.multiview_command:
@@ -335,6 +371,7 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                 "direct_mesh_output_ext": args.multiview_output_ext,
                 "direct_mesh_timeout": args.direct_mesh_timeout,
                 "direct_mesh_command": args.multiview_command,
+                **reference_fields,
             }
         )
     return experiments
@@ -684,12 +721,26 @@ def parse_args() -> argparse.Namespace:
         help="If positive, thicken direct provider mesh bbox axes until max_axis/min_axis is below this ratio.",
     )
     parser.add_argument(
+        "--mesh-target-bbox-source",
+        choices=("none", "source", "mirror", "reference"),
+        default="none",
+        help=(
+            "Optionally scale direct provider meshes to bbox extents from the source mesh, the mirror "
+            "depth-relief baseline, or --direct-mesh-reference-method."
+        ),
+    )
+    parser.add_argument(
         "--mesh-target-faces",
         type=int,
         default=0,
         help="If positive, attempt Trimesh quadric decimation on provider meshes before export.",
     )
     parser.add_argument("--direct-mesh-timeout", type=int, default=3600)
+    parser.add_argument(
+        "--direct-mesh-reference-method",
+        default="mirror",
+        help="Reference method used for {reference_bbox_extents} when --mesh-target-bbox-source=reference.",
+    )
     parser.add_argument("--multiview-command", default=None)
     parser.add_argument("--multiview-name", default="external_multiview_reconstruction")
     parser.add_argument("--multiview-primary-input", choices=("masked", "full", "mirror", "biharmonic"), default="masked")

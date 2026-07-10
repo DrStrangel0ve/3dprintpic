@@ -2051,6 +2051,68 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertEqual(by_name["mv_recon"]["stl_mode"], "multiview-mesh")
         self.assertIn("{input_bundle}", by_name["mv_recon"]["direct_mesh_command"])
 
+    def test_stl_first_smoke_can_target_reference_bbox_for_direct_mesh_candidates(self):
+        args = SimpleNamespace(
+            include_source_oracle=False,
+            include_triposr_api=True,
+            include_raw_direct_mesh=True,
+            triposr_direct_inputs=["masked", "mirror"],
+            include_hunyuan3d_shape=True,
+            include_triposg=True,
+            include_source_multiview_oracle=False,
+            include_visual_hull_multiview=False,
+            multiview_command=None,
+            multiview_primary_input="masked",
+            provider_python="python",
+            provider_device="cuda",
+            triposr_python="/content/triposr-venv/bin/python",
+            triposr_dir="/content/TripoSR",
+            hunyuan3d_dir="/content/Hunyuan3D",
+            triposg_python="/content/triposg-venv/bin/python",
+            triposg_dir="/content/TripoSG",
+            triposg_direct_inputs=["biharmonic"],
+            hunyuan_num_inference_steps=24,
+            hunyuan_guidance_scale=4.0,
+            hunyuan_octree_resolution=192,
+            hunyuan_num_chunks=4096,
+            hunyuan_low_vram=False,
+            triposg_num_inference_steps=8,
+            triposg_guidance_scale=3.5,
+            triposg_seed=None,
+            chunk_size=256,
+            mc_resolution=64,
+            mesh_repair="printable",
+            mesh_target_max_dimension=96.0,
+            mesh_min_bbox_dimension=0.0,
+            mesh_max_bbox_aspect_ratio=0.0,
+            mesh_target_bbox_source="reference",
+            direct_mesh_reference_method="mirror",
+            mesh_target_faces=40000,
+            direct_mesh_timeout=123,
+        )
+
+        experiments = build_stl_first_experiments(args)
+        by_name = {experiment["name"]: experiment for experiment in experiments}
+        expected_direct_names = [
+            "triposr_api_masked_stl_reference_bbox_direct_mesh",
+            "triposr_api_masked_repaired_stl_reference_bbox_direct_mesh",
+            "triposr_api_mirror_prefill_repaired_stl_reference_bbox_direct_mesh",
+            "hunyuan3d_shape_masked_repaired_stl_reference_bbox_direct_mesh",
+            "triposg_biharmonic_prefill_repaired_stl_reference_bbox_direct_mesh",
+        ]
+
+        for name in expected_direct_names:
+            self.assertIn(name, by_name)
+            experiment = by_name[name]
+            self.assertEqual(experiment["direct_mesh_reference_method"], "mirror")
+            self.assertIn(
+                '--mesh-target-bbox-extents "{reference_bbox_extents}"',
+                experiment["direct_mesh_command"],
+            )
+
+        self.assertNotIn("triposr_api_masked_repaired_direct_mesh", by_name)
+        self.assertIn("--mesh-target-faces 40000", by_name[expected_direct_names[-1]]["direct_mesh_command"])
+
     def test_stl_first_smoke_shell_token_matches_current_platform(self):
         token = stl_first_shell_token(Path("C:/Program Files/Python/python.exe"))
 
