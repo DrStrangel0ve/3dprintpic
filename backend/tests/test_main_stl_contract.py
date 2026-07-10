@@ -338,6 +338,64 @@ class MainStlContractTest(unittest.TestCase):
         self.assertEqual(payload["selection_labels"], ["chair"])
         self.assertGreater(payload["mask_pixels"], 0)
 
+    def test_selection_panoptic_precompute_reuses_cached_segmentation(self):
+        def fake_compute_panoptic(image, device="auto"):
+            segmentation = np.zeros((image.height, image.width), dtype=np.int32)
+            segmentation[6:18, 8:18] = 7
+            return segmentation, {0: "background", 7: "chair"}, "facebook/detr-resnet-50-panoptic"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(main_module, "OUTPUT_DIR", Path(temp_dir) / "output"),
+                patch.object(main_module, "compute_panoptic_segmentation", side_effect=fake_compute_panoptic) as compute_mock,
+            ):
+                main_module.SELECTION_PRECOMPUTE_CACHE.clear()
+                client = TestClient(main_module.app)
+                precompute_response = client.post(
+                    "/selection/precompute",
+                    files={"file": ("object.png", self.png_bytes(), "image/png")},
+                    data={"model_id": "panoptic-detr"},
+                )
+                self.assertEqual(precompute_response.status_code, 200, precompute_response.text)
+                precompute_payload = precompute_response.json()
+
+                mask_response = client.post(
+                    "/selection/precomputed_mask",
+                    data={
+                        "precompute_id": precompute_payload["precompute_id"],
+                        "points_json": json.dumps([{"x": 0.38, "y": 0.5}]),
+                    },
+                )
+                self.assertEqual(mask_response.status_code, 200, mask_response.text)
+                payload = mask_response.json()
+                for url_field in ("mask_url", "tint_url", "metadata_url"):
+                    artifact_response = client.get(payload[url_field])
+                    self.assertEqual(artifact_response.status_code, 200, url_field)
+
+        self.assertEqual(compute_mock.call_count, 1)
+        self.assertEqual(precompute_payload["model_status"], "panoptic-precomputed")
+        self.assertEqual(precompute_payload["segment_count"], 2)
+        self.assertEqual(payload["model_status"], "panoptic-precomputed-point")
+        self.assertEqual(payload["model_id"], "facebook/detr-resnet-50-panoptic")
+        self.assertEqual(payload["selection_labels"], ["chair"])
+        self.assertEqual(payload["selected_segment_ids"], [7])
+        self.assertGreater(payload["mask_pixels"], 0)
+        main_module.SELECTION_PRECOMPUTE_CACHE.clear()
+
+    def test_selection_precomputed_mask_rejects_missing_cache_id(self):
+        main_module.SELECTION_PRECOMPUTE_CACHE.clear()
+        client = TestClient(main_module.app)
+        response = client.post(
+            "/selection/precomputed_mask",
+            data={
+                "precompute_id": "missing",
+                "points_json": json.dumps([{"x": 0.5, "y": 0.5}]),
+            },
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("precompute session", response.json()["detail"])
+
     def test_selection_compose_accepts_fetch_urls_and_writes_selected_image(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             with (

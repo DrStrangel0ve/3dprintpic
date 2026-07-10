@@ -101,6 +101,9 @@ SELECTION_MODEL_IDS = {
     "grounding-dino-sam2": "facebook/sam2.1-hiera-large",
 }
 PANOPTIC_SELECTION_MODEL_ID = os.getenv("SELECTION_PANOPTIC_MODEL", "facebook/detr-resnet-50-panoptic")
+SELECTION_PRECOMPUTE_LOCK = Lock()
+SELECTION_PRECOMPUTE_CACHE: dict[str, dict] = {}
+SELECTION_PRECOMPUTE_MAX_ENTRIES = int(os.getenv("SELECTION_PRECOMPUTE_MAX_ENTRIES", "12"))
 
 DEPTH_MODELS = [
     {
@@ -535,11 +538,7 @@ def nearest_panoptic_segment_id(segmentation: np.ndarray, seed_x: int, seed_y: i
     return None
 
 
-def panoptic_selection_mask(
-    image: Image.Image,
-    points: list[dict[str, float]],
-    device: str = "auto",
-) -> tuple[Image.Image, str, list[str]]:
+def compute_panoptic_segmentation(image: Image.Image, device: str = "auto") -> tuple[np.ndarray, dict[int, str], str]:
     import torch
 
     selected_device = device
@@ -562,7 +561,17 @@ def panoptic_selection_mask(
         int(segment["id"]): str(model.config.id2label.get(int(segment["label_id"]), segment.get("label_id", "object")))
         for segment in processed.get("segments_info", [])
     }
-    pixels = selection_points_to_pixels(points, image.width, image.height)
+    return segmentation, segment_labels, model_id
+
+
+def panoptic_mask_from_segmentation(
+    segmentation: np.ndarray,
+    segment_labels: dict[int, str],
+    points: list[dict[str, float]],
+    image_size: tuple[int, int],
+) -> tuple[Image.Image, list[str], list[int]]:
+    width, height = image_size
+    pixels = selection_points_to_pixels(points, width, height)
     selected_ids: set[int] = set()
     for px_float, py_float in pixels:
         segment_id = nearest_panoptic_segment_id(segmentation, int(round(px_float)), int(round(py_float)))
@@ -579,6 +588,16 @@ def panoptic_selection_mask(
     mask = Image.fromarray((mask_data.astype(np.uint8) * 255), mode="L")
     mask = mask.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MinFilter(3))
     labels = sorted({segment_labels.get(segment_id, f"segment-{segment_id}") for segment_id in selected_ids})
+    return mask, labels, sorted(selected_ids)
+
+
+def panoptic_selection_mask(
+    image: Image.Image,
+    points: list[dict[str, float]],
+    device: str = "auto",
+) -> tuple[Image.Image, str, list[str]]:
+    segmentation, segment_labels, model_id = compute_panoptic_segmentation(image, device=device)
+    mask, labels, _selected_ids = panoptic_mask_from_segmentation(segmentation, segment_labels, points, image.size)
     return mask, model_id, labels
 
 
@@ -619,6 +638,69 @@ def selection_mask_for_points(
 
     mask = fallback_selection_mask(image, points, max_dimension=mask_max_dimension)
     return mask, model_id, model_error, "fallback-click-region", []
+
+
+def trim_selection_precompute_cache() -> None:
+    if len(SELECTION_PRECOMPUTE_CACHE) <= SELECTION_PRECOMPUTE_MAX_ENTRIES:
+        return
+    sorted_items = sorted(SELECTION_PRECOMPUTE_CACHE.items(), key=lambda item: item[1].get("created_at_epoch", 0.0))
+    for cache_id, _cache_entry in sorted_items[: max(0, len(sorted_items) - SELECTION_PRECOMPUTE_MAX_ENTRIES)]:
+        SELECTION_PRECOMPUTE_CACHE.pop(cache_id, None)
+
+
+def cache_panoptic_precompute(
+    segmentation: np.ndarray,
+    segment_labels: dict[int, str],
+    model_id: str,
+    image_size: tuple[int, int],
+) -> str:
+    precompute_id = uuid4().hex
+    with SELECTION_PRECOMPUTE_LOCK:
+        SELECTION_PRECOMPUTE_CACHE[precompute_id] = {
+            "segmentation": segmentation,
+            "segment_labels": segment_labels,
+            "model_id": model_id,
+            "image_size": image_size,
+            "created_at_epoch": time.time(),
+        }
+        trim_selection_precompute_cache()
+    return precompute_id
+
+
+def get_selection_precompute(precompute_id: str) -> dict:
+    with SELECTION_PRECOMPUTE_LOCK:
+        cached = SELECTION_PRECOMPUTE_CACHE.get(precompute_id)
+        if cached:
+            cached["created_at_epoch"] = time.time()
+    if not cached:
+        raise HTTPException(status_code=404, detail="Selection precompute session not found")
+    return cached
+
+
+def save_selection_mask_artifacts(
+    job_dir: Path,
+    mask: Image.Image,
+    metadata: dict,
+) -> dict:
+    mask_path = job_dir / "selection_mask.png"
+    tint_path = job_dir / "selection_tint.png"
+    metadata_path = job_dir / "selection.json"
+    mask.save(mask_path)
+    selection_tint(mask).save(tint_path)
+    with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+        json.dump(metadata, metadata_file, indent=2)
+
+    mask_relative_path = output_relative_path(mask_path)
+    tint_relative_path = output_relative_path(tint_path)
+    metadata_relative_path = output_relative_path(metadata_path)
+    return {
+        "mask": mask_relative_path,
+        "mask_url": f"/depth_data/{mask_relative_path}",
+        "tint": tint_relative_path,
+        "tint_url": f"/depth_data/{tint_relative_path}",
+        "metadata": metadata_relative_path,
+        "metadata_url": f"/diagnostics/{metadata_relative_path}",
+    }
 
 
 def selected_image_from_mask(image: Image.Image, mask: Image.Image, background_mode: str) -> Image.Image:
@@ -694,6 +776,105 @@ def get_runtime_info() -> dict:
             "device": "unknown",
             "error": str(exc),
         }
+
+
+@app.post("/selection/precompute")
+async def precompute_selection_model(
+    file: UploadFile = File(...),
+    model_id: str = Form("detr-resnet-50-panoptic"),
+    device: str = Form("auto"),
+):
+    job_id = uuid4().hex
+    started = time.perf_counter()
+    try:
+        with Image.open(file.file) as uploaded_image:
+            image = ImageOps.exif_transpose(uploaded_image).convert("RGB")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
+
+    if model_id.startswith("sam2") or model_id == "grounding-dino-sam2":
+        try:
+            selected_device = device
+            if selected_device == "auto":
+                import torch
+
+                selected_device = "cuda" if torch.cuda.is_available() else "cpu"
+            _processor, _model, resolved_model_id = load_sam2_selection_model(model_id, selected_device)
+            return {
+                "job_id": job_id,
+                "precompute_id": None,
+                "model_id": resolved_model_id,
+                "model_status": "sam2-model-ready",
+                "precompute_supported": False,
+                "message": "SAM2 model is loaded; point masks still run per hover until image embeddings are cached.",
+                "image_size": {"width": image.width, "height": image.height},
+                "timings": {"precompute_seconds": round(time.perf_counter() - started, 3)},
+                "created_at": datetime.utcnow().isoformat() + "Z",
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=compact_selection_error(exc, "SAM2")) from exc
+
+    try:
+        segmentation, segment_labels, resolved_model_id = compute_panoptic_segmentation(image, device=device)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=compact_selection_error(exc, "Panoptic")) from exc
+
+    precompute_id = cache_panoptic_precompute(segmentation, segment_labels, resolved_model_id, image.size)
+    segment_ids = sorted(int(segment_id) for segment_id in np.unique(segmentation) if int(segment_id) >= 0)
+    labels = sorted({segment_labels.get(segment_id, f"segment-{segment_id}") for segment_id in segment_ids})
+    return {
+        "job_id": job_id,
+        "precompute_id": precompute_id,
+        "model_id": resolved_model_id,
+        "model_status": "panoptic-precomputed",
+        "precompute_supported": True,
+        "image_size": {"width": image.width, "height": image.height},
+        "segment_count": len(segment_ids),
+        "selection_labels": labels,
+        "timings": {"precompute_seconds": round(time.perf_counter() - started, 3)},
+        "created_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+
+@app.post("/selection/precomputed_mask")
+async def preview_precomputed_selection_mask(
+    precompute_id: str = Form(...),
+    points_json: str = Form("[]"),
+):
+    points = parse_selection_points(points_json)
+    if not points:
+        raise HTTPException(status_code=400, detail="Hover or click an object to preview a mask")
+
+    job_id = uuid4().hex
+    job_dir = OUTPUT_DIR / "selection" / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    started = time.perf_counter()
+    cached = get_selection_precompute(precompute_id)
+
+    mask, selection_labels, selected_segment_ids = panoptic_mask_from_segmentation(
+        cached["segmentation"],
+        cached["segment_labels"],
+        points,
+        cached["image_size"],
+    )
+    mask_pixels = int(np.count_nonzero(np.asarray(mask) > 0))
+    width, height = cached["image_size"]
+    metadata = {
+        "job_id": job_id,
+        "precompute_id": precompute_id,
+        "points": points,
+        "model_id": cached["model_id"],
+        "model_status": "panoptic-precomputed-point",
+        "selection_labels": selection_labels,
+        "selected_segment_ids": selected_segment_ids,
+        "image_size": {"width": width, "height": height},
+        "mask_pixels": mask_pixels,
+        "mask_coverage": mask_pixels / float(max(1, width * height)),
+        "timings": {"selection_seconds": round(time.perf_counter() - started, 3)},
+        "created_at": datetime.utcnow().isoformat() + "Z",
+    }
+    artifacts = save_selection_mask_artifacts(job_dir, mask, metadata)
+    return {**metadata, **artifacts}
 
 
 @app.post("/selection/keep")

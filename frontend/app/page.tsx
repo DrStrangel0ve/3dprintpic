@@ -193,6 +193,17 @@ type SelectionMask = SelectionResult & {
   maskPath: string;
 };
 
+type SelectionPrecomputeResult = {
+  precompute_id?: string | null;
+  model_id?: string;
+  model_status?: string;
+  precompute_supported?: boolean;
+  message?: string;
+  segment_count?: number;
+  selection_labels?: string[];
+  timings?: StageTimings;
+};
+
 type SelectionApplyResult = {
   file: File;
   previewUrl: string;
@@ -557,6 +568,14 @@ function modelsFor(catalog: ModelCatalog, group: ModelGroup) {
   return catalog.groups[group]?.length ? catalog.groups[group] : fallbackModelCatalog.groups[group];
 }
 
+function selectionModelSupportsPrecompute(modelId: string) {
+  return (
+    modelId === 'panoptic-detr' ||
+    modelId === 'detr-resnet-50-panoptic' ||
+    modelId.includes('detr-resnet-50-panoptic')
+  );
+}
+
 function modelFor(catalog: ModelCatalog, group: ModelGroup, modelId: string) {
   return modelsFor(catalog, group).find((model) => model.id === modelId) || modelsFor(catalog, group)[0];
 }
@@ -769,6 +788,9 @@ export default function Home() {
   const [hoverSelection, setHoverSelection] = useState<SelectionMask | null>(null);
   const [hoverSelectionState, setHoverSelectionState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [selectedMasks, setSelectedMasks] = useState<SelectionMask[]>([]);
+  const [selectionPrecompute, setSelectionPrecompute] = useState<SelectionPrecomputeResult | null>(null);
+  const [selectionPrecomputeState, setSelectionPrecomputeState] = useState<'idle' | 'loading' | 'ready' | 'unsupported' | 'error'>('idle');
+  const [selectionPrecomputeError, setSelectionPrecomputeError] = useState('');
   const [frameSelectionModel, setFrameSelectionModel] = useState(fallbackModelCatalog.defaults.frame_selection);
   const [cameraPoseModel, setCameraPoseModel] = useState(fallbackModelCatalog.defaults.camera_pose);
   const [videoBackend, setVideoBackend] = useState(fallbackModelCatalog.defaults.video_reconstruction);
@@ -794,6 +816,7 @@ export default function Home() {
   const hoverTimerRef = useRef<number | undefined>(undefined);
   const hoverRequestIdRef = useRef(0);
   const lastHoverPointRef = useRef<{ x: number; y: number } | null>(null);
+  const precomputeRequestIdRef = useRef(0);
 
   const selectionModels = modelsFor(modelCatalog, 'selection');
   const frameSelectionModels = modelsFor(modelCatalog, 'frame_selection');
@@ -1005,6 +1028,10 @@ export default function Home() {
     setHoverSelection(null);
     setHoverSelectionState('idle');
     setSelectedMasks([]);
+    setSelectionPrecompute(null);
+    setSelectionPrecomputeState('idle');
+    setSelectionPrecomputeError('');
+    precomputeRequestIdRef.current += 1;
     setPlannerResponse(null);
     setRunState('idle');
     setStatusText('Ready');
@@ -1262,6 +1289,70 @@ export default function Home() {
     return Math.hypot(mask.x - point.x, mask.y - point.y);
   };
 
+  useEffect(() => {
+    if (!file || mediaKind !== 'photo' || photoScope !== 'object-selection') {
+      setSelectionPrecompute(null);
+      setSelectionPrecomputeState('idle');
+      setSelectionPrecomputeError('');
+      precomputeRequestIdRef.current += 1;
+      return;
+    }
+
+    if (!selectionModelSupportsPrecompute(selectionModel)) {
+      setSelectionPrecompute(null);
+      setSelectionPrecomputeState('unsupported');
+      setSelectionPrecomputeError('');
+      precomputeRequestIdRef.current += 1;
+      return;
+    }
+
+    let cancelled = false;
+    const requestId = ++precomputeRequestIdRef.current;
+
+    const precomputeSelection = async () => {
+      setSelectionPrecompute(null);
+      setSelectionPrecomputeError('');
+      setSelectionPrecomputeState('loading');
+      setHoverSelection(null);
+      setHoverSelectionState('idle');
+      try {
+        const formData = new FormData();
+        formData.append('file', file, file.name || 'photo.jpg');
+        formData.append('model_id', selectionModel);
+        formData.append('device', 'auto');
+        const response = await fetch(`${backendUrl}/selection/precompute`, {
+          method: 'POST',
+          body: formData,
+        });
+        if (!response.ok) {
+          let message = `Selection precompute ${response.status}`;
+          try {
+            const details = await response.json();
+            if (details?.detail) message = String(details.detail);
+          } catch {
+            // Keep the status-based message when the backend does not return JSON.
+          }
+          throw new Error(message);
+        }
+
+        const data = (await response.json()) as SelectionPrecomputeResult;
+        if (cancelled || requestId !== precomputeRequestIdRef.current) return;
+        setSelectionPrecompute(data);
+        setSelectionPrecomputeState(data.precompute_id ? 'ready' : 'unsupported');
+      } catch (precomputeError) {
+        if (cancelled || requestId !== precomputeRequestIdRef.current) return;
+        setSelectionPrecompute(null);
+        setSelectionPrecomputeState('error');
+        setSelectionPrecomputeError(precomputeError instanceof Error ? precomputeError.message : String(precomputeError));
+      }
+    };
+
+    precomputeSelection();
+    return () => {
+      cancelled = true;
+    };
+  }, [file, mediaKind, photoScope, selectionModel, backendUrl]);
+
   const clearObjectSelection = () => {
     if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
     hoverRequestIdRef.current += 1;
@@ -1300,18 +1391,45 @@ export default function Home() {
 
   const requestSelectionMask = async (point: { x: number; y: number }, mode: 'hover' | 'click') => {
     if (!file) return null;
+    if (mode === 'hover' && selectionPrecomputeState === 'loading') {
+      setHoverSelectionState('loading');
+      return null;
+    }
     const requestId = ++hoverRequestIdRef.current;
     if (mode === 'hover') setHoverSelectionState('loading');
     try {
-      const formData = new FormData();
-      formData.append('file', file, file.name || 'photo.jpg');
-      formData.append('model_id', selectionModel);
-      formData.append('mask_max_dimension', mode === 'hover' ? '768' : '1024');
-      formData.append('points_json', JSON.stringify([{ x: point.x, y: point.y }]));
-      const response = await fetch(`${backendUrl}/selection/mask`, {
-        method: 'POST',
-        body: formData,
-      });
+      const pointsPayload = JSON.stringify([{ x: point.x, y: point.y }]);
+      const liveMaskRequest = () => {
+        const liveFormData = new FormData();
+        liveFormData.append('file', file, file.name || 'photo.jpg');
+        liveFormData.append('model_id', selectionModel);
+        liveFormData.append('mask_max_dimension', mode === 'hover' ? '768' : '1024');
+        liveFormData.append('points_json', pointsPayload);
+        return fetch(`${backendUrl}/selection/mask`, {
+          method: 'POST',
+          body: liveFormData,
+        });
+      };
+
+      let response: Response;
+      if (selectionPrecompute?.precompute_id) {
+        const cachedFormData = new FormData();
+        cachedFormData.append('precompute_id', selectionPrecompute.precompute_id);
+        cachedFormData.append('points_json', pointsPayload);
+        response = await fetch(`${backendUrl}/selection/precomputed_mask`, {
+          method: 'POST',
+          body: cachedFormData,
+        });
+        if (response.status === 404 || response.status === 410) {
+          setSelectionPrecompute(null);
+          setSelectionPrecomputeState('error');
+          setSelectionPrecomputeError('Cached segmentation expired; using live masks');
+          response = await liveMaskRequest();
+        }
+      } else {
+        response = await liveMaskRequest();
+      }
+
       if (!response.ok) throw new Error(`Selection preview ${response.status}`);
       const data = (await response.json()) as SelectionResult;
       if (mode === 'hover' && requestId !== hoverRequestIdRef.current) return null;
@@ -1473,6 +1591,10 @@ export default function Home() {
     setHoverSelection(null);
     setHoverSelectionState('idle');
     setSelectedMasks([]);
+    setSelectionPrecompute(null);
+    setSelectionPrecomputeState('idle');
+    setSelectionPrecomputeError('');
+    precomputeRequestIdRef.current += 1;
     setPlannerResponse(null);
     setRunState('idle');
     setStatusText('Ready');
@@ -1746,11 +1868,19 @@ export default function Home() {
         ? 'Edited image ready'
         : selectionState === 'error'
           ? 'Selection error'
-          : hoverSelectionState === 'loading'
+          : selectionPrecomputeState === 'loading'
+            ? 'Preparing objects'
+            : hoverSelectionState === 'loading'
             ? 'Finding object'
             : selectedMasks.length
               ? `${selectedMasks.length} kept`
-              : 'Hover to preview';
+              : selectionPrecompute?.precompute_id
+                ? 'Hover to preview'
+                : selectionPrecomputeState === 'unsupported'
+                  ? 'Live hover'
+                  : selectionPrecomputeState === 'error'
+                    ? 'Live fallback'
+                    : 'Hover to preview';
   const selectionCoverageLabel =
     typeof selectionResult?.mask_coverage === 'number'
       ? `${Math.round(selectionResult.mask_coverage * 1000) / 10}% kept`
@@ -1922,6 +2052,10 @@ export default function Home() {
                           setHoverSelection(null);
                           setHoverSelectionState('idle');
                           setSelectedMasks([]);
+                          setSelectionPrecompute(null);
+                          setSelectionPrecomputeState('idle');
+                          setSelectionPrecomputeError('');
+                          precomputeRequestIdRef.current += 1;
                           setSelectionPoints([]);
                           setSelectionState('idle');
                         }}
@@ -2035,6 +2169,17 @@ export default function Home() {
                         <div className="mt-2 text-xs text-zinc-500">
                           {selectionResult.model_status}
                           {selectionResult.model_error ? ` fallback: ${selectionResult.model_error}` : ''}
+                        </div>
+                      )}
+                      {selectionPrecomputeState !== 'idle' && (
+                        <div className="mt-2 text-xs text-zinc-500">
+                          {selectionPrecomputeState === 'loading'
+                            ? 'Preparing segmentation map'
+                            : selectionPrecompute?.precompute_id
+                              ? `Precomputed ${selectionPrecompute.segment_count || 0} segments`
+                              : selectionPrecomputeState === 'unsupported'
+                                ? selectionPrecompute?.message || 'Live hover masks'
+                                : `Precompute unavailable: ${selectionPrecomputeError || 'using live hover masks'}`}
                         </div>
                       )}
                       {(hoverSelection?.selection_labels?.length || selectedMasks.length > 0) && (
