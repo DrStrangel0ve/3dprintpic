@@ -265,7 +265,7 @@ class MainStlContractTest(unittest.TestCase):
                 self.assertEqual(response.status_code, 200, response.text)
                 payload = response.json()
 
-                for url_field in ("selected_image_url", "mask_url", "overlay_url", "metadata_url"):
+                for url_field in ("selected_image_url", "mask_url", "overlay_url", "tint_url", "metadata_url"):
                     artifact_response = client.get(payload[url_field])
                     self.assertEqual(artifact_response.status_code, 200, url_field)
 
@@ -274,6 +274,100 @@ class MainStlContractTest(unittest.TestCase):
         self.assertGreater(payload["mask_pixels"], 0)
         self.assertGreater(payload["mask_coverage"], 0.0)
         self.assertEqual(payload["background_mode"], "white")
+
+    def test_selection_mask_preview_writes_tint_and_mask_artifacts(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(main_module, "OUTPUT_DIR", Path(temp_dir) / "output"),
+                patch.object(main_module, "sam2_selection_mask", side_effect=RuntimeError("checkpoint not cached locally")),
+            ):
+                client = TestClient(main_module.app)
+                response = client.post(
+                    "/selection/mask",
+                    files={"file": ("object.png", self.png_bytes(), "image/png")},
+                    data={
+                        "points_json": json.dumps([{"x": 0.38, "y": 0.5}]),
+                        "model_id": "sam2.1-hiera-large",
+                        "mask_max_dimension": "64",
+                    },
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                payload = response.json()
+
+                for url_field in ("mask_url", "overlay_url", "tint_url", "metadata_url"):
+                    artifact_response = client.get(payload[url_field])
+                    self.assertEqual(artifact_response.status_code, 200, url_field)
+
+        self.assertNotIn("selected_image_url", payload)
+        self.assertEqual(payload["model_status"], "fallback-click-region")
+        self.assertGreater(payload["mask_pixels"], 0)
+
+    def test_selection_compose_accepts_fetch_urls_and_writes_selected_image(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(main_module, "OUTPUT_DIR", Path(temp_dir) / "output"),
+                patch.object(main_module, "sam2_selection_mask", side_effect=RuntimeError("checkpoint not cached locally")),
+            ):
+                client = TestClient(main_module.app)
+                first = client.post(
+                    "/selection/mask",
+                    files={"file": ("object.png", self.png_bytes(), "image/png")},
+                    data={
+                        "points_json": json.dumps([{"x": 0.38, "y": 0.5}]),
+                        "model_id": "sam2.1-hiera-large",
+                        "mask_max_dimension": "64",
+                    },
+                )
+                second = client.post(
+                    "/selection/mask",
+                    files={"file": ("object.png", self.png_bytes(), "image/png")},
+                    data={
+                        "points_json": json.dumps([{"x": 0.65, "y": 0.5}]),
+                        "model_id": "sam2.1-hiera-large",
+                        "mask_max_dimension": "64",
+                    },
+                )
+                self.assertEqual(first.status_code, 200, first.text)
+                self.assertEqual(second.status_code, 200, second.text)
+
+                response = client.post(
+                    "/selection/compose",
+                    files={"file": ("object.png", self.png_bytes(), "image/png")},
+                    data={
+                        "mask_paths_json": json.dumps(
+                            [
+                                first.json()["mask"],
+                                first.json()["tint_url"].replace("selection_tint.png", "selection_mask.png"),
+                                f"http://testserver{second.json()['mask_url']}",
+                            ]
+                        ),
+                        "background_mode": "black",
+                    },
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                payload = response.json()
+
+                for url_field in ("selected_image_url", "mask_url", "overlay_url", "tint_url", "metadata_url"):
+                    artifact_response = client.get(payload[url_field])
+                    self.assertEqual(artifact_response.status_code, 200, url_field)
+
+        self.assertEqual(payload["model_status"], "composed-clicked-masks")
+        self.assertEqual(payload["mask_count"], 3)
+        self.assertEqual(payload["background_mode"], "black")
+        self.assertGreater(payload["mask_pixels"], 0)
+
+    def test_selection_compose_rejects_empty_mask_list(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(main_module, "OUTPUT_DIR", Path(temp_dir) / "output"):
+                client = TestClient(main_module.app)
+                response = client.post(
+                    "/selection/compose",
+                    files={"file": ("object.png", self.png_bytes(), "image/png")},
+                    data={"mask_paths_json": "[]"},
+                )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Select at least one object", response.json()["detail"])
 
 
 if __name__ == "__main__":

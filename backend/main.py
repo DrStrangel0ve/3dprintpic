@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import logging
 from tempfile import NamedTemporaryFile
+from urllib.parse import urlparse
 try:
     from .pic_to_3d import (
         MODERN_INPAINT_MODELS,
@@ -509,6 +510,41 @@ def selection_overlay(image: Image.Image, mask: Image.Image) -> Image.Image:
     return Image.alpha_composite(base, highlight)
 
 
+def selection_tint(mask: Image.Image, alpha: int = 210) -> Image.Image:
+    tint = Image.new("RGBA", mask.size, (16, 185, 129, max(0, min(255, alpha))))
+    clear = Image.new("RGBA", mask.size, (0, 0, 0, 0))
+    return Image.composite(tint, clear, mask.convert("L"))
+
+
+def normalize_output_reference(file_path: str) -> str:
+    value = str(file_path or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="Empty output file reference")
+    if value.startswith("http://") or value.startswith("https://"):
+        value = urlparse(value).path
+    if value.startswith("/depth_data/"):
+        value = value[len("/depth_data/") :]
+    elif value.startswith("/diagnostics/"):
+        value = value[len("/diagnostics/") :]
+    return value.lstrip("/")
+
+
+def union_selection_masks(mask_paths: list[str], image_size: tuple[int, int]) -> Image.Image:
+    if not mask_paths:
+        raise HTTPException(status_code=400, detail="Select at least one object to keep")
+
+    width, height = image_size
+    union = np.zeros((height, width), dtype=bool)
+    for mask_reference in mask_paths:
+        resolved_mask_path = resolve_output_file(normalize_output_reference(mask_reference), (".png", ".webp"))
+        with Image.open(resolved_mask_path) as mask_image:
+            loaded_mask = mask_image.convert("L")
+            if loaded_mask.size != image_size:
+                loaded_mask = loaded_mask.resize(image_size, Image.Resampling.NEAREST)
+            union |= np.asarray(loaded_mask) > 0
+    return Image.fromarray((union.astype(np.uint8) * 255), mode="L")
+
+
 def get_runtime_info() -> dict:
     try:
         import torch
@@ -578,11 +614,13 @@ async def keep_selected_objects(
     selected_path = job_dir / "selected_image.png"
     mask_path = job_dir / "selection_mask.png"
     overlay_path = job_dir / "selection_overlay.png"
+    tint_path = job_dir / "selection_tint.png"
     metadata_path = job_dir / "selection.json"
     image.save(source_path)
     selected.save(selected_path)
     mask.save(mask_path)
     overlay.save(overlay_path)
+    selection_tint(mask).save(tint_path)
 
     mask_pixels = int(np.count_nonzero(np.asarray(mask) > 0))
     metadata = {
@@ -605,6 +643,7 @@ async def keep_selected_objects(
     selected_relative_path = output_relative_path(selected_path)
     mask_relative_path = output_relative_path(mask_path)
     overlay_relative_path = output_relative_path(overlay_path)
+    tint_relative_path = output_relative_path(tint_path)
     metadata_relative_path = output_relative_path(metadata_path)
     return {
         **metadata,
@@ -614,6 +653,167 @@ async def keep_selected_objects(
         "mask_url": f"/depth_data/{mask_relative_path}",
         "overlay": overlay_relative_path,
         "overlay_url": f"/depth_data/{overlay_relative_path}",
+        "tint": tint_relative_path,
+        "tint_url": f"/depth_data/{tint_relative_path}",
+        "metadata": metadata_relative_path,
+        "metadata_url": f"/diagnostics/{metadata_relative_path}",
+    }
+
+
+@app.post("/selection/mask")
+async def preview_selection_mask(
+    file: UploadFile = File(...),
+    points_json: str = Form("[]"),
+    model_id: str = Form("sam2.1-hiera-large"),
+    device: str = Form("auto"),
+    mask_max_dimension: int = Form(1024),
+):
+    points = parse_selection_points(points_json)
+    if not points:
+        raise HTTPException(status_code=400, detail="Hover or click an object to preview a mask")
+
+    job_id = uuid4().hex
+    job_dir = OUTPUT_DIR / "selection" / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    started = time.perf_counter()
+
+    try:
+        with Image.open(file.file) as uploaded_image:
+            image = ImageOps.exif_transpose(uploaded_image).convert("RGB")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
+
+    model_status = "fallback-click-region"
+    model_error = None
+    try:
+        if model_id.startswith("sam2") or model_id == "grounding-dino-sam2":
+            mask, resolved_model_id = sam2_selection_mask(image, points, model_id=model_id, device=device)
+            model_status = "sam2-point-prompt"
+            model_id = resolved_model_id
+        else:
+            mask = fallback_selection_mask(image, points, max_dimension=mask_max_dimension)
+    except Exception as exc:
+        model_error = str(exc)
+        if "cache" in model_error.lower() and "local" in model_error.lower():
+            model_error = "SAM2 checkpoint is not cached locally"
+        elif len(model_error) > 220:
+            model_error = f"{model_error[:217]}..."
+        logger.warning("Selection preview model failed; using fallback click-region mask: %s", model_error)
+        mask = fallback_selection_mask(image, points, max_dimension=mask_max_dimension)
+
+    mask_path = job_dir / "selection_mask.png"
+    overlay_path = job_dir / "selection_overlay.png"
+    tint_path = job_dir / "selection_tint.png"
+    metadata_path = job_dir / "selection.json"
+    mask.save(mask_path)
+    selection_overlay(image, mask).save(overlay_path)
+    selection_tint(mask).save(tint_path)
+
+    mask_pixels = int(np.count_nonzero(np.asarray(mask) > 0))
+    metadata = {
+        "job_id": job_id,
+        "source_filename": file.filename,
+        "points": points,
+        "model_id": model_id,
+        "model_status": model_status,
+        "model_error": model_error,
+        "image_size": {"width": image.width, "height": image.height},
+        "mask_pixels": mask_pixels,
+        "mask_coverage": mask_pixels / float(max(1, image.width * image.height)),
+        "timings": {"selection_seconds": round(time.perf_counter() - started, 3)},
+        "created_at": datetime.utcnow().isoformat() + "Z",
+    }
+    with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+        json.dump(metadata, metadata_file, indent=2)
+
+    mask_relative_path = output_relative_path(mask_path)
+    overlay_relative_path = output_relative_path(overlay_path)
+    tint_relative_path = output_relative_path(tint_path)
+    metadata_relative_path = output_relative_path(metadata_path)
+    return {
+        **metadata,
+        "mask": mask_relative_path,
+        "mask_url": f"/depth_data/{mask_relative_path}",
+        "overlay": overlay_relative_path,
+        "overlay_url": f"/depth_data/{overlay_relative_path}",
+        "tint": tint_relative_path,
+        "tint_url": f"/depth_data/{tint_relative_path}",
+        "metadata": metadata_relative_path,
+        "metadata_url": f"/diagnostics/{metadata_relative_path}",
+    }
+
+
+@app.post("/selection/compose")
+async def compose_selected_objects(
+    file: UploadFile = File(...),
+    mask_paths_json: str = Form("[]"),
+    background_mode: str = Form("neutral"),
+):
+    try:
+        mask_paths = json.loads(mask_paths_json or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid mask paths JSON: {exc}") from exc
+    if not isinstance(mask_paths, list) or not all(isinstance(path, str) for path in mask_paths):
+        raise HTTPException(status_code=400, detail="Mask paths must be a JSON list of strings")
+
+    job_id = uuid4().hex
+    job_dir = OUTPUT_DIR / "selection" / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    started = time.perf_counter()
+
+    try:
+        with Image.open(file.file) as uploaded_image:
+            image = ImageOps.exif_transpose(uploaded_image).convert("RGB")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
+
+    mask = union_selection_masks(mask_paths, image.size)
+    selected = selected_image_from_mask(image, mask, background_mode=background_mode)
+    overlay = selection_overlay(image, mask)
+
+    source_path = job_dir / "source.png"
+    selected_path = job_dir / "selected_image.png"
+    mask_path = job_dir / "selection_mask.png"
+    overlay_path = job_dir / "selection_overlay.png"
+    tint_path = job_dir / "selection_tint.png"
+    metadata_path = job_dir / "selection.json"
+    image.save(source_path)
+    selected.save(selected_path)
+    mask.save(mask_path)
+    overlay.save(overlay_path)
+    selection_tint(mask).save(tint_path)
+
+    mask_pixels = int(np.count_nonzero(np.asarray(mask) > 0))
+    metadata = {
+        "job_id": job_id,
+        "source_filename": file.filename,
+        "mask_count": len(mask_paths),
+        "model_status": "composed-clicked-masks",
+        "background_mode": background_mode,
+        "image_size": {"width": image.width, "height": image.height},
+        "mask_pixels": mask_pixels,
+        "mask_coverage": mask_pixels / float(max(1, image.width * image.height)),
+        "timings": {"selection_seconds": round(time.perf_counter() - started, 3)},
+        "created_at": datetime.utcnow().isoformat() + "Z",
+    }
+    with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+        json.dump(metadata, metadata_file, indent=2)
+
+    selected_relative_path = output_relative_path(selected_path)
+    mask_relative_path = output_relative_path(mask_path)
+    overlay_relative_path = output_relative_path(overlay_path)
+    tint_relative_path = output_relative_path(tint_path)
+    metadata_relative_path = output_relative_path(metadata_path)
+    return {
+        **metadata,
+        "selected_image": selected_relative_path,
+        "selected_image_url": f"/depth_data/{selected_relative_path}",
+        "mask": mask_relative_path,
+        "mask_url": f"/depth_data/{mask_relative_path}",
+        "overlay": overlay_relative_path,
+        "overlay_url": f"/depth_data/{overlay_relative_path}",
+        "tint": tint_relative_path,
+        "tint_url": f"/depth_data/{tint_relative_path}",
         "metadata": metadata_relative_path,
         "metadata_url": f"/diagnostics/{metadata_relative_path}",
     }

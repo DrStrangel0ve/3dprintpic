@@ -173,6 +173,8 @@ type SelectionResult = {
   mask_url?: string;
   overlay?: string;
   overlay_url?: string;
+  tint?: string;
+  tint_url?: string;
   metadata_url?: string;
   points?: Array<{ x: number; y: number }>;
   model_id?: string;
@@ -180,6 +182,14 @@ type SelectionResult = {
   model_error?: string | null;
   mask_pixels?: number;
   mask_coverage?: number;
+};
+
+type SelectionMask = SelectionResult & {
+  id: string;
+  x: number;
+  y: number;
+  tintUrl: string;
+  maskPath: string;
 };
 
 type SelectionApplyResult = {
@@ -741,6 +751,9 @@ export default function Home() {
   const [selectionPreviewUrl, setSelectionPreviewUrl] = useState('');
   const [selectionAppliedFile, setSelectionAppliedFile] = useState<File | null>(null);
   const [selectionState, setSelectionState] = useState<'idle' | 'editing' | 'applying' | 'ready' | 'error'>('idle');
+  const [hoverSelection, setHoverSelection] = useState<SelectionMask | null>(null);
+  const [hoverSelectionState, setHoverSelectionState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [selectedMasks, setSelectedMasks] = useState<SelectionMask[]>([]);
   const [frameSelectionModel, setFrameSelectionModel] = useState(fallbackModelCatalog.defaults.frame_selection);
   const [cameraPoseModel, setCameraPoseModel] = useState(fallbackModelCatalog.defaults.camera_pose);
   const [videoBackend, setVideoBackend] = useState(fallbackModelCatalog.defaults.video_reconstruction);
@@ -763,6 +776,9 @@ export default function Home() {
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const selectionImageRef = useRef<HTMLImageElement>(null);
+  const hoverTimerRef = useRef<number | undefined>(undefined);
+  const hoverRequestIdRef = useRef(0);
+  const lastHoverPointRef = useRef<{ x: number; y: number } | null>(null);
 
   const selectionModels = modelsFor(modelCatalog, 'selection');
   const frameSelectionModels = modelsFor(modelCatalog, 'frame_selection');
@@ -971,6 +987,9 @@ export default function Home() {
     setSelectionPreviewUrl('');
     setSelectionAppliedFile(null);
     setSelectionState('idle');
+    setHoverSelection(null);
+    setHoverSelectionState('idle');
+    setSelectedMasks([]);
     setPlannerResponse(null);
     setRunState('idle');
     setStatusText('Ready');
@@ -1044,9 +1063,10 @@ export default function Home() {
               selection:
                 photoScope === 'object-selection'
                   ? {
-                      point_count: selectionPoints.length,
+                      kept_object_count: selectedMasks.length,
                       edited_image_ready: Boolean(selectionAppliedFile),
                       status: selectionState,
+                      hover_status: hoverSelectionState,
                       model_status: selectionResult?.model_status || null,
                     }
                   : null,
@@ -1117,9 +1137,10 @@ export default function Home() {
       inpaintBackend,
       meshBackend,
       selectionModel,
-      selectionPoints.length,
+      selectedMasks.length,
       selectionAppliedFile,
       selectionState,
+      hoverSelectionState,
       selectionResult,
       frameSelectionModel,
       cameraPoseModel,
@@ -1192,12 +1213,51 @@ export default function Home() {
     stlPostprocessModel,
   ]);
 
+  const backendAssetUrl = (path?: string) => {
+    if (!path) return '';
+    return path.startsWith('http') ? path : `${backendUrl}${path}`;
+  };
+
+  const selectionPointFromEvent = (event: React.MouseEvent<HTMLImageElement> | React.PointerEvent<HTMLImageElement>) => {
+    const imageElement = selectionImageRef.current || event.currentTarget;
+    const rect = imageElement.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    return {
+      x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+    };
+  };
+
+  const selectionMaskFromResponse = (data: SelectionResult, point: { x: number; y: number }): SelectionMask => {
+    const tintUrl = backendAssetUrl(data.tint_url);
+    const maskPath = data.mask || data.mask_url || '';
+    if (!tintUrl || !maskPath) throw new Error('Selection response did not include a preview mask.');
+    return {
+      ...data,
+      id: `${Date.now()}-${Math.round(point.x * 10000)}-${Math.round(point.y * 10000)}`,
+      x: point.x,
+      y: point.y,
+      tintUrl,
+      maskPath,
+    };
+  };
+
+  const maskDistance = (mask: SelectionMask | null, point: { x: number; y: number }) => {
+    if (!mask) return Number.POSITIVE_INFINITY;
+    return Math.hypot(mask.x - point.x, mask.y - point.y);
+  };
+
   const clearObjectSelection = () => {
+    if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
+    hoverRequestIdRef.current += 1;
     setSelectionPoints([]);
     setSelectionResult(null);
     setSelectionPreviewUrl('');
     setSelectionAppliedFile(null);
     setSelectionState('idle');
+    setHoverSelection(null);
+    setHoverSelectionState('idle');
+    setSelectedMasks([]);
     setCompletedPreview('');
     setProcessedSTL('');
     setDiagnosticsUrl('');
@@ -1223,23 +1283,82 @@ export default function Home() {
     setError('');
   };
 
-  const handleSelectionImageClick = (event: React.MouseEvent<HTMLImageElement>) => {
+  const requestSelectionMask = async (point: { x: number; y: number }, mode: 'hover' | 'click') => {
+    if (!file) return null;
+    const requestId = ++hoverRequestIdRef.current;
+    if (mode === 'hover') setHoverSelectionState('loading');
+    try {
+      const formData = new FormData();
+      formData.append('file', file, file.name || 'photo.jpg');
+      formData.append('model_id', selectionModel);
+      formData.append('mask_max_dimension', mode === 'hover' ? '768' : '1024');
+      formData.append('points_json', JSON.stringify([{ x: point.x, y: point.y }]));
+      const response = await fetch(`${backendUrl}/selection/mask`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) throw new Error(`Selection preview ${response.status}`);
+      const data = (await response.json()) as SelectionResult;
+      if (mode === 'hover' && requestId !== hoverRequestIdRef.current) return null;
+      const mask = selectionMaskFromResponse(data, point);
+      if (mode === 'hover') {
+        setHoverSelection(mask);
+        setHoverSelectionState('ready');
+      }
+      return mask;
+    } catch (maskError) {
+      if (mode === 'hover') {
+        setHoverSelection(null);
+        setHoverSelectionState('error');
+      } else {
+        setError(maskError instanceof Error ? maskError.message : String(maskError));
+      }
+      return null;
+    }
+  };
+
+  const handleSelectionImagePointerMove = (event: React.PointerEvent<HTMLImageElement>) => {
     if (!file || photoScope !== 'object-selection' || runState === 'running' || selectionState === 'applying') return;
-    const imageElement = selectionImageRef.current || event.currentTarget;
-    const rect = imageElement.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-    const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+    const point = selectionPointFromEvent(event);
+    if (!point) return;
+    lastHoverPointRef.current = point;
+    if (hoverSelection && maskDistance(hoverSelection, point) < 0.02) return;
+    if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
+    if (!hoverSelection) setHoverSelectionState('loading');
+    hoverTimerRef.current = window.setTimeout(() => {
+      const nextPoint = lastHoverPointRef.current;
+      if (nextPoint) requestSelectionMask(nextPoint, 'hover');
+    }, 450);
+  };
+
+  const handleSelectionImagePointerLeave = () => {
+    if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
+    hoverRequestIdRef.current += 1;
+    setHoverSelection(null);
+    setHoverSelectionState('idle');
+  };
+
+  const handleSelectionImageClick = async (event: React.MouseEvent<HTMLImageElement>) => {
+    if (!file || photoScope !== 'object-selection' || runState === 'running' || selectionState === 'applying') return;
+    const point = selectionPointFromEvent(event);
+    if (!point) return;
+    if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
+    const mask = maskDistance(hoverSelection, point) < 0.08 ? hoverSelection : await requestSelectionMask(point, 'click');
+    if (!mask) return;
     invalidateSelectionResult();
-    setSelectionPoints((points) => [...points, { id: `${Date.now()}-${points.length}`, x, y }]);
+    setSelectedMasks((masks) => [...masks, { ...mask, id: `kept-${mask.id}-${masks.length}` }]);
+    setSelectionPoints((points) => [...points, { id: `kept-${Date.now()}-${points.length}`, x: mask.x, y: mask.y }]);
+    setHoverSelection(null);
+    setHoverSelectionState('idle');
     setSelectionState('editing');
-    setStatusText('Selection updated');
+    setStatusText('Object kept');
   };
 
   const undoSelectionPoint = () => {
     invalidateSelectionResult();
     setSelectionPoints((points) => points.slice(0, -1));
-    setSelectionState(selectionPoints.length > 1 ? 'editing' : 'idle');
+    setSelectedMasks((masks) => masks.slice(0, -1));
+    setSelectionState(selectedMasks.length > 1 ? 'editing' : 'idle');
     setStatusText('Selection updated');
   };
 
@@ -1248,10 +1367,10 @@ export default function Home() {
     if (selectionAppliedFile && selectionPreviewUrl && selectionState === 'ready') {
       return { file: selectionAppliedFile, previewUrl: selectionPreviewUrl };
     }
-    if (!selectionPoints.length) {
+    if (!selectedMasks.length) {
       setSelectionState('error');
       setStatusText('Selection required');
-      setError('Click the image objects or parts you want to keep, then apply the selection.');
+      setError('Hover until an object lights up, click it to keep it, then apply the selection.');
       return null;
     }
 
@@ -1261,13 +1380,12 @@ export default function Home() {
     try {
       const formData = new FormData();
       formData.append('file', file, file.name || 'photo.jpg');
-      formData.append('model_id', selectionModel);
       formData.append(
-        'points_json',
-        JSON.stringify(selectionPoints.map((point) => ({ x: point.x, y: point.y }))),
+        'mask_paths_json',
+        JSON.stringify(selectedMasks.map((mask) => mask.maskPath)),
       );
 
-      const response = await fetch(`${backendUrl}/selection/keep`, {
+      const response = await fetch(`${backendUrl}/selection/compose`, {
         method: 'POST',
         body: formData,
       });
@@ -1283,11 +1401,7 @@ export default function Home() {
       }
 
       const data = (await response.json()) as SelectionResult;
-      const editedUrl = data.selected_image_url
-        ? data.selected_image_url.startsWith('http')
-          ? data.selected_image_url
-          : `${backendUrl}${data.selected_image_url}`
-        : '';
+      const editedUrl = backendAssetUrl(data.selected_image_url);
       if (!editedUrl) throw new Error('Selection response did not include an edited image.');
 
       const editedResponse = await fetch(editedUrl);
@@ -1341,6 +1455,9 @@ export default function Home() {
     setSelectionPreviewUrl('');
     setSelectionAppliedFile(null);
     setSelectionState('idle');
+    setHoverSelection(null);
+    setHoverSelectionState('idle');
+    setSelectedMasks([]);
     setPlannerResponse(null);
     setRunState('idle');
     setStatusText('Ready');
@@ -1614,13 +1731,15 @@ export default function Home() {
         ? 'Edited image ready'
         : selectionState === 'error'
           ? 'Selection error'
-          : selectionPoints.length
-            ? `${selectionPoints.length} keep point${selectionPoints.length === 1 ? '' : 's'}`
-            : 'Click to keep';
+          : hoverSelectionState === 'loading'
+            ? 'Finding object'
+            : selectedMasks.length
+              ? `${selectedMasks.length} kept`
+              : 'Hover to preview';
   const selectionCoverageLabel =
     typeof selectionResult?.mask_coverage === 'number'
       ? `${Math.round(selectionResult.mask_coverage * 1000) / 10}% kept`
-      : `${selectionPoints.length} point${selectionPoints.length === 1 ? '' : 's'}`;
+      : `${selectedMasks.length} object${selectedMasks.length === 1 ? '' : 's'}`;
 
   return (
     <main className="min-h-screen bg-zinc-50 text-zinc-950">
@@ -1785,7 +1904,11 @@ export default function Home() {
                         onChange={(event) => {
                           setSelectionModel(event.target.value);
                           invalidateSelectionResult();
-                          setSelectionState(selectionPoints.length ? 'editing' : 'idle');
+                          setHoverSelection(null);
+                          setHoverSelectionState('idle');
+                          setSelectedMasks([]);
+                          setSelectionPoints([]);
+                          setSelectionState('idle');
                         }}
                         className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
                       >
@@ -1822,19 +1945,30 @@ export default function Home() {
                             ref={selectionImageRef}
                             src={previewUrl}
                             alt=""
-                            className="block w-full cursor-crosshair select-none"
+                            className={classNames(
+                              'block w-full cursor-crosshair select-none transition-opacity',
+                              selectedMasks.length || hoverSelection ? 'opacity-55' : 'opacity-75',
+                            )}
+                            onPointerMove={handleSelectionImagePointerMove}
+                            onPointerLeave={handleSelectionImagePointerLeave}
                             onClick={handleSelectionImageClick}
                             draggable={false}
                           />
-                          {selectionPoints.map((point, index) => (
-                            <span
-                              key={point.id}
-                              className="absolute grid h-6 w-6 -translate-x-1/2 -translate-y-1/2 place-items-center border border-white bg-emerald-600 text-[11px] font-semibold text-white shadow-sm"
-                              style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
-                            >
-                              {index + 1}
-                            </span>
+                          {selectedMasks.map((mask) => (
+                            <img
+                              key={mask.id}
+                              src={mask.tintUrl}
+                              alt=""
+                              className="pointer-events-none absolute inset-0 h-full w-full object-contain opacity-100"
+                            />
                           ))}
+                          {hoverSelection?.tintUrl && (
+                            <img
+                              src={hoverSelection.tintUrl}
+                              alt=""
+                              className="pointer-events-none absolute inset-0 h-full w-full object-contain opacity-50"
+                            />
+                          )}
                         </div>
                       ) : (
                         <div className="border border-dashed border-zinc-300 bg-white p-4 text-center text-sm text-zinc-500">
@@ -1848,7 +1982,7 @@ export default function Home() {
                           variant="outline"
                           className="h-10"
                           onClick={undoSelectionPoint}
-                          disabled={!selectionPoints.length || selectionState === 'applying'}
+                          disabled={!selectedMasks.length || selectionState === 'applying'}
                         >
                           Undo
                         </Button>
@@ -1857,7 +1991,7 @@ export default function Home() {
                           variant="outline"
                           className="h-10"
                           onClick={clearObjectSelection}
-                          disabled={(!selectionPoints.length && !selectionPreviewUrl) || selectionState === 'applying'}
+                          disabled={(!selectedMasks.length && !selectionPreviewUrl) || selectionState === 'applying'}
                         >
                           Clear
                         </Button>
@@ -1865,7 +1999,7 @@ export default function Home() {
                           type="button"
                           className="h-10 gap-2"
                           onClick={applyObjectSelection}
-                          disabled={!selectionPoints.length || selectionState === 'applying' || !file}
+                          disabled={!selectedMasks.length || selectionState === 'applying' || !file}
                         >
                           {selectionState === 'applying' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                           Apply
