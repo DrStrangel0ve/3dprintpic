@@ -33,6 +33,6 @@
     "direct_mesh_input": "masked",
     "direct_mesh_output_ext": "ply",
     "direct_mesh_timeout": 1800,
-    "direct_mesh_command": "python -m backend.benchmark.run_image_to_mesh_provider --provider multiview-visual-hull --input-image \"{input_image}\" --input-bundle \"{input_bundle}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.ply\" --output-stl \"{output_stl}\" --timeout 1800 --mesh-repair printable --mesh-target-max-dimension 96 --mesh-min-bbox-dimension 12 --visual-hull-resolution 64 --visual-hull-grid-extent 1.8 --visual-hull-ortho-scale 2.0 --visual-hull-mask-dilate 1"
+    "direct_mesh_command": "python -m backend.benchmark.run_image_to_mesh_provider --provider multiview-visual-hull --input-image \"{input_image}\" --input-bundle \"{input_bundle}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.ply\" --output-stl \"{output_stl}\" --timeout 1800 --mesh-repair printable --mesh-target-max-dimension 96 --mesh-min-bbox-dimension 12 --visual-hull-resolution 32 --visual-hull-grid-extent 1.9 --visual-hull-ortho-scale 2.0 --visual-hull-mask-dilate 1"
   }
 ]

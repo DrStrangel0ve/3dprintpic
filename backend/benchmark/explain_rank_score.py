@@ -6,7 +6,14 @@ import json
 import math
 from pathlib import Path
 
-from backend.benchmark.rank_methods import SCORE_MODES, SCORE_PROFILES, normalize, parse_float, parse_weights
+from backend.benchmark.rank_methods import (
+    SCORE_MODES,
+    SCORE_PROFILES,
+    normalize,
+    parse_float,
+    parse_weights,
+    with_derived_metrics,
+)
 
 
 def method_label(row: dict) -> str:
@@ -102,6 +109,7 @@ def contribution_rows(
     score_mode: str = "baseline-delta",
     baseline_method: str = "masked",
 ) -> tuple[list[dict], list[str]]:
+    rows = [with_derived_metrics(row) for row in rows]
     if score_mode not in SCORE_MODES:
         raise ValueError(f"Unknown score mode `{score_mode}`. Expected one of: {', '.join(sorted(SCORE_MODES))}")
     if score_mode == "baseline-delta":

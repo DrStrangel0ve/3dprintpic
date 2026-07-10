@@ -7,8 +7,14 @@ import math
 from datetime import datetime, timezone
 from pathlib import Path
 
-from backend.benchmark.rank_methods import SCORE_PROFILES, parse_float, parse_weights, rank_summary_rows
+from backend.benchmark.rank_methods import SCORE_PROFILES, parse_float, parse_weights, rank_summary_rows, with_derived_metrics
 from backend.benchmark.report_run import format_number, markdown_table, paired_objective_rows
+
+
+SCALE_FREE_COMPLEXITY_MEDIAN = "stl_faces_per_normalized_bbox_volume_log1p_median"
+SCALE_FREE_COMPLEXITY_SAMPLE = "stl_faces_per_normalized_bbox_volume_log1p"
+LEGACY_FACE_DENSITY_MEDIAN = "stl_faces_per_bbox_volume_log1p_median"
+LEGACY_FACE_DENSITY_SAMPLE = "stl_faces_per_bbox_volume_log1p"
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -95,8 +101,27 @@ def _sample_label(row: dict, index: int) -> str:
     return str(row.get("sample_id") or row.get("id") or f"row{index}")
 
 
+def fallback_metric_field(field: str) -> str | None:
+    return {
+        SCALE_FREE_COMPLEXITY_MEDIAN: LEGACY_FACE_DENSITY_MEDIAN,
+        SCALE_FREE_COMPLEXITY_SAMPLE: LEGACY_FACE_DENSITY_SAMPLE,
+    }.get(field)
+
+
 def _has_cell(row: dict, field: str) -> bool:
-    return field in row and str(row.get(field, "")).strip() != ""
+    if field in row and str(row.get(field, "")).strip() != "":
+        return True
+    fallback = fallback_metric_field(field)
+    return bool(fallback and fallback in row and str(row.get(fallback, "")).strip() != "")
+
+
+def gate_cell(row: dict, field: str):
+    if field in row and str(row.get(field, "")).strip() != "":
+        return row.get(field)
+    fallback = fallback_metric_field(field)
+    if fallback:
+        return row.get(fallback)
+    return row.get(field)
 
 
 def stl_gate_number(value) -> float:
@@ -127,7 +152,7 @@ def per_sample_stl_checks(
             continue
         failed = []
         for index, row in enumerate(method_rows):
-            value = stl_gate_number(row.get(field))
+            value = stl_gate_number(gate_cell(row, field))
             if not math.isfinite(value) or value < threshold:
                 failed.append(_sample_label(row, index))
         detail = f"failed_samples={','.join(failed[:10])}" if failed else ""
@@ -147,7 +172,7 @@ def per_sample_stl_checks(
             continue
         failed = []
         for index, row in enumerate(method_rows):
-            value = stl_gate_number(row.get(field))
+            value = stl_gate_number(gate_cell(row, field))
             if not math.isfinite(value) or value > threshold:
                 failed.append(_sample_label(row, index))
         detail = f"failed_samples={','.join(failed[:10])}" if failed else ""
@@ -196,6 +221,8 @@ def evaluate_selection(
     bootstrap_samples=1000,
     bootstrap_seed=1234,
 ):
+    summary_rows = [with_derived_metrics(row) for row in summary_rows]
+    per_sample_rows = [with_derived_metrics(row) for row in per_sample_rows]
     weights = weights or parse_weights([])
     ranked_rows, used_metrics = rank_summary_rows(
         summary_rows,
@@ -326,10 +353,14 @@ def evaluate_selection(
         ("stl_degenerate_face_ratio_median", "stl_degenerate_face_ratio", max_stl_degenerate_face_ratio),
         ("stl_component_excess_log1p_median", "stl_component_excess", max_stl_component_excess_log1p),
         ("stl_bbox_aspect_ratio_median", "stl_bbox_aspect_ratio", max_stl_bbox_aspect_ratio),
-        ("stl_faces_per_bbox_volume_log1p_median", "stl_face_density", max_stl_faces_per_bbox_volume_log1p),
+        (
+            SCALE_FREE_COMPLEXITY_MEDIAN,
+            "stl_scale_free_complexity",
+            max_stl_faces_per_bbox_volume_log1p,
+        ),
     ):
-        if field in candidate and str(candidate.get(field, "")).strip() != "":
-            value = finite_number(candidate.get(field))
+        if _has_cell(candidate, field):
+            value = finite_number(gate_cell(candidate, field))
             checks.append(pass_check(label, value <= maximum, value, f"<= {maximum}"))
 
     checks.extend(
@@ -350,7 +381,11 @@ def evaluate_selection(
                 ("stl_degenerate_face_ratio", "stl_degenerate_face_ratio", max_stl_degenerate_face_ratio),
                 ("stl_component_excess_log1p", "stl_component_excess", max_stl_component_excess_log1p),
                 ("stl_bbox_aspect_ratio", "stl_bbox_aspect_ratio", max_stl_bbox_aspect_ratio),
-                ("stl_faces_per_bbox_volume_log1p", "stl_face_density", max_stl_faces_per_bbox_volume_log1p),
+                (
+                    SCALE_FREE_COMPLEXITY_SAMPLE,
+                    "stl_scale_free_complexity",
+                    max_stl_faces_per_bbox_volume_log1p,
+                ),
             ),
         )
     )

@@ -73,6 +73,7 @@ REPORT_METRICS = [
     ("stl_bbox_min_dimension_median", "STL Min Dimension"),
     ("stl_bbox_has_volume_median", "STL 3D BBox"),
     ("stl_bbox_aspect_ratio_median", "STL Aspect"),
+    ("stl_faces_per_normalized_bbox_volume_log1p_median", "STL Scale-Free Complexity log1p"),
     ("stl_faces_per_bbox_volume_log1p_median", "STL Face Density log1p"),
 ]
 

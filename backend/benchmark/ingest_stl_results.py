@@ -8,7 +8,14 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from backend.benchmark.rank_methods import SCORE_MODES, SCORE_PROFILES, parse_float, parse_weights, rank_summary_rows
+from backend.benchmark.rank_methods import (
+    SCORE_MODES,
+    SCORE_PROFILES,
+    parse_float,
+    parse_weights,
+    rank_summary_rows,
+    with_derived_metrics,
+)
 from backend.benchmark.report_run import format_number, markdown_table
 from backend.benchmark.stl_modes import STL_MODE_SOURCE_MESH_ORACLE, STL_MODES, infer_stl_mode
 from backend.benchmark.select_completion_candidate import json_safe, load_per_sample_rows, load_summary_rows
@@ -17,6 +24,10 @@ from backend.benchmark.select_completion_candidate import json_safe, load_per_sa
 SUMMARY_FILES = ("aggregate_summary.csv", "summary_metrics.csv")
 DEPLOYABLE_STL_MODES = tuple(mode for mode in STL_MODES if mode != STL_MODE_SOURCE_MESH_ORACLE)
 MODE_ORDER = {mode: index for index, mode in enumerate(STL_MODES)}
+SCALE_FREE_COMPLEXITY_MEDIAN = "stl_faces_per_normalized_bbox_volume_log1p_median"
+SCALE_FREE_COMPLEXITY_SAMPLE = "stl_faces_per_normalized_bbox_volume_log1p"
+LEGACY_FACE_DENSITY_MEDIAN = "stl_faces_per_bbox_volume_log1p_median"
+LEGACY_FACE_DENSITY_SAMPLE = "stl_faces_per_bbox_volume_log1p"
 COMPACT_METRICS = (
     "rank_score",
     "method",
@@ -39,7 +50,8 @@ COMPACT_METRICS = (
     "stl_degenerate_face_ratio_median",
     "stl_component_excess_log1p_median",
     "stl_bbox_aspect_ratio_median",
-    "stl_faces_per_bbox_volume_log1p_median",
+    SCALE_FREE_COMPLEXITY_MEDIAN,
+    LEGACY_FACE_DENSITY_MEDIAN,
     "stl_faces_median",
 )
 
@@ -60,7 +72,7 @@ PROMOTION_MAXIMUMS = (
     ("stl_degenerate_face_ratio_median", 0.0, "Degenerate Face Ratio"),
     ("stl_component_excess_log1p_median", 0.0, "Body Excess log1p"),
     ("stl_bbox_aspect_ratio_median", 10.0, "BBox Aspect"),
-    ("stl_faces_per_bbox_volume_log1p_median", 10.0, "Face Density log1p"),
+    (SCALE_FREE_COMPLEXITY_MEDIAN, 10.0, "Scale-Free Complexity log1p"),
 )
 
 
@@ -170,16 +182,42 @@ def method_stl_mode(row: dict) -> str:
     return infer_stl_mode(method, emit_stl=emit_stl)
 
 
+def is_oracle_diagnostic(row: dict) -> bool:
+    mode = method_stl_mode(row)
+    names = " ".join(str(row.get(field) or "") for field in ("method", "base_method", "stl_mode")).lower()
+    names = names.replace("-", "_")
+    return mode == STL_MODE_SOURCE_MESH_ORACLE or ("source_mesh" in names and "oracle" in names)
+
+
 def compact_row(row: dict, per_sample_rows: list[dict] | None = None) -> dict:
     compact = {key: row.get(key, "") for key in COMPACT_METRICS if key in row}
     compact["stl_mode"] = method_stl_mode(row)
+    compact["oracle_diagnostic"] = is_oracle_diagnostic(row)
     gates = promotion_gate_results(row, per_sample_rows)
     compact["promotion_eligible"] = all(gate["passed"] for gate in gates)
     compact["failed_promotion_gates"] = ", ".join(gate["name"] for gate in gates if not gate["passed"])
     return compact
 
 
+def scale_free_complexity(row: dict) -> object:
+    value = row.get(SCALE_FREE_COMPLEXITY_MEDIAN)
+    if value not in (None, ""):
+        return value
+    return row.get(LEGACY_FACE_DENSITY_MEDIAN, "")
+
+
+def fallback_metric_field(field: str) -> str | None:
+    return {
+        SCALE_FREE_COMPLEXITY_MEDIAN: LEGACY_FACE_DENSITY_MEDIAN,
+        SCALE_FREE_COMPLEXITY_SAMPLE: LEGACY_FACE_DENSITY_SAMPLE,
+    }.get(field)
+
+
 def metric_value(row: dict, field: str) -> float:
+    if field not in row or str(row.get(field, "")).strip() == "":
+        fallback = fallback_metric_field(field)
+        if fallback:
+            field = fallback
     if field not in row or str(row.get(field, "")).strip() == "":
         return float("nan")
     value = row.get(field)
@@ -202,7 +240,10 @@ def _sample_label(row: dict, index: int) -> str:
 
 
 def _has_cell(row: dict, field: str) -> bool:
-    return field in row and str(row.get(field, "")).strip() != ""
+    if field in row and str(row.get(field, "")).strip() != "":
+        return True
+    fallback = fallback_metric_field(field)
+    return bool(fallback and fallback in row and str(row.get(fallback, "")).strip() != "")
 
 
 def method_sample_rows(per_sample_rows: list[dict] | None, method: str) -> list[dict]:
@@ -212,7 +253,7 @@ def method_sample_rows(per_sample_rows: list[dict] | None, method: str) -> list[
 
 
 def per_sample_gate_results(row: dict, per_sample_rows: list[dict] | None = None) -> list[dict]:
-    sample_rows = method_sample_rows(per_sample_rows, row.get("method", ""))
+    sample_rows = [with_derived_metrics(sample) for sample in method_sample_rows(per_sample_rows, row.get("method", ""))]
     if not sample_rows:
         return []
 
@@ -259,13 +300,15 @@ def per_sample_gate_results(row: dict, per_sample_rows: list[dict] | None = None
 
 
 def promotion_gate_results(row: dict, per_sample_rows: list[dict] | None = None) -> list[dict]:
+    row = with_derived_metrics(row)
     mode = method_stl_mode(row)
+    oracle = is_oracle_diagnostic(row)
     gates = [
         {
             "name": "deployable_stl_mode",
-            "passed": mode in DEPLOYABLE_STL_MODES,
+            "passed": mode in DEPLOYABLE_STL_MODES and not oracle,
             "value": mode,
-            "threshold": ",".join(DEPLOYABLE_STL_MODES),
+            "threshold": ",".join(DEPLOYABLE_STL_MODES) + " and not source-mesh oracle",
         }
     ]
     for field, minimum, label in PROMOTION_MINIMUMS:
@@ -301,6 +344,8 @@ def promotion_eligible(row: dict, per_sample_rows: list[dict] | None = None) -> 
 def best_by_mode(ranked_rows: list[dict], per_sample_rows: list[dict] | None = None) -> list[dict]:
     best: dict[str, dict] = {}
     for row in ranked_rows:
+        if is_oracle_diagnostic(row):
+            continue
         mode = method_stl_mode(row)
         if not mode:
             continue
@@ -313,7 +358,7 @@ def best_by_mode(ranked_rows: list[dict], per_sample_rows: list[dict] | None = N
 
 def first_deployable(ranked_rows: list[dict], per_sample_rows: list[dict] | None = None) -> dict:
     for row in ranked_rows:
-        if method_stl_mode(row) in DEPLOYABLE_STL_MODES:
+        if method_stl_mode(row) in DEPLOYABLE_STL_MODES and not is_oracle_diagnostic(row):
             return compact_row(row, per_sample_rows)
     return {}
 
@@ -327,7 +372,7 @@ def first_promotion_eligible(ranked_rows: list[dict], per_sample_rows: list[dict
 
 def first_oracle(ranked_rows: list[dict], per_sample_rows: list[dict] | None = None) -> dict:
     for row in ranked_rows:
-        if method_stl_mode(row) == STL_MODE_SOURCE_MESH_ORACLE:
+        if is_oracle_diagnostic(row):
             return compact_row(row, per_sample_rows)
     return {}
 
@@ -427,7 +472,7 @@ def mode_table_rows(rows: list[dict]) -> list[list[str]]:
                 format_number(row.get("stl_is_volume_median")),
                 format_number(row.get("stl_is_manifold_median")),
                 format_number(row.get("stl_single_component_median")),
-                format_number(row.get("stl_faces_per_bbox_volume_log1p_median")),
+                format_number(scale_free_complexity(row)),
                 "yes" if row.get("promotion_eligible") else "no",
                 row.get("failed_promotion_gates", ""),
             ]
@@ -453,7 +498,7 @@ def render_markdown(report: dict) -> str:
         "",
         markdown_table(["Label", "Source", "Materialized Root"], input_rows),
         "",
-        "Source-mesh oracle rows are kept as diagnostics, but only `depth-relief`, `single-image-mesh`, and `multiview-mesh` are treated as deployable STL architectures.",
+        "Source-mesh oracle rows, including source-mesh bundle oracles, are kept as diagnostics. Only non-oracle `depth-relief`, `single-image-mesh`, and `multiview-mesh` rows are treated as deployable STL architectures.",
         "",
     ]
     for run in report.get("runs", []):
@@ -494,7 +539,7 @@ def render_markdown(report: dict) -> str:
                         "Volume",
                         "Manifold",
                         "Single Body",
-                        "Face Density",
+                        "Scale-Free Complexity",
                         "Promote",
                         "Gate Failures",
                     ],
@@ -516,7 +561,7 @@ def render_markdown(report: dict) -> str:
                         "Volume",
                         "Manifold",
                         "Single Body",
-                        "Face Density",
+                        "Scale-Free Complexity",
                         "Promote",
                         "Gate Failures",
                     ],

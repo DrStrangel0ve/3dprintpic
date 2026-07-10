@@ -64,7 +64,7 @@ STL_QUALITY_WEIGHTS = {
     "stl_component_excess_log1p_median": -0.75,
     "stl_bbox_has_volume_median": 1.0,
     "stl_bbox_aspect_ratio_median": -0.5,
-    "stl_faces_per_bbox_volume_log1p_median": -0.25,
+    "stl_faces_per_normalized_bbox_volume_log1p_median": -0.25,
 }
 
 SCORE_PROFILES = {
@@ -97,6 +97,43 @@ def parse_float(value):
         return float(value)
     except (TypeError, ValueError):
         return math.nan
+
+
+def _has_value(row: dict, field: str) -> bool:
+    return field in row and str(row.get(field, "")).strip() != ""
+
+
+def _derive_scale_free_face_density(row: dict, suffix: str) -> None:
+    target_field = f"stl_faces_per_normalized_bbox_volume_log1p{suffix}"
+    if _has_value(row, target_field):
+        return
+    faces = parse_float(row.get(f"stl_faces{suffix}"))
+    bbox_volume = parse_float(row.get(f"stl_bbox_volume{suffix}"))
+    max_dimension = parse_float(row.get(f"stl_bbox_max_dimension{suffix}"))
+    if not (
+        math.isfinite(faces)
+        and math.isfinite(bbox_volume)
+        and bbox_volume > 0
+        and math.isfinite(max_dimension)
+        and max_dimension > 0
+    ):
+        return
+    normalized_bbox_volume = bbox_volume / (max_dimension**3)
+    if not math.isfinite(normalized_bbox_volume) or normalized_bbox_volume <= 0:
+        return
+    faces_per_normalized_volume = faces / normalized_bbox_volume
+    if not math.isfinite(faces_per_normalized_volume):
+        return
+    row[f"stl_normalized_bbox_volume{suffix}"] = normalized_bbox_volume
+    row[f"stl_faces_per_normalized_bbox_volume{suffix}"] = faces_per_normalized_volume
+    row[target_field] = math.log1p(faces_per_normalized_volume)
+
+
+def with_derived_metrics(row: dict) -> dict:
+    derived = dict(row)
+    for suffix in ("", "_median", "_mean"):
+        _derive_scale_free_face_density(derived, suffix)
+    return derived
 
 
 def normalize(values, higher_is_better=True):
@@ -184,6 +221,7 @@ def score_rows(rows, weights, score_mode="normalized", baseline_method="masked")
 def rank_summary_rows(rows, weights, score_mode="normalized", baseline_method="masked"):
     if not rows:
         return [], []
+    rows = [with_derived_metrics(row) for row in rows]
 
     scores, used_metrics = score_rows(
         rows,

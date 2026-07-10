@@ -60,6 +60,16 @@ def stl_diagnostics(stl_path):
     faces_per_bbox_volume = (
         float(len(mesh.faces) / bbox_volume) if np.isfinite(bbox_volume) and bbox_volume > 0 else math.nan
     )
+    normalized_bbox_volume = (
+        float(bbox_volume / (max_extent**3))
+        if np.isfinite(bbox_volume) and bbox_volume > 0 and np.isfinite(max_extent) and max_extent > 0
+        else math.nan
+    )
+    faces_per_normalized_bbox_volume = (
+        float(len(mesh.faces) / normalized_bbox_volume)
+        if np.isfinite(normalized_bbox_volume) and normalized_bbox_volume > 0
+        else math.nan
+    )
     diagnostics.update(
         {
             "stl_vertices": int(len(mesh.vertices)),
@@ -95,6 +105,13 @@ def stl_diagnostics(stl_path):
             "stl_faces_per_bbox_volume": faces_per_bbox_volume,
             "stl_faces_per_bbox_volume_log1p": (
                 float(math.log1p(faces_per_bbox_volume)) if np.isfinite(faces_per_bbox_volume) else math.nan
+            ),
+            "stl_normalized_bbox_volume": normalized_bbox_volume,
+            "stl_faces_per_normalized_bbox_volume": faces_per_normalized_bbox_volume,
+            "stl_faces_per_normalized_bbox_volume_log1p": (
+                float(math.log1p(faces_per_normalized_bbox_volume))
+                if np.isfinite(faces_per_normalized_bbox_volume)
+                else math.nan
             ),
         }
     )

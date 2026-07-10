@@ -148,6 +148,30 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertGreaterEqual(diagnostics["stl_bbox_aspect_ratio"], 1.0)
         self.assertGreater(diagnostics["stl_faces_per_bbox_volume"], 0)
         self.assertGreater(diagnostics["stl_faces_per_bbox_volume_log1p"], 0)
+        self.assertGreater(diagnostics["stl_faces_per_normalized_bbox_volume"], 0)
+        self.assertGreater(diagnostics["stl_faces_per_normalized_bbox_volume_log1p"], 0)
+
+    def test_stl_diagnostics_scale_free_complexity_ignores_coordinate_units(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            unit_path = root / "unit_box.stl"
+            large_path = root / "large_box.stl"
+            trimesh.creation.box(extents=(1.0, 1.0, 1.0)).export(unit_path)
+            trimesh.creation.box(extents=(10.0, 10.0, 10.0)).export(large_path)
+
+            unit = stl_diagnostics(unit_path)
+            large = stl_diagnostics(large_path)
+
+        self.assertNotAlmostEqual(
+            unit["stl_faces_per_bbox_volume_log1p"],
+            large["stl_faces_per_bbox_volume_log1p"],
+        )
+        self.assertAlmostEqual(
+            unit["stl_faces_per_normalized_bbox_volume_log1p"],
+            large["stl_faces_per_normalized_bbox_volume_log1p"],
+        )
 
     def test_stl_diagnostics_flags_flat_bbox_as_non_printable(self):
         import warnings
@@ -4925,8 +4949,43 @@ class StlResultIngestRegressionTests(unittest.TestCase):
         self.assertEqual(leaders["depth-relief"], "mirror")
         self.assertEqual(leaders["single-image-mesh"], "hunyuan3d_shape_repaired")
         self.assertEqual(leaders["multiview-mesh"], "vggt_multiview_repaired")
-        self.assertIn("Source-mesh oracle rows are kept as diagnostics", markdown)
+        self.assertIn("Source-mesh oracle rows, including source-mesh bundle oracles", markdown)
         self.assertIn("Architecture Leaders", markdown)
+
+    def test_stl_result_ingest_treats_source_mesh_bundle_oracle_as_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = self.write_stl_result_run(root / "run")
+            summary_path = run_dir / "aggregate_summary.csv"
+            with summary_path.open(newline="", encoding="utf-8") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+            bundle_oracle = dict(next(row for row in rows if row["method"] == "source_mesh_oracle"))
+            bundle_oracle.update(
+                {
+                    "method": "source-mesh-bundle-oracle",
+                    "base_method": "external-multiview-to-mesh",
+                    "stl_mode": "multiview-mesh",
+                }
+            )
+            rows.append(bundle_oracle)
+            with summary_path.open("w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=list(rows[0].keys()))
+                writer.writeheader()
+                writer.writerows(rows)
+
+            report = summarize_stl_inputs([str(run_dir)], output_dir=root / "ingested", top=6)
+
+        run = report["runs"][0]
+        leaders = {row["stl_mode"]: row["method"] for row in run["best_by_stl_mode"]}
+        bundle_row = next(row for row in run["ranked_methods"] if row["method"] == "source-mesh-bundle-oracle")
+
+        self.assertEqual(run["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
+        self.assertEqual(run["promotion_eligible_winner"]["method"], "hunyuan3d_shape_repaired")
+        self.assertEqual(run["oracle_diagnostic_winner"]["method"], "source_mesh_oracle")
+        self.assertEqual(leaders["multiview-mesh"], "vggt_multiview_repaired")
+        self.assertTrue(bundle_row["oracle_diagnostic"])
+        self.assertFalse(bundle_row["promotion_eligible"])
+        self.assertIn("deployable_stl_mode", bundle_row["failed_promotion_gates"])
 
     def test_stl_result_ingest_separates_score_leader_from_promotion_winner(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -5896,6 +5955,7 @@ class RankMethodRegressionTests(unittest.TestCase):
                 "stl_bbox_aspect_ratio_median": "12",
                 "stl_faces_per_bbox_volume_median": "1000",
                 "stl_faces_per_bbox_volume_log1p_median": "6.9",
+                "stl_faces_per_normalized_bbox_volume_log1p_median": "6.9",
             },
             {
                 "method": "direct_mesh_good",
@@ -5915,6 +5975,7 @@ class RankMethodRegressionTests(unittest.TestCase):
                 "stl_bbox_aspect_ratio_median": "2",
                 "stl_faces_per_bbox_volume_median": "20",
                 "stl_faces_per_bbox_volume_log1p_median": "3.0",
+                "stl_faces_per_normalized_bbox_volume_log1p_median": "3.0",
             },
         ]
 
@@ -5935,11 +5996,44 @@ class RankMethodRegressionTests(unittest.TestCase):
         self.assertIn("stl_single_component_median", used_metrics)
         self.assertIn("stl_component_excess_log1p_median", used_metrics)
         self.assertIn("stl_bbox_has_volume_median", used_metrics)
-        self.assertIn("stl_faces_per_bbox_volume_log1p_median", used_metrics)
+        self.assertIn("stl_faces_per_normalized_bbox_volume_log1p_median", used_metrics)
         self.assertNotIn("stl_component_count_median", used_metrics)
         self.assertNotIn("stl_component_excess_median", used_metrics)
         self.assertNotIn("stl_faces_per_bbox_volume_median", used_metrics)
+        self.assertNotIn("stl_faces_per_bbox_volume_log1p_median", used_metrics)
         self.assertGreater(scores["direct_mesh_good"], scores["masked"])
+
+    def test_stl_quality_profile_derives_scale_free_complexity_for_old_summaries(self):
+        weights = {"stl_faces_per_normalized_bbox_volume_log1p_median": -1.0}
+        rows = [
+            {
+                "method": "unit_box",
+                "stl_faces_median": "12",
+                "stl_bbox_volume_median": "1",
+                "stl_bbox_max_dimension_median": "1",
+            },
+            {
+                "method": "scaled_box",
+                "stl_faces_median": "12",
+                "stl_bbox_volume_median": "1000",
+                "stl_bbox_max_dimension_median": "10",
+            },
+        ]
+
+        ranked, used_metrics = rank_summary_rows(
+            rows,
+            weights,
+            score_mode="baseline-delta",
+            baseline_method="unit_box",
+        )
+        complexity = {
+            row["method"]: float(row["stl_faces_per_normalized_bbox_volume_log1p_median"])
+            for row in ranked
+        }
+
+        self.assertIn("stl_faces_per_normalized_bbox_volume_log1p_median", used_metrics)
+        self.assertAlmostEqual(complexity["unit_box"], complexity["scaled_box"])
+        self.assertTrue(all(abs(row["rank_score"]) < 1e-12 for row in ranked))
 
     def test_score_explainer_matches_baseline_delta_and_shows_metric_tradeoffs(self):
         weights = {
@@ -6061,6 +6155,63 @@ class SelectionRegressionTests(unittest.TestCase):
         self.assertFalse(decision["failed_checks"])
         self.assertAlmostEqual(decision["candidate_rank_score"], 1.2)
         self.assertAlmostEqual(decision["paired_objective"]["ci95_low"], 1.6)
+
+    def test_selection_uses_scale_free_complexity_gate_for_stl_candidates(self):
+        stl_pass_fields = {
+            "success_rate": "1.0",
+            "stl_is_watertight_median": "1.0",
+            "stl_is_volume_median": "1.0",
+            "stl_is_manifold_median": "1.0",
+            "stl_winding_consistent_median": "1.0",
+            "stl_positive_volume_median": "1.0",
+            "stl_single_component_median": "1.0",
+            "stl_bbox_has_volume_median": "1.0",
+            "stl_nonmanifold_edge_count_log1p_median": "0.0",
+            "stl_degenerate_face_ratio_median": "0.0",
+            "stl_component_excess_log1p_median": "0.0",
+            "stl_bbox_aspect_ratio_median": "1.5",
+        }
+        summary_rows = [
+            {
+                "method": "masked",
+                "masked_mae_median": "0.50",
+                **stl_pass_fields,
+            },
+            {
+                "method": "direct",
+                "masked_mae_median": "0.10",
+                "stl_faces_per_bbox_volume_log1p_median": "12.0",
+                "stl_faces_per_normalized_bbox_volume_log1p_median": "9.0",
+                **stl_pass_fields,
+            },
+        ]
+        per_sample_rows = [
+            {"sample_id": "a", "method": "masked", "masked_mae": "0.50"},
+            {
+                "sample_id": "a",
+                "method": "direct",
+                "masked_mae": "0.10",
+                "stl_faces_per_bbox_volume_log1p": "12.0",
+                "stl_faces_per_normalized_bbox_volume_log1p": "9.0",
+            },
+        ]
+
+        decision = evaluate_selection(
+            summary_rows,
+            per_sample_rows,
+            baseline_method="masked",
+            candidate_method="direct",
+            weights={"masked_mae_median": -4.0},
+            min_paired_n=1,
+            require_split_audit=False,
+            bootstrap_samples=0,
+        )
+
+        self.assertEqual(decision["decision"], "promote")
+        self.assertNotIn("stl_face_density", {check["name"] for check in decision["checks"]})
+        self.assertTrue(
+            next(check for check in decision["checks"] if check["name"] == "stl_scale_free_complexity")["passed"]
+        )
 
     def test_selection_holds_nonprintable_stl_candidate_despite_score_win(self):
         summary_rows = [

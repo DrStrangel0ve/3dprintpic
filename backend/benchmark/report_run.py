@@ -16,6 +16,7 @@ from backend.benchmark.rank_methods import (
     parse_float,
     parse_weights,
     rank_summary_rows,
+    with_derived_metrics,
 )
 
 
@@ -54,6 +55,7 @@ KEY_METRICS = [
     ("stl_component_excess_log1p_median", "STL Body Excess log1p"),
     ("stl_bbox_has_volume_median", "STL 3D BBox"),
     ("stl_bbox_aspect_ratio_median", "STL Aspect"),
+    ("stl_faces_per_normalized_bbox_volume_log1p_median", "STL Scale-Free Complexity log1p"),
     ("stl_faces_per_bbox_volume_log1p_median", "STL Face Density log1p"),
     ("stl_faces_median", "STL Faces"),
     ("stl_z_range_median", "STL Z Range"),
@@ -262,7 +264,8 @@ def paired_baseline_delta_rows(per_sample_rows, baseline_method="masked"):
 
     by_sample_method = {}
     methods = set()
-    for row in per_sample_rows:
+    for raw_row in per_sample_rows:
+        row = with_derived_metrics(raw_row)
         sample_id = row.get("sample_id")
         method = row.get("method")
         if not sample_id or not method:
@@ -432,7 +435,8 @@ def paired_objective_rows(per_sample_rows, weights, baseline_method="masked", bo
 
     by_sample_method = {}
     methods = set()
-    for row in per_sample_rows:
+    for raw_row in per_sample_rows:
+        row = with_derived_metrics(raw_row)
         sample_id = row.get("sample_id")
         method = row.get("method")
         if not sample_id or not method:

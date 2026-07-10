@@ -6,7 +6,7 @@ import json
 import math
 from pathlib import Path
 
-from backend.benchmark.rank_methods import SCORE_PROFILES, parse_weights
+from backend.benchmark.rank_methods import SCORE_PROFILES, parse_weights, with_derived_metrics
 from backend.benchmark.report_run import format_number, markdown_table, parse_score_value, sample_field_for_summary_metric
 from backend.benchmark.select_completion_candidate import load_per_sample_rows
 
@@ -19,6 +19,7 @@ KEY_FIELDS = (
     "mesh_surface_chamfer_rmse",
     "mesh_surface_hausdorff95",
     "stl_bbox_aspect_ratio",
+    "stl_faces_per_normalized_bbox_volume_log1p",
     "stl_faces_per_bbox_volume_log1p",
     "stl_faces",
     "stl_is_watertight",
@@ -34,7 +35,8 @@ def finite_number(value) -> float:
 
 def index_by_sample_method(rows: list[dict]) -> dict[tuple[str, str], dict]:
     indexed: dict[tuple[str, str], dict] = {}
-    for row in rows:
+    for raw_row in rows:
+        row = with_derived_metrics(raw_row)
         sample_id = str(row.get("sample_id") or "")
         method = str(row.get("method") or "")
         if sample_id and method:
@@ -110,6 +112,13 @@ def _top_metric_text(contributions: list[dict], *, positive: bool, limit: int) -
 
 def _key_values(row: dict, prefix: str) -> dict:
     return {f"{prefix}_{field}": row.get(field, "") for field in KEY_FIELDS if field in row}
+
+
+def _complexity_value(row: dict, prefix: str):
+    value = row.get(f"{prefix}_stl_faces_per_normalized_bbox_volume_log1p")
+    if value not in (None, ""):
+        return value
+    return row.get(f"{prefix}_stl_faces_per_bbox_volume_log1p", "")
 
 
 def paired_sample_rows(
@@ -269,8 +278,8 @@ def markdown_report(
                 row.get("top_helps_vs_current") if current_method else row.get("top_helps_vs_baseline"),
                 format_number(row.get("candidate_mesh_surface_chamfer_l1")),
                 format_number(row.get("current_mesh_surface_chamfer_l1")) if current_method else "",
-                format_number(row.get("candidate_stl_faces_per_bbox_volume_log1p")),
-                format_number(row.get("current_stl_faces_per_bbox_volume_log1p")) if current_method else "",
+                format_number(_complexity_value(row, "candidate")),
+                format_number(_complexity_value(row, "current")) if current_method else "",
             ]
         )
     lines = [
@@ -301,8 +310,8 @@ def markdown_report(
                     "Top helps",
                     "Candidate Chamfer",
                     "Current Chamfer",
-                    "Candidate Face Density",
-                    "Current Face Density",
+                    "Candidate Complexity",
+                    "Current Complexity",
                 ],
                 rows,
             ),
