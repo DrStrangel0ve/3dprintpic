@@ -72,6 +72,26 @@ type ModelCatalog = {
   notes?: string;
 };
 
+type ProviderReadiness = {
+  id: string;
+  label?: string;
+  status?: 'available' | 'missing' | string;
+  runnable?: boolean;
+  setup_errors?: string[];
+  checks?: Record<string, unknown>;
+  env?: {
+    timeout_seconds?: number;
+    provider_dir_configured?: boolean;
+    provider_python_configured?: boolean;
+    provider_dir_env_names?: string[];
+    provider_python_env_names?: string[];
+  };
+};
+
+type ProviderPreflightResponse = {
+  providers?: ProviderReadiness[];
+};
+
 type PlannerResponse = {
   status: string;
   run_id?: string;
@@ -459,6 +479,27 @@ function failedChecksLabel(value: unknown) {
   return 'hard STL checks';
 }
 
+function providerReadinessLabel(readiness?: ProviderReadiness) {
+  if (!readiness) return 'Unknown';
+  return readiness.runnable ? 'Ready' : 'Setup missing';
+}
+
+function providerReadinessTone(readiness?: ProviderReadiness) {
+  if (!readiness) return 'border-zinc-300 bg-zinc-50 text-zinc-700';
+  return readiness.runnable
+    ? 'border-emerald-700 bg-emerald-50 text-emerald-900'
+    : 'border-red-700 bg-red-50 text-red-900';
+}
+
+function providerSetupMessage(readiness?: ProviderReadiness) {
+  if (!readiness) return 'Provider preflight has not reported this model yet.';
+  if (readiness.runnable) {
+    const timeout = readiness.env?.timeout_seconds;
+    return timeout ? `Configured for up to ${Math.round(timeout / 60)} minutes.` : 'Provider entrypoint is available.';
+  }
+  return readiness.setup_errors?.[0] || 'Provider setup is incomplete.';
+}
+
 function availabilityTone(availability?: string) {
   if (availability === 'configured') return 'border-emerald-700 bg-emerald-50 text-emerald-900';
   if (availability === 'adapter-planned') return 'border-blue-700 bg-blue-50 text-blue-900';
@@ -600,6 +641,8 @@ export default function Home() {
   const [videoBackendUrl, setVideoBackendUrl] = useState(DEFAULT_VIDEO_BACKEND_URL);
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog>(fallbackModelCatalog);
   const [catalogState, setCatalogState] = useState<CatalogState>('loading');
+  const [providerReadiness, setProviderReadiness] = useState<Record<string, ProviderReadiness>>({});
+  const [providerReadinessState, setProviderReadinessState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState('');
   const [mediaKind, setMediaKind] = useState<MediaKind>('photo');
@@ -648,6 +691,7 @@ export default function Home() {
   const videoModels = modelsFor(modelCatalog, 'video_reconstruction');
   const meshModels = modelsFor(modelCatalog, 'image_to_mesh');
   const stlPostprocessModels = modelsFor(modelCatalog, 'stl_postprocess');
+  const selectedMeshReadiness = providerReadiness[meshBackend];
   const currentPrinterPreset = printerPresets.find((preset) => preset.id === printerPreset) || printerPresets[0];
   const printVolume = useMemo<PrintVolumePlan>(() => {
     const usableX = Math.max(1, Math.floor(printerMaxX - printerClearance * 2));
@@ -742,6 +786,37 @@ export default function Home() {
     };
 
     loadModelCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, [videoBackendUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadProviderReadiness = async () => {
+      setProviderReadinessState('loading');
+      try {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 2500);
+        const response = await fetch(`${videoBackendUrl}/providers/image-to-mesh`, { signal: controller.signal });
+        window.clearTimeout(timeout);
+        if (!response.ok) throw new Error(`Provider preflight ${response.status}`);
+        const data = (await response.json()) as ProviderPreflightResponse;
+        const nextReadiness = Object.fromEntries((data.providers || []).map((provider) => [provider.id, provider]));
+        if (!cancelled) {
+          setProviderReadiness(nextReadiness);
+          setProviderReadinessState('ready');
+        }
+      } catch {
+        if (!cancelled) {
+          setProviderReadiness({});
+          setProviderReadinessState('unavailable');
+        }
+      }
+    };
+
+    loadProviderReadiness();
     return () => {
       cancelled = true;
     };
@@ -856,6 +931,13 @@ export default function Home() {
                       inpaint_backend: inpaintBackend,
                       mesh_backend: meshBackend,
                       mesh_backend_label: modelLabel(modelCatalog, 'image_to_mesh', meshBackend),
+                      mesh_provider_readiness: selectedMeshReadiness
+                        ? {
+                            status: selectedMeshReadiness.status,
+                            runnable: Boolean(selectedMeshReadiness.runnable),
+                            setup_errors: selectedMeshReadiness.setup_errors || [],
+                          }
+                        : { status: providerReadinessState, runnable: null, setup_errors: [] },
                       stl_postprocess: stlPostprocessModel,
                       output: 'watertight STL',
                     }
@@ -909,6 +991,8 @@ export default function Home() {
       reliefGamma,
       baseBorderPx,
       selectedDepthModel,
+      selectedMeshReadiness,
+      providerReadinessState,
     ],
   );
 
@@ -1016,6 +1100,21 @@ export default function Home() {
       setStatusText('Repair adapter not attached');
       setError(
         `${modelLabel(modelCatalog, 'stl_postprocess', stlPostprocessModel)} is still planner-only for live Full Mesh STL runs. Select Trimesh repair to run the current image-to-mesh pipeline.`,
+      );
+      return;
+    }
+
+    if (
+      mediaKind === 'photo' &&
+      photoTarget === 'full-mesh' &&
+      providerReadinessState === 'ready' &&
+      selectedMeshReadiness &&
+      !selectedMeshReadiness.runnable
+    ) {
+      setRunState('blocked');
+      setStatusText('Provider setup missing');
+      setError(
+        `${modelLabel(modelCatalog, 'image_to_mesh', meshBackend)} is not runnable: ${providerSetupMessage(selectedMeshReadiness)}`,
       );
       return;
     }
@@ -1517,9 +1616,25 @@ export default function Home() {
                         {meshModels.map((model) => (
                           <option key={model.id} value={model.id}>
                             {model.label}
+                            {providerReadiness[model.id] ? ` - ${providerReadinessLabel(providerReadiness[model.id])}` : ''}
                           </option>
                         ))}
                       </select>
+                      <span
+                        className={classNames(
+                          'mt-2 inline-flex border px-2 py-1 text-xs font-medium',
+                          providerReadinessState === 'loading' && 'border-blue-700 bg-blue-50 text-blue-900',
+                          providerReadinessState === 'unavailable' && 'border-zinc-300 bg-zinc-50 text-zinc-700',
+                          providerReadinessState === 'ready' && providerReadinessTone(selectedMeshReadiness),
+                        )}
+                      >
+                        {providerReadinessState === 'loading'
+                          ? 'Checking'
+                          : providerReadinessState === 'unavailable'
+                            ? 'Unknown'
+                            : providerReadinessLabel(selectedMeshReadiness)}
+                      </span>
+                      <span className="mt-1 block text-xs text-zinc-500">{providerSetupMessage(selectedMeshReadiness)}</span>
                     </label>
                     <label className="text-sm font-medium text-zinc-700 md:col-span-2">
                       STL repair

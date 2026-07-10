@@ -1,6 +1,8 @@
 import unittest
 import os
 import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -79,6 +81,49 @@ class VideoSelectionServiceTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Unsupported camera_pose model", response.json()["detail"])
         self.assertIn("hloc-lightglue", response.json()["detail"])
+
+    def test_image_to_mesh_provider_preflight_reports_missing_setup(self):
+        env_overrides = {
+            "TRIPOSG_DIR": "",
+            "TRIPOSR_DIR": "",
+            "HUNYUAN3D_DIR": "",
+            "SPAR3D_DIR": "",
+            "SF3D_DIR": "",
+            "IMAGE_TO_MESH_PROVIDER_DIR": "",
+            "IMAGE_TO_MESH_PROVIDER_PYTHON": "",
+        }
+        with patch.dict(os.environ, env_overrides, clear=False):
+            response = self.client.get("/providers/image-to-mesh")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["runner"], "image-to-mesh")
+        providers = {provider["id"]: provider for provider in data["providers"]}
+        self.assertIn(DEFAULTS["image_to_mesh"], providers)
+        triposg = providers["triposg"]
+        self.assertFalse(triposg["runnable"])
+        self.assertEqual(triposg["status"], "missing")
+        self.assertTrue(triposg["checks"]["provider_python_found"])
+        self.assertIn("TRIPOSG_DIR", triposg["env"]["provider_dir_env_names"])
+        self.assertIn("Provider repo is missing", triposg["setup_errors"][0])
+
+    def test_image_to_mesh_provider_preflight_accepts_configured_provider_repo(self):
+        with TemporaryDirectory() as provider_dir, patch.dict(os.environ, {"TRIPOSG_DIR": provider_dir}, clear=False):
+            scripts_dir = Path(provider_dir) / "scripts"
+            scripts_dir.mkdir()
+            (scripts_dir / "inference_triposg.py").write_text("# smoke entrypoint\n", encoding="utf-8")
+
+            response = self.client.get("/providers/image-to-mesh")
+
+        self.assertEqual(response.status_code, 200)
+        providers = {provider["id"]: provider for provider in response.json()["providers"]}
+        triposg = providers["triposg"]
+        self.assertTrue(triposg["runnable"])
+        self.assertEqual(triposg["status"], "available")
+        self.assertTrue(triposg["checks"]["provider_dir_resolved"])
+        self.assertEqual(triposg["checks"]["entrypoint"], "scripts/inference_triposg.py")
+        self.assertTrue(triposg["checks"]["entrypoint_found"])
+        self.assertTrue(triposg["env"]["provider_dir_configured"])
 
     def test_image_to_mesh_runner_emits_stl_and_diagnostics(self):
         observed_args = {}

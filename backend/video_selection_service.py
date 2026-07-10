@@ -1,4 +1,5 @@
 import os
+import importlib.util
 import json
 import shutil
 import sys
@@ -16,7 +17,15 @@ from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
 try:
-    from .benchmark.run_image_to_mesh_provider import PROVIDERS, run_provider
+    from .benchmark.run_image_to_mesh_provider import (
+        CLI_PROVIDERS,
+        HUNYUAN3D_SHAPE_PROVIDER,
+        PROVIDERS,
+        TRIPOSR_API_PROVIDER,
+        provider_dir_config_key,
+        resolve_provider_dir,
+        run_provider,
+    )
     from .benchmark.direct_mesh import MESH_REPAIR_MODES
     from .stl_diagnostics import json_safe_stl_diagnostics, stl_diagnostics
 except ImportError:  # pragma: no cover - supports running uvicorn from backend/
@@ -25,7 +34,15 @@ except ImportError:  # pragma: no cover - supports running uvicorn from backend/
     repo_root = Path(__file__).resolve().parents[1]
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
-    from backend.benchmark.run_image_to_mesh_provider import PROVIDERS, run_provider
+    from backend.benchmark.run_image_to_mesh_provider import (
+        CLI_PROVIDERS,
+        HUNYUAN3D_SHAPE_PROVIDER,
+        PROVIDERS,
+        TRIPOSR_API_PROVIDER,
+        provider_dir_config_key,
+        resolve_provider_dir,
+        run_provider,
+    )
     from backend.benchmark.direct_mesh import MESH_REPAIR_MODES
     from backend.stl_diagnostics import json_safe_stl_diagnostics, stl_diagnostics
 
@@ -101,10 +118,39 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def provider_env_prefix(provider: str) -> str:
+    return provider.upper().replace("-", "_")
+
+
+def provider_dir_env_names(provider: str) -> list[str]:
+    names = [f"{provider_env_prefix(provider)}_DIR"]
+    config = CLI_PROVIDERS.get(provider_dir_config_key(provider), {})
+    canonical = config.get("env")
+    if canonical and canonical not in names:
+        names.append(str(canonical))
+    if provider == HUNYUAN3D_SHAPE_PROVIDER and "HUNYUAN3D_DIR" not in names:
+        names.append("HUNYUAN3D_DIR")
+    if "IMAGE_TO_MESH_PROVIDER_DIR" not in names:
+        names.append("IMAGE_TO_MESH_PROVIDER_DIR")
+    return names
+
+
+def provider_python_env_names(provider: str) -> list[str]:
+    return [f"{provider_env_prefix(provider)}_PYTHON", "IMAGE_TO_MESH_PROVIDER_PYTHON"]
+
+
+def configured_env_value(names: list[str]) -> str | None:
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value
+    return None
+
+
 def provider_runtime_config(provider: str) -> dict[str, object]:
-    env_prefix = provider.upper().replace("-", "_")
-    provider_dir = os.getenv(f"{env_prefix}_DIR") or os.getenv("IMAGE_TO_MESH_PROVIDER_DIR") or None
-    provider_python = os.getenv(f"{env_prefix}_PYTHON") or os.getenv("IMAGE_TO_MESH_PROVIDER_PYTHON") or sys.executable
+    env_prefix = provider_env_prefix(provider)
+    provider_dir = configured_env_value(provider_dir_env_names(provider))
+    provider_python = configured_env_value(provider_python_env_names(provider)) or sys.executable
     timeout = _env_int(f"{env_prefix}_TIMEOUT_SECONDS", _env_int("IMAGE_TO_MESH_TIMEOUT_SECONDS", 3600))
     return {
         "provider_dir": provider_dir,
@@ -403,6 +449,96 @@ def _model_index() -> dict[str, dict]:
     }
 
 
+def command_exists(executable: object) -> bool:
+    text = str(executable or "").strip()
+    if not text:
+        return False
+    path = Path(text)
+    has_path_separator = any(separator and separator in text for separator in (os.sep, os.altsep))
+    if path.is_absolute() or has_path_separator:
+        return path.exists()
+    return shutil.which(text) is not None
+
+
+def safe_find_spec(module: str) -> bool:
+    try:
+        return importlib.util.find_spec(module) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def image_to_mesh_provider_preflight(provider: str) -> dict:
+    selected_provider = provider_for_model(provider)
+    runtime = provider_runtime_config(selected_provider)
+    model = _model_index().get(selected_provider, {})
+    setup_errors: list[str] = []
+    checks: dict[str, object] = {}
+    provider_dir_envs = provider_dir_env_names(selected_provider)
+    provider_python_envs = provider_python_env_names(selected_provider)
+
+    provider_python_found = command_exists(runtime["provider_python"])
+    checks["provider_python_found"] = provider_python_found
+    if not provider_python_found:
+        setup_errors.append("Provider Python executable is not available from server configuration.")
+
+    if selected_provider in CLI_PROVIDERS or selected_provider == TRIPOSR_API_PROVIDER:
+        try:
+            provider_dir = resolve_provider_dir(selected_provider, runtime["provider_dir"])
+            checks["provider_dir_resolved"] = True
+        except FileNotFoundError:
+            provider_dir = None
+            checks["provider_dir_resolved"] = False
+            setup_errors.append(f"Provider repo is missing. Configure one of: {', '.join(provider_dir_envs)}.")
+
+        if provider_dir is not None:
+            if selected_provider in CLI_PROVIDERS:
+                entrypoint = (
+                    Path("scripts/inference_triposg.py")
+                    if CLI_PROVIDERS[selected_provider].get("runner") == "triposg-module"
+                    else Path("run.py")
+                )
+            else:
+                entrypoint = Path("tsr/system.py")
+            entrypoint_found = (provider_dir / entrypoint).exists()
+            checks["entrypoint"] = entrypoint.as_posix()
+            checks["entrypoint_found"] = entrypoint_found
+            if not entrypoint_found:
+                setup_errors.append(f"Provider repo is missing expected entrypoint: {entrypoint.as_posix()}.")
+    elif selected_provider == HUNYUAN3D_SHAPE_PROVIDER:
+        provider_dir_value = runtime["provider_dir"] or os.getenv("HUNYUAN3D_DIR")
+        source_available = False
+        if provider_dir_value:
+            provider_dir = Path(str(provider_dir_value))
+            checks["provider_dir_resolved"] = provider_dir.exists()
+            source_available = (provider_dir / "hy3dshape").exists()
+        else:
+            checks["provider_dir_resolved"] = False
+        importable = safe_find_spec("hy3dshape")
+        checks["hy3dshape_source_found"] = source_available
+        checks["hy3dshape_importable"] = importable
+        if not (source_available or importable):
+            setup_errors.append(
+                "Hunyuan3D Shape is not importable. Configure HUNYUAN3D_DIR or install hy3dshape in the server environment."
+            )
+
+    runnable = not setup_errors
+    return {
+        "id": selected_provider,
+        "label": model.get("label", selected_provider),
+        "status": "available" if runnable else "missing",
+        "runnable": runnable,
+        "setup_errors": setup_errors,
+        "checks": checks,
+        "env": {
+            "provider_dir_env_names": provider_dir_envs,
+            "provider_python_env_names": provider_python_envs,
+            "timeout_seconds": runtime["timeout"],
+            "provider_dir_configured": bool(runtime["provider_dir"]),
+            "provider_python_configured": bool(configured_env_value(provider_python_envs)),
+        },
+    }
+
+
 def _selected_model(model_id: str | None, group: str) -> dict:
     candidate_id = model_id or DEFAULTS[group]
     row = _model_index().get(candidate_id)
@@ -433,6 +569,17 @@ async def models():
         "metrics": STL_METRICS,
         "runner_modes": ["image-to-mesh"],
         "notes": "This companion service exposes the video, selection, camera, direct-mesh, and STL-repair model surface. The image-to-mesh runner can attach heavy providers behind the same ids.",
+    }
+
+
+@app.get("/providers/image-to-mesh")
+async def image_to_mesh_providers():
+    return {
+        "service": "video-selection-planner",
+        "runner": "image-to-mesh",
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "default_provider": DEFAULTS["image_to_mesh"],
+        "providers": [image_to_mesh_provider_preflight(provider) for provider in SINGLE_IMAGE_PROVIDERS],
     }
 
 
@@ -587,10 +734,7 @@ async def run_image_to_mesh(
         }
         diagnostics_path = job_dir / "diagnostics.json"
         diagnostics_path.write_text(json.dumps(diagnostics, indent=2, allow_nan=False), encoding="utf-8")
-        provider_python_configured = bool(
-            os.getenv(f"{selected_provider.upper().replace('-', '_')}_PYTHON")
-            or os.getenv("IMAGE_TO_MESH_PROVIDER_PYTHON")
-        )
+        provider_python_configured = bool(configured_env_value(provider_python_env_names(selected_provider)))
         metadata = {
             "job_id": job_id,
             "source_filename": file.filename,
