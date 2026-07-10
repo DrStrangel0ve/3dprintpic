@@ -1,4 +1,5 @@
 import unittest
+import json
 import os
 import sys
 from pathlib import Path
@@ -23,10 +24,13 @@ class VideoSelectionServiceTest(unittest.TestCase):
         data = response.json()
         self.assertEqual(data["mode"], "planner-plus-runner")
         self.assertIn("image-to-mesh", data["runner_modes"])
+        self.assertIn("multiview-to-mesh", data["runner_modes"])
         self.assertEqual(data["defaults"]["image_to_mesh"], DEFAULTS["image_to_mesh"])
+        self.assertEqual(data["defaults"]["video_reconstruction"], "multiview-visual-hull")
         self.assertIn("selection", data["groups"])
         self.assertIn("panoptic-detr", {model["id"] for model in data["groups"]["selection"]})
         self.assertIn("video_reconstruction", data["groups"])
+        self.assertIn("multiview-visual-hull", {model["id"] for model in data["groups"]["video_reconstruction"]})
         self.assertIn("stl_postprocess", data["groups"])
         self.assertIn("watertightness", data["metrics"])
 
@@ -101,6 +105,7 @@ class VideoSelectionServiceTest(unittest.TestCase):
         self.assertEqual(data["runner"], "image-to-mesh")
         providers = {provider["id"]: provider for provider in data["providers"]}
         self.assertIn(DEFAULTS["image_to_mesh"], providers)
+        self.assertNotIn("multiview-visual-hull", providers)
         triposg = providers["triposg"]
         self.assertFalse(triposg["runnable"])
         self.assertEqual(triposg["status"], "missing")
@@ -125,6 +130,20 @@ class VideoSelectionServiceTest(unittest.TestCase):
         self.assertEqual(triposg["checks"]["entrypoint"], "scripts/inference_triposg.py")
         self.assertTrue(triposg["checks"]["entrypoint_found"])
         self.assertTrue(triposg["env"]["provider_dir_configured"])
+
+    def test_multiview_to_mesh_provider_preflight_exposes_builtin_visual_hull(self):
+        response = self.client.get("/providers/multiview-to-mesh")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["runner"], "multiview-to-mesh")
+        self.assertEqual(data["default_provider"], "multiview-visual-hull")
+        providers = {provider["id"]: provider for provider in data["providers"]}
+        visual_hull = providers["multiview-visual-hull"]
+        self.assertTrue(visual_hull["runnable"])
+        self.assertEqual(visual_hull["status"], "available")
+        self.assertTrue(visual_hull["checks"]["builtin_provider"])
+        self.assertTrue(visual_hull["checks"]["requires_input_bundle"])
 
     def test_image_to_mesh_runner_emits_stl_and_diagnostics(self):
         observed_args = {}
@@ -223,6 +242,115 @@ class VideoSelectionServiceTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("Unsupported image_to_mesh provider", response.json()["detail"])
+
+    def test_multiview_to_mesh_runner_emits_stl_and_diagnostics(self):
+        observed = {}
+
+        def fake_provider(args):
+            observed["provider"] = args.provider
+            observed["input_bundle"] = args.input_bundle
+            observed["visual_hull_resolution"] = args.visual_hull_resolution
+            observed["visual_hull_mask_dilate"] = args.visual_hull_mask_dilate
+            bundle = json.loads(Path(args.input_bundle).read_text(encoding="utf-8"))
+            observed["bundle"] = bundle
+            for view in bundle["views"]:
+                self.assertTrue(Path(view["image"]).exists())
+                if view.get("mask"):
+                    self.assertTrue(Path(view["mask"]).exists())
+            mesh = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
+            args.output_mesh.parent.mkdir(parents=True, exist_ok=True)
+            mesh.export(args.output_mesh)
+            mesh.export(args.output_stl)
+            return args.output_mesh, args.output_stl
+
+        bundle = {
+            "sample_id": "turntable_box",
+            "views": [
+                {"image": "front.png", "mask": "front_mask.png", "camera": {"azimuth_deg": 0}},
+                {"image": "side.png", "mask": "side_mask.png", "camera": {"azimuth_deg": 90}},
+            ],
+        }
+        files = [
+            ("primary_file", ("front.png", b"primary-bytes", "image/png")),
+            ("view_files", ("front.png", b"front-bytes", "image/png")),
+            ("view_files", ("side.png", b"side-bytes", "image/png")),
+            ("mask_files", ("front_mask.png", b"front-mask-bytes", "image/png")),
+            ("mask_files", ("side_mask.png", b"side-mask-bytes", "image/png")),
+        ]
+        with patch.object(service_module, "run_provider_job", side_effect=fake_provider):
+            response = self.client.post(
+                "/run/multiview-to-mesh",
+                files=files,
+                data={
+                    "provider": "multiview-visual-hull",
+                    "provider_device": "cpu",
+                    "bundle_json": json.dumps(bundle),
+                    "mesh_repair": "printable",
+                    "mesh_target_max_dimension": "96",
+                    "mesh_min_bbox_dimension": "12",
+                    "visual_hull_resolution": "24",
+                    "visual_hull_mask_dilate": "0",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["status"], "printable")
+        self.assertEqual(data["runner"], "multiview-to-mesh")
+        self.assertEqual(data["provider"], "multiview-visual-hull")
+        self.assertEqual(data["view_count"], 2)
+        self.assertEqual(observed["provider"], "multiview-visual-hull")
+        self.assertEqual(observed["visual_hull_resolution"], 24)
+        self.assertEqual(observed["visual_hull_mask_dilate"], 0)
+        self.assertEqual(observed["bundle"]["views"][1]["camera"]["azimuth_deg"], 90)
+        self.assertTrue(data["input_bundle"].endswith("/multiview_input.json"))
+        self.assertTrue(data["stl_model"].endswith("/output_model.stl"))
+        self.assertEqual(data["stl_diagnostics"]["artifact_contract"], "output_model.stl + diagnostics.json")
+        self.assertEqual(data["stl_diagnostics"]["runner"], "multiview-to-mesh")
+        self.assertTrue(data["stl_passes_hard_checks"])
+        self.assertEqual(data["stl_failed_checks"], [])
+
+        bundle_response = self.client.get(data["input_bundle_url"])
+        self.assertEqual(bundle_response.status_code, 200)
+        self.assertEqual(bundle_response.json()["sample_id"], "turntable_box")
+        diagnostics_response = self.client.get(data["diagnostics_url"])
+        self.assertEqual(diagnostics_response.status_code, 200)
+        self.assertEqual(diagnostics_response.json()["job_id"], data["job_id"])
+
+    def test_multiview_to_mesh_runner_rejects_planner_only_provider(self):
+        response = self.client.post(
+            "/run/multiview-to-mesh",
+            files={"primary_file": ("front.png", b"primary-bytes", "image/png")},
+            data={"provider": "vggt-fusion"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Unsupported multiview_to_mesh provider", response.json()["detail"])
+
+    def test_multiview_to_mesh_runner_rejects_unuploaded_bundle_path(self):
+        with TemporaryDirectory() as temp_dir:
+            external_path = Path(temp_dir) / "external.png"
+            external_path.write_bytes(b"external-bytes")
+            response = self.client.post(
+                "/run/multiview-to-mesh",
+                files={"primary_file": ("front.png", b"primary-bytes", "image/png")},
+                data={
+                    "provider": "multiview-visual-hull",
+                    "bundle_json": json.dumps(
+                        {
+                            "views": [
+                                {
+                                    "image": str(external_path),
+                                    "camera": {"azimuth_deg": 0},
+                                }
+                            ]
+                        }
+                    ),
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not an uploaded or output artifact", response.json()["detail"])
 
 
 if __name__ == "__main__":

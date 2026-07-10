@@ -1,6 +1,7 @@
 import os
 import importlib.util
 import json
+import re
 import shutil
 import sys
 import time
@@ -20,7 +21,9 @@ try:
     from .benchmark.run_image_to_mesh_provider import (
         CLI_PROVIDERS,
         HUNYUAN3D_SHAPE_PROVIDER,
+        MULTIVIEW_VISUAL_HULL_PROVIDER,
         PROVIDERS,
+        SOURCE_MESH_BUNDLE_ORACLE_PROVIDER,
         TRIPOSR_API_PROVIDER,
         provider_dir_config_key,
         resolve_provider_dir,
@@ -37,7 +40,9 @@ except ImportError:  # pragma: no cover - supports running uvicorn from backend/
     from backend.benchmark.run_image_to_mesh_provider import (
         CLI_PROVIDERS,
         HUNYUAN3D_SHAPE_PROVIDER,
+        MULTIVIEW_VISUAL_HULL_PROVIDER,
         PROVIDERS,
+        SOURCE_MESH_BUNDLE_ORACLE_PROVIDER,
         TRIPOSR_API_PROVIDER,
         provider_dir_config_key,
         resolve_provider_dir,
@@ -51,7 +56,13 @@ load_dotenv()
 
 app = FastAPI(title="3D Print Pic Video and Selection Planner")
 OUTPUT_DIR = Path(os.getenv("VIDEO_OUTPUT_DIR", "./output/video-selection-runs")).resolve()
-SINGLE_IMAGE_PROVIDERS = tuple(provider for provider in PROVIDERS if provider != "source-mesh-bundle-oracle")
+SINGLE_IMAGE_PROVIDERS = tuple(
+    provider
+    for provider in PROVIDERS
+    if provider not in {SOURCE_MESH_BUNDLE_ORACLE_PROVIDER, MULTIVIEW_VISUAL_HULL_PROVIDER}
+)
+MULTIVIEW_PROVIDERS = (MULTIVIEW_VISUAL_HULL_PROVIDER,)
+RUNNER_MODES = ("image-to-mesh", "multiview-to-mesh")
 STL_HARD_CHECKS = (
     "stl_exists",
     "stl_is_watertight",
@@ -111,6 +122,19 @@ def provider_for_model(model_id: str | None) -> str:
     return provider
 
 
+def provider_for_multiview_model(model_id: str | None) -> str:
+    provider = str(model_id or MULTIVIEW_VISUAL_HULL_PROVIDER).strip()
+    aliases = {
+        "visual-hull": MULTIVIEW_VISUAL_HULL_PROVIDER,
+        "visual_hull": MULTIVIEW_VISUAL_HULL_PROVIDER,
+    }
+    provider = aliases.get(provider, provider)
+    if provider not in MULTIVIEW_PROVIDERS:
+        expected = ", ".join(MULTIVIEW_PROVIDERS)
+        raise HTTPException(status_code=400, detail=f"Unsupported multiview_to_mesh provider '{provider}'. Valid: {expected}")
+    return provider
+
+
 def _env_int(name: str, default: int) -> int:
     try:
         return max(1, int(os.getenv(name, str(default))))
@@ -159,6 +183,16 @@ def provider_runtime_config(provider: str) -> dict[str, object]:
     }
 
 
+def multiview_provider_runtime_config(provider: str) -> dict[str, object]:
+    env_prefix = provider_env_prefix(provider)
+    timeout = _env_int(f"{env_prefix}_TIMEOUT_SECONDS", _env_int("MULTIVIEW_TO_MESH_TIMEOUT_SECONDS", 3600))
+    return {
+        "provider_dir": None,
+        "provider_python": sys.executable,
+        "timeout": timeout,
+    }
+
+
 def stl_gate_result(diagnostics: dict) -> tuple[bool, list[str]]:
     failed_checks = [key for key in STL_HARD_CHECKS if not bool(diagnostics.get(key))]
     return not failed_checks, failed_checks
@@ -166,6 +200,166 @@ def stl_gate_result(diagnostics: dict) -> tuple[bool, list[str]]:
 
 def run_provider_job(args):
     return run_provider(args)
+
+
+def safe_upload_filename(filename: str | None, fallback: str) -> str:
+    name = Path(filename or fallback).name
+    name = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("._")
+    return name or fallback
+
+
+def unique_child_path(directory: Path, filename: str) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    candidate = directory / filename
+    if not candidate.exists():
+        return candidate
+    stem = candidate.stem or "upload"
+    suffix = candidate.suffix
+    for index in range(1, 1000):
+        candidate = directory / f"{stem}_{index}{suffix}"
+        if not candidate.exists():
+            return candidate
+    raise HTTPException(status_code=500, detail=f"Could not choose a unique upload name for {filename}")
+
+
+def save_upload(upload: UploadFile, directory: Path, fallback: str) -> tuple[Path, str]:
+    original_name = safe_upload_filename(upload.filename, fallback)
+    target = unique_child_path(directory, original_name)
+    with target.open("wb") as output_file:
+        shutil.copyfileobj(upload.file, output_file)
+    return target, original_name
+
+
+def upload_lookup(items: list[tuple[str, Path]]) -> dict[str, Path]:
+    lookup: dict[str, Path] = {}
+    for original_name, path in items:
+        lookup[original_name] = path
+        lookup[Path(original_name).name] = path
+        lookup[path.name] = path
+    return lookup
+
+
+def parse_json_form(value: str | None, *, default):
+    text = str(value or "").strip()
+    if not text:
+        return default
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON form field: {exc}") from exc
+
+
+async def load_bundle_payload(bundle_json: str | None, bundle_file: UploadFile | None) -> dict:
+    payload = None
+    if bundle_json and str(bundle_json).strip():
+        payload = parse_json_form(bundle_json, default={})
+    elif bundle_file is not None:
+        content = await bundle_file.read()
+        if content:
+            try:
+                payload = json.loads(content.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise HTTPException(status_code=400, detail=f"Invalid bundle_file JSON: {exc}") from exc
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Bundle JSON must be an object.")
+    return payload
+
+
+def is_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def normalize_bundle_path(value, lookup: dict[str, Path], job_dir: Path) -> str:
+    if value in (None, ""):
+        return ""
+    text = str(value)
+    candidates = [text, Path(text).name]
+    for candidate in candidates:
+        if candidate in lookup:
+            return str(lookup[candidate])
+    raw = Path(text)
+    if raw.is_absolute():
+        resolved = raw.resolve()
+        if resolved.exists() and (is_within(resolved, job_dir) or is_within(resolved, OUTPUT_DIR)):
+            return str(resolved)
+        raise HTTPException(status_code=400, detail=f"Bundle path is not an uploaded or output artifact: {text}")
+    for candidate in (job_dir / raw, OUTPUT_DIR / raw):
+        resolved = candidate.resolve()
+        if resolved.exists() and (is_within(resolved, job_dir) or is_within(resolved, OUTPUT_DIR)):
+            return str(resolved)
+    raise HTTPException(status_code=400, detail=f"Bundle path is not an uploaded or output artifact: {text}")
+
+
+def normalize_multiview_bundle(
+    bundle: dict,
+    *,
+    primary_image: Path,
+    uploaded_views: list[Path],
+    uploaded_masks: list[Path],
+    uploaded_lookup: dict[str, Path],
+    cameras,
+    view_ids,
+    job_dir: Path,
+) -> dict:
+    normalized = dict(bundle)
+    normalized["primary_image"] = str(primary_image)
+    normalized.setdefault("sample_id", "")
+
+    raw_views = normalized.get("views") or []
+    if not isinstance(raw_views, list):
+        raise HTTPException(status_code=400, detail="Bundle field 'views' must be a list.")
+    if not raw_views:
+        source_views = uploaded_views or [primary_image]
+        raw_views = [
+            {
+                "index": index,
+                "sample_id": str(view_ids[index]) if isinstance(view_ids, list) and index < len(view_ids) else "",
+                "image": str(path),
+                "mask": str(uploaded_masks[index]) if index < len(uploaded_masks) else "",
+                "camera": cameras[index] if isinstance(cameras, list) and index < len(cameras) else {},
+            }
+            for index, path in enumerate(source_views)
+        ]
+
+    views = []
+    for index, view in enumerate(raw_views):
+        if not isinstance(view, dict):
+            raise HTTPException(status_code=400, detail="Each bundle view must be an object.")
+        normalized_view = dict(view)
+        if normalized_view.get("image"):
+            normalized_view["image"] = normalize_bundle_path(normalized_view["image"], uploaded_lookup, job_dir)
+        elif index < len(uploaded_views):
+            normalized_view["image"] = str(uploaded_views[index])
+        elif index == 0:
+            normalized_view["image"] = str(primary_image)
+        else:
+            raise HTTPException(status_code=400, detail=f"Bundle view {index} has no image.")
+
+        if normalized_view.get("mask"):
+            normalized_view["mask"] = normalize_bundle_path(normalized_view["mask"], uploaded_lookup, job_dir)
+        elif index < len(uploaded_masks):
+            normalized_view["mask"] = str(uploaded_masks[index])
+        else:
+            normalized_view["mask"] = ""
+
+        if not normalized_view.get("camera") and isinstance(cameras, list) and index < len(cameras):
+            normalized_view["camera"] = cameras[index]
+        if not normalized_view.get("sample_id") and isinstance(view_ids, list) and index < len(view_ids):
+            normalized_view["sample_id"] = str(view_ids[index])
+        normalized_view["index"] = normalized_view.get("index", index)
+        views.append(normalized_view)
+
+    normalized["views"] = views
+    for key in ("masked_image", "full_image", "mask", "video_path"):
+        if normalized.get(key):
+            normalized[key] = normalize_bundle_path(normalized[key], uploaded_lookup, job_dir)
+    return normalized
 
 app.add_middleware(
     CORSMiddleware,
@@ -304,6 +498,16 @@ MODEL_GROUPS = {
         },
     ],
     "video_reconstruction": [
+        {
+            "id": "multiview-visual-hull",
+            "label": "Multiview visual hull",
+            "model": "silhouette visual hull",
+            "role": "deterministic multiview mesh from object silhouettes",
+            "local": True,
+            "gpu_supported": False,
+            "availability": "configured",
+            "notes": "First live STL-emitting multiview baseline; useful for selected-frame masks before learned reconstruction is attached.",
+        },
         {
             "id": "colmap-openmvs",
             "label": "COLMAP + OpenMVS",
@@ -445,7 +649,7 @@ DEFAULTS = {
     "selection": "detr-resnet-50-panoptic",
     "frame_selection": "uniform-frame-sampler",
     "camera_pose": "hloc-lightglue",
-    "video_reconstruction": "colmap-openmvs",
+    "video_reconstruction": "multiview-visual-hull",
     "image_to_mesh": "triposg",
     "stl_postprocess": "trimesh-repair",
 }
@@ -574,7 +778,7 @@ async def health():
         "status": "ok",
         "service": "video-selection-planner",
         "mode": "planner-plus-runner",
-        "runner_modes": ["image-to-mesh"],
+        "runner_modes": list(RUNNER_MODES),
         "generated_at": datetime.utcnow().isoformat() + "Z",
     }
 
@@ -587,8 +791,8 @@ async def models():
         "defaults": DEFAULTS,
         "groups": MODEL_GROUPS,
         "metrics": STL_METRICS,
-        "runner_modes": ["image-to-mesh"],
-        "notes": "This companion service exposes the video, selection, camera, direct-mesh, and STL-repair model surface. The image-to-mesh runner can attach heavy providers behind the same ids.",
+        "runner_modes": list(RUNNER_MODES),
+        "notes": "This companion service exposes the video, selection, camera, direct-mesh, multiview-mesh, and STL-repair model surface. The image-to-mesh and multiview-to-mesh runners can attach providers behind the same ids.",
     }
 
 
@@ -600,6 +804,31 @@ async def image_to_mesh_providers():
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "default_provider": DEFAULTS["image_to_mesh"],
         "providers": [image_to_mesh_provider_preflight(provider) for provider in SINGLE_IMAGE_PROVIDERS],
+    }
+
+
+@app.get("/providers/multiview-to-mesh")
+async def multiview_to_mesh_providers():
+    return {
+        "service": "video-selection-planner",
+        "runner": "multiview-to-mesh",
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "default_provider": MULTIVIEW_VISUAL_HULL_PROVIDER,
+        "providers": [
+            {
+                "id": MULTIVIEW_VISUAL_HULL_PROVIDER,
+                "label": "Multiview visual hull",
+                "status": "available",
+                "runnable": True,
+                "setup_errors": [],
+                "checks": {"builtin_provider": True, "requires_input_bundle": True},
+                "env": {
+                    "timeout_seconds": multiview_provider_runtime_config(MULTIVIEW_VISUAL_HULL_PROVIDER)["timeout"],
+                    "provider_dir_configured": False,
+                    "provider_python_configured": False,
+                },
+            }
+        ],
     }
 
 
@@ -806,6 +1035,200 @@ async def run_image_to_mesh(
             input_path.unlink()
         except OSError:
             pass
+
+
+@app.post("/run/multiview-to-mesh")
+async def run_multiview_to_mesh(
+    primary_file: UploadFile = File(...),
+    bundle_json: str | None = Form(None),
+    bundle_file: UploadFile | None = File(None),
+    view_files: list[UploadFile] | None = File(None),
+    mask_files: list[UploadFile] | None = File(None),
+    provider: str | None = Form(None),
+    provider_device: str = Form("cuda"),
+    mesh_repair: str = Form("printable"),
+    mesh_target_max_dimension: float = Form(96.0),
+    mesh_min_bbox_dimension: float = Form(12.0),
+    mesh_max_bbox_aspect_ratio: float = Form(0.0),
+    mesh_target_faces: int = Form(40000),
+    cameras_json: str | None = Form(None),
+    view_ids_json: str | None = Form(None),
+    visual_hull_resolution: int = Form(32),
+    visual_hull_grid_extent: float = Form(1.9),
+    visual_hull_ortho_scale: float = Form(2.0),
+    visual_hull_mask_dilate: int = Form(1),
+):
+    selected_provider = provider_for_multiview_model(provider)
+    if mesh_repair not in MESH_REPAIR_MODES:
+        expected = ", ".join(MESH_REPAIR_MODES)
+        raise HTTPException(status_code=400, detail=f"Unsupported mesh_repair '{mesh_repair}'. Valid: {expected}")
+    runtime_config = multiview_provider_runtime_config(selected_provider)
+
+    job_id = uuid4().hex
+    job_dir = OUTPUT_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    request_started = time.perf_counter()
+    upload_records: list[tuple[str, Path]] = []
+
+    primary_path, primary_name = save_upload(primary_file, job_dir / "inputs", "primary.png")
+    upload_records.append((primary_name, primary_path))
+    uploaded_views = []
+    for index, upload in enumerate(view_files or []):
+        path, name = save_upload(upload, job_dir / "inputs" / "views", f"view{index}.png")
+        upload_records.append((name, path))
+        uploaded_views.append(path)
+    uploaded_masks = []
+    for index, upload in enumerate(mask_files or []):
+        path, name = save_upload(upload, job_dir / "inputs" / "masks", f"mask{index}.png")
+        upload_records.append((name, path))
+        uploaded_masks.append(path)
+
+    bundle = await load_bundle_payload(bundle_json, bundle_file)
+    cameras = parse_json_form(cameras_json, default=[])
+    view_ids = parse_json_form(view_ids_json, default=[])
+    if cameras and not isinstance(cameras, list):
+        raise HTTPException(status_code=400, detail="cameras_json must be a list when provided.")
+    if view_ids and not isinstance(view_ids, list):
+        raise HTTPException(status_code=400, detail="view_ids_json must be a list when provided.")
+    normalized_bundle = normalize_multiview_bundle(
+        bundle,
+        primary_image=primary_path,
+        uploaded_views=uploaded_views,
+        uploaded_masks=uploaded_masks,
+        uploaded_lookup=upload_lookup(upload_records),
+        cameras=cameras,
+        view_ids=view_ids,
+        job_dir=job_dir,
+    )
+    bundle_path = job_dir / "multiview_input.json"
+    bundle_path.write_text(json.dumps(normalized_bundle, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+
+    output_mesh = job_dir / "output_mesh.ply"
+    raw_output_mesh = job_dir / "output_mesh_raw.ply"
+    output_stl = job_dir / "output_model.stl"
+    provider_args = SimpleNamespace(
+        provider=selected_provider,
+        input_image=primary_path,
+        input_bundle=bundle_path,
+        output_mesh=output_mesh,
+        output_stl=output_stl,
+        raw_output_mesh=raw_output_mesh,
+        provider_dir=runtime_config["provider_dir"],
+        provider_output_dir=job_dir / f"{selected_provider}_raw",
+        python=runtime_config["provider_python"],
+        timeout=runtime_config["timeout"],
+        low_vram=False,
+        provider_device=provider_device,
+        chunk_size=8192,
+        mc_resolution=256,
+        texture_resolution=None,
+        remesh_option=None,
+        mesh_repair=mesh_repair,
+        mesh_target_max_dimension=float(mesh_target_max_dimension or 0.0),
+        mesh_min_bbox_dimension=float(mesh_min_bbox_dimension or 0.0),
+        mesh_max_bbox_aspect_ratio=float(mesh_max_bbox_aspect_ratio or 0.0),
+        mesh_target_bbox_extents=None,
+        mesh_target_faces=int(mesh_target_faces or 0),
+        provider_arg=[],
+        model_name=None,
+        num_inference_steps=1,
+        guidance_scale=0.0,
+        octree_resolution=256,
+        num_chunks=8000,
+        seed=None,
+        mc_algo=None,
+        disable_progress=True,
+        prefetch_only=False,
+        visual_hull_resolution=int(visual_hull_resolution),
+        visual_hull_grid_extent=float(visual_hull_grid_extent),
+        visual_hull_ortho_scale=float(visual_hull_ortho_scale),
+        visual_hull_mask_dilate=int(visual_hull_mask_dilate),
+    )
+
+    started_at = datetime.utcnow().isoformat() + "Z"
+    try:
+        stage_started = time.perf_counter()
+        mesh_path, stl_path = await run_in_threadpool(run_provider_job, provider_args)
+        provider_seconds = round(time.perf_counter() - stage_started, 3)
+        stl_path = Path(stl_path or output_stl)
+        if not stl_path.exists():
+            raise FileNotFoundError(f"Provider did not write an STL at {stl_path}")
+        stage_started = time.perf_counter()
+        diagnostics = json_safe_stl_diagnostics(stl_diagnostics(stl_path))
+        diagnostics.update(
+            {
+                "job_id": job_id,
+                "runner": "multiview-to-mesh",
+                "provider": selected_provider,
+                "artifact_contract": "output_model.stl + diagnostics.json",
+                "view_count": len(normalized_bundle.get("views", [])),
+            }
+        )
+        stl_passes_hard_checks, stl_failed_checks = stl_gate_result(diagnostics)
+        diagnostics["stl_passes_hard_checks"] = stl_passes_hard_checks
+        diagnostics["stl_failed_checks"] = stl_failed_checks
+        diagnostics_seconds = round(time.perf_counter() - stage_started, 3)
+        timings = {
+            "provider_seconds": provider_seconds,
+            "diagnostics_seconds": diagnostics_seconds,
+            "total_seconds": round(time.perf_counter() - request_started, 3),
+        }
+        diagnostics_path = job_dir / "diagnostics.json"
+        diagnostics_path.write_text(json.dumps(diagnostics, indent=2, allow_nan=False), encoding="utf-8")
+        metadata = {
+            "job_id": job_id,
+            "source_filename": primary_file.filename,
+            "service": "video-selection-planner",
+            "runner": "multiview-to-mesh",
+            "provider": selected_provider,
+            "provider_dir_configured": False,
+            "provider_python_configured": False,
+            "provider_device": provider_device,
+            "provider_timeout_seconds": runtime_config["timeout"],
+            "mesh_repair": mesh_repair,
+            "mesh_target_max_dimension": mesh_target_max_dimension,
+            "mesh_min_bbox_dimension": mesh_min_bbox_dimension,
+            "mesh_max_bbox_aspect_ratio": mesh_max_bbox_aspect_ratio,
+            "mesh_target_faces": mesh_target_faces,
+            "visual_hull_resolution": visual_hull_resolution,
+            "visual_hull_grid_extent": visual_hull_grid_extent,
+            "visual_hull_ortho_scale": visual_hull_ortho_scale,
+            "visual_hull_mask_dilate": visual_hull_mask_dilate,
+            "view_count": len(normalized_bundle.get("views", [])),
+            "timings": timings,
+            "started_at": started_at,
+            "finished_at": datetime.utcnow().isoformat() + "Z",
+        }
+        metadata_path = job_dir / "metadata.json"
+        metadata_path.write_text(json.dumps(metadata, indent=2, allow_nan=False), encoding="utf-8")
+
+        mesh_relative = output_relative_path(mesh_path)
+        stl_relative = output_relative_path(stl_path)
+        bundle_relative = output_relative_path(bundle_path)
+        diagnostics_relative = output_relative_path(diagnostics_path)
+        metadata_relative = output_relative_path(metadata_path)
+        return {
+            **metadata,
+            "status": "printable" if stl_passes_hard_checks else "stl-emitted",
+            "stl_passes_hard_checks": stl_passes_hard_checks,
+            "stl_failed_checks": stl_failed_checks,
+            "input_bundle": bundle_relative,
+            "input_bundle_url": f"/artifacts/{bundle_relative}",
+            "output_mesh": mesh_relative,
+            "output_mesh_url": f"/artifacts/{mesh_relative}",
+            "stl_model": stl_relative,
+            "stl_url": f"/artifacts/{stl_relative}",
+            "diagnostics": diagnostics_relative,
+            "diagnostics_url": f"/artifacts/{diagnostics_relative}",
+            "metadata": metadata_relative,
+            "metadata_url": f"/artifacts/{metadata_relative}",
+            "stl_diagnostics": diagnostics,
+            "timings": timings,
+        }
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
 
 
 @app.get("/artifacts/{file_path:path}")
