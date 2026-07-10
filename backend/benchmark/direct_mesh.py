@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import math
 import json
+import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +19,7 @@ DIRECT_MESH_METHODS = {"source-mesh-oracle", "external-image-to-mesh", "external
 DIRECT_MESH_INPUT_MODES = ("masked", "full", "mirror", "biharmonic")
 MESH_REPAIR_MODES = ("none", "basic", "convex-hull", "printable")
 MIN_SAFE_TOPOLOGY_REPAIR_FACES = 131_072
+MAX_FAST_COMPONENT_FILTER_FACES = 500_000
 DIRECT_MESH_BBOX_SOURCES = ("none", "source", "mirror", "inferred", "reference")
 DIRECT_MESH_BBOX_PLACEHOLDERS = {
     "source": "{source_bbox_extents}",
@@ -286,6 +289,35 @@ def _largest_component(mesh):
     return max(components, key=_component_score)
 
 
+def _largest_face_component(mesh):
+    """Select the dominant face component without materializing every fragment."""
+    if len(mesh.faces) <= 1:
+        return mesh
+    try:
+        import trimesh
+
+        labels = trimesh.graph.connected_component_labels(
+            mesh.face_adjacency,
+            node_count=len(mesh.faces),
+        )
+        labels = np.asarray(labels, dtype=np.int64)
+        if labels.shape != (len(mesh.faces),) or not len(labels):
+            return mesh
+        counts = np.bincount(labels)
+        face_areas = np.asarray(mesh.area_faces, dtype=np.float64)
+        safe_areas = np.where(np.isfinite(face_areas), np.maximum(face_areas, 0.0), 0.0)
+        areas = np.bincount(labels, weights=safe_areas, minlength=len(counts))
+        component = int(np.lexsort((counts, areas))[-1])
+        face_indices = np.flatnonzero(labels == component)
+        if not len(face_indices) or len(face_indices) == len(mesh.faces):
+            return mesh
+        reduced = mesh.submesh([face_indices], append=True, repair=False)
+        reduced.remove_unreferenced_vertices()
+        return reduced
+    except Exception:
+        return mesh
+
+
 def _clean_mesh(mesh):
     import trimesh
 
@@ -348,6 +380,12 @@ def repair_mesh_for_printable_stl(
         original_faces = len(mesh.faces)
         mesh = _simplify_to_face_count(mesh, target_faces, strict=True)
         safe_repair_faces = max(MIN_SAFE_TOPOLOGY_REPAIR_FACES, target_faces * 4)
+        if safe_repair_faces < len(mesh.faces) <= MAX_FAST_COMPONENT_FILTER_FACES:
+            filtered = _largest_face_component(mesh)
+            if len(filtered.faces) < len(mesh.faces):
+                mesh = filtered
+                if len(mesh.faces) > target_faces:
+                    mesh = _simplify_to_face_count(mesh, target_faces, strict=True)
         if len(mesh.faces) > safe_repair_faces:
             raise RuntimeError(
                 "Mesh repair preconditioning could not reach the safe topology-repair limit: "
@@ -762,6 +800,9 @@ def run_direct_mesh(sample: dict, method: str, output_dir: Path, args) -> tuple[
         command = command_template.format(**values)
         stdout_path = output_dir / "external_command.stdout.log"
         stderr_path = output_dir / "external_command.stderr.log"
+        command_metrics_path = output_dir / "direct_mesh_command_metrics.json"
+        command_started = time.perf_counter()
+        command_status = "failed"
         with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
             try:
                 subprocess.run(
@@ -772,6 +813,7 @@ def run_direct_mesh(sample: dict, method: str, output_dir: Path, args) -> tuple[
                     stdout=stdout_file,
                     stderr=stderr_file,
                 )
+                command_status = "ok"
             except subprocess.CalledProcessError as exc:
                 raise RuntimeError(
                     _external_command_failure_message(
@@ -790,6 +832,19 @@ def run_direct_mesh(sample: dict, method: str, output_dir: Path, args) -> tuple[
                         stderr_path=stderr_path,
                     )
                 ) from exc
+            finally:
+                command_metrics = {
+                    "direct_mesh_command_runtime_seconds": time.perf_counter() - command_started,
+                    "direct_mesh_command_status": command_status,
+                }
+                temporary_metrics = command_metrics_path.with_name(
+                    f".{command_metrics_path.name}.{os.getpid()}.tmp"
+                )
+                temporary_metrics.write_text(
+                    json.dumps(command_metrics, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                temporary_metrics.replace(command_metrics_path)
         if not mesh_output_path.exists() and stl_path.exists():
             return input_image, stl_path, stl_path, input_bundle
         if not mesh_output_path.exists():

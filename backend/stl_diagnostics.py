@@ -6,14 +6,19 @@ from pathlib import Path
 import numpy as np
 
 
-def stl_diagnostics(stl_path):
+def mesh_diagnostics(mesh_path, prefix="mesh", *, include_topology=True):
     import trimesh
 
-    path = Path(stl_path)
+    prefix = f"{str(prefix).rstrip('_')}_"
+
+    def field(name):
+        return f"{prefix}{name}"
+
+    path = Path(mesh_path)
     diagnostics = {
-        "stl_model": str(path),
-        "stl_exists": path.exists(),
-        "stl_file_size_bytes": path.stat().st_size if path.exists() else 0,
+        field("model"): str(path),
+        field("exists"): path.exists(),
+        field("file_size_bytes"): path.stat().st_size if path.exists() else 0,
     }
     if not path.exists():
         return diagnostics
@@ -38,12 +43,15 @@ def stl_diagnostics(stl_path):
     else:
         aspect_ratio = float(max_extent / min_extent)
     signed_volume = float(mesh.volume) if np.isfinite(mesh.volume) else math.nan
-    try:
-        component_count = len(mesh.split(only_watertight=False))
-    except Exception:
+    if include_topology:
+        try:
+            component_count = len(mesh.split(only_watertight=False))
+        except Exception:
+            component_count = math.nan
+    else:
         component_count = math.nan
     faces = np.asarray(mesh.faces, dtype=np.int64)
-    if len(faces):
+    if len(faces) and include_topology:
         face_edges = np.vstack((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]))
         face_edges = np.sort(face_edges, axis=1)
         _, edge_counts = np.unique(face_edges, axis=0, return_counts=True)
@@ -51,11 +59,19 @@ def stl_diagnostics(stl_path):
         face_areas = np.asarray(mesh.area_faces, dtype=np.float64)
         degenerate_face_count = int(np.count_nonzero((~np.isfinite(face_areas)) | (face_areas <= 1e-12)))
         degenerate_face_ratio = float(degenerate_face_count / len(faces))
-    else:
+    elif include_topology:
         nonmanifold_edge_count = 0
         degenerate_face_count = 0
         degenerate_face_ratio = math.nan
-    is_manifold = bool(len(faces) > 0 and nonmanifold_edge_count == 0 and degenerate_face_count == 0)
+    else:
+        nonmanifold_edge_count = math.nan
+        degenerate_face_count = math.nan
+        degenerate_face_ratio = math.nan
+    is_manifold = (
+        bool(len(faces) > 0 and nonmanifold_edge_count == 0 and degenerate_face_count == 0)
+        if include_topology
+        else math.nan
+    )
     component_excess = abs(component_count - 1) if np.isfinite(component_count) else math.nan
     faces_per_bbox_volume = (
         float(len(mesh.faces) / bbox_volume) if np.isfinite(bbox_volume) and bbox_volume > 0 else math.nan
@@ -70,52 +86,76 @@ def stl_diagnostics(stl_path):
         if np.isfinite(normalized_bbox_volume) and normalized_bbox_volume > 0
         else math.nan
     )
+    volume_fill_ratio = (
+        float(abs(signed_volume) / bbox_volume)
+        if np.isfinite(signed_volume) and np.isfinite(bbox_volume) and bbox_volume > 0
+        else math.nan
+    )
     diagnostics.update(
         {
-            "stl_vertices": int(len(mesh.vertices)),
-            "stl_faces": int(len(mesh.faces)),
-            "stl_is_watertight": bool(mesh.is_watertight),
-            "stl_is_volume": bool(mesh.is_volume),
-            "stl_is_manifold": is_manifold,
-            "stl_nonmanifold_edge_count": nonmanifold_edge_count,
-            "stl_nonmanifold_edge_count_log1p": float(math.log1p(nonmanifold_edge_count)),
-            "stl_degenerate_face_count": degenerate_face_count,
-            "stl_degenerate_face_ratio": degenerate_face_ratio,
-            "stl_winding_consistent": bool(mesh.is_winding_consistent),
-            "stl_component_count": component_count,
-            "stl_single_component": bool(component_count == 1) if np.isfinite(component_count) else False,
-            "stl_component_excess": component_excess,
-            "stl_component_excess_log1p": (
+            field("vertices"): int(len(mesh.vertices)),
+            field("faces"): int(len(mesh.faces)),
+            field("is_watertight"): bool(mesh.is_watertight) if include_topology else math.nan,
+            field("is_volume"): bool(mesh.is_volume) if include_topology else math.nan,
+            field("is_manifold"): is_manifold,
+            field("nonmanifold_edge_count"): nonmanifold_edge_count,
+            field("nonmanifold_edge_count_log1p"): (
+                float(math.log1p(nonmanifold_edge_count))
+                if np.isfinite(nonmanifold_edge_count)
+                else math.nan
+            ),
+            field("degenerate_face_count"): degenerate_face_count,
+            field("degenerate_face_ratio"): degenerate_face_ratio,
+            field("winding_consistent"): (
+                bool(mesh.is_winding_consistent) if include_topology else math.nan
+            ),
+            field("component_count"): component_count,
+            field("single_component"): (
+                bool(component_count == 1) if np.isfinite(component_count) else math.nan
+            ),
+            field("component_excess"): component_excess,
+            field("component_excess_log1p"): (
                 float(math.log1p(component_excess)) if np.isfinite(component_excess) else math.nan
             ),
-            "stl_euler_number": int(mesh.euler_number) if mesh.euler_number is not None else math.nan,
-            "stl_surface_area": float(mesh.area) if np.isfinite(mesh.area) else math.nan,
-            "stl_volume": signed_volume,
-            "stl_volume_abs": abs(signed_volume) if np.isfinite(signed_volume) else math.nan,
-            "stl_positive_volume": bool(np.isfinite(signed_volume) and signed_volume > 0),
-            "stl_z_range": z_range,
-            "stl_bbox_x": float(extents[0]) if extents.shape == (3,) and np.isfinite(extents[0]) else math.nan,
-            "stl_bbox_y": float(extents[1]) if extents.shape == (3,) and np.isfinite(extents[1]) else math.nan,
-            "stl_bbox_z": z_range,
-            "stl_bbox_min_dimension": min_extent,
-            "stl_bbox_max_dimension": max_extent,
-            "stl_bbox_has_volume": bbox_has_volume,
-            "stl_bbox_aspect_ratio": aspect_ratio,
-            "stl_bbox_volume": bbox_volume,
-            "stl_faces_per_bbox_volume": faces_per_bbox_volume,
-            "stl_faces_per_bbox_volume_log1p": (
+            field("euler_number"): (
+                int(mesh.euler_number)
+                if include_topology and mesh.euler_number is not None
+                else math.nan
+            ),
+            field("surface_area"): float(mesh.area) if np.isfinite(mesh.area) else math.nan,
+            field("volume"): signed_volume,
+            field("volume_abs"): abs(signed_volume) if np.isfinite(signed_volume) else math.nan,
+            field("volume_fill_ratio"): volume_fill_ratio,
+            field("positive_volume"): bool(np.isfinite(signed_volume) and signed_volume > 0),
+            field("z_range"): z_range,
+            field("bbox_x"): float(extents[0]) if extents.shape == (3,) and np.isfinite(extents[0]) else math.nan,
+            field("bbox_y"): float(extents[1]) if extents.shape == (3,) and np.isfinite(extents[1]) else math.nan,
+            field("bbox_z"): z_range,
+            field("bbox_min_dimension"): min_extent,
+            field("bbox_max_dimension"): max_extent,
+            field("bbox_has_volume"): bbox_has_volume,
+            field("bbox_aspect_ratio"): aspect_ratio,
+            field("bbox_volume"): bbox_volume,
+            field("faces_per_bbox_volume"): faces_per_bbox_volume,
+            field("faces_per_bbox_volume_log1p"): (
                 float(math.log1p(faces_per_bbox_volume)) if np.isfinite(faces_per_bbox_volume) else math.nan
             ),
-            "stl_normalized_bbox_volume": normalized_bbox_volume,
-            "stl_faces_per_normalized_bbox_volume": faces_per_normalized_bbox_volume,
-            "stl_faces_per_normalized_bbox_volume_log1p": (
+            field("normalized_bbox_volume"): normalized_bbox_volume,
+            field("faces_per_normalized_bbox_volume"): faces_per_normalized_bbox_volume,
+            field("faces_per_normalized_bbox_volume_log1p"): (
                 float(math.log1p(faces_per_normalized_bbox_volume))
                 if np.isfinite(faces_per_normalized_bbox_volume)
                 else math.nan
             ),
+            field("self_intersection_supported"): False,
+            field("self_intersection_count"): math.nan,
         }
     )
     return diagnostics
+
+
+def stl_diagnostics(stl_path):
+    return mesh_diagnostics(stl_path, prefix="stl")
 
 
 def json_safe_stl_diagnostics(value):

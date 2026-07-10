@@ -24,6 +24,7 @@ DEFAULT_TRELLIS2_REMBG_MODEL = "ZhengPeng7/BiRefNet"
 DEFAULT_TRELLIS2_REMBG_REVISION = "e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4"
 DEFAULT_TRELLIS2_RESOLUTION = 512
 DEFAULT_TRELLIS2_SEED = 42
+DEFAULT_TRELLIS2_EMPTY_STRUCTURE_RETRIES = 1
 DEFAULT_TRELLIS2_ATTENTION_BACKEND = "xformers"
 TRELLIS2_RESOLUTIONS = (DEFAULT_TRELLIS2_RESOLUTION,)
 
@@ -273,6 +274,55 @@ def _normalize_dinov3_model_layout(pipeline) -> None:
         object.__setattr__(model, "layer", layers)
 
 
+def _is_empty_sparse_structure_error(exc: BaseException) -> bool:
+    seen = set()
+    current = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        message = str(current)
+        if "input.numel() == 0" in message and "Expected reduction dim" in message:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _run_pipeline_with_empty_structure_retry(
+    pipeline,
+    image,
+    *,
+    resolution: int,
+    seed: int,
+    retries: int,
+):
+    retries = max(0, int(retries))
+    for attempt in range(retries + 1):
+        attempt_seed = int(seed) + attempt
+        try:
+            return pipeline.run(
+                image,
+                num_samples=1,
+                seed=attempt_seed,
+                pipeline_type=str(int(resolution)),
+            )
+        except RuntimeError as exc:
+            if attempt >= retries or not _is_empty_sparse_structure_error(exc):
+                raise
+            print(
+                json.dumps(
+                    {
+                        "event": "trellis2_empty_sparse_structure_retry",
+                        "attempt": attempt + 1,
+                        "failed_seed": attempt_seed,
+                        "retry_seed": attempt_seed + 1,
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+    raise RuntimeError("TRELLIS.2 retry loop exhausted without a result")
+
+
 def run_trellis2(
     *,
     provider_dir: Path,
@@ -282,6 +332,7 @@ def run_trellis2(
     model_revision: str = DEFAULT_TRELLIS2_MODEL_REVISION,
     resolution: int = DEFAULT_TRELLIS2_RESOLUTION,
     seed: int = DEFAULT_TRELLIS2_SEED,
+    empty_structure_retries: int = DEFAULT_TRELLIS2_EMPTY_STRUCTURE_RETRIES,
 ) -> Path:
     if resolution not in TRELLIS2_RESOLUTIONS:
         supported = ", ".join(str(value) for value in TRELLIS2_RESOLUTIONS)
@@ -304,11 +355,12 @@ def run_trellis2(
     pipeline.cuda()
     with Image.open(input_image) as image_file:
         image = image_file.copy()
-    meshes = pipeline.run(
+    meshes = _run_pipeline_with_empty_structure_retry(
+        pipeline,
         image,
-        num_samples=1,
-        seed=int(seed),
-        pipeline_type=str(int(resolution)),
+        resolution=resolution,
+        seed=seed,
+        retries=empty_structure_retries,
     )
     if len(meshes) != 1:
         raise RuntimeError(f"TRELLIS.2 returned {len(meshes)} meshes; expected exactly one")
@@ -342,6 +394,11 @@ def main() -> None:
         default=DEFAULT_TRELLIS2_RESOLUTION,
     )
     parser.add_argument("--seed", type=int, default=DEFAULT_TRELLIS2_SEED)
+    parser.add_argument(
+        "--empty-structure-retries",
+        type=int,
+        default=DEFAULT_TRELLIS2_EMPTY_STRUCTURE_RETRIES,
+    )
     parser.add_argument("--prefetch-only", action="store_true")
     args = parser.parse_args()
 
@@ -364,6 +421,7 @@ def main() -> None:
         model_revision=args.model_revision,
         resolution=args.resolution,
         seed=args.seed,
+        empty_structure_retries=args.empty_structure_retries,
     )
     print(f"mesh={output_mesh}")
 

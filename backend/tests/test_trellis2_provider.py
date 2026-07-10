@@ -23,6 +23,7 @@ from backend.benchmark.trellis2_models import (
     DEFAULT_TRELLIS2_ATTENTION_BACKEND,
     DEFAULT_TRELLIS2_DINOV3_MODEL,
     DEFAULT_TRELLIS2_DINOV3_REVISION,
+    DEFAULT_TRELLIS2_EMPTY_STRUCTURE_RETRIES,
     DEFAULT_TRELLIS2_MODEL,
     DEFAULT_TRELLIS2_MODEL_REVISION,
     DEFAULT_TRELLIS2_REMBG_MODEL,
@@ -404,6 +405,47 @@ class Trellis2ProviderTest(unittest.TestCase):
             with self.subTest(pipeline=pipeline):
                 trellis2_models._normalize_rembg_model_to_float32(pipeline)
 
+    def test_empty_sparse_structure_retries_with_successive_seed(self):
+        calls = []
+
+        class Pipeline:
+            def run(self, image, **kwargs):
+                calls.append((image, kwargs))
+                if len(calls) == 1:
+                    raise RuntimeError(
+                        "max(): Expected reduction dim to be specified for "
+                        "input.numel() == 0"
+                    )
+                return ["mesh"]
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            result = trellis2_models._run_pipeline_with_empty_structure_retry(
+                Pipeline(),
+                "image",
+                resolution=512,
+                seed=42,
+                retries=1,
+            )
+
+        self.assertEqual(result, ["mesh"])
+        self.assertEqual([call[1]["seed"] for call in calls], [42, 43])
+        self.assertIn('"event": "trellis2_empty_sparse_structure_retry"', stderr.getvalue())
+
+    def test_empty_sparse_structure_retry_does_not_mask_other_errors(self):
+        class Pipeline:
+            def run(self, image, **kwargs):
+                raise RuntimeError("unrelated CUDA failure")
+
+        with self.assertRaisesRegex(RuntimeError, "unrelated CUDA failure"):
+            trellis2_models._run_pipeline_with_empty_structure_retry(
+                Pipeline(),
+                "image",
+                resolution=512,
+                seed=42,
+                retries=1,
+            )
+
     def test_dinov3_layout_normalization_tolerates_supported_and_missing_models(self):
         existing_layers = object()
         nested_layers = object()
@@ -578,6 +620,11 @@ class Trellis2ProviderTest(unittest.TestCase):
             )
             self.assertIn("--resolution", baseline["command"])
             self.assertIn("512", baseline["command"])
+            self.assertIn("--empty-structure-retries", baseline["command"])
+            self.assertIn(
+                str(DEFAULT_TRELLIS2_EMPTY_STRUCTURE_RETRIES),
+                baseline["command"],
+            )
 
     def test_raw_and_repaired_outputs_share_one_cached_inference(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -667,10 +714,20 @@ class Trellis2ProviderTest(unittest.TestCase):
                     io.StringIO()
                 ), contextlib.redirect_stderr(first_stderr):
                     provider_module.main()
+                first_metrics = json.loads(
+                    (root / provider_module.PROVIDER_METRICS_FILENAME).read_text(
+                        encoding="utf-8"
+                    )
+                )
                 with patch.object(sys, "argv", second_argv), contextlib.redirect_stdout(
                     io.StringIO()
                 ), contextlib.redirect_stderr(second_stderr):
                     provider_module.main()
+                second_metrics = json.loads(
+                    (root / provider_module.PROVIDER_METRICS_FILENAME).read_text(
+                        encoding="utf-8"
+                    )
+                )
 
             self.assertEqual(len(invocations), 1)
             self.assertIn('"status": "stored"', first_stderr.getvalue())
@@ -687,6 +744,17 @@ class Trellis2ProviderTest(unittest.TestCase):
             self.assertEqual(
                 metadata["provider_models"],
                 self._provider_model_metadata(),
+            )
+            self.assertFalse(first_metrics["provider_cache_hit"])
+            self.assertTrue(second_metrics["provider_cache_hit"])
+            self.assertEqual(
+                second_metrics["provider_inference_runtime_seconds"],
+                first_metrics["provider_inference_runtime_seconds"],
+            )
+            self.assertGreaterEqual(second_metrics["repair_runtime_seconds"], 0.0)
+            self.assertEqual(
+                second_metrics["provider_raw_output_mesh"],
+                str(root / "repaired-source.glb"),
             )
 
     def test_stl_smoke_config_compares_raw_and_repaired_geometry(self):

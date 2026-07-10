@@ -35,6 +35,7 @@ from backend.benchmark.pixal3d_models import (
 )
 from backend.benchmark.triposg_models import triposg_model_specs
 from backend.benchmark.trellis2_models import (
+    DEFAULT_TRELLIS2_EMPTY_STRUCTURE_RETRIES,
     DEFAULT_TRELLIS2_MODEL,
     DEFAULT_TRELLIS2_MODEL_REVISION,
     DEFAULT_TRELLIS2_RESOLUTION,
@@ -55,6 +56,7 @@ PIXAL3D_PROVIDER = "pixal3d"
 TRELLIS2_PROVIDER = "trellis2"
 DEFAULT_TRIPOSR_MODEL = "stabilityai/TripoSR"
 DEFAULT_HUNYUAN3D_MODEL = "tencent/Hunyuan3D-2.1"
+PROVIDER_METRICS_FILENAME = "provider_metrics.json"
 
 CLI_PROVIDERS = {
     PIXAL3D_PROVIDER: {
@@ -108,6 +110,16 @@ CLI_PROVIDERS = {
         "supports_texture_resolution": False,
     },
 }
+
+
+def write_json_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
 
 PROVIDERS = tuple(
     sorted(
@@ -514,6 +526,17 @@ def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_outpu
                 if getattr(args, "seed", None) is not None
                 else DEFAULT_TRELLIS2_SEED
             ),
+            "--empty-structure-retries",
+            str(
+                max(
+                    0,
+                    int(
+                        getattr(args, "trellis2_empty_structure_retries", None)
+                        if getattr(args, "trellis2_empty_structure_retries", None) is not None
+                        else DEFAULT_TRELLIS2_EMPTY_STRUCTURE_RETRIES
+                    ),
+                )
+            ),
         ]
         if getattr(args, "prefetch_only", False):
             command.append("--prefetch-only")
@@ -594,6 +617,8 @@ def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_outpu
 
 
 def run_cli_provider(args: argparse.Namespace) -> Path:
+    args._provider_cache_hit = False
+    args._provider_inference_runtime_seconds = None
     provider_dir = resolve_provider_dir(args.provider, args.provider_dir)
     if args.provider == TRELLIS2_PROVIDER:
         require_trellis2_pins(args, provider_dir)
@@ -636,6 +661,16 @@ def run_cli_provider(args: argparse.Namespace) -> Path:
             cached_mesh = cache_matches[0]
             reused_mesh = raw_output_dir / f"output_cached{cached_mesh.suffix.lower()}"
             shutil.copyfile(cached_mesh, reused_mesh)
+            cache_metadata_path = cache_dir / f"{cache_key}.json"
+            if cache_metadata_path.is_file():
+                try:
+                    cache_metadata = json.loads(cache_metadata_path.read_text(encoding="utf-8"))
+                    cached_runtime = cache_metadata.get("provider_inference_runtime_seconds")
+                    if cached_runtime is not None:
+                        args._provider_inference_runtime_seconds = float(cached_runtime)
+                except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                    pass
+            args._provider_cache_hit = True
             print(
                 json.dumps(
                     {
@@ -662,16 +697,23 @@ def run_cli_provider(args: argparse.Namespace) -> Path:
         )
     started_at = time.time()
     command = cli_provider_command(args, provider_dir, raw_output_dir)
+    inference_started = time.perf_counter()
     subprocess.run(command, cwd=provider_dir, check=True, timeout=args.timeout)
+    args._provider_inference_runtime_seconds = time.perf_counter() - inference_started
     provider_mesh = find_mesh_output(raw_output_dir, started_at=started_at)
     if cache_dir and cache_payload is not None:
         cached_mesh = cache_dir / f"{cache_key}{provider_mesh.suffix.lower()}"
         temporary_mesh = cache_dir / f".{cache_key}.{os.getpid()}.tmp{provider_mesh.suffix.lower()}"
         shutil.copyfile(provider_mesh, temporary_mesh)
         os.replace(temporary_mesh, cached_mesh)
-        (cache_dir / f"{cache_key}.json").write_text(
-            json.dumps(cache_payload, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        write_json_atomic(
+            cache_dir / f"{cache_key}.json",
+            {
+                **cache_payload,
+                "provider_inference_runtime_seconds": args._provider_inference_runtime_seconds,
+                "provider_peak_cuda_vram_gib": None,
+                "provider_peak_cuda_vram_supported": False,
+            },
         )
         print(
             json.dumps(
@@ -1041,22 +1083,50 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
             else adaptive_target_faces
         )
     args.input_bundle = Path(args.input_bundle) if args.input_bundle else None
+    args._provider_metrics = {
+        "provider": args.provider,
+        "provider_cache_hit": False,
+        "provider_inference_runtime_seconds": None,
+        "provider_invocation_runtime_seconds": None,
+        "repair_runtime_seconds": 0.0,
+        "mesh_postprocess_runtime_seconds": 0.0,
+        "provider_peak_cuda_vram_gib": None,
+        "provider_peak_cuda_vram_supported": False,
+        "provider_raw_output_mesh": "",
+        "provider_final_output_mesh": "",
+        "provider_mesh_repair": args.mesh_repair,
+        "status": "failed",
+    }
     if not args.input_image.exists():
         raise FileNotFoundError(f"Input image does not exist: {args.input_image}")
 
-    if args.provider in CLI_PROVIDERS:
-        provider_mesh = run_cli_provider(args)
-        output_mesh = export_mesh(provider_mesh, args.output_mesh)
-    elif args.provider == TRIPOSR_API_PROVIDER:
-        output_mesh = run_triposr_api(args)
-    elif args.provider == HUNYUAN3D_SHAPE_PROVIDER:
-        output_mesh = run_hunyuan_shape(args)
-    elif args.provider == SOURCE_MESH_BUNDLE_ORACLE_PROVIDER:
-        output_mesh = run_source_mesh_bundle_oracle(args)
-    elif args.provider == MULTIVIEW_VISUAL_HULL_PROVIDER:
-        output_mesh = run_multiview_visual_hull(args)
-    else:
-        raise ValueError(f"Unsupported provider: {args.provider}")
+    provider_started = time.perf_counter()
+    try:
+        if args.provider in CLI_PROVIDERS:
+            provider_mesh = run_cli_provider(args)
+            output_mesh = export_mesh(provider_mesh, args.output_mesh)
+        elif args.provider == TRIPOSR_API_PROVIDER:
+            output_mesh = run_triposr_api(args)
+        elif args.provider == HUNYUAN3D_SHAPE_PROVIDER:
+            output_mesh = run_hunyuan_shape(args)
+        elif args.provider == SOURCE_MESH_BUNDLE_ORACLE_PROVIDER:
+            output_mesh = run_source_mesh_bundle_oracle(args)
+        elif args.provider == MULTIVIEW_VISUAL_HULL_PROVIDER:
+            output_mesh = run_multiview_visual_hull(args)
+        else:
+            raise ValueError(f"Unsupported provider: {args.provider}")
+    finally:
+        provider_invocation_runtime = time.perf_counter() - provider_started
+        args._provider_metrics["provider_invocation_runtime_seconds"] = provider_invocation_runtime
+        inference_runtime = getattr(args, "_provider_inference_runtime_seconds", None)
+        args._provider_metrics["provider_inference_runtime_seconds"] = (
+            float(inference_runtime) if inference_runtime is not None else provider_invocation_runtime
+        )
+        args._provider_metrics["provider_cache_hit"] = bool(
+            getattr(args, "_provider_cache_hit", False)
+        )
+
+    args._provider_metrics["provider_raw_output_mesh"] = str(output_mesh)
 
     if args.mesh_repair != "none":
         raw_output_mesh = args.raw_output_mesh or output_mesh.with_name(
@@ -1065,13 +1135,20 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
         raw_output_mesh.parent.mkdir(parents=True, exist_ok=True)
         if output_mesh.resolve() != raw_output_mesh.resolve():
             shutil.copy2(output_mesh, raw_output_mesh)
-        output_mesh = repair_mesh_for_printable_stl(
-            raw_output_mesh,
-            args.output_mesh,
-            args.mesh_repair,
-            target_faces=args.mesh_target_faces,
-            max_normalized_face_density_log1p=max_normalized_face_density_log1p,
-        )
+        args._provider_metrics["provider_raw_output_mesh"] = str(raw_output_mesh)
+        repair_started = time.perf_counter()
+        try:
+            output_mesh = repair_mesh_for_printable_stl(
+                raw_output_mesh,
+                args.output_mesh,
+                args.mesh_repair,
+                target_faces=args.mesh_target_faces,
+                max_normalized_face_density_log1p=max_normalized_face_density_log1p,
+            )
+        finally:
+            args._provider_metrics["repair_runtime_seconds"] = (
+                time.perf_counter() - repair_started
+            )
 
     if (
         args.mesh_target_max_dimension > 0
@@ -1084,20 +1161,28 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
         if args.raw_output_mesh and args.mesh_repair == "none" and output_mesh.resolve() != args.raw_output_mesh.resolve():
             args.raw_output_mesh.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(output_mesh, args.raw_output_mesh)
-        output_mesh = postprocess_mesh_for_stl(
-            output_mesh,
-            args.output_mesh,
-            target_max_dimension=args.mesh_target_max_dimension,
-            min_bbox_dimension=args.mesh_min_bbox_dimension,
-            max_bbox_aspect_ratio=args.mesh_max_bbox_aspect_ratio,
-            target_bbox_extents=args.mesh_target_bbox_extents,
-            target_faces=args.mesh_target_faces,
-            max_normalized_face_density_log1p=max_normalized_face_density_log1p,
-        )
+        postprocess_started = time.perf_counter()
+        try:
+            output_mesh = postprocess_mesh_for_stl(
+                output_mesh,
+                args.output_mesh,
+                target_max_dimension=args.mesh_target_max_dimension,
+                min_bbox_dimension=args.mesh_min_bbox_dimension,
+                max_bbox_aspect_ratio=args.mesh_max_bbox_aspect_ratio,
+                target_bbox_extents=args.mesh_target_bbox_extents,
+                target_faces=args.mesh_target_faces,
+                max_normalized_face_density_log1p=max_normalized_face_density_log1p,
+            )
+        finally:
+            args._provider_metrics["mesh_postprocess_runtime_seconds"] = (
+                time.perf_counter() - postprocess_started
+            )
 
     output_stl = None
     if args.output_stl:
         output_stl = convert_mesh_to_stl(output_mesh, args.output_stl)
+    args._provider_metrics["provider_final_output_mesh"] = str(output_mesh)
+    args._provider_metrics["status"] = "ok"
     return output_mesh, output_stl
 
 
@@ -1174,6 +1259,12 @@ def main() -> None:
         choices=TRELLIS2_RESOLUTIONS,
         default=DEFAULT_TRELLIS2_RESOLUTION,
         help="TRELLIS.2 geometry generation resolution; this bounded provider slice supports 512.",
+    )
+    parser.add_argument(
+        "--trellis2-empty-structure-retries",
+        type=int,
+        default=DEFAULT_TRELLIS2_EMPTY_STRUCTURE_RETRIES,
+        help="Retry a TRELLIS.2 empty sparse-structure sample with successive deterministic seeds.",
     )
     parser.add_argument(
         "--mesh-repair",
@@ -1284,7 +1375,24 @@ def main() -> None:
         )
     if not args.input_image or not args.output_mesh:
         raise ValueError("--input-image and --output-mesh are required unless --prefetch-only is set")
-    output_mesh, output_stl = run_provider(args)
+    provider_metrics_path = Path(args.output_mesh).parent / PROVIDER_METRICS_FILENAME
+    try:
+        output_mesh, output_stl = run_provider(args)
+    except Exception as exc:
+        metrics = dict(getattr(args, "_provider_metrics", {}))
+        metrics.update(
+            {
+                "provider_metrics_path": str(provider_metrics_path),
+                "status": "failed",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+        )
+        write_json_atomic(provider_metrics_path, metrics)
+        raise
+    metrics = dict(getattr(args, "_provider_metrics", {}))
+    metrics["provider_metrics_path"] = str(provider_metrics_path)
+    write_json_atomic(provider_metrics_path, metrics)
     print(f"mesh={output_mesh}")
     if output_stl is not None:
         print(f"stl={output_stl}")

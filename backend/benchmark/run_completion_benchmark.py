@@ -43,7 +43,7 @@ from backend.pic_to_3d import (
     depth_data_to_3d_model,
     process_image_get_depth_data,
 )
-from backend.stl_diagnostics import stl_diagnostics
+from backend.stl_diagnostics import mesh_diagnostics, stl_diagnostics
 
 
 METADATA_FIELDS = {
@@ -84,7 +84,19 @@ METADATA_FIELDS = {
     "direct_mesh_bbox_source",
     "direct_mesh_reference_method",
     "direct_mesh_config_hash",
+    "direct_mesh_command_status",
     "oracle_diagnostic",
+    "provider",
+    "provider_cache_hit",
+    "provider_metrics_path",
+    "provider_raw_output_mesh",
+    "provider_final_output_mesh",
+    "provider_mesh_repair",
+    "provider_peak_cuda_vram_supported",
+    "provider_status",
+    "raw_mesh_model",
+    "raw_mesh_self_intersection_supported",
+    "stl_self_intersection_supported",
     "multiview_images",
     "multiview_masks",
     "multiview_cameras",
@@ -536,6 +548,16 @@ def stl_and_mesh_metrics(sample, stl_path, max_points=4096):
     return metrics
 
 
+def load_optional_json(path):
+    path = Path(path)
+    if not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+
+
 def evaluate_direct_mesh_sample(sample, method, output_dir, args):
     input_image, output_mesh, stl_path, input_bundle = run_direct_mesh(sample, method, output_dir, args)
     row = {
@@ -559,6 +581,33 @@ def evaluate_direct_mesh_sample(sample, method, output_dir, args):
         if bbox_diagnostics.get(field) not in (None, ""):
             row[field] = float(bbox_diagnostics[field])
     row.update(stl_and_mesh_metrics(sample, stl_path, max_points=args.mesh_surface_max_points))
+    command_metrics = load_optional_json(output_dir / "direct_mesh_command_metrics.json")
+    if command_metrics:
+        row.update(command_metrics)
+    provider_metrics_path = output_dir / "provider_metrics.json"
+    provider_metrics = load_optional_json(provider_metrics_path)
+    if provider_metrics:
+        row.update(provider_metrics)
+        row["provider_status"] = provider_metrics.get("status", "")
+        row["provider_metrics_path"] = str(provider_metrics_path)
+        if provider_metrics.get("provider_mesh_repair") not in (None, "", "none"):
+            raw_mesh_path = provider_metrics.get("provider_raw_output_mesh")
+            if raw_mesh_path and Path(raw_mesh_path).is_file():
+                row.update(
+                    mesh_diagnostics(
+                        raw_mesh_path,
+                        prefix="raw_mesh",
+                        include_topology=False,
+                    )
+                )
+            raw_fill = float(row.get("raw_mesh_volume_fill_ratio", math.nan))
+            repaired_fill = float(row.get("stl_volume_fill_ratio", math.nan))
+            if math.isfinite(raw_fill) and math.isfinite(repaired_fill):
+                change = repaired_fill - raw_fill
+                row["repair_volume_fill_ratio_change"] = change
+                row["repair_volume_fill_ratio_relative_change"] = (
+                    change / abs(raw_fill) if abs(raw_fill) > 1e-12 else math.nan
+                )
     return row
 
 
