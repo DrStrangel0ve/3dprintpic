@@ -332,18 +332,26 @@ def repair_mesh_for_printable_stl(
     mode: str = "printable",
     *,
     target_faces: int = 0,
+    max_normalized_face_density_log1p: float = 0.0,
 ) -> Path:
     if mode not in MESH_REPAIR_MODES or mode == "none":
         raise ValueError(f"Unsupported mesh repair mode: {mode}")
     mesh = load_mesh(mesh_path)
     target_faces = int(target_faces or 0)
+    if target_faces <= 0:
+        target_faces = max_faces_for_normalized_bbox_complexity(
+            _valid_extents(mesh),
+            max_normalized_face_density_log1p,
+        )
     if target_faces > 0 and len(mesh.faces) > target_faces:
         original_faces = len(mesh.faces)
-        mesh = _simplify_to_face_count(mesh, target_faces)
-        if len(mesh.faces) > target_faces:
+        mesh = _simplify_to_face_count(mesh, target_faces, strict=True)
+        safe_repair_faces = max(50_000, target_faces * 4)
+        if len(mesh.faces) > safe_repair_faces:
             raise RuntimeError(
-                "Mesh repair preconditioning could not satisfy the face budget before topology repair: "
-                f"faces={original_faces}, target={target_faces}, remaining={len(mesh.faces)}. "
+                "Mesh repair preconditioning could not reach the safe topology-repair limit: "
+                f"faces={original_faces}, target={target_faces}, safe_limit={safe_repair_faces}, "
+                f"remaining={len(mesh.faces)}. "
                 "Install fast-simplification or use a provider with native face-count control."
             )
     if mode == "convex-hull":
@@ -626,18 +634,26 @@ def normalized_bbox_complexity_log1p(mesh) -> float:
     return float(math.log1p(len(mesh.faces) / normalized_bbox_volume))
 
 
-def _simplify_to_face_count(mesh, target_faces: int):
+def _simplify_to_face_count(mesh, target_faces: int, *, strict: bool = False):
     target_faces = int(target_faces or 0)
     if target_faces <= 0 or len(mesh.faces) <= target_faces:
         return mesh
     simplify = getattr(mesh, "simplify_quadric_decimation", None)
     if simplify is None:
+        if strict:
+            raise RuntimeError("Mesh repair preconditioning requires fast-simplification")
         return mesh
     try:
         simplified = simplify(face_count=target_faces)
-    except Exception:
+    except Exception as exc:
+        if strict:
+            raise RuntimeError(
+                f"Mesh repair preconditioning failed while simplifying to {target_faces} faces"
+            ) from exc
         return mesh
     if not len(simplified.vertices) or not len(simplified.faces):
+        if strict:
+            raise RuntimeError("Mesh repair preconditioning produced an empty mesh")
         return mesh
     return simplified
 

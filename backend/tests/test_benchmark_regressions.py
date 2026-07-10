@@ -1255,6 +1255,131 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(diagnostics["stl_is_volume"])
         self.assertTrue(diagnostics["stl_single_component"])
 
+    def test_printable_mesh_repair_preconditions_fragmented_glb_before_component_split(self):
+        import trimesh
+        import warnings
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fragmented_path = root / "fragmented.glb"
+            repaired_path = root / "repaired.stl"
+            components = []
+            for index in range(32):
+                component = trimesh.creation.box(extents=(1.0, 0.8, 0.6))
+                component.apply_translation((float(index % 8) * 2.0, float(index // 8) * 2.0, 0.0))
+                components.append(component)
+            fragmented = trimesh.util.concatenate(components)
+            fragmented.export(fragmented_path)
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                with patch.object(direct_mesh, "_clean_mesh", wraps=direct_mesh._clean_mesh) as clean_mesh:
+                    repair_mesh_for_printable_stl(
+                        fragmented_path,
+                        repaired_path,
+                        mode="printable",
+                        target_faces=64,
+                    )
+                    repair_input_faces = len(clean_mesh.call_args.args[0].faces)
+
+            diagnostics = stl_diagnostics(repaired_path)
+
+        self.assertEqual(len(fragmented.split(only_watertight=False)), 32)
+        self.assertLessEqual(repair_input_faces, 64)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_is_volume"])
+        self.assertTrue(diagnostics["stl_single_component"])
+
+    def test_printable_mesh_repair_accepts_bounded_residual_before_component_cleanup(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "repaired.stl"
+            residual = trimesh.creation.icosphere(subdivisions=4)
+            printable = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
+            with (
+                patch.object(direct_mesh, "load_mesh", return_value=residual),
+                patch.object(direct_mesh, "_simplify_to_face_count", return_value=residual) as simplify,
+                patch.object(direct_mesh, "_clean_mesh", return_value=printable),
+            ):
+                repair_mesh_for_printable_stl(
+                    Path(temp_dir) / "dense.glb",
+                    output_path,
+                    mode="printable",
+                    target_faces=128,
+                )
+
+            diagnostics = stl_diagnostics(output_path)
+
+        simplify.assert_called_once_with(residual, 128, strict=True)
+        self.assertGreater(len(residual.faces), 128)
+        self.assertLessEqual(len(residual.faces), 50_000)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_is_volume"])
+
+    def test_printable_mesh_repair_rejects_residual_above_safe_topology_limit(self):
+        residual = SimpleNamespace(faces=np.zeros((50_001, 3), dtype=np.int64))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(direct_mesh, "load_mesh", return_value=residual),
+                patch.object(direct_mesh, "_simplify_to_face_count", return_value=residual),
+                self.assertRaisesRegex(RuntimeError, "safe topology-repair limit"),
+            ):
+                repair_mesh_for_printable_stl(
+                    Path(temp_dir) / "dense.glb",
+                    Path(temp_dir) / "repaired.stl",
+                    mode="printable",
+                    target_faces=128,
+                )
+
+    def test_printable_mesh_repair_preserves_simplifier_failure_cause(self):
+        def fail_simplification(*, face_count):
+            raise ValueError(f"cannot simplify to {face_count}")
+
+        mesh = SimpleNamespace(
+            faces=np.zeros((1_024, 3), dtype=np.int64),
+            simplify_quadric_decimation=fail_simplification,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(direct_mesh, "load_mesh", return_value=mesh),
+                self.assertRaisesRegex(RuntimeError, "failed while simplifying") as raised,
+            ):
+                repair_mesh_for_printable_stl(
+                    Path(temp_dir) / "dense.glb",
+                    Path(temp_dir) / "repaired.stl",
+                    mode="printable",
+                    target_faces=128,
+                )
+
+        self.assertIsInstance(raised.exception.__cause__, ValueError)
+
+    def test_printable_mesh_repair_derives_precondition_budget_from_actual_bbox(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dense_path = root / "dense_sphere.ply"
+            repaired_path = root / "repaired.stl"
+            dense = trimesh.creation.icosphere(subdivisions=4)
+            dense.export(dense_path)
+
+            with patch.object(direct_mesh, "_clean_mesh", wraps=direct_mesh._clean_mesh) as clean_mesh:
+                repair_mesh_for_printable_stl(
+                    dense_path,
+                    repaired_path,
+                    mode="printable",
+                    max_normalized_face_density_log1p=8.0,
+                )
+                repair_input_faces = len(clean_mesh.call_args.args[0].faces)
+
+            diagnostics = stl_diagnostics(repaired_path)
+
+        expected_target = max_faces_for_normalized_bbox_complexity(dense.extents, 8.0)
+        self.assertLessEqual(repair_input_faces, expected_target)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_positive_volume"])
+
     def test_printable_mesh_gate_rejects_degenerate_faces(self):
         tetra_faces = np.array(
             [

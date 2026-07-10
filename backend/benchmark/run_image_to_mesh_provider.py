@@ -796,6 +796,7 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
             args.output_mesh,
             args.mesh_repair,
             target_faces=args.mesh_target_faces,
+            max_normalized_face_density_log1p=max_normalized_face_density_log1p,
         )
 
     if (
@@ -927,8 +928,9 @@ def main() -> None:
         type=int,
         default=0,
         help=(
-            "If positive, attempt quadric decimation to this face count after scaling. Environments without "
-            "the optional Trimesh simplification backend leave the mesh unchanged."
+            "If positive, attempt quadric decimation to this face count after scaling. Printable repair "
+            "uses the same budget before topology work and requires the Trimesh simplification backend "
+            "when a dense mesh cannot otherwise reach the safe repair limit."
         ),
     )
     parser.add_argument(
