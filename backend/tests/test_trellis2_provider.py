@@ -436,6 +436,49 @@ class Trellis2ProviderTest(unittest.TestCase):
                 },
             )
 
+    def test_stl_smoke_config_compares_raw_and_repaired_geometry(self):
+        config_path = (
+            Path(__file__).parents[1]
+            / "benchmark"
+            / "experiment_configs"
+            / "modelnet10_60_balanced_stl_quality_trellis2_triposg_s40_n1.json"
+        )
+        experiments = json.loads(config_path.read_text(encoding="utf-8"))
+        by_name = {experiment["name"]: experiment for experiment in experiments}
+        raw = by_name["trellis2_biharmonic_prefill_raw_direct_mesh"]
+        repaired = by_name[
+            "trellis2_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh"
+        ]
+
+        for experiment in (raw, repaired):
+            command = experiment["direct_mesh_command"]
+            self.assertIn("--provider trellis2", command)
+            self.assertIn(f"--trellis2-model-path {DEFAULT_TRELLIS2_MODEL}", command)
+            self.assertIn(
+                f"--trellis2-model-revision {DEFAULT_TRELLIS2_MODEL_REVISION}",
+                command,
+            )
+            self.assertIn("--trellis2-resolution 512", command)
+            self.assertIn("--seed 42", command)
+            self.assertIn(
+                "--provider-mesh-cache-dir /content/trellis2-provider-cache",
+                command,
+            )
+            self.assertNotIn("to_glb", command)
+
+        self.assertNotIn("--mesh-repair", raw["direct_mesh_command"])
+        self.assertIn("--mesh-repair printable", repaired["direct_mesh_command"])
+        self.assertIn(
+            '--mesh-target-bbox-extents "{inferred_bbox_extents}"',
+            repaired["direct_mesh_command"],
+        )
+        self.assertIn(
+            "--mesh-max-normalized-face-density-log1p 9.95",
+            repaired["direct_mesh_command"],
+        )
+        self.assertEqual(repaired["direct_mesh_bbox_source"], "inferred")
+        self.assertEqual(repaired["direct_mesh_reference_method"], "mirror")
+
 
 if __name__ == "__main__":
     unittest.main()
