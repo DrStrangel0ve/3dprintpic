@@ -32,6 +32,17 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --reload --port 8004
 ```
 
+Video/selection planner
+```bash
+cd backend/
+.\.venv\Scripts\Activate.ps1
+uvicorn video_selection_service:app --host 0.0.0.0 --reload --port 8005
+```
+
+The planner exposes the model catalog and creates run plans for object selection, frame selection, camera matching, video reconstruction, direct image-to-mesh, and STL repair. It is intentionally lightweight: it makes the video/selection model stack present in the app while the heavy model runners are attached behind the same ids.
+
+The webapp includes printer-volume constraints for STL sizing. The default preset is `Bambu Lab P1S` with a `256 x 256 x 256 mm` build volume; custom printer dimensions and edge clearance can be set in the output panel. For 2.5D relief STL generation, the usable XY footprint is passed to the backend as `max_xy_size`, the mesh/detail sample budget is passed as `target_dimension`, and the clamped relief height is passed as `z_scale`. The default relief polarity is `raised-print` (`invert=false`) so faces/subjects protrude instead of becoming a recessed mold; switch to `Mold` only when that negative relief is intentional. The relief writer also performs robust percentile normalization, local feature boosting, a gamma relief curve, lower smoothing, and an optional crisp border ring so small features such as noses and sharper rear/side walls survive the depth-to-STL conversion.
+
 For an NVIDIA GPU such as a 3080 Ti, install the CUDA build instead:
 
 ```bash
@@ -59,7 +70,8 @@ Backend `.env` values:
 DEPTH_PROVIDER=depth-anything-v2
 DEPTH_MODEL=depth-anything/Depth-Anything-V2-Small-hf
 OUTPUT_DIR=./output
-CORS_ORIGINS=http://localhost:3000
+CORS_ORIGINS=http://localhost:3000,http://localhost:3001
+VIDEO_CORS_ORIGINS=http://localhost:3000,http://localhost:3001
 MASV_API_KEY=
 MASV_TEAM_ID=
 RBC_ACCESS_TOKEN=
@@ -69,6 +81,7 @@ Frontend `.env.local` values:
 
 ```bash
 NEXT_PUBLIC_BACKEND_URL=http://localhost:8004
+NEXT_PUBLIC_VIDEO_BACKEND_URL=http://localhost:8005
 REPLICATE_API_TOKEN=
 GROQ_API_KEY=
 COHERE_API_KEY=

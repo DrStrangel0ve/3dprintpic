@@ -36,11 +36,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-CORS_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
-    if origin.strip()
-]
+DEFAULT_LOCAL_ORIGINS = ["http://localhost:3000", "http://localhost:3001"]
+CORS_ORIGINS = list(
+    dict.fromkeys(
+        origin.strip()
+        for origin in [*DEFAULT_LOCAL_ORIGINS, *os.getenv("CORS_ORIGINS", "").split(",")]
+        if origin.strip()
+    )
+)
 
 # Updated CORS middleware configuration
 app.add_middleware(
@@ -137,8 +140,22 @@ async def process_image(
     device: str = Form("auto"),
     target_dimension: int = Form(300),
     z_scale: float = Form(50),
-    invert: bool = Form(True),
-    sigma: float = Form(4.0),
+    max_xy_size: float | None = Form(None),
+    printer_profile: str | None = Form(None),
+    printer_max_x_mm: float | None = Form(None),
+    printer_max_y_mm: float | None = Form(None),
+    printer_max_z_mm: float | None = Form(None),
+    printer_clearance_mm: float | None = Form(None),
+    relief_polarity: str = Form("raised-print"),
+    mesh_resolution_multiplier: float | None = Form(None),
+    invert: bool = Form(False),
+    sigma: float = Form(0.6),
+    relief_gamma: float = Form(0.75),
+    detail_boost: float = Form(1.4),
+    detail_radius: float = Form(2.0),
+    low_percentile: float = Form(1.0),
+    high_percentile: float = Form(99.0),
+    base_border_px: int = Form(2),
     completion_mode: str = Form("none"),
     completion_provider: str = Form("mirror"),
     completion_prompt: str | None = Form(None),
@@ -204,8 +221,15 @@ async def process_image(
             output_stl_path=str(stl_path),
             target_dimension=target_dimension,
             z_scale=z_scale,
+            max_xy_size=max_xy_size,
             invert=invert,
             sigma=sigma,
+            relief_gamma=relief_gamma,
+            detail_boost=detail_boost,
+            detail_radius=detail_radius,
+            low_percentile=low_percentile,
+            high_percentile=high_percentile,
+            base_border_px=base_border_px,
         )
         logger.info(f"3D model saved as: {stl_path}")
         
@@ -221,8 +245,24 @@ async def process_image(
             "device": device,
             "target_dimension": target_dimension,
             "z_scale": z_scale,
+            "max_xy_size": max_xy_size,
+            "printer": {
+                "profile": printer_profile,
+                "max_x_mm": printer_max_x_mm,
+                "max_y_mm": printer_max_y_mm,
+                "max_z_mm": printer_max_z_mm,
+                "clearance_mm": printer_clearance_mm,
+            },
+            "relief_polarity": relief_polarity,
+            "mesh_resolution_multiplier": mesh_resolution_multiplier,
             "invert": invert,
             "sigma": sigma,
+            "relief_gamma": relief_gamma,
+            "detail_boost": detail_boost,
+            "detail_radius": detail_radius,
+            "low_percentile": low_percentile,
+            "high_percentile": high_percentile,
+            "base_border_px": base_border_px,
             "completion_mode": completion_mode,
             "completion_provider": completion_provider,
             "completion_model": completion_model,

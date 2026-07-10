@@ -1,867 +1,1650 @@
 'use client';
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Upload, Loader, X, Download, Camera, Image as ImageIcon } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import ReactConfetti from 'react-confetti';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { StlViewer } from "react-stl-viewer";
-import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
 
-const examplePairs = [
-  {
-    original: { src: 'https://3dprintpic.jennyzhangzt.com/example0_og.jpg', alt: 'Original 1' },
-    print: { src: 'https://3dprintpic.jennyzhangzt.com/example0_print.jpg', alt: '3D Print 1' },
-  },
-  {
-    original: { src: 'https://3dprintpic.jennyzhangzt.com/example2_og.jpg', alt: 'Original 3' },
-    print: { src: 'https://3dprintpic.jennyzhangzt.com/example2_print.jpg', alt: '3D Print 3' },
-  },
-  {
-    original: { src: 'https://3dprintpic.jennyzhangzt.com/example4_og.jpg', alt: 'Original 5' },
-    print: { src: 'https://3dprintpic.jennyzhangzt.com/example4_print.jpg', alt: '3D Print 5' },
-  },
-  {
-    original: { src: 'https://3dprintpic.jennyzhangzt.com/example5_og.png', alt: 'Original 6' },
-    print: { src: 'https://3dprintpic.jennyzhangzt.com/example5_print.jpg', alt: '3D Print 6' },
-  },
-  {
-    original: { src: 'https://3dprintpic.jennyzhangzt.com/example1_og.webp', alt: 'Original 2' },
-    print: { src: 'https://3dprintpic.jennyzhangzt.com/example1_print.jpg', alt: '3D Print 2' },
-  },
-  {
-    original: { src: 'https://3dprintpic.jennyzhangzt.com/example3_og.jpg', alt: 'Original 4' },
-    print: { src: 'https://3dprintpic.jennyzhangzt.com/example3_print.jpg', alt: '3D Print 4' },
-  },
-];
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BadgeCheck,
+  Box,
+  Boxes,
+  Braces,
+  Camera,
+  Check,
+  CircleDot,
+  Cuboid,
+  Download,
+  FileDown,
+  Film,
+  Image as ImageIcon,
+  Layers3,
+  Loader2,
+  MousePointer2,
+  Play,
+  Printer,
+  RefreshCcw,
+  ScanLine,
+  Sparkles,
+  Upload,
+  Wand2,
+  X,
+} from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8004';
+const VIDEO_BACKEND_URL = process.env.NEXT_PUBLIC_VIDEO_BACKEND_URL || 'http://localhost:8005';
 const PROCESS_IMAGE_TIMEOUT_MS = 10 * 60 * 1000;
 
-const depthProviderOptions = [
-  {
-    value: 'depth-anything-v2',
-    label: 'Depth Anything V2 (local GPU)',
-  },
-  {
-    value: 'sapiens',
-    label: 'Sapiens Depth (remote)',
-  },
+type MediaKind = 'photo' | 'video';
+type PhotoScope = 'whole-image' | 'object-selection';
+type PhotoTarget = 'depth-relief' | 'full-mesh';
+type VideoScope = 'selected-frames' | 'everything';
+type RunState = 'idle' | 'running' | 'ready' | 'blocked' | 'error';
+type ReliefPolarity = 'raised-print' | 'mold';
+type CatalogState = 'loading' | 'ready' | 'fallback';
+type ModelGroup =
+  | 'selection'
+  | 'frame_selection'
+  | 'camera_pose'
+  | 'video_reconstruction'
+  | 'image_to_mesh'
+  | 'stl_postprocess';
+
+type ModelOption = {
+  id: string;
+  label: string;
+  model?: string;
+  role?: string;
+  availability?: string;
+  notes?: string;
+  local?: boolean;
+  gpu_supported?: boolean;
+};
+
+type ModelCatalog = {
+  service?: string;
+  mode?: string;
+  defaults: Record<ModelGroup, string>;
+  groups: Record<ModelGroup, ModelOption[]>;
+  metrics: string[];
+  notes?: string;
+};
+
+type PlannerResponse = {
+  status: string;
+  run_id?: string;
+  service?: string;
+  execution_mode?: string;
+  stages?: Array<{ id: string; model: ModelOption }>;
+  metrics?: string[];
+  next_backend_contract?: Record<string, string>;
+  print_volume?: PrintVolumePlan;
+};
+
+type PrinterPresetId = 'bambulab-p1s' | 'custom';
+
+type PrinterPreset = {
+  id: PrinterPresetId;
+  label: string;
+  maxX: number;
+  maxY: number;
+  maxZ: number;
+};
+
+type PrintVolumePlan = {
+  preset: PrinterPresetId;
+  label: string;
+  max_x_mm: number;
+  max_y_mm: number;
+  max_z_mm: number;
+  clearance_mm: number;
+  usable_x_mm: number;
+  usable_y_mm: number;
+  usable_z_mm: number;
+  target_dimension_mm: number;
+  max_relief_height_mm: number;
+};
+
+type PipelineStep = {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  detail: string;
+};
+
+const photoTargets: Array<{ value: PhotoTarget; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { value: 'depth-relief', label: '2.5D Relief STL', icon: ScanLine },
+  { value: 'full-mesh', label: 'Full Mesh STL', icon: Cuboid },
 ];
 
-const depthModelOptions = [
-  {
-    value: 'depth-anything/Depth-Anything-V2-Small-hf',
-    label: 'Small - fast local default',
-  },
-  {
-    value: 'depth-anything/Depth-Anything-V2-Base-hf',
-    label: 'Base - better detail',
-  },
-  {
-    value: 'depth-anything/Depth-Anything-V2-Large-hf',
-    label: 'Large - best detail, slower',
-  },
+const inpaintBackends = ['Mirror prior', 'SDXL inpaint', 'FLUX Fill', 'Qwen Image Edit'];
+const resolutionMultipliers = [1, 1.5, 2, 3];
+const depthModels = [
+  { id: 'depth-anything/Depth-Anything-V2-Small-hf', label: 'Depth Anything V2 Small' },
+  { id: 'depth-anything/Depth-Anything-V2-Base-hf', label: 'Depth Anything V2 Base' },
+  { id: 'depth-anything/Depth-Anything-V2-Large-hf', label: 'Depth Anything V2 Large' },
 ];
 
-const completionModeOptions = [
-  {
-    value: 'none',
-    label: 'No completion',
-  },
-  {
-    value: 'mirror-auto',
-    label: 'Auto mirror missing half',
-  },
-  {
-    value: 'mirror-left-to-right',
-    label: 'Mirror left to right',
-  },
-  {
-    value: 'mirror-right-to-left',
-    label: 'Mirror right to left',
-  },
+const printerPresets: PrinterPreset[] = [
+  { id: 'bambulab-p1s', label: 'Bambu Lab P1S', maxX: 256, maxY: 256, maxZ: 256 },
+  { id: 'custom', label: 'Custom printer', maxX: 220, maxY: 220, maxZ: 220 },
 ];
 
-const completionProviderOptions = [
-  {
-    value: 'mirror',
-    label: 'Mirror prior - instant',
+const fallbackModelCatalog: ModelCatalog = {
+  service: 'frontend-fallback',
+  mode: 'planner-only',
+  defaults: {
+    selection: 'sam2.1-hiera-large',
+    frame_selection: 'uniform-frame-sampler',
+    camera_pose: 'hloc-lightglue',
+    video_reconstruction: 'colmap-openmvs',
+    image_to_mesh: 'triposg',
+    stl_postprocess: 'trimesh-repair',
   },
-  {
-    value: 'mirror-seam-repair',
-    label: 'Mirror seam repair - experimental',
+  groups: {
+    selection: [
+      {
+        id: 'sam2.1-hiera-large',
+        label: 'SAM 2.1 Hiera Large',
+        model: 'facebook/sam2.1-hiera-large',
+        role: 'promptable object and video mask propagation',
+        availability: 'configured',
+      },
+      {
+        id: 'grounding-dino-sam2',
+        label: 'Grounding DINO + SAM 2.1',
+        model: 'IDEA-Research/GroundingDINO + facebook/sam2.1',
+        role: 'text-prompted object box plus mask',
+        availability: 'adapter-planned',
+      },
+      {
+        id: 'rmbg-2.0',
+        label: 'RMBG 2.0',
+        model: 'briaai/RMBG-2.0',
+        role: 'automatic foreground matte',
+        availability: 'adapter-planned',
+      },
+    ],
+    frame_selection: [
+      {
+        id: 'uniform-frame-sampler',
+        label: 'Uniform frame sampler',
+        model: 'opencv-videoio',
+        role: 'deterministic every-n-frame sampling',
+        availability: 'configured',
+      },
+      {
+        id: 'scenedetect-adaptive',
+        label: 'PySceneDetect adaptive',
+        model: 'scenedetect-adaptive',
+        role: 'shot and motion change sampling',
+        availability: 'adapter-planned',
+      },
+    ],
+    camera_pose: [
+      {
+        id: 'colmap-sift',
+        label: 'COLMAP SIFT',
+        model: 'COLMAP',
+        role: 'camera matching and sparse reconstruction',
+        availability: 'adapter-planned',
+      },
+      {
+        id: 'hloc-lightglue',
+        label: 'hloc + LightGlue',
+        model: 'SuperPoint/DISK + LightGlue',
+        role: 'learned feature matching for camera poses',
+        availability: 'adapter-planned',
+      },
+      {
+        id: 'vggt-camera',
+        label: 'VGGT camera head',
+        model: 'VGGT',
+        role: 'feed-forward camera/depth/point prediction',
+        availability: 'adapter-planned',
+      },
+    ],
+    video_reconstruction: [
+      {
+        id: 'colmap-openmvs',
+        label: 'COLMAP + OpenMVS',
+        model: 'COLMAP/OpenMVS',
+        role: 'photogrammetry mesh',
+        availability: 'adapter-planned',
+      },
+      {
+        id: 'gaussian-splatting-mesh',
+        label: 'Gaussian Splatting + mesh',
+        model: '3D Gaussian Splatting + mesh extraction',
+        role: 'splat reconstruction to repaired STL',
+        availability: 'adapter-planned',
+      },
+      {
+        id: 'vggt-fusion',
+        label: 'VGGT fusion',
+        model: 'VGGT',
+        role: 'multi-frame depth/point fusion',
+        availability: 'adapter-planned',
+      },
+      {
+        id: 'dust3r-mast3r',
+        label: 'DUSt3R/MASt3R',
+        model: 'DUSt3R or MASt3R',
+        role: 'dense correspondence and 3D point prediction',
+        availability: 'adapter-planned',
+      },
+    ],
+    image_to_mesh: [
+      {
+        id: 'triposg',
+        label: 'TripoSG',
+        model: 'TripoSG-style direct mesh',
+        role: 'single image to mesh',
+        availability: 'adapter-planned',
+      },
+      {
+        id: 'hunyuan3d-shape',
+        label: 'Hunyuan3D Shape',
+        model: 'Hunyuan3D Shape',
+        role: 'single image to shape mesh',
+        availability: 'adapter-planned',
+      },
+      {
+        id: 'triposr',
+        label: 'TripoSR',
+        model: 'TripoSR',
+        role: 'single image sparse-view reconstruction',
+        availability: 'adapter-planned',
+      },
+      {
+        id: 'stable-fast-3d',
+        label: 'Stable Fast 3D',
+        model: 'SF3D',
+        role: 'single image to textured mesh',
+        availability: 'adapter-planned',
+      },
+      {
+        id: 'spar3d',
+        label: 'SPAR3D',
+        model: 'SPAR3D',
+        role: 'single image sparse 3D reconstruction',
+        availability: 'adapter-planned',
+      },
+    ],
+    stl_postprocess: [
+      {
+        id: 'trimesh-repair',
+        label: 'Trimesh repair',
+        model: 'trimesh',
+        role: 'mesh cleanup and STL export',
+        availability: 'configured',
+      },
+      {
+        id: 'manifold3d',
+        label: 'Manifold3D repair',
+        model: 'manifold3d',
+        role: 'watertight boolean/manifold conversion',
+        availability: 'adapter-planned',
+      },
+      {
+        id: 'pymeshlab-remesh',
+        label: 'PyMeshLab remesh',
+        model: 'pymeshlab',
+        role: 'surface repair and decimation',
+        availability: 'adapter-planned',
+      },
+    ],
   },
-  {
-    value: 'sdxl-inpaint',
-    label: 'SDXL Inpaint - practical GPU',
-  },
-  {
-    value: 'dreamshaper-inpaint',
-    label: 'DreamShaper Inpaint - lighter GPU',
-  },
-  {
-    value: 'amused-inpaint',
-    label: 'AMUSED Inpaint - small/fast',
-  },
-  {
-    value: 'flux-fill',
-    label: 'FLUX.1 Fill - modern, heavy',
-  },
-  {
-    value: 'qwen-image-inpaint',
-    label: 'Qwen Image Inpaint - modern, heavier',
-  },
-  {
-    value: 'qwen-image-edit',
-    label: 'Qwen Image Edit - official Qwen path',
-  },
-];
+  metrics: [
+    'watertightness',
+    'manifoldness',
+    'positive volume',
+    'single component',
+    'minimum printable thickness',
+    'bbox aspect ratio',
+    'surface Chamfer when ground truth exists',
+  ],
+};
 
-const promptDrivenCompletionProviders = new Set([
-  'sdxl-inpaint',
-  'dreamshaper-inpaint',
-  'amused-inpaint',
-  'flux-fill',
-  'qwen-image-inpaint',
-  'qwen-image-edit',
-]);
+function classNames(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(' ');
+}
+
+function mediaKindFromFile(file: File | null): MediaKind {
+  if (file?.type.startsWith('video/')) return 'video';
+  return 'photo';
+}
+
+function fileSizeLabel(bytes: number) {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
+}
+
+function normalizeCatalog(data: Partial<ModelCatalog>): ModelCatalog {
+  return {
+    service: data.service || fallbackModelCatalog.service,
+    mode: data.mode || fallbackModelCatalog.mode,
+    defaults: { ...fallbackModelCatalog.defaults, ...(data.defaults || {}) },
+    groups: {
+      selection: data.groups?.selection?.length ? data.groups.selection : fallbackModelCatalog.groups.selection,
+      frame_selection: data.groups?.frame_selection?.length ? data.groups.frame_selection : fallbackModelCatalog.groups.frame_selection,
+      camera_pose: data.groups?.camera_pose?.length ? data.groups.camera_pose : fallbackModelCatalog.groups.camera_pose,
+      video_reconstruction: data.groups?.video_reconstruction?.length
+        ? data.groups.video_reconstruction
+        : fallbackModelCatalog.groups.video_reconstruction,
+      image_to_mesh: data.groups?.image_to_mesh?.length ? data.groups.image_to_mesh : fallbackModelCatalog.groups.image_to_mesh,
+      stl_postprocess: data.groups?.stl_postprocess?.length ? data.groups.stl_postprocess : fallbackModelCatalog.groups.stl_postprocess,
+    },
+    metrics: data.metrics?.length ? data.metrics : fallbackModelCatalog.metrics,
+    notes: data.notes || fallbackModelCatalog.notes,
+  };
+}
+
+function modelsFor(catalog: ModelCatalog, group: ModelGroup) {
+  return catalog.groups[group]?.length ? catalog.groups[group] : fallbackModelCatalog.groups[group];
+}
+
+function modelFor(catalog: ModelCatalog, group: ModelGroup, modelId: string) {
+  return modelsFor(catalog, group).find((model) => model.id === modelId) || modelsFor(catalog, group)[0];
+}
+
+function modelLabel(catalog: ModelCatalog, group: ModelGroup, modelId: string) {
+  return modelFor(catalog, group, modelId)?.label || modelId;
+}
+
+function availabilityTone(availability?: string) {
+  if (availability === 'configured') return 'border-emerald-700 bg-emerald-50 text-emerald-900';
+  if (availability === 'adapter-planned') return 'border-blue-700 bg-blue-50 text-blue-900';
+  return 'border-zinc-200 bg-zinc-50 text-zinc-600';
+}
+
+function availabilityLabel(availability?: string) {
+  if (availability === 'adapter-planned') return 'planned';
+  return availability || 'planned';
+}
+
+function StepIcon({ active, done }: { active?: boolean; done?: boolean }) {
+  if (done) return <Check className="h-4 w-4 text-emerald-700" />;
+  return <CircleDot className={classNames('h-4 w-4', active ? 'text-blue-700' : 'text-zinc-400')} />;
+}
+
+function workflowSteps({
+  mediaKind,
+  photoScope,
+  photoTarget,
+  videoScope,
+  selectedFrameCount,
+  frameStep,
+  inpaintBackend,
+  meshBackend,
+  videoBackend,
+}: {
+  mediaKind: MediaKind;
+  photoScope: PhotoScope;
+  photoTarget: PhotoTarget;
+  videoScope: VideoScope;
+  selectedFrameCount: number;
+  frameStep: number;
+  inpaintBackend: string;
+  meshBackend: string;
+  videoBackend: string;
+}): PipelineStep[] {
+  if (mediaKind === 'photo' && photoTarget === 'depth-relief') {
+    return [
+      {
+        icon: Upload,
+        label: 'Import photo',
+        detail: photoScope === 'object-selection' ? 'Object mask enabled' : 'Whole frame',
+      },
+      {
+        icon: ScanLine,
+        label: 'Estimate depth',
+        detail: 'Depth Anything V2 local GPU',
+      },
+      {
+        icon: Layers3,
+        label: 'Build relief',
+        detail: 'Height field, backing plate, printable normals',
+      },
+      {
+        icon: FileDown,
+        label: 'Export STL',
+        detail: 'Watertight 2.5D model',
+      },
+    ];
+  }
+
+  if (mediaKind === 'photo') {
+    return [
+      {
+        icon: Upload,
+        label: 'Import photo',
+        detail: photoScope === 'object-selection' ? 'Selected object only' : 'Whole visible subject',
+      },
+      {
+        icon: Wand2,
+        label: 'Complete hidden side',
+        detail: inpaintBackend,
+      },
+      {
+        icon: Cuboid,
+        label: 'Image to mesh',
+        detail: meshBackend,
+      },
+      {
+        icon: BadgeCheck,
+        label: 'Repair STL',
+        detail: 'Watertight, manifold, positive volume',
+      },
+    ];
+  }
+
+  if (videoScope === 'selected-frames') {
+    return [
+      {
+        icon: Film,
+        label: 'Import video',
+        detail: `${selectedFrameCount} selected frames`,
+      },
+      {
+        icon: MousePointer2,
+        label: 'Keep full frames',
+        detail: 'Camera matching keeps background/keypoints',
+      },
+      {
+        icon: Sparkles,
+        label: 'Mask selected object',
+        detail: 'Masks constrain the reconstruction target',
+      },
+      {
+        icon: Boxes,
+        label: 'Fuse mesh',
+        detail: `${videoBackend}, then STL repair`,
+      },
+    ];
+  }
+
+  return [
+    {
+      icon: Film,
+      label: 'Import video',
+      detail: `Every ${frameStep} frame${frameStep === 1 ? '' : 's'}`,
+    },
+    {
+      icon: Camera,
+      label: 'Recover cameras',
+      detail: 'Global scene reconstruction',
+    },
+    {
+      icon: Boxes,
+      label: 'Generate 3D scene',
+      detail: videoBackend,
+    },
+    {
+      icon: FileDown,
+      label: 'Convert to STL',
+      detail: 'Mesh extraction, repair, scale',
+    },
+  ];
+}
 
 export default function Home() {
-  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
-  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
-  const [completedImage, setCompletedImage] = useState<string | null>(null);
-  const [processedSTL, setProcessedSTL] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [showConfetti, setShowConfetti] = useState(false);
-  const [showDialog, setShowDialog] = useState(false);
-  const [activeTab, setActiveTab] = useState('upload');
-  const [generatePrompt, setGeneratePrompt] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalog>(fallbackModelCatalog);
+  const [catalogState, setCatalogState] = useState<CatalogState>('loading');
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [mediaKind, setMediaKind] = useState<MediaKind>('photo');
+  const [photoScope, setPhotoScope] = useState<PhotoScope>('whole-image');
+  const [photoTarget, setPhotoTarget] = useState<PhotoTarget>('depth-relief');
+  const [videoScope, setVideoScope] = useState<VideoScope>('selected-frames');
+  const [selectedFrameCount, setSelectedFrameCount] = useState(12);
+  const [frameStep, setFrameStep] = useState(8);
+  const [depthModel, setDepthModel] = useState('depth-anything/Depth-Anything-V2-Base-hf');
+  const [depthScale, setDepthScale] = useState(42);
+  const [baseThickness, setBaseThickness] = useState(2.4);
+  const [reliefPolarity, setReliefPolarity] = useState<ReliefPolarity>('raised-print');
+  const [detailSmoothing, setDetailSmoothing] = useState(0.6);
+  const [featureBoost, setFeatureBoost] = useState(1.4);
+  const [reliefGamma, setReliefGamma] = useState(0.75);
+  const [baseBorderPx, setBaseBorderPx] = useState(2);
+  const [meshResolutionMultiplier, setMeshResolutionMultiplier] = useState(2);
+  const [printerPreset, setPrinterPreset] = useState<PrinterPresetId>('bambulab-p1s');
+  const [printerMaxX, setPrinterMaxX] = useState(256);
+  const [printerMaxY, setPrinterMaxY] = useState(256);
+  const [printerMaxZ, setPrinterMaxZ] = useState(256);
+  const [printerClearance, setPrinterClearance] = useState(0);
+  const [meshBackend, setMeshBackend] = useState(fallbackModelCatalog.defaults.image_to_mesh);
+  const [inpaintBackend, setInpaintBackend] = useState(inpaintBackends[0]);
+  const [selectionModel, setSelectionModel] = useState(fallbackModelCatalog.defaults.selection);
+  const [frameSelectionModel, setFrameSelectionModel] = useState(fallbackModelCatalog.defaults.frame_selection);
+  const [cameraPoseModel, setCameraPoseModel] = useState(fallbackModelCatalog.defaults.camera_pose);
+  const [videoBackend, setVideoBackend] = useState(fallbackModelCatalog.defaults.video_reconstruction);
+  const [stlPostprocessModel, setStlPostprocessModel] = useState(fallbackModelCatalog.defaults.stl_postprocess);
+  const [processedSTL, setProcessedSTL] = useState('');
+  const [completedPreview, setCompletedPreview] = useState('');
+  const [plannerResponse, setPlannerResponse] = useState<PlannerResponse | null>(null);
+  const [runState, setRunState] = useState<RunState>('idle');
+  const [statusText, setStatusText] = useState('Ready');
+  const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [imageToProcess, setImageToProcess] = useState<string | null>(null);
-  const [depthProvider, setDepthProvider] = useState('depth-anything-v2');
-  const [depthModel, setDepthModel] = useState('depth-anything/Depth-Anything-V2-Small-hf');
-  const [completionProvider, setCompletionProvider] = useState('mirror');
-  const [completionMode, setCompletionMode] = useState('none');
-  const [completionPrompt, setCompletionPrompt] = useState('Complete the missing half naturally, preserving the same person or object, lighting, camera angle, and background. Do not leave the masked area empty.');
-  const [backendRuntime, setBackendRuntime] = useState<string | null>(null);
-  const router = useRouter();
 
-  const ExampleCard = ({ pair, index }: { pair: any, index: any }) => {
-    return (
-      <Card className="w-full shadow-lg bg-white overflow-hidden hover:shadow-xl transition-shadow duration-300">
-        <CardContent className="p-4">
-          <div className="flex flex-col space-y-4">
-            <div className="relative group">
-              <img
-                src={pair.print.src}
-                alt={pair.print.alt}
-                className="w-full h-48 object-cover rounded-lg transition-transform duration-300 group-hover:scale-105"
-              />
-              <span className="absolute top-2 left-2 bg-[#c0a8f8] text-white px-3 py-1 rounded-full text-sm font-semibold shadow-md">
-                3D Print
-              </span>
-            </div>
-            <div className="relative group">
-              <img
-                src={pair.original.src}
-                alt={pair.original.alt}
-                className="w-full h-48 object-cover rounded-lg transition-transform duration-300 group-hover:scale-105"
-              />
-              <span className="absolute top-2 left-2 bg-[#80e0b8] text-white px-3 py-1 rounded-full text-sm font-semibold shadow-md">
-                Original
-              </span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
+  const selectionModels = modelsFor(modelCatalog, 'selection');
+  const frameSelectionModels = modelsFor(modelCatalog, 'frame_selection');
+  const cameraPoseModels = modelsFor(modelCatalog, 'camera_pose');
+  const videoModels = modelsFor(modelCatalog, 'video_reconstruction');
+  const meshModels = modelsFor(modelCatalog, 'image_to_mesh');
+  const stlPostprocessModels = modelsFor(modelCatalog, 'stl_postprocess');
+  const currentPrinterPreset = printerPresets.find((preset) => preset.id === printerPreset) || printerPresets[0];
+  const printVolume = useMemo<PrintVolumePlan>(() => {
+    const usableX = Math.max(1, Math.floor(printerMaxX - printerClearance * 2));
+    const usableY = Math.max(1, Math.floor(printerMaxY - printerClearance * 2));
+    const usableZ = Math.max(1, Math.floor(printerMaxZ - printerClearance));
+    const targetDimension = Math.max(1, Math.floor(Math.min(usableX, usableY)));
+    return {
+      preset: printerPreset,
+      label: currentPrinterPreset.label,
+      max_x_mm: printerMaxX,
+      max_y_mm: printerMaxY,
+      max_z_mm: printerMaxZ,
+      clearance_mm: printerClearance,
+      usable_x_mm: usableX,
+      usable_y_mm: usableY,
+      usable_z_mm: usableZ,
+      target_dimension_mm: targetDimension,
+      max_relief_height_mm: Math.max(1, usableZ - baseThickness),
+    };
+  }, [printerPreset, currentPrinterPreset.label, printerMaxX, printerMaxY, printerMaxZ, printerClearance, baseThickness]);
+  const effectiveReliefHeight = Math.min(depthScale, printVolume.max_relief_height_mm);
+  const reliefSliderMax = Math.max(12, Math.min(96, Math.floor(printVolume.max_relief_height_mm)));
+  const reliefTargetDimension = Math.max(64, Math.round(printVolume.target_dimension_mm * meshResolutionMultiplier));
+  const reliefInvert = reliefPolarity === 'mold';
+
+  const applyPrinterPreset = (presetId: PrinterPresetId) => {
+    const preset = printerPresets.find((candidate) => candidate.id === presetId) || printerPresets[0];
+    setPrinterPreset(preset.id);
+    setPrinterMaxX(preset.maxX);
+    setPrinterMaxY(preset.maxY);
+    setPrinterMaxZ(preset.maxZ);
   };
 
-  const handleImageUpload = useCallback((file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e: ProgressEvent<FileReader>) => {
-      if (e.target?.result) {
-        setUploadedImage(e.target.result as string);
-        setCompletedImage(null);
-        setProcessedSTL(null);
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadModelCatalog = async () => {
+      setCatalogState('loading');
+      try {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 2500);
+        const response = await fetch(`${VIDEO_BACKEND_URL}/models`, { signal: controller.signal });
+        window.clearTimeout(timeout);
+        if (!response.ok) throw new Error(`Model planner ${response.status}`);
+        const data = (await response.json()) as Partial<ModelCatalog>;
+        if (!cancelled) {
+          setModelCatalog(normalizeCatalog(data));
+          setCatalogState('ready');
+        }
+      } catch {
+        if (!cancelled) {
+          setModelCatalog(fallbackModelCatalog);
+          setCatalogState('fallback');
+        }
       }
     };
-    reader.readAsDataURL(file);
+
+    loadModelCatalog();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const handleFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      handleImageUpload(file);
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl('');
+      return;
     }
-  };
+    const nextUrl = URL.createObjectURL(file);
+    setPreviewUrl(nextUrl);
+    setMediaKind(mediaKindFromFile(file));
+    setProcessedSTL('');
+    setCompletedPreview('');
+    setPlannerResponse(null);
+    setRunState('idle');
+    setStatusText('Ready');
+    setError('');
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [file]);
 
-  const handleDragOver = (event: React.DragEvent<HTMLLabelElement>) => {
-    event.preventDefault();
-  };
+  const steps = useMemo(
+    () =>
+      workflowSteps({
+        mediaKind,
+        photoScope,
+        photoTarget,
+        videoScope,
+        selectedFrameCount,
+        frameStep,
+        inpaintBackend,
+        meshBackend: modelLabel(modelCatalog, 'image_to_mesh', meshBackend),
+        videoBackend: modelLabel(modelCatalog, 'video_reconstruction', videoBackend),
+      }),
+    [
+      mediaKind,
+      photoScope,
+      photoTarget,
+      videoScope,
+      selectedFrameCount,
+      frameStep,
+      inpaintBackend,
+      meshBackend,
+      videoBackend,
+      modelCatalog,
+    ],
+  );
+
+  const jobPlan = useMemo(
+    () => ({
+      input: {
+        file_name: file?.name || '',
+        media_type: mediaKind,
+        bytes: file?.size || 0,
+      },
+      services: {
+        depth_relief_backend: BACKEND_URL,
+        video_selection_planner: VIDEO_BACKEND_URL,
+        model_catalog: modelCatalog.service,
+        planner_mode: modelCatalog.mode,
+      },
+      print_volume: printVolume,
+      models: {
+        selection: selectionModel,
+        frame_selection: mediaKind === 'video' ? frameSelectionModel : null,
+        camera_pose: mediaKind === 'video' ? cameraPoseModel : null,
+        video_reconstruction: mediaKind === 'video' ? videoBackend : null,
+        image_to_mesh: mediaKind === 'photo' && photoTarget === 'full-mesh' ? meshBackend : null,
+        stl_postprocess: stlPostprocessModel,
+      },
+      model_labels: {
+        selection: modelLabel(modelCatalog, 'selection', selectionModel),
+        frame_selection: modelLabel(modelCatalog, 'frame_selection', frameSelectionModel),
+        camera_pose: modelLabel(modelCatalog, 'camera_pose', cameraPoseModel),
+        video_reconstruction: modelLabel(modelCatalog, 'video_reconstruction', videoBackend),
+        image_to_mesh: modelLabel(modelCatalog, 'image_to_mesh', meshBackend),
+        stl_postprocess: modelLabel(modelCatalog, 'stl_postprocess', stlPostprocessModel),
+      },
+      route:
+        mediaKind === 'photo'
+          ? {
+              scope: photoScope,
+              target: photoTarget,
+              selection_model: photoScope === 'object-selection' ? selectionModel : null,
+              depth: {
+                provider: 'depth-anything-v2',
+                model: depthModel,
+                relief_height_mm: depthScale,
+                effective_relief_height_mm: effectiveReliefHeight,
+                base_thickness_mm: baseThickness,
+                target_dimension_mm: printVolume.target_dimension_mm,
+                max_xy_size_mm: printVolume.target_dimension_mm,
+                mesh_resolution_dimension: reliefTargetDimension,
+                resolution_multiplier: meshResolutionMultiplier,
+                polarity: reliefPolarity,
+                invert_depth: reliefInvert,
+                smoothing_sigma: detailSmoothing,
+                feature_boost: featureBoost,
+                relief_gamma: reliefGamma,
+                base_border_px: baseBorderPx,
+              },
+              completion:
+                photoTarget === 'full-mesh'
+                  ? {
+                      inpaint_backend: inpaintBackend,
+                      mesh_backend: meshBackend,
+                      mesh_backend_label: modelLabel(modelCatalog, 'image_to_mesh', meshBackend),
+                      stl_postprocess: stlPostprocessModel,
+                      output: 'watertight STL',
+                    }
+                  : null,
+            }
+          : {
+              scope: videoScope,
+              selected_frames: videoScope === 'selected-frames' ? selectedFrameCount : null,
+              frame_step: videoScope === 'everything' ? frameStep : null,
+              reconstruction_backend: videoBackend,
+              reconstruction_backend_label: modelLabel(modelCatalog, 'video_reconstruction', videoBackend),
+              selection_model: selectionModel,
+              frame_selection_model: frameSelectionModel,
+              camera_pose_model: cameraPoseModel,
+              stl_postprocess: stlPostprocessModel,
+              preserve_full_frames_for_camera_matching: videoScope === 'selected-frames',
+              object_masks_for_training_target: videoScope === 'selected-frames',
+              output: 'mesh repaired to STL',
+            },
+      metrics: modelCatalog.metrics,
+    }),
+    [
+      file,
+      mediaKind,
+      photoScope,
+      photoTarget,
+      depthModel,
+      depthScale,
+      baseThickness,
+      inpaintBackend,
+      meshBackend,
+      selectionModel,
+      frameSelectionModel,
+      cameraPoseModel,
+      videoScope,
+      selectedFrameCount,
+      frameStep,
+      videoBackend,
+      stlPostprocessModel,
+      modelCatalog,
+      printVolume,
+      effectiveReliefHeight,
+      reliefTargetDimension,
+      meshResolutionMultiplier,
+      reliefPolarity,
+      reliefInvert,
+      detailSmoothing,
+      featureBoost,
+      reliefGamma,
+      baseBorderPx,
+    ],
+  );
+
+  const displayedPlan = useMemo(
+    () => (plannerResponse ? { ...jobPlan, planner_response: plannerResponse } : jobPlan),
+    [jobPlan, plannerResponse],
+  );
+
+  useEffect(() => {
+    setPlannerResponse(null);
+  }, [jobPlan]);
+
+  const activeModelStack = useMemo(() => {
+    const stack: Array<{ group: ModelGroup; label: string; model: ModelOption }> = [];
+    if (mediaKind === 'video') {
+      stack.push(
+        { group: 'frame_selection', label: 'Frames', model: modelFor(modelCatalog, 'frame_selection', frameSelectionModel) },
+        { group: 'selection', label: 'Selection', model: modelFor(modelCatalog, 'selection', selectionModel) },
+        { group: 'camera_pose', label: 'Camera', model: modelFor(modelCatalog, 'camera_pose', cameraPoseModel) },
+        { group: 'video_reconstruction', label: 'Reconstruct', model: modelFor(modelCatalog, 'video_reconstruction', videoBackend) },
+        { group: 'stl_postprocess', label: 'Repair', model: modelFor(modelCatalog, 'stl_postprocess', stlPostprocessModel) },
+      );
+      return stack;
+    }
+
+    if (photoScope === 'object-selection') {
+      stack.push({ group: 'selection', label: 'Selection', model: modelFor(modelCatalog, 'selection', selectionModel) });
+    }
+    if (photoTarget === 'full-mesh') {
+      stack.push(
+        { group: 'image_to_mesh', label: 'Mesh', model: modelFor(modelCatalog, 'image_to_mesh', meshBackend) },
+        { group: 'stl_postprocess', label: 'Repair', model: modelFor(modelCatalog, 'stl_postprocess', stlPostprocessModel) },
+      );
+    } else {
+      stack.push({ group: 'stl_postprocess', label: 'Repair', model: modelFor(modelCatalog, 'stl_postprocess', stlPostprocessModel) });
+    }
+    return stack;
+  }, [
+    mediaKind,
+    photoScope,
+    photoTarget,
+    modelCatalog,
+    frameSelectionModel,
+    selectionModel,
+    cameraPoseModel,
+    videoBackend,
+    meshBackend,
+    stlPostprocessModel,
+  ]);
 
   const handleDrop = (event: React.DragEvent<HTMLLabelElement>) => {
     event.preventDefault();
-    const file = event.dataTransfer.files?.[0];
-    if (file) {
-      handleImageUpload(file);
-    }
+    const droppedFile = event.dataTransfer.files?.[0];
+    if (droppedFile) setFile(droppedFile);
   };
 
-  const handleRemoveImage = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setUploadedImage(null);
-    setGeneratedImage(null);
-    setCompletedImage(null);
-    setProcessedSTL(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+  const handleFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextFile = event.target.files?.[0];
+    if (nextFile) setFile(nextFile);
   };
 
-  const handleGet3DPrint = async () => {
-    if (!imageToProcess) {
+  const resetFile = () => {
+    setFile(null);
+    setProcessedSTL('');
+    setCompletedPreview('');
+    setPlannerResponse(null);
+    setRunState('idle');
+    setStatusText('Ready');
+    setError('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const downloadPlan = () => {
+    const blob = new Blob([JSON.stringify(displayedPlan, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'stl-pipeline-plan.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const runPipeline = async () => {
+    if (!file) {
+      setRunState('blocked');
+      setStatusText('Import required');
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
-  
-    try {
-      // Health check with 2-second timeout
-      const healthCheckController = new AbortController();
-      const healthCheckTimeout = setTimeout(() => healthCheckController.abort(), 2000);
-  
+    setError('');
+    setProcessedSTL('');
+    setCompletedPreview('');
+    setPlannerResponse(null);
+
+    if (mediaKind === 'photo' && photoTarget === 'depth-relief') {
+      setRunState('running');
+      setStatusText('Generating relief STL');
       try {
-        const healthResponse = await fetch(`${BACKEND_URL}/health`, {
-          signal: healthCheckController.signal
-        });
-        clearTimeout(healthCheckTimeout);
-  
-        if (!healthResponse.ok) {
-          throw new Error(`Health check failed with status: ${healthResponse.status}`);
-        }
-        await healthResponse.json();
-      } catch (healthError) {
-        if (healthError instanceof Error && healthError.name === 'AbortError') {
-          throw new Error("Health check timed out after 2 seconds");
-        }
-        throw new Error("Health check failed. Server might be unavailable.");
-      }
-  
-      const formData = new FormData();
-      const blob = await fetch(imageToProcess).then(r => r.blob());
-      formData.append('file', blob, 'image.jpg');
-      formData.append('depth_provider', depthProvider);
-      formData.append('device', 'auto');
-      formData.append('completion_mode', completionMode);
-      formData.append('completion_provider', completionProvider);
-      const completionUsesPrompt = promptDrivenCompletionProviders.has(completionProvider);
-      if (completionUsesPrompt && completionPrompt.trim()) {
-        formData.append('completion_prompt', completionPrompt.trim());
-        formData.append('completion_steps', completionProvider === 'flux-fill' ? '24' : '18');
-        formData.append('completion_inpaint_max_dimension', '384');
-      }
-      if (depthProvider === 'depth-anything-v2') {
+        const healthController = new AbortController();
+        const healthTimeout = window.setTimeout(() => healthController.abort(), 2000);
+        const health = await fetch(`${BACKEND_URL}/health`, { signal: healthController.signal });
+        window.clearTimeout(healthTimeout);
+        if (!health.ok) throw new Error(`Backend health ${health.status}`);
+
+        const formData = new FormData();
+        formData.append('file', file, file.name || 'photo.jpg');
+        formData.append('depth_provider', 'depth-anything-v2');
         formData.append('depth_model', depthModel);
-      }
-  
-      // Depth estimation can be slow on first local model load.
-      const mainRequestController = new AbortController();
-      const mainRequestTimeout = setTimeout(() => mainRequestController.abort(), PROCESS_IMAGE_TIMEOUT_MS);
-  
-      try {
+        formData.append('device', 'auto');
+        formData.append('completion_mode', 'none');
+        formData.append('target_dimension', String(reliefTargetDimension));
+        formData.append('z_scale', String(effectiveReliefHeight));
+        formData.append('max_xy_size', String(printVolume.target_dimension_mm));
+        formData.append('invert', String(reliefInvert));
+        formData.append('sigma', String(detailSmoothing));
+        formData.append('detail_boost', String(featureBoost));
+        formData.append('relief_gamma', String(reliefGamma));
+        formData.append('base_border_px', String(baseBorderPx));
+        formData.append('detail_radius', '2.0');
+        formData.append('low_percentile', '1.0');
+        formData.append('high_percentile', '99.0');
+        formData.append('relief_polarity', reliefPolarity);
+        formData.append('mesh_resolution_multiplier', String(meshResolutionMultiplier));
+        formData.append('printer_profile', printVolume.label);
+        formData.append('printer_max_x_mm', String(printVolume.max_x_mm));
+        formData.append('printer_max_y_mm', String(printVolume.max_y_mm));
+        formData.append('printer_max_z_mm', String(printVolume.max_z_mm));
+        formData.append('printer_clearance_mm', String(printVolume.clearance_mm));
+
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), PROCESS_IMAGE_TIMEOUT_MS);
         const response = await fetch(`${BACKEND_URL}/process_image`, {
           method: 'POST',
           body: formData,
-          signal: mainRequestController.signal
+          signal: controller.signal,
         });
-        clearTimeout(mainRequestTimeout);
-  
-        if (!response.ok) {
-          throw new Error(`Failed to process image. Server responded with status: ${response.status}`);
-        }
-  
+        window.clearTimeout(timeout);
+        if (!response.ok) throw new Error(`Process image ${response.status}`);
+
         const data = await response.json();
         const stlUrl = data.stl_url ? `${BACKEND_URL}${data.stl_url}` : `${BACKEND_URL}/stl_model/${data.stl_model}`;
         setProcessedSTL(stlUrl);
-        setCompletedImage(data.completed_image_url ? `${BACKEND_URL}${data.completed_image_url}` : null);
-        if (data.depth_data) {
-          localStorage.setItem('lastDepthDataPath', data.depth_data);
-        }
-        if (data.job_id) {
-          localStorage.setItem('lastJobId', data.job_id);
-        }
-      } catch (mainError) {
-        if (mainError instanceof Error && mainError.name === 'AbortError') {
-          throw new Error("Main request timed out");
-        }
-        throw mainError;
+        setCompletedPreview(data.completed_image_url ? `${BACKEND_URL}${data.completed_image_url}` : previewUrl);
+        setRunState('ready');
+        setStatusText('STL ready');
+      } catch (runError) {
+        setRunState('error');
+        setStatusText('Run failed');
+        setError(runError instanceof Error ? runError.message : String(runError));
       }
-    } catch (err) {
-      setError(`Failed to process image: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setIsLoading(false);
+      return;
     }
-  };
 
-  const handleSendTo3DPrinter = async () => {
-    setIsLoading(true);
-    setError(null);
+    setRunState('running');
+    setStatusText('Planning model stack');
     try {
-      // Health check
-      const healthCheckController = new AbortController();
-      const healthCheckTimeout = setTimeout(() => healthCheckController.abort(), 2000);
-  
-      try {
-        const healthResponse = await fetch(`${BACKEND_URL}/health`, {
-          signal: healthCheckController.signal
-        });
-        clearTimeout(healthCheckTimeout);
-  
-        if (!healthResponse.ok) {
-          throw new Error(`Health check failed with status: ${healthResponse.status}`);
-        }
-        await healthResponse.json();
-      } catch (healthError) {
-        if (healthError instanceof Error && healthError.name === 'AbortError') {
-          throw new Error("Health check timed out after 2 seconds");
-        }
-        throw new Error("Health check failed. Server might be unavailable.");
-      }
-  
-      // Extract the filename from the processedSTL URL
-      const stlFilename = processedSTL
-        ? decodeURIComponent(new URL(processedSTL).pathname.replace(/^\/stl_model\//, ''))
-        : null;
-  
-      // Proceed with MASV upload
-      const formData = new FormData();
-      if (stlFilename) {
-        formData.append('file_name', stlFilename);
-      }
-
-      const response = await fetch(`${BACKEND_URL}/upload_to_masv`, {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(`${VIDEO_BACKEND_URL}/plan`, {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(jobPlan),
+        signal: controller.signal,
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to upload to MASV. Server responded with status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('MASV upload successful. Package ID:', data.masv_package_id);
-
-      // Award RBC points
-      const rbcResponse = await fetch(`${BACKEND_URL}/award_rbc_points?member_id=42&points=10`, {
-        method: 'POST',
+      window.clearTimeout(timeout);
+      if (!response.ok) throw new Error(`Planner ${response.status}`);
+      const data = (await response.json()) as PlannerResponse;
+      setPlannerResponse(data);
+      setRunState('ready');
+      setStatusText('Planner ready');
+    } catch (planError) {
+      setPlannerResponse({
+        status: 'local-plan',
+        service: 'frontend-fallback',
+        execution_mode: 'planner-offline',
+        metrics: modelCatalog.metrics,
       });
-
-      if (!rbcResponse.ok) {
-        throw new Error(`Failed to award RBC points. Server responded with status: ${rbcResponse.status}`);
-      }
-
-      const rbcData = await rbcResponse.json();
-      console.log('RBC points awarded:', rbcData);
-
-      setShowConfetti(true);
-      setShowDialog(true);
-    } catch (err) {
-      console.error("Error:", err);
-      setError(err instanceof Error ? err.message : "Failed to send to 3D printer or award points. Please try again.");
-    } finally {
-      setIsLoading(false);
+      setRunState('ready');
+      setStatusText('Local plan ready');
+      setError(planError instanceof Error ? `Companion planner unavailable: ${planError.message}` : 'Companion planner unavailable');
     }
   };
 
-  const handleCloseDialog = () => {
-    setShowDialog(false);
-  };
-
-  const handleSubmitAnother = () => {
-    handleCloseDialog();
-    setUploadedImage(null);
-    setGeneratedImage(null);
-    setCompletedImage(null);
-    setProcessedSTL(null);
-    setGeneratePrompt('');
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const handleGenerateImage = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      // First, refine the prompt using the /chat endpoint
-      const chatResponse = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ prompt: generatePrompt }),
-      });
-  
-      if (!chatResponse.ok) {
-        throw new Error('Failed to refine prompt. Please try again.');
-      }
-  
-      const chatData = await chatResponse.json();
-      const refinedPrompt = chatData.refinedPrompt;
-  
-      // Now use the refined prompt to generate the image
-      const response = await fetch('/api/generate_image', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ prompt: refinedPrompt }),
-      });
-  
-      if (!response.ok) {
-        throw new Error('Failed to generate image. Please try again.');
-      }
-  
-      const data = await response.json();
-      if (data.image_url) {
-        setGeneratedImage(data.image_url);
-      } else {
-        throw new Error("No image URL received. Please try again.");
-      }
-    } catch (err) {
-      console.error("Error generating image:", err);
-      setError("Failed to generate image. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleEditModel = () => {
-    router.push('/edit');
-  };
-
-  useEffect(() => {
-    if (uploadedImage) {
-      setImageToProcess(uploadedImage);
-    } else if (generatedImage) {
-      setImageToProcess(generatedImage);
-    } else {
-      setImageToProcess(null);
-    }
-  }, [uploadedImage, generatedImage]);
-
-  useEffect(() => {
-    const loadBackendRuntime = async () => {
-      try {
-        const response = await fetch(`${BACKEND_URL}/health`);
-        if (!response.ok) return;
-        const data = await response.json();
-        const runtime = data.runtime;
-        if (runtime?.cuda_available && runtime?.device) {
-          setBackendRuntime(`GPU: ${runtime.device}`);
-        } else if (runtime?.device) {
-          setBackendRuntime(`Device: ${runtime.device}`);
-        }
-      } catch {
-        setBackendRuntime(null);
-      }
-    };
-
-    loadBackendRuntime();
-  }, []);
-
-  useEffect(() => {
-    if (showConfetti) {
-      const timer = setTimeout(() => {
-        setShowConfetti(false);
-      }, 10000); // Hide confetti after 10 seconds
-
-      return () => clearTimeout(timer);
-    }
-  }, [showConfetti]);
+  const canRun = Boolean(file) && runState !== 'running';
+  const isPhoto = mediaKind === 'photo';
 
   return (
-    <div className="min-h-screen w-full bg-[#f0f0e8] text-gray-800 font-sans">
-      <main className="flex flex-col items-center justify-start p-4 md:p-8 max-w-[2000px] mx-auto">
-        {showConfetti && (
-          <ReactConfetti
-            recycle={true}
-            numberOfPieces={200}
-            initialVelocityY={10}
-            colors={['#80e0b8', '#c0a8f8', '#f070b8', '#6880d0']}
-          />
-        )}
-        
-        <motion.h1 
-          className="text-4xl md:text-6xl font-bold mb-6 text-center text-[#6880d0] font-serif relative overflow-hidden"
-          initial="hidden"
-          animate="visible"
-        >
-          <motion.span
-            className="inline-block"
-            variants={{
-              hidden: { x: -100, opacity: 0 },
-              visible: { x: 0, opacity: 1 }
-            }}
-            transition={{ duration: 0.5 }}
-          >
-            3D Print
-          </motion.span>{' '}
-          <motion.span
-            className="inline-block"
-            variants={{
-              hidden: { x: 100, opacity: 0 },
-              visible: { x: 0, opacity: 1 }
-            }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            a Picture
-          </motion.span>
-          <motion.span 
-            className="absolute bottom-0 left-0 w-full h-1 bg-[#6880d0]"
-            initial={{ scaleX: 0 }}
-            animate={{ scaleX: 1 }}
-            transition={{ duration: 0.7, delay: 0.5 }}
-            style={{ originX: 0 }}
-          />
-        </motion.h1>
-        
-        <motion.p 
-          className="text-lg md:text-xl mb-12 text-center text-gray-600 font-light"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.7 }}
-        >
-          Take a picture, get a 3D print of it!
-        </motion.p>
-        
-        <Card className="w-full max-w-3xl mb-16 shadow-lg bg-white">
-          <CardContent className="p-6">
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 mb-6">
-                <TabsTrigger 
-                  value="upload" 
-                  className="flex items-center justify-center data-[state=active]:bg-[#80e0b8] data-[state=active]:text-white font-medium"
-                >
-                  <Upload className="mr-2 h-4 w-4" />
-                  Upload Image
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="generate" 
-                  className="flex items-center justify-center data-[state=active]:bg-[#c0a8f8] data-[state=active]:text-white font-medium"
-                >
-                  <ImageIcon className="mr-2 h-4 w-4" />
-                  Generate Image
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="upload">
-                <label
-                  htmlFor="image-upload"
-                  className="flex flex-col items-center justify-center w-full h-80 md:h-96 border-2 border-dashed rounded-lg cursor-pointer bg-[#f0f0e8] hover:bg-[#e0e0d8] transition-colors duration-300 relative overflow-hidden"
-                  onDragOver={handleDragOver}
-                  onDrop={handleDrop}
-                >
-                  {uploadedImage ? (
-                    <div className="w-full h-full flex items-center justify-center bg-black relative">
-                      <img src={uploadedImage} alt="Uploaded" className="max-w-full max-h-full object-contain" />
-                      <button
-                        onClick={handleRemoveImage}
-                        className="absolute top-2 right-2 bg-[#f070b8] text-white rounded-full p-2 hover:bg-[#e060a8] transition-colors duration-300"
-                        aria-label="Remove image"
-                      >
-                        <X size={20} />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                      <Camera className="w-16 h-16 mb-4 text-[#6880d0]" />
-                      <p className="mb-2 text-xl md:text-2xl text-gray-600 text-center font-light">
-                        <strong className="font-semibold">Click to upload</strong>
-                        <br />
-                        - or -
-                        <br />
-                        <strong className="font-semibold">Drop image here</strong>
-                      </p>
-                    </div>
-                  )}
-                </label>
-                <input 
-                  id="image-upload" 
-                  type="file" 
-                  className="hidden" 
-                  onChange={handleFileInput} 
-                  accept="image/*"
-                  ref={fileInputRef}
-                />
-              </TabsContent>
-              <TabsContent value="generate">
-                <div className="flex flex-col items-center space-y-4">
-                  <Input
-                    type="text"
-                    placeholder="Describe your image..."
-                    value={generatePrompt}
-                    onChange={(e) => setGeneratePrompt(e.target.value)}
-                    className="w-full p-4 text-lg border-2 border-[#c0a8f8] rounded-lg focus:border-[#a088d8] focus:ring-2 focus:ring-[#c0a8f8] font-light"
-                  />
-                  <Button 
-                    onClick={handleGenerateImage} 
-                    disabled={isLoading || !generatePrompt}
-                    className="w-full py-3 bg-[#80e0b8] hover:bg-[#60c098] text-white font-semibold rounded-lg transition-colors duration-300"
-                  >
-                    {isLoading ? (
-                      <>
-                        <Loader className="mr-2 h-5 w-5 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      'Generate Image'
-                    )}
-                  </Button>
-                  {error && (
-                    <p className="text-[#f070b8] text-center font-medium">{error}</p>
-                  )}
-                  {generatedImage && (
-                    <div className="w-full h-80 md:h-96 bg-black flex items-center justify-center mt-4 relative rounded-lg overflow-hidden">
-                      <img src={generatedImage} alt="Generated" className="max-w-full max-h-full object-contain" />
-                      <button
-                        onClick={handleRemoveImage}
-                        className="absolute top-2 right-2 bg-[#f070b8] text-white rounded-full p-2 hover:bg-[#e060a8] transition-colors duration-300"
-                        aria-label="Remove image"
-                      >
-                        <X size={20} />
-                      </button>
-                      <Button
-                        className="absolute bottom-2 right-2 bg-[#6880d0] hover:bg-[#5870c0] text-white"
-                        onClick={() => {
-                          const link = document.createElement('a');
-                          link.href = generatedImage;
-                          link.download = 'generated_image.png';
-                          document.body.appendChild(link);
-                          link.click();
-                          document.body.removeChild(link);
-                        }}
-                        title="Download Image"
-                      >
-                        <Download className="h-5 w-5" />
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-            </Tabs>
-            <div className="mt-6">
-              <label htmlFor="depth-provider" className="block text-sm font-semibold text-gray-700 mb-2">
-                Depth model
-              </label>
-              <select
-                id="depth-provider"
-                value={depthProvider}
-                onChange={(event) => {
-                  const nextProvider = event.target.value;
-                  setDepthProvider(nextProvider);
-                  if (nextProvider === 'sapiens') {
-                    setDepthModel('');
-                  } else if (!depthModel) {
-                    setDepthModel('depth-anything/Depth-Anything-V2-Small-hf');
-                  }
-                }}
-                className="w-full rounded-lg border-2 border-[#c0a8f8] bg-white p-3 text-gray-800 focus:border-[#a088d8] focus:outline-none focus:ring-2 focus:ring-[#c0a8f8]"
-              >
-                {depthProviderOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              {depthProvider === 'depth-anything-v2' && (
-                <select
-                  id="depth-model"
-                  value={depthModel}
-                  onChange={(event) => setDepthModel(event.target.value)}
-                  className="mt-3 w-full rounded-lg border-2 border-[#80e0b8] bg-white p-3 text-gray-800 focus:border-[#60c098] focus:outline-none focus:ring-2 focus:ring-[#80e0b8]"
-                >
-                  {depthModelOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <label htmlFor="completion-mode" className="mt-4 block text-sm font-semibold text-gray-700 mb-2">
-                Missing-part helper
-              </label>
-              <select
-                id="completion-mode"
-                value={completionMode}
-                onChange={(event) => setCompletionMode(event.target.value)}
-                className="w-full rounded-lg border-2 border-[#6880d0] bg-white p-3 text-gray-800 focus:border-[#5870c0] focus:outline-none focus:ring-2 focus:ring-[#6880d0]"
-              >
-                {completionModeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              {completionMode !== 'none' && (
-                <>
-                  <label htmlFor="completion-provider" className="mt-4 block text-sm font-semibold text-gray-700 mb-2">
-                    Completion method
-                  </label>
-                  <select
-                    id="completion-provider"
-                    value={completionProvider}
-                    onChange={(event) => setCompletionProvider(event.target.value)}
-                    className="w-full rounded-lg border-2 border-[#f070b8] bg-white p-3 text-gray-800 focus:border-[#d858a0] focus:outline-none focus:ring-2 focus:ring-[#f070b8]"
-                  >
-                    {completionProviderOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  {promptDrivenCompletionProviders.has(completionProvider) && (
-                    <Input
-                      type="text"
-                      value={completionPrompt}
-                      onChange={(event) => setCompletionPrompt(event.target.value)}
-                      className="mt-3 w-full p-3 border-2 border-[#f070b8] rounded-lg focus:border-[#d858a0] focus:ring-2 focus:ring-[#f070b8] font-light"
-                    />
-                  )}
-                </>
-              )}
-              {backendRuntime && (
-                <p className="mt-2 text-sm text-gray-600">{backendRuntime}</p>
-              )}
+    <main className="min-h-screen bg-zinc-50 text-zinc-950">
+      <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 px-4 py-4 lg:h-screen lg:flex-row lg:overflow-hidden">
+        <section className="flex min-h-0 flex-1 flex-col gap-4 lg:max-w-[430px]">
+          <div className="border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h1 className="text-xl font-semibold">Photo/Video to STL</h1>
+                <p className="text-sm text-zinc-500">STL-first reconstruction workspace</p>
+              </div>
+              <Button variant="outline" size="icon" onClick={resetFile} title="Reset workspace">
+                <RefreshCcw className="h-4 w-4" />
+              </Button>
             </div>
-          </CardContent>
-        </Card>
-        
-        {imageToProcess && !processedSTL && (
-          <Button 
-            onClick={handleGet3DPrint} 
-            disabled={isLoading}
-            className="mb-20 py-3 px-6 bg-[#80e0b8] hover:bg-[#60c098] text-white font-semibold rounded-lg transition-colors duration-300"
-          >
-            {isLoading ? (
-              <>
-                <Loader className="mr-2 h-5 w-5 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              'Get 3D Print!'
-            )}
-          </Button>
-        )}
 
-        {processedSTL && (
-          <Card className="w-full max-w-3xl mb-20 shadow-lg bg-white">
-            <CardContent className="p-6">
-              <h3 className="text-2xl font-bold mb-6 text-[#6880d0] font-serif">Your 3D Model is Ready!</h3>
-              {completedImage && (
-                <div className="w-full h-48 bg-black flex items-center justify-center mb-6 relative rounded-lg overflow-hidden">
-                  <img src={completedImage} alt="Completed input" className="max-w-full max-h-full object-contain" />
+            <label
+              className="group relative flex h-[250px] cursor-pointer items-center justify-center overflow-hidden border border-dashed border-zinc-300 bg-zinc-100"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={handleDrop}
+            >
+              {previewUrl ? (
+                <>
+                  {mediaKind === 'video' ? (
+                    <video src={previewUrl} className="h-full w-full object-cover" muted playsInline controls />
+                  ) : (
+                    <img src={previewUrl} alt="" className="h-full w-full object-cover" />
+                  )}
+                  <button
+                    type="button"
+                    className="absolute right-2 top-2 grid h-8 w-8 place-items-center bg-zinc-950 text-white"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      resetFile();
+                    }}
+                    title="Remove file"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </>
+              ) : (
+                <div className="flex flex-col items-center gap-3 text-center text-zinc-600">
+                  <Upload className="h-10 w-10 text-blue-700" />
+                  <div className="text-sm font-medium">Import image or video</div>
                 </div>
               )}
-              <div className="w-full h-80 md:h-96 bg-black flex items-center justify-center mb-8 relative rounded-lg overflow-hidden">
-                <StlViewer
-                  url={processedSTL}
-                  orbitControls
-                  shadows
-                  className="w-full h-full"
-                />
-                <Button
-                  className="absolute bottom-2 right-2 bg-[#6880d0] hover:bg-[#5870c0] text-white"
-                  onClick={() => {
-                    const link = document.createElement('a');
-                    link.href = processedSTL;
-                    link.download = 'model.stl';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                  }}
-                  title="Download STL"
-                >
-                  <Download className="h-5 w-5" />
-                </Button>
-              </div>
-              <div className="flex justify-center mt-4 space-x-4">
-                <Button 
-                  onClick={handleEditModel}
-                  className="py-3 px-6 bg-[#c0a8f8] hover:bg-[#a088d8] text-white font-semibold rounded-lg transition-colors duration-300"
-                >
-                  Edit 3D Model
-                </Button>
-                <Button 
-                  onClick={handleSendTo3DPrinter}
-                  disabled={isLoading}
-                  className="py-3 px-6 bg-[#80e0b8] hover:bg-[#60c098] text-white font-semibold rounded-lg transition-colors duration-300"
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader className="mr-2 h-5 w-5 animate-spin" />
-                      Sending...
-                    </>
-                  ) : (
-                    'Send to 3D Printer!'
-                  )}
-                </Button>
-              </div>
-              {error && (
-                <p className="text-[#f070b8] text-center font-medium mt-4">{error}</p>
-              )}
-            </CardContent>
-          </Card>
-        )}
+              <input ref={fileInputRef} type="file" className="hidden" accept="image/*,video/*" onChange={handleFileInput} />
+            </label>
 
-        <h2 className="text-3xl md:text-4xl font-bold mb-10 text-center w-full text-[#f070b8] font-serif">Examples</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 w-full">
-          {examplePairs.map((pair, index) => (
-            <ExampleCard key={index} pair={pair} index={index} />
-          ))}
-        </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+              <button
+                type="button"
+                onClick={() => setMediaKind('photo')}
+                className={classNames(
+                  'flex h-10 items-center justify-center gap-2 border',
+                  mediaKind === 'photo' ? 'border-blue-700 bg-blue-50 text-blue-800' : 'border-zinc-200 bg-white',
+                )}
+              >
+                <ImageIcon className="h-4 w-4" />
+                Photo
+              </button>
+              <button
+                type="button"
+                onClick={() => setMediaKind('video')}
+                className={classNames(
+                  'flex h-10 items-center justify-center gap-2 border',
+                  mediaKind === 'video' ? 'border-blue-700 bg-blue-50 text-blue-800' : 'border-zinc-200 bg-white',
+                )}
+              >
+                <Film className="h-4 w-4" />
+                Video
+              </button>
+            </div>
 
-        <AlertDialog open={showDialog} onOpenChange={setShowDialog}>
-          <AlertDialogContent className="bg-white rounded-lg p-6">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="text-2xl font-bold text-[#80e0b8] mb-4 font-serif">3D Print Sent Successfully!</AlertDialogTitle>
-              <AlertDialogDescription className="text-gray-600 font-light">
-                Your 3D print has been sent to the printer. RBC points rewarded. Would you like to submit another picture?
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter className="mt-6">
-              <AlertDialogAction 
-                onClick={handleSubmitAnother}
-                className="bg-[#c0a8f8] hover:bg-[#a088d8] text-white font-semibold py-2 px-4 rounded-lg transition-colors duration-300"
+            {file && (
+              <div className="mt-3 grid grid-cols-2 gap-2 border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
+                <div className="truncate">
+                  <span className="block text-zinc-400">File</span>
+                  {file.name}
+                </div>
+                <div>
+                  <span className="block text-zinc-400">Size</span>
+                  {fileSizeLabel(file.size)}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2">
+              <Braces className="h-5 w-5 text-emerald-700" />
+              <h2 className="font-semibold">Run Plan</h2>
+            </div>
+            <pre className="max-h-[330px] overflow-auto bg-zinc-950 p-3 text-xs leading-5 text-zinc-100">
+              {JSON.stringify(displayedPlan, null, 2)}
+            </pre>
+          </div>
+        </section>
+
+        <section className="flex min-h-0 flex-[1.35] flex-col gap-4 lg:overflow-auto">
+          <div className="border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Layers3 className="h-5 w-5 text-orange-700" />
+                <h2 className="font-semibold">Geometry Route</h2>
+              </div>
+              <span
+                className={classNames(
+                  'border px-2 py-1 text-xs font-medium',
+                  catalogState === 'ready' && 'border-emerald-700 bg-emerald-50 text-emerald-900',
+                  catalogState === 'loading' && 'border-blue-700 bg-blue-50 text-blue-900',
+                  catalogState === 'fallback' && 'border-orange-700 bg-orange-50 text-orange-900',
+                )}
               >
-                Let&apos;s go again!!!
-              </AlertDialogAction>
-              <AlertDialogCancel 
-                onClick={handleCloseDialog}
-                className="bg-[#f0f0e8] hover:bg-[#e0e0d8] text-gray-800 font-semibold py-2 px-4 rounded-lg transition-colors duration-300 ml-4"
+                {catalogState === 'ready' ? 'Model service' : catalogState === 'loading' ? 'Loading models' : 'Fallback models'}
+              </span>
+            </div>
+
+            {isPhoto ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPhotoScope('whole-image')}
+                    className={classNames(
+                      'min-h-[52px] border px-3 text-sm',
+                      photoScope === 'whole-image' ? 'border-emerald-700 bg-emerald-50 text-emerald-900' : 'border-zinc-200',
+                    )}
+                  >
+                    Whole image
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPhotoScope('object-selection')}
+                    className={classNames(
+                      'min-h-[52px] border px-3 text-sm',
+                      photoScope === 'object-selection' ? 'border-emerald-700 bg-emerald-50 text-emerald-900' : 'border-zinc-200',
+                    )}
+                  >
+                    Object selection
+                  </button>
+                </div>
+
+                {photoScope === 'object-selection' && (
+                  <label className="block text-sm font-medium text-zinc-700">
+                    Selection model
+                    <select
+                      value={selectionModel}
+                      onChange={(event) => setSelectionModel(event.target.value)}
+                      className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
+                    >
+                      {selectionModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  {photoTargets.map((target) => {
+                    const Icon = target.icon;
+                    return (
+                      <button
+                        key={target.value}
+                        type="button"
+                        onClick={() => setPhotoTarget(target.value)}
+                        className={classNames(
+                          'flex min-h-[72px] items-center gap-3 border px-3 text-left',
+                          photoTarget === target.value ? 'border-blue-700 bg-blue-50 text-blue-900' : 'border-zinc-200',
+                        )}
+                      >
+                        <Icon className="h-5 w-5 shrink-0" />
+                        <span className="text-sm font-medium">{target.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {photoTarget === 'depth-relief' ? (
+                  <div className="space-y-4">
+                    <label className="block text-sm font-medium text-zinc-700">
+                      Depth model
+                      <select
+                        value={depthModel}
+                        onChange={(event) => setDepthModel(event.target.value)}
+                        className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
+                      >
+                        {depthModels.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setReliefPolarity('raised-print')}
+                        className={classNames(
+                          'min-h-[52px] border px-3 text-sm',
+                          reliefPolarity === 'raised-print' ? 'border-emerald-700 bg-emerald-50 text-emerald-900' : 'border-zinc-200',
+                        )}
+                      >
+                        Raised print
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReliefPolarity('mold')}
+                        className={classNames(
+                          'min-h-[52px] border px-3 text-sm',
+                          reliefPolarity === 'mold' ? 'border-orange-700 bg-orange-50 text-orange-900' : 'border-zinc-200',
+                        )}
+                      >
+                        Mold
+                      </button>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <label className="text-sm font-medium text-zinc-700">
+                        Relief height
+                        <input
+                          className="mt-2 w-full accent-blue-700"
+                          type="range"
+                          min="12"
+                          max={reliefSliderMax}
+                          value={Math.min(depthScale, reliefSliderMax)}
+                          onChange={(event) => setDepthScale(Number(event.target.value))}
+                        />
+                        <span className="text-xs text-zinc-500">
+                          {depthScale} mm{effectiveReliefHeight < depthScale ? `, using ${effectiveReliefHeight.toFixed(1)} mm` : ''}
+                        </span>
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Base thickness
+                        <input
+                          className="mt-2 w-full accent-blue-700"
+                          type="range"
+                          min="1"
+                          max="8"
+                          step="0.2"
+                          value={baseThickness}
+                          onChange={(event) => setBaseThickness(Number(event.target.value))}
+                        />
+                        <span className="text-xs text-zinc-500">{baseThickness.toFixed(1)} mm</span>
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Detail smoothing
+                        <input
+                          className="mt-2 w-full accent-blue-700"
+                          type="range"
+                          min="0"
+                          max="2"
+                          step="0.1"
+                          value={detailSmoothing}
+                          onChange={(event) => setDetailSmoothing(Number(event.target.value))}
+                        />
+                        <span className="text-xs text-zinc-500">{detailSmoothing.toFixed(1)} sigma</span>
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Feature boost
+                        <input
+                          className="mt-2 w-full accent-blue-700"
+                          type="range"
+                          min="0"
+                          max="3"
+                          step="0.1"
+                          value={featureBoost}
+                          onChange={(event) => setFeatureBoost(Number(event.target.value))}
+                        />
+                        <span className="text-xs text-zinc-500">{featureBoost.toFixed(1)}x local detail</span>
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Relief curve
+                        <input
+                          className="mt-2 w-full accent-blue-700"
+                          type="range"
+                          min="0.45"
+                          max="1.4"
+                          step="0.05"
+                          value={reliefGamma}
+                          onChange={(event) => setReliefGamma(Number(event.target.value))}
+                        />
+                        <span className="text-xs text-zinc-500">{reliefGamma.toFixed(2)} gamma</span>
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Mesh detail
+                        <select
+                          value={meshResolutionMultiplier}
+                          onChange={(event) => setMeshResolutionMultiplier(Number(event.target.value))}
+                          className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
+                        >
+                          {resolutionMultipliers.map((multiplier) => (
+                            <option key={multiplier} value={multiplier}>
+                              {multiplier}x ({Math.round(printVolume.target_dimension_mm * multiplier)} samples)
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Crisp border
+                        <input
+                          className="mt-2 h-10 w-full border border-zinc-300 px-3"
+                          type="number"
+                          min="0"
+                          max="12"
+                          value={baseBorderPx}
+                          onChange={(event) => setBaseBorderPx(Number(event.target.value))}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="text-sm font-medium text-zinc-700">
+                      Inpainting
+                      <select
+                        value={inpaintBackend}
+                        onChange={(event) => setInpaintBackend(event.target.value)}
+                        className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
+                      >
+                        {inpaintBackends.map((backend) => (
+                          <option key={backend}>{backend}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-sm font-medium text-zinc-700">
+                      Mesh model
+                      <select
+                        value={meshBackend}
+                        onChange={(event) => setMeshBackend(event.target.value)}
+                        className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
+                      >
+                        {meshModels.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-sm font-medium text-zinc-700 md:col-span-2">
+                      STL repair
+                      <select
+                        value={stlPostprocessModel}
+                        onChange={(event) => setStlPostprocessModel(event.target.value)}
+                        className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
+                      >
+                        {stlPostprocessModels.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setVideoScope('selected-frames')}
+                    className={classNames(
+                      'min-h-[64px] border px-3 text-sm',
+                      videoScope === 'selected-frames' ? 'border-blue-700 bg-blue-50 text-blue-900' : 'border-zinc-200',
+                    )}
+                  >
+                    Selection
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVideoScope('everything')}
+                    className={classNames(
+                      'min-h-[64px] border px-3 text-sm',
+                      videoScope === 'everything' ? 'border-blue-700 bg-blue-50 text-blue-900' : 'border-zinc-200',
+                    )}
+                  >
+                    Everything
+                  </button>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="text-sm font-medium text-zinc-700">
+                    {videoScope === 'selected-frames' ? 'Selected frames' : 'Frame step'}
+                    <input
+                      className="mt-2 h-10 w-full border border-zinc-300 px-3"
+                      type="number"
+                      min="1"
+                      max="240"
+                      value={videoScope === 'selected-frames' ? selectedFrameCount : frameStep}
+                      onChange={(event) =>
+                        videoScope === 'selected-frames'
+                          ? setSelectedFrameCount(Number(event.target.value))
+                          : setFrameStep(Number(event.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-zinc-700">
+                    Frame selector
+                    <select
+                      value={frameSelectionModel}
+                      onChange={(event) => setFrameSelectionModel(event.target.value)}
+                      className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
+                    >
+                      {frameSelectionModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm font-medium text-zinc-700">
+                    Selection model
+                    <select
+                      value={selectionModel}
+                      onChange={(event) => setSelectionModel(event.target.value)}
+                      className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
+                    >
+                      {selectionModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm font-medium text-zinc-700">
+                    Camera/pose
+                    <select
+                      value={cameraPoseModel}
+                      onChange={(event) => setCameraPoseModel(event.target.value)}
+                      className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
+                    >
+                      {cameraPoseModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm font-medium text-zinc-700">
+                    Reconstruction
+                    <select
+                      value={videoBackend}
+                      onChange={(event) => setVideoBackend(event.target.value)}
+                      className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
+                    >
+                      {videoModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm font-medium text-zinc-700">
+                    STL repair
+                    <select
+                      value={stlPostprocessModel}
+                      onChange={(event) => setStlPostprocessModel(event.target.value)}
+                      className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
+                    >
+                      {stlPostprocessModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="grid gap-2 md:grid-cols-2">
+                  <div className="border border-zinc-200 bg-zinc-50 p-3 text-sm">
+                    <div className="mb-1 font-medium">Camera/keypoint stream</div>
+                    <div className="text-zinc-600">
+                      {videoScope === 'selected-frames' ? 'Uncropped frames retained' : 'All sampled frames retained'}
+                    </div>
+                  </div>
+                  <div className="border border-zinc-200 bg-zinc-50 p-3 text-sm">
+                    <div className="mb-1 font-medium">Training target stream</div>
+                    <div className="text-zinc-600">
+                      {videoScope === 'selected-frames' ? 'Object masks only' : 'Full scene/object mesh'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 border-t border-zinc-200 pt-4">
+              <div className="mb-2 text-sm font-semibold">Active Model Stack</div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {activeModelStack.map(({ group, label, model }) => (
+                  <article key={`${group}-${model.id}`} className="min-w-0 border border-zinc-200 bg-zinc-50 p-3 text-sm">
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium uppercase text-zinc-500">{label}</div>
+                        <div className="break-words font-semibold text-zinc-900">{model.label}</div>
+                      </div>
+                      <span className={classNames('shrink-0 border px-2 py-1 text-[11px] font-medium', availabilityTone(model.availability))}>
+                        {availabilityLabel(model.availability)}
+                      </span>
+                    </div>
+                    <div className="break-words text-xs text-zinc-600">{model.role || model.model || model.id}</div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-4">
+            {steps.map((step, index) => {
+              const Icon = step.icon;
+              const done = runState === 'ready' || (runState === 'running' && index < 1);
+              const active = runState === 'running' && index === 1;
+              return (
+                <article key={`${step.label}-${index}`} className="min-h-[128px] border border-zinc-200 bg-white p-4 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between">
+                    <Icon className="h-5 w-5 text-zinc-800" />
+                    <StepIcon active={active} done={done} />
+                  </div>
+                  <div className="text-sm font-semibold">{step.label}</div>
+                  <div className="mt-1 text-sm text-zinc-600">{step.detail}</div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="flex min-h-0 flex-1 flex-col gap-4 lg:max-w-[390px]">
+          <div className="border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Box className="h-5 w-5 text-blue-700" />
+                <h2 className="font-semibold">STL Output</h2>
+              </div>
+              <span
+                className={classNames(
+                  'border px-2 py-1 text-xs font-medium',
+                  runState === 'ready' && 'border-emerald-700 bg-emerald-50 text-emerald-900',
+                  runState === 'running' && 'border-blue-700 bg-blue-50 text-blue-900',
+                  runState === 'blocked' && 'border-orange-700 bg-orange-50 text-orange-900',
+                  runState === 'error' && 'border-red-700 bg-red-50 text-red-900',
+                  runState === 'idle' && 'border-zinc-200 bg-zinc-50 text-zinc-600',
+                )}
               >
-                Close
-              </AlertDialogCancel>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </main>
-    </div>
+                {statusText}
+              </span>
+            </div>
+
+            <div className="relative flex aspect-square items-center justify-center overflow-hidden border border-zinc-200 bg-zinc-100">
+              {completedPreview || previewUrl ? (
+                <img src={completedPreview || previewUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-35" />
+              ) : null}
+              <div className="relative grid h-44 w-44 place-items-center border border-zinc-300 bg-white/80">
+                {runState === 'running' ? (
+                  <Loader2 className="h-14 w-14 animate-spin text-blue-700" />
+                ) : (
+                  <div className="relative h-24 w-24">
+                    <div className="absolute left-3 top-4 h-16 w-20 skew-x-[-12deg] border border-zinc-900 bg-emerald-100" />
+                    <div className="absolute left-7 top-1 h-16 w-16 rotate-45 border border-zinc-900 bg-blue-100" />
+                    <div className="absolute bottom-0 left-0 h-5 w-24 border border-zinc-900 bg-orange-100" />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {error && <div className="mt-3 border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
+
+            {mediaKind === 'photo' && photoTarget === 'depth-relief' && (
+              <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                <div className="border border-zinc-200 bg-zinc-50 p-2">
+                  <div className="font-medium text-zinc-500">Depth</div>
+                  <div className="mt-1 font-semibold">{depthModels.find((model) => model.id === depthModel)?.label.replace('Depth Anything ', '')}</div>
+                </div>
+                <div className="border border-zinc-200 bg-zinc-50 p-2">
+                  <div className="font-medium text-zinc-500">Polarity</div>
+                  <div className="mt-1 font-semibold">{reliefPolarity === 'raised-print' ? 'Raised' : 'Mold'}</div>
+                </div>
+                <div className="border border-zinc-200 bg-zinc-50 p-2">
+                  <div className="font-medium text-zinc-500">Smooth</div>
+                  <div className="mt-1 font-semibold">{detailSmoothing.toFixed(1)}</div>
+                </div>
+                <div className="border border-zinc-200 bg-zinc-50 p-2">
+                  <div className="font-medium text-zinc-500">Samples</div>
+                  <div className="mt-1 font-semibold">{reliefTargetDimension}</div>
+                </div>
+                <div className="border border-zinc-200 bg-zinc-50 p-2">
+                  <div className="font-medium text-zinc-500">Boost</div>
+                  <div className="mt-1 font-semibold">{featureBoost.toFixed(1)}</div>
+                </div>
+                <div className="border border-zinc-200 bg-zinc-50 p-2">
+                  <div className="font-medium text-zinc-500">Border</div>
+                  <div className="mt-1 font-semibold">{baseBorderPx}px</div>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <Button onClick={runPipeline} disabled={!canRun} className="h-11 gap-2">
+                {runState === 'running' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                Run
+              </Button>
+              <Button variant="outline" onClick={downloadPlan} className="h-11 gap-2">
+                <Download className="h-4 w-4" />
+                Plan
+              </Button>
+            </div>
+
+            {processedSTL && (
+              <a
+                href={processedSTL}
+                download="model.stl"
+                className="mt-2 flex h-11 items-center justify-center gap-2 border border-emerald-700 bg-emerald-50 text-sm font-medium text-emerald-900"
+              >
+                <FileDown className="h-4 w-4" />
+                Download STL
+              </a>
+            )}
+          </div>
+
+          <div className="border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2">
+              <Printer className="h-5 w-5 text-orange-700" />
+              <h2 className="font-semibold">Printer Volume</h2>
+            </div>
+
+            <label className="block text-sm font-medium text-zinc-700">
+              Preset
+              <select
+                value={printerPreset}
+                onChange={(event) => applyPrinterPreset(event.target.value as PrinterPresetId)}
+                className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
+              >
+                {printerPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {[
+                { label: 'X', value: printerMaxX, setValue: setPrinterMaxX },
+                { label: 'Y', value: printerMaxY, setValue: setPrinterMaxY },
+                { label: 'Z', value: printerMaxZ, setValue: setPrinterMaxZ },
+              ].map((axis) => (
+                <label key={axis.label} className="text-sm font-medium text-zinc-700">
+                  {axis.label}
+                  <input
+                    className="mt-2 h-10 w-full border border-zinc-300 px-2"
+                    type="number"
+                    min="1"
+                    max="1000"
+                    value={axis.value}
+                    onChange={(event) => {
+                      setPrinterPreset('custom');
+                      axis.setValue(Number(event.target.value));
+                    }}
+                  />
+                </label>
+              ))}
+            </div>
+
+            <label className="mt-3 block text-sm font-medium text-zinc-700">
+              Clearance
+              <input
+                className="mt-2 h-10 w-full border border-zinc-300 px-3"
+                type="number"
+                min="0"
+                max="40"
+                step="0.5"
+                value={printerClearance}
+                onChange={(event) => setPrinterClearance(Number(event.target.value))}
+              />
+            </label>
+
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+              <div className="border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-medium uppercase text-zinc-500">Max STL XY</div>
+                <div className="font-semibold">{printVolume.target_dimension_mm} mm</div>
+              </div>
+              <div className="border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-medium uppercase text-zinc-500">Max relief Z</div>
+                <div className="font-semibold">{printVolume.max_relief_height_mm.toFixed(1)} mm</div>
+              </div>
+            </div>
+
+            <div className="mt-2 text-xs text-zinc-500">
+              Build volume {printVolume.max_x_mm} x {printVolume.max_y_mm} x {printVolume.max_z_mm} mm
+            </div>
+          </div>
+
+          <div className="border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2">
+              <BadgeCheck className="h-5 w-5 text-emerald-700" />
+              <h2 className="font-semibold">Promotion Gates</h2>
+            </div>
+            <div className="space-y-2 text-sm">
+              {['Watertight', 'Manifold', 'Positive volume', 'Single component', 'Printable scale', 'Fits printer volume'].map((gate) => (
+                <div key={gate} className="flex items-center justify-between border border-zinc-200 px-3 py-2">
+                  <span>{gate}</span>
+                  <Check className="h-4 w-4 text-emerald-700" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
   );
 }

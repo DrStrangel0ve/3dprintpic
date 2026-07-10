@@ -751,6 +751,64 @@ def _smooth_nan_aware(values, sigma):
     return smoothed
 
 
+def _normalize_relief_values(values, low_percentile=1.0, high_percentile=99.0):
+    normalized = values.astype(np.float32, copy=True)
+    finite = normalized[np.isfinite(normalized)]
+    if finite.size == 0:
+        return normalized
+
+    low = float(np.nanpercentile(finite, low_percentile))
+    high = float(np.nanpercentile(finite, high_percentile))
+    if not np.isfinite(low) or not np.isfinite(high) or high <= low:
+        low = float(np.nanmin(finite))
+        high = float(np.nanmax(finite))
+    if not np.isfinite(low) or not np.isfinite(high) or high <= low:
+        normalized[np.isfinite(normalized)] = 0.0
+        return normalized
+
+    normalized = (normalized - low) / (high - low)
+    return np.clip(normalized, 0.0, 1.0)
+
+
+def _shape_relief_values(
+    values,
+    invert=False,
+    gamma=0.75,
+    detail_boost=1.4,
+    detail_radius=2.0,
+    low_percentile=1.0,
+    high_percentile=99.0,
+):
+    relief = _normalize_relief_values(values, low_percentile=low_percentile, high_percentile=high_percentile)
+    if invert:
+        relief = 1.0 - relief
+
+    if detail_boost > 0 and detail_radius > 0:
+        local_base = _smooth_nan_aware(relief, sigma=detail_radius)
+        detail = relief - local_base
+        relief = relief + detail_boost * detail
+
+    relief = np.clip(relief, 0.0, 1.0)
+    if gamma > 0 and gamma != 1:
+        relief = np.power(relief, gamma)
+    return np.clip(relief, 0.0, 1.0)
+
+
+def _flatten_border(values, border_px):
+    border_px = int(border_px or 0)
+    if border_px <= 0:
+        return values
+    border_px = min(border_px, values.shape[0] // 2, values.shape[1] // 2)
+    if border_px <= 0:
+        return values
+    values = values.copy()
+    values[:border_px, :] = 0.0
+    values[-border_px:, :] = 0.0
+    values[:, :border_px] = 0.0
+    values[:, -border_px:] = 0.0
+    return values
+
+
 def _add_triangle(faces, a, b, c):
     faces.append([a, b, c])
 
@@ -791,7 +849,21 @@ def _force_positive_stl_volume(stl_mesh):
     return stl_mesh
 
 
-def depth_data_to_3d_model(npy_file, output_stl_path='output_3d_model.stl', target_dimension=300, z_scale=50, invert=True, sigma=4.0):
+def depth_data_to_3d_model(
+    npy_file,
+    output_stl_path='output_3d_model.stl',
+    target_dimension=300,
+    z_scale=50,
+    invert=False,
+    sigma=0.6,
+    max_xy_size=None,
+    relief_gamma=0.75,
+    detail_boost=1.4,
+    detail_radius=2.0,
+    low_percentile=1.0,
+    high_percentile=99.0,
+    base_border_px=2,
+):
     # Load the .npy file
     data = np.load(npy_file).astype(np.float32)
 
@@ -810,18 +882,25 @@ def depth_data_to_3d_model(npy_file, output_stl_path='output_3d_model.stl', targ
     # Flip the x axis
     data = np.flip(data, axis=1)
 
-    # Adjust height scaling (z-scale) and option to invert the heights
-    if invert:
-        z_max = np.nanmax(data)
-        z = (z_max - data) * z_scale
-    else:
-        z = data * z_scale
+    relief = _shape_relief_values(
+        data,
+        invert=invert,
+        gamma=relief_gamma,
+        detail_boost=detail_boost,
+        detail_radius=detail_radius,
+        low_percentile=low_percentile,
+        high_percentile=high_percentile,
+    )
+    relief = _flatten_border(relief, base_border_px)
+    z = relief * z_scale
     
     # Add a small offset to create buffer
     z = z + 0.01
 
     # Apply a Gaussian filter to smooth the data
     z = _smooth_nan_aware(z, sigma=sigma)
+    if base_border_px:
+        z = _flatten_border(np.maximum(z - 0.01, 0.0), base_border_px) + 0.01
 
     # Create a mask for non-NaN values
     mask = np.isfinite(z)
@@ -837,10 +916,17 @@ def depth_data_to_3d_model(npy_file, output_stl_path='output_3d_model.stl', targ
     z = z[top:bottom, left:right]
     mask = mask[top:bottom, left:right]
 
-    # Adjust the X, Y grid to match the cropped data
+    # Adjust the X, Y grid to match the cropped data. target_dimension controls
+    # sampling/detail; max_xy_size controls the final physical STL footprint.
     x = np.arange(z.shape[1])
     y = np.arange(z.shape[0])
     x, y = np.meshgrid(x, y)
+    if max_xy_size is not None:
+        coordinate_max = max(z.shape[1] - 1, z.shape[0] - 1)
+        if coordinate_max > 0:
+            xy_scale = float(max_xy_size) / float(coordinate_max)
+            x = x * xy_scale
+            y = y * xy_scale
 
     valid_cells = mask[:-1, :-1] & mask[1:, :-1] & mask[:-1, 1:] & mask[1:, 1:]
     faces = []
