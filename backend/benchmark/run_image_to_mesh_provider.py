@@ -23,6 +23,18 @@ from backend.benchmark.direct_mesh import (
     postprocess_mesh_for_stl,
     repair_mesh_for_printable_stl,
 )
+from backend.benchmark.hunyuan3d_2mv_models import (
+    DEFAULT_HUNYUAN3D_2MV_MAX_VIEW_ANGLE_ERROR,
+    DEFAULT_HUNYUAN3D_2MV_MODEL,
+    DEFAULT_HUNYUAN3D_2MV_MODEL_REVISION,
+    DEFAULT_HUNYUAN3D_2MV_REQUIRED_VIEWS,
+    DEFAULT_HUNYUAN3D_2MV_SEED,
+    DEFAULT_HUNYUAN3D_2MV_SOURCE_REVISION,
+    DEFAULT_HUNYUAN3D_2MV_SUBFOLDER,
+    HUNYUAN3D_2MV_VIEW_ORDER,
+    PROVIDER_NATIVE_METRICS_FILENAME,
+    hunyuan3d_2mv_model_specs,
+)
 from backend.benchmark.mesh_rendering import camera_transform, load_mesh, mesh_in_render_frame
 from backend.benchmark.pixal3d_models import (
     DEFAULT_PIXAL3D_DINOV3_REVISION,
@@ -50,6 +62,7 @@ MESH_EXTENSIONS = (".glb", ".gltf", ".obj", ".ply", ".stl")
 MESH_EXTENSION_PRIORITY = {".glb": 5, ".gltf": 4, ".obj": 3, ".ply": 2, ".stl": 1}
 TRIPOSR_API_PROVIDER = "triposr-api"
 HUNYUAN3D_SHAPE_PROVIDER = "hunyuan3d-shape"
+HUNYUAN3D_2MV_PROVIDER = "hunyuan3d-2mv"
 SOURCE_MESH_BUNDLE_ORACLE_PROVIDER = "source-mesh-bundle-oracle"
 MULTIVIEW_VISUAL_HULL_PROVIDER = "multiview-visual-hull"
 PIXAL3D_PROVIDER = "pixal3d"
@@ -59,6 +72,15 @@ DEFAULT_HUNYUAN3D_MODEL = "tencent/Hunyuan3D-2.1"
 PROVIDER_METRICS_FILENAME = "provider_metrics.json"
 
 CLI_PROVIDERS = {
+    HUNYUAN3D_2MV_PROVIDER: {
+        "env": "HUNYUAN3D_2MV_DIR",
+        "default_dirs": ("/content/Hunyuan3D-2",),
+        "runner": "hunyuan3d-2mv-wrapper",
+        "supports_low_vram": False,
+        "supports_device": True,
+        "supports_remesh": False,
+        "supports_texture_resolution": False,
+    },
     PIXAL3D_PROVIDER: {
         "env": "PIXAL3D_DIR",
         "default_dirs": ("/content/Pixal3D",),
@@ -360,8 +382,70 @@ def require_trellis2_pins(args: argparse.Namespace, provider_dir: Path) -> str:
     return source_revision
 
 
+def hunyuan3d_2mv_provider_models(args: argparse.Namespace) -> dict[str, dict[str, str]]:
+    specs = hunyuan3d_2mv_model_specs(
+        model_repo=(
+            getattr(args, "hunyuan3d_2mv_model_path", None)
+            or DEFAULT_HUNYUAN3D_2MV_MODEL
+        ),
+        model_revision=(
+            getattr(args, "hunyuan3d_2mv_model_revision", None)
+            or DEFAULT_HUNYUAN3D_2MV_MODEL_REVISION
+        ),
+        subfolder=(
+            getattr(args, "hunyuan3d_2mv_subfolder", None)
+            or DEFAULT_HUNYUAN3D_2MV_SUBFOLDER
+        ),
+    )
+    return {
+        name: {
+            "repo_id": str(spec["repo_id"]),
+            "revision": str(spec["revision"]),
+            "subfolder": str(spec["subfolder"]),
+        }
+        for name, spec in specs.items()
+    }
+
+
+def require_hunyuan3d_2mv_pins(args: argparse.Namespace, provider_dir: Path) -> str:
+    model = (
+        getattr(args, "hunyuan3d_2mv_model_path", None)
+        or DEFAULT_HUNYUAN3D_2MV_MODEL
+    )
+    revision = (
+        getattr(args, "hunyuan3d_2mv_model_revision", None)
+        or DEFAULT_HUNYUAN3D_2MV_MODEL_REVISION
+    )
+    subfolder = (
+        getattr(args, "hunyuan3d_2mv_subfolder", None)
+        or DEFAULT_HUNYUAN3D_2MV_SUBFOLDER
+    )
+    if (
+        model != DEFAULT_HUNYUAN3D_2MV_MODEL
+        or revision != DEFAULT_HUNYUAN3D_2MV_MODEL_REVISION
+        or subfolder != DEFAULT_HUNYUAN3D_2MV_SUBFOLDER
+    ):
+        raise ValueError(
+            "Hunyuan3D-2mv requires model "
+            f"{DEFAULT_HUNYUAN3D_2MV_MODEL}@{DEFAULT_HUNYUAN3D_2MV_MODEL_REVISION} "
+            f"subfolder {DEFAULT_HUNYUAN3D_2MV_SUBFOLDER}"
+        )
+    source_revision = provider_git_revision(provider_dir)
+    if source_revision != DEFAULT_HUNYUAN3D_2MV_SOURCE_REVISION:
+        actual = source_revision or "<unknown>"
+        raise ValueError(
+            "Hunyuan3D-2mv provider source must be checked out at "
+            f"{DEFAULT_HUNYUAN3D_2MV_SOURCE_REVISION}; found {actual}"
+        )
+    return source_revision
+
+
 def trellis2_wrapper_path() -> Path:
     return Path(__file__).with_name("trellis2_models.py").resolve()
+
+
+def hunyuan3d_2mv_wrapper_path() -> Path:
+    return Path(__file__).with_name("hunyuan3d_2mv_models.py").resolve()
 
 
 def resolve_pixal3d_model_snapshots(args: argparse.Namespace) -> dict[str, Path]:
@@ -423,18 +507,70 @@ def resolve_pixal3d_model_snapshots(args: argparse.Namespace) -> dict[str, Path]
     return paths
 
 
+def multiview_bundle_input_identity(bundle_path: Path) -> dict:
+    bundle_path = Path(bundle_path).resolve()
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    identity = {"views": []}
+    for index, view in enumerate(bundle.get("views") or []):
+        if not isinstance(view, dict):
+            continue
+        row = {
+            "bundle_view_position": index,
+            "camera": view.get("camera") if isinstance(view.get("camera"), dict) else {},
+        }
+        for key in ("hunyuan_view", "view_tag", "view_name", "view"):
+            if view.get(key) not in (None, ""):
+                row[key] = view[key]
+        for key in ("image", "mask"):
+            value = view.get(key)
+            if not value:
+                row[f"{key}_sha256"] = ""
+                continue
+            raw = Path(str(value)).expanduser()
+            candidates = (
+                [raw]
+                if raw.is_absolute()
+                else [bundle_path.parent / raw, Path.cwd() / raw, raw]
+            )
+            resolved = next((candidate for candidate in candidates if candidate.is_file()), None)
+            if resolved is None:
+                raise FileNotFoundError(
+                    f"Multiview bundle {key} does not exist for cache identity: {value}"
+                )
+            row[f"{key}_sha256"] = sha256_file(resolved)
+        identity["views"].append(row)
+    if not identity["views"]:
+        raise ValueError(f"Multiview input bundle has no views: {bundle_path}")
+    return identity
+
+
 def cli_provider_cache_payload(
     args: argparse.Namespace,
     provider_dir: Path,
     run_entry: Path,
 ) -> dict:
     input_sha256 = sha256_file(args.input_image)
+    bundle_identity = None
+    bundle_identity_sha256 = ""
+    input_bundle = getattr(args, "input_bundle", None)
+    if input_bundle:
+        bundle_identity = multiview_bundle_input_identity(Path(input_bundle))
+        bundle_identity_sha256 = hashlib.sha256(
+            json.dumps(bundle_identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
     synthetic_output_dir = Path("__provider_cache_output__")
     command = cli_provider_command(args, provider_dir, synthetic_output_dir)
-    normalized_command = [
-        f"sha256:{input_sha256}" if str(token) == str(args.input_image) else str(token)
-        for token in command
-    ]
+    command_uses_input_image = any(
+        str(token) == str(args.input_image) for token in command
+    )
+    normalized_command = []
+    for token in command:
+        text = str(token)
+        if text == str(args.input_image):
+            text = f"sha256:{input_sha256}"
+        elif input_bundle and text == str(input_bundle):
+            text = f"bundle-sha256:{bundle_identity_sha256}"
+        normalized_command.append(text)
     source_files = [run_entry]
     if args.provider == PIXAL3D_PROVIDER:
         source_files.append(provider_dir / "pixal3d" / "pipelines" / "pixal3d_image_to_3d.py")
@@ -446,6 +582,11 @@ def cli_provider_cache_payload(
     if args.provider == TRELLIS2_PROVIDER:
         wrapper_path = trellis2_wrapper_path()
         source_sha256["backend/benchmark/trellis2_models.py"] = sha256_file(
+            wrapper_path
+        )
+    elif args.provider == HUNYUAN3D_2MV_PROVIDER:
+        wrapper_path = hunyuan3d_2mv_wrapper_path()
+        source_sha256["backend/benchmark/hunyuan3d_2mv_models.py"] = sha256_file(
             wrapper_path
         )
     provider_environment_names = [
@@ -466,9 +607,12 @@ def cli_provider_cache_payload(
         "run_entry_sha256": sha256_file(run_entry),
         "provider_source_sha256": source_sha256,
         "provider_environment": provider_environment,
-        "input_sha256": input_sha256,
+        "input_sha256": input_sha256 if command_uses_input_image else "",
         "command": normalized_command,
     }
+    if bundle_identity is not None:
+        payload["multiview_bundle_identity"] = bundle_identity
+        payload["multiview_bundle_identity_sha256"] = bundle_identity_sha256
     if args.provider == PIXAL3D_PROVIDER:
         payload["provider_models"] = pixal3d_provider_models(args)
     elif args.provider == "triposg":
@@ -476,6 +620,9 @@ def cli_provider_cache_payload(
     elif args.provider == TRELLIS2_PROVIDER:
         payload["provider_models"] = trellis2_provider_models(args)
         payload["expected_provider_revision"] = DEFAULT_TRELLIS2_SOURCE_REVISION
+    elif args.provider == HUNYUAN3D_2MV_PROVIDER:
+        payload["provider_models"] = hunyuan3d_2mv_provider_models(args)
+        payload["expected_provider_revision"] = DEFAULT_HUNYUAN3D_2MV_SOURCE_REVISION
     return payload
 
 
@@ -498,6 +645,69 @@ def export_mesh(source: Path, target: Path) -> Path:
 
 def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_output_dir: Path) -> list[str]:
     config = CLI_PROVIDERS[args.provider]
+    if config.get("runner") == "hunyuan3d-2mv-wrapper":
+        command = [
+            args.python,
+            str(hunyuan3d_2mv_wrapper_path()),
+            "--provider-dir",
+            str(provider_dir),
+            "--model-path",
+            (
+                getattr(args, "hunyuan3d_2mv_model_path", None)
+                or DEFAULT_HUNYUAN3D_2MV_MODEL
+            ),
+            "--model-revision",
+            (
+                getattr(args, "hunyuan3d_2mv_model_revision", None)
+                or DEFAULT_HUNYUAN3D_2MV_MODEL_REVISION
+            ),
+            "--subfolder",
+            (
+                getattr(args, "hunyuan3d_2mv_subfolder", None)
+                or DEFAULT_HUNYUAN3D_2MV_SUBFOLDER
+            ),
+            "--num-inference-steps",
+            str(max(1, int(args.num_inference_steps))),
+            "--guidance-scale",
+            str(float(args.guidance_scale)),
+            "--octree-resolution",
+            str(max(16, int(args.octree_resolution))),
+            "--num-chunks",
+            str(max(1, int(args.num_chunks))),
+            "--seed",
+            str(
+                int(args.seed)
+                if getattr(args, "seed", None) is not None
+                else DEFAULT_HUNYUAN3D_2MV_SEED
+            ),
+            "--device",
+            str(args.provider_device or "cuda"),
+            "--max-view-angle-error",
+            str(float(args.hunyuan3d_2mv_max_view_angle_error)),
+        ]
+        for view in (
+            args.hunyuan3d_2mv_required_view
+            or DEFAULT_HUNYUAN3D_2MV_REQUIRED_VIEWS
+        ):
+            command.extend(["--required-view", str(view)])
+        if args.disable_progress:
+            command.append("--disable-progress")
+        if getattr(args, "prefetch_only", False):
+            command.append("--prefetch-only")
+        else:
+            if not args.input_bundle:
+                raise ValueError("--input-bundle is required for hunyuan3d-2mv")
+            command.extend(
+                [
+                    "--input-bundle",
+                    str(args.input_bundle),
+                    "--output-mesh",
+                    str(raw_output_dir / "output.glb"),
+                ]
+            )
+        command.extend(args.provider_arg or [])
+        return command
+
     if config.get("runner") == "trellis2-wrapper":
         resolution = int(
             getattr(args, "trellis2_resolution", None)
@@ -619,13 +829,27 @@ def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_outpu
 def run_cli_provider(args: argparse.Namespace) -> Path:
     args._provider_cache_hit = False
     args._provider_inference_runtime_seconds = None
+    args._provider_peak_cuda_vram_gib = None
+    args._provider_peak_cuda_vram_supported = False
+    args._provider_peak_cuda_vram_measurement = "unsupported"
+    args._provider_peak_cuda_allocated_gib = None
+    args._provider_peak_cuda_reserved_gib = None
+    args._provider_native_metrics = None
     provider_dir = resolve_provider_dir(args.provider, args.provider_dir)
     if args.provider == TRELLIS2_PROVIDER:
         require_trellis2_pins(args, provider_dir)
+    elif args.provider == HUNYUAN3D_2MV_PROVIDER:
+        require_hunyuan3d_2mv_pins(args, provider_dir)
     pixal3d_pinned = args.provider == PIXAL3D_PROVIDER and pixal3d_model_revisions_pinned(args)
     triposg_pinned = args.provider == "triposg" and triposg_model_revisions_pinned(args)
     runner = CLI_PROVIDERS[args.provider].get("runner")
-    if runner == "trellis2-wrapper":
+    if runner == "hunyuan3d-2mv-wrapper":
+        run_entry = provider_dir / "hy3dgen" / "shapegen" / "pipelines.py"
+        missing_message = (
+            f"{args.provider} provider repo has no hy3dgen/shapegen/pipelines.py: "
+            f"{run_entry}"
+        )
+    elif runner == "trellis2-wrapper":
         run_entry = provider_dir / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
         missing_message = (
             f"{args.provider} provider repo has no trellis2/pipelines/trellis2_image_to_3d.py: "
@@ -668,6 +892,27 @@ def run_cli_provider(args: argparse.Namespace) -> Path:
                     cached_runtime = cache_metadata.get("provider_inference_runtime_seconds")
                     if cached_runtime is not None:
                         args._provider_inference_runtime_seconds = float(cached_runtime)
+                    cached_peak = cache_metadata.get("provider_peak_cuda_vram_gib")
+                    cached_peak_supported = bool(
+                        cache_metadata.get("provider_peak_cuda_vram_supported")
+                    )
+                    if cached_peak is not None:
+                        args._provider_peak_cuda_vram_gib = float(cached_peak)
+                    args._provider_peak_cuda_vram_supported = cached_peak_supported
+                    args._provider_peak_cuda_vram_measurement = str(
+                        cache_metadata.get("provider_peak_cuda_vram_measurement")
+                        or "unsupported"
+                    )
+                    for field in (
+                        "provider_peak_cuda_allocated_gib",
+                        "provider_peak_cuda_reserved_gib",
+                    ):
+                        value = cache_metadata.get(field)
+                        if value is not None:
+                            setattr(args, f"_{field}", float(value))
+                    native_metrics = cache_metadata.get("provider_native_metrics")
+                    if isinstance(native_metrics, dict):
+                        args._provider_native_metrics = native_metrics
                 except (OSError, TypeError, ValueError, json.JSONDecodeError):
                     pass
             args._provider_cache_hit = True
@@ -700,6 +945,26 @@ def run_cli_provider(args: argparse.Namespace) -> Path:
     inference_started = time.perf_counter()
     subprocess.run(command, cwd=provider_dir, check=True, timeout=args.timeout)
     args._provider_inference_runtime_seconds = time.perf_counter() - inference_started
+    native_metrics_path = raw_output_dir / PROVIDER_NATIVE_METRICS_FILENAME
+    if native_metrics_path.is_file():
+        native_metrics = json.loads(native_metrics_path.read_text(encoding="utf-8"))
+        args._provider_native_metrics = native_metrics
+        peak = native_metrics.get("provider_peak_cuda_vram_gib")
+        if peak is not None:
+            args._provider_peak_cuda_vram_gib = float(peak)
+        args._provider_peak_cuda_vram_supported = bool(
+            native_metrics.get("provider_peak_cuda_vram_supported")
+        )
+        args._provider_peak_cuda_vram_measurement = str(
+            native_metrics.get("provider_peak_cuda_vram_measurement") or "unsupported"
+        )
+        for field in (
+            "provider_peak_cuda_allocated_gib",
+            "provider_peak_cuda_reserved_gib",
+        ):
+            value = native_metrics.get(field)
+            if value is not None:
+                setattr(args, f"_{field}", float(value))
     provider_mesh = find_mesh_output(raw_output_dir, started_at=started_at)
     if cache_dir and cache_payload is not None:
         cached_mesh = cache_dir / f"{cache_key}{provider_mesh.suffix.lower()}"
@@ -711,8 +976,12 @@ def run_cli_provider(args: argparse.Namespace) -> Path:
             {
                 **cache_payload,
                 "provider_inference_runtime_seconds": args._provider_inference_runtime_seconds,
-                "provider_peak_cuda_vram_gib": None,
-                "provider_peak_cuda_vram_supported": False,
+                "provider_peak_cuda_vram_gib": args._provider_peak_cuda_vram_gib,
+                "provider_peak_cuda_vram_supported": args._provider_peak_cuda_vram_supported,
+                "provider_peak_cuda_vram_measurement": args._provider_peak_cuda_vram_measurement,
+                "provider_peak_cuda_allocated_gib": args._provider_peak_cuda_allocated_gib,
+                "provider_peak_cuda_reserved_gib": args._provider_peak_cuda_reserved_gib,
+                "provider_native_metrics": args._provider_native_metrics,
             },
         )
         print(
@@ -742,6 +1011,19 @@ def prefetch_trellis2(args: argparse.Namespace) -> None:
             f"{run_entry}"
         )
     command = cli_provider_command(args, provider_dir, Path("__trellis2_prefetch__"))
+    subprocess.run(command, cwd=provider_dir, check=True, timeout=args.timeout)
+
+
+def prefetch_hunyuan3d_2mv(args: argparse.Namespace) -> None:
+    provider_dir = resolve_provider_dir(HUNYUAN3D_2MV_PROVIDER, args.provider_dir)
+    require_hunyuan3d_2mv_pins(args, provider_dir)
+    run_entry = provider_dir / "hy3dgen" / "shapegen" / "pipelines.py"
+    if not run_entry.is_file():
+        raise FileNotFoundError(
+            "hunyuan3d-2mv provider repo has no hy3dgen/shapegen/pipelines.py: "
+            f"{run_entry}"
+        )
+    command = cli_provider_command(args, provider_dir, Path("__hunyuan3d_2mv_prefetch__"))
     subprocess.run(command, cwd=provider_dir, check=True, timeout=args.timeout)
 
 
@@ -1126,6 +1408,24 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
             inference_runtime = provider_invocation_runtime
         args._provider_metrics["provider_inference_runtime_seconds"] = inference_runtime
         args._provider_metrics["provider_cache_hit"] = provider_cache_hit
+        args._provider_metrics["provider_peak_cuda_vram_gib"] = getattr(
+            args, "_provider_peak_cuda_vram_gib", None
+        )
+        args._provider_metrics["provider_peak_cuda_vram_supported"] = bool(
+            getattr(args, "_provider_peak_cuda_vram_supported", False)
+        )
+        args._provider_metrics["provider_peak_cuda_vram_measurement"] = str(
+            getattr(args, "_provider_peak_cuda_vram_measurement", "unsupported")
+        )
+        args._provider_metrics["provider_peak_cuda_allocated_gib"] = getattr(
+            args, "_provider_peak_cuda_allocated_gib", None
+        )
+        args._provider_metrics["provider_peak_cuda_reserved_gib"] = getattr(
+            args, "_provider_peak_cuda_reserved_gib", None
+        )
+        native_metrics = getattr(args, "_provider_native_metrics", None)
+        if isinstance(native_metrics, dict):
+            args._provider_metrics["provider_native_metrics"] = native_metrics
 
     args._provider_metrics["provider_raw_output_mesh"] = str(output_mesh)
 
@@ -1277,6 +1577,34 @@ def main() -> None:
         help="Retry a TRELLIS.2 empty sparse-structure sample with successive deterministic seeds.",
     )
     parser.add_argument(
+        "--hunyuan3d-2mv-model-path",
+        default=DEFAULT_HUNYUAN3D_2MV_MODEL,
+        help="Pinned official Hunyuan3D-2mv Hugging Face repository.",
+    )
+    parser.add_argument(
+        "--hunyuan3d-2mv-model-revision",
+        default=DEFAULT_HUNYUAN3D_2MV_MODEL_REVISION,
+        help="Exact Hunyuan3D-2mv Hugging Face snapshot revision.",
+    )
+    parser.add_argument(
+        "--hunyuan3d-2mv-subfolder",
+        default=DEFAULT_HUNYUAN3D_2MV_SUBFOLDER,
+        help="Pinned standard multiview diffusion checkpoint subfolder.",
+    )
+    parser.add_argument(
+        "--hunyuan3d-2mv-required-view",
+        action="append",
+        choices=HUNYUAN3D_2MV_VIEW_ORDER,
+        default=None,
+        help="Required canonical input view. Repeat to override the official front/left/back minimum.",
+    )
+    parser.add_argument(
+        "--hunyuan3d-2mv-max-view-angle-error",
+        type=float,
+        default=DEFAULT_HUNYUAN3D_2MV_MAX_VIEW_ANGLE_ERROR,
+        help="Maximum angular error when mapping bundle cameras to canonical multiview slots.",
+    )
+    parser.add_argument(
         "--mesh-repair",
         choices=MESH_REPAIR_MODES,
         default="none",
@@ -1380,8 +1708,12 @@ def main() -> None:
         if args.provider == TRELLIS2_PROVIDER:
             prefetch_trellis2(args)
             return
+        if args.provider == HUNYUAN3D_2MV_PROVIDER:
+            prefetch_hunyuan3d_2mv(args)
+            return
         raise ValueError(
-            "--prefetch-only is currently supported only for hunyuan3d-shape and trellis2"
+            "--prefetch-only is currently supported only for hunyuan3d-shape, "
+            "hunyuan3d-2mv, and trellis2"
         )
     if not args.input_image or not args.output_mesh:
         raise ValueError("--input-image and --output-mesh are required unless --prefetch-only is set")

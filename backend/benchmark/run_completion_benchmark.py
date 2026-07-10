@@ -3,6 +3,7 @@ import csv
 import hashlib
 import json
 import math
+import os
 import re
 from pathlib import Path
 import traceback
@@ -36,6 +37,7 @@ from backend.benchmark.metrics import (
     surface_distance_metrics,
     ssim_rgb,
 )
+from backend.benchmark.mesh_rendering import RenderConfig, load_mesh, render_mesh
 from backend.benchmark.stl_modes import infer_stl_mode
 from backend.pic_to_3d import (
     MODERN_INPAINT_MODELS,
@@ -89,10 +91,12 @@ METADATA_FIELDS = {
     "provider",
     "provider_cache_hit",
     "provider_metrics_path",
+    "provider_native_metrics",
     "provider_raw_output_mesh",
     "provider_final_output_mesh",
     "provider_mesh_repair",
     "provider_peak_cuda_vram_supported",
+    "provider_peak_cuda_vram_measurement",
     "provider_status",
     "raw_mesh_model",
     "raw_mesh_self_intersection_supported",
@@ -111,6 +115,7 @@ DEFAULT_PROMPT_TEMPLATE = (
     "lighting, viewpoint, and background. The masked half must contain the missing "
     "{category}, not an empty background."
 )
+HELDOUT_VIEW_RENDER_SIZE = 64
 
 
 def infer_category(sample):
@@ -558,6 +563,107 @@ def load_optional_json(path):
         return {}
 
 
+def _jsonish_list(value) -> list:
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return parsed if isinstance(parsed, list) else [parsed]
+    return [value]
+
+
+def _normalized_path_key(value) -> str:
+    if value in (None, ""):
+        return ""
+    return os.path.normcase(str(Path(str(value)).expanduser().resolve()))
+
+
+def heldout_multiview_mesh_metrics(
+    sample: dict,
+    mesh_path: str | Path,
+    provider_metrics: dict,
+    *,
+    render_size: int = HELDOUT_VIEW_RENDER_SIZE,
+) -> dict:
+    native_metrics = provider_metrics.get("provider_native_metrics") or {}
+    selected_rows = native_metrics.get("selected_views") or []
+    selected_images = {
+        _normalized_path_key(row.get("source_image"))
+        for row in selected_rows
+        if isinstance(row, dict) and row.get("source_image")
+    }
+    base = {
+        "heldout_view_agreement_supported": bool(selected_images),
+        "heldout_view_selected_count": len(selected_images),
+        "heldout_view_count": 0,
+        "heldout_view_silhouette_iou_mean": math.nan,
+        "heldout_view_silhouette_iou_median": math.nan,
+        "heldout_view_silhouette_iou_min": math.nan,
+    }
+    if not selected_images:
+        return base
+
+    images = _jsonish_list(sample.get("multiview_images"))
+    masks = _jsonish_list(sample.get("multiview_masks"))
+    cameras = _jsonish_list(sample.get("multiview_cameras"))
+    candidate_views = []
+    for index, image_path in enumerate(images):
+        if _normalized_path_key(image_path) in selected_images:
+            continue
+        if index >= len(masks) or index >= len(cameras):
+            continue
+        mask_path = Path(str(masks[index]))
+        camera = cameras[index]
+        if not mask_path.is_file() or not isinstance(camera, dict):
+            continue
+        candidate_views.append((mask_path, camera))
+    if not candidate_views:
+        return base
+
+    mesh = load_mesh(mesh_path)
+    size = max(16, int(render_size))
+    config = RenderConfig(size=size)
+    ious = []
+    for mask_path, camera in candidate_views:
+        reference = load_bool_mask(mask_path)
+        if reference.shape != (size, size):
+            reference = np.asarray(
+                Image.fromarray(reference.astype(np.uint8) * 255).resize(
+                    (size, size),
+                    resample=Image.Resampling.NEAREST,
+                ),
+                dtype=np.uint8,
+            ) > 127
+        prediction = render_mesh(
+            mesh,
+            camera=camera,
+            config=config,
+            base_color=(128, 128, 128),
+        ).silhouette
+        union = np.count_nonzero(reference | prediction)
+        if union:
+            ious.append(float(np.count_nonzero(reference & prediction) / union))
+    if not ious:
+        return base
+    values = np.asarray(ious, dtype=np.float64)
+    base.update(
+        {
+            "heldout_view_count": len(ious),
+            "heldout_view_silhouette_iou_mean": float(np.mean(values)),
+            "heldout_view_silhouette_iou_median": float(np.median(values)),
+            "heldout_view_silhouette_iou_min": float(np.min(values)),
+        }
+    )
+    return base
+
+
 def evaluate_direct_mesh_sample(sample, method, output_dir, args):
     input_image, output_mesh, stl_path, input_bundle = run_direct_mesh(sample, method, output_dir, args)
     row = {
@@ -608,6 +714,14 @@ def evaluate_direct_mesh_sample(sample, method, output_dir, args):
                 row["repair_volume_fill_ratio_relative_change"] = (
                     change / abs(raw_fill) if abs(raw_fill) > 1e-12 else math.nan
                 )
+        if input_bundle:
+            row.update(
+                heldout_multiview_mesh_metrics(
+                    sample,
+                    output_mesh,
+                    provider_metrics,
+                )
+            )
     return row
 
 

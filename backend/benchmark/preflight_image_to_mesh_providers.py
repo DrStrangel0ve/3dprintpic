@@ -12,6 +12,7 @@ from pathlib import Path
 
 from backend.benchmark.run_image_to_mesh_provider import (
     CLI_PROVIDERS,
+    HUNYUAN3D_2MV_PROVIDER,
     HUNYUAN3D_SHAPE_PROVIDER,
     MULTIVIEW_VISUAL_HULL_PROVIDER,
     PROVIDERS,
@@ -21,6 +22,13 @@ from backend.benchmark.run_image_to_mesh_provider import (
     provider_dir_config_key,
     provider_git_revision,
     resolve_provider_dir,
+)
+from backend.benchmark.hunyuan3d_2mv_models import (
+    DEFAULT_HUNYUAN3D_2MV_MODEL,
+    DEFAULT_HUNYUAN3D_2MV_MODEL_REVISION,
+    DEFAULT_HUNYUAN3D_2MV_SOURCE_REVISION,
+    DEFAULT_HUNYUAN3D_2MV_SUBFOLDER,
+    hunyuan3d_2mv_model_specs,
 )
 from backend.benchmark.pixal3d_models import (
     DEFAULT_PIXAL3D_MODEL,
@@ -47,6 +55,7 @@ TRELLIS2_ATTENTION_MODULES = {
     "flash_attn_3": "flash_attn_interface",
 }
 TRELLIS2_PROBE_JSON_PREFIX = "TRELLIS2_PREFLIGHT_JSON="
+HUNYUAN3D_2MV_PROBE_JSON_PREFIX = "HUNYUAN3D_2MV_PREFLIGHT_JSON="
 
 
 def command_exists(executable: str | None) -> bool:
@@ -203,6 +212,88 @@ def probe_trellis2_provider_python(
     return payload
 
 
+def build_hunyuan3d_2mv_python_probe_script() -> str:
+    return (
+        "import importlib, json, sys\n"
+        "payload = {\n"
+        "    'python_executable': sys.executable,\n"
+        "    'shapegen_importable': False,\n"
+        "    'pipeline_class_importable': False,\n"
+        "    'backend_ready': False,\n"
+        "    'error': '',\n"
+        "}\n"
+        "try:\n"
+        "    shapegen = importlib.import_module('hy3dgen.shapegen')\n"
+        "    payload['shapegen_importable'] = True\n"
+        "    getattr(shapegen, 'Hunyuan3DDiTFlowMatchingPipeline')\n"
+        "    payload['pipeline_class_importable'] = True\n"
+        "except Exception as exc:\n"
+        "    payload['error'] = f'{type(exc).__name__}: {exc}'\n"
+        "payload['backend_ready'] = bool(\n"
+        "    payload['shapegen_importable'] and payload['pipeline_class_importable']\n"
+        ")\n"
+        f"print({HUNYUAN3D_2MV_PROBE_JSON_PREFIX!r} + json.dumps(payload, sort_keys=True))\n"
+        "raise SystemExit(0 if payload['backend_ready'] else 1)\n"
+    )
+
+
+def probe_hunyuan3d_2mv_provider_python(
+    provider_python: str,
+    provider_dir: Path,
+    *,
+    timeout_seconds: int = 60,
+) -> dict:
+    env = os.environ.copy()
+    current_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(provider_dir), current_pythonpath) if part
+    )
+    try:
+        completed = subprocess.run(
+            [provider_python, "-c", build_hunyuan3d_2mv_python_probe_script()],
+            cwd=provider_dir,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=timeout_seconds,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "python_executable": provider_python,
+            "returncode": None,
+            "shapegen_importable": False,
+            "pipeline_class_importable": False,
+            "backend_ready": False,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    payload = None
+    for line in reversed(completed.stdout.splitlines()):
+        if not line.startswith(HUNYUAN3D_2MV_PROBE_JSON_PREFIX):
+            continue
+        try:
+            payload = json.loads(line[len(HUNYUAN3D_2MV_PROBE_JSON_PREFIX) :])
+        except json.JSONDecodeError:
+            payload = None
+        break
+    if not isinstance(payload, dict):
+        payload = {
+            "python_executable": provider_python,
+            "shapegen_importable": False,
+            "pipeline_class_importable": False,
+            "backend_ready": False,
+            "error": "Provider Python did not emit a Hunyuan3D-2mv preflight payload.",
+        }
+    payload["returncode"] = completed.returncode
+    if completed.returncode and not payload.get("error"):
+        stderr = completed.stderr.strip()
+        payload["error"] = stderr[-2000:] or f"Provider Python exited with {completed.returncode}."
+    payload["backend_ready"] = bool(
+        payload.get("backend_ready") and completed.returncode == 0
+    )
+    return payload
+
+
 def flag_value(tokens: list[str], flag: str) -> str | None:
     prefix = f"{flag}="
     for index, token in enumerate(tokens):
@@ -233,9 +324,34 @@ def parse_provider_command(command: str) -> dict | None:
         "provider": provider,
         "provider_dir": flag_value(tokens, "--provider-dir"),
         "provider_python": flag_value(tokens, "--provider-python"),
+        "input_bundle": flag_value(tokens, "--input-bundle"),
         "wrapper_python": tokens[0] if tokens else "",
     }
-    if provider == "pixal3d":
+    if provider == HUNYUAN3D_2MV_PROVIDER:
+        specs = hunyuan3d_2mv_model_specs(
+            model_repo=(
+                flag_value(tokens, "--hunyuan3d-2mv-model-path")
+                or DEFAULT_HUNYUAN3D_2MV_MODEL
+            ),
+            model_revision=(
+                flag_value(tokens, "--hunyuan3d-2mv-model-revision")
+                or DEFAULT_HUNYUAN3D_2MV_MODEL_REVISION
+            ),
+            subfolder=(
+                flag_value(tokens, "--hunyuan3d-2mv-subfolder")
+                or DEFAULT_HUNYUAN3D_2MV_SUBFOLDER
+            ),
+        )
+        parsed["provider_models"] = {
+            name: {
+                "repo_id": str(spec["repo_id"]),
+                "revision": str(spec["revision"]),
+                "subfolder": str(spec["subfolder"]),
+            }
+            for name, spec in specs.items()
+        }
+        parsed["provider_source_revision"] = DEFAULT_HUNYUAN3D_2MV_SOURCE_REVISION
+    elif provider == "pixal3d":
         specs = pixal3d_model_specs(
             model_repo=flag_value(tokens, "--pixal3d-model-path") or DEFAULT_PIXAL3D_MODEL,
             model_revision=flag_value(tokens, "--pixal3d-model-revision") or "",
@@ -291,6 +407,8 @@ def provider_dir_env_names(provider: str) -> list[str]:
 def provider_entrypoint(provider: str) -> Path | None:
     if provider in CLI_PROVIDERS:
         runner = CLI_PROVIDERS[provider].get("runner")
+        if runner == "hunyuan3d-2mv-wrapper":
+            return Path("hy3dgen/shapegen/pipelines.py")
         if runner == "triposg-module":
             return Path("scripts/inference_triposg.py")
         if runner == "pixal3d-inference":
@@ -319,7 +437,26 @@ def provider_preflight_row(parsed: dict, experiment_names: list[str] | None = No
     if not provider_python_found:
         setup_errors.append("Provider Python executable is unavailable.")
 
-    if provider == "pixal3d":
+    if provider == HUNYUAN3D_2MV_PROVIDER:
+        model_spec = (parsed.get("provider_models") or {}).get("hunyuan3d_2mv") or {}
+        model_pinned = (
+            model_spec.get("repo_id") == DEFAULT_HUNYUAN3D_2MV_MODEL
+            and model_spec.get("revision") == DEFAULT_HUNYUAN3D_2MV_MODEL_REVISION
+            and model_spec.get("subfolder") == DEFAULT_HUNYUAN3D_2MV_SUBFOLDER
+        )
+        checks["model_revision_pinned"] = model_pinned
+        checks["model_revisions_complete"] = bool(model_spec.get("revision"))
+        checks["model_revisions_pinned"] = model_pinned
+        checks["input_bundle_configured"] = bool(parsed.get("input_bundle"))
+        if not model_pinned:
+            setup_errors.append(
+                "Hunyuan3D-2mv requires model "
+                f"{DEFAULT_HUNYUAN3D_2MV_MODEL}@{DEFAULT_HUNYUAN3D_2MV_MODEL_REVISION} "
+                f"subfolder {DEFAULT_HUNYUAN3D_2MV_SUBFOLDER}."
+            )
+        if not parsed.get("input_bundle"):
+            setup_errors.append("Hunyuan3D-2mv requires --input-bundle.")
+    elif provider == "pixal3d":
         revisions = [
             str(spec.get("revision") or "").strip()
             for spec in (parsed.get("provider_models") or {}).values()
@@ -383,6 +520,49 @@ def provider_preflight_row(parsed: dict, experiment_names: list[str] | None = No
             checks["entrypoint_found"] = entrypoint_found
             if not entrypoint_found:
                 setup_errors.append(f"Provider repo is missing expected entrypoint: {entrypoint.as_posix()}.")
+        if provider == HUNYUAN3D_2MV_PROVIDER and provider_dir:
+            source_revision = provider_git_revision(provider_dir)
+            source_revision_pinned = (
+                source_revision == DEFAULT_HUNYUAN3D_2MV_SOURCE_REVISION
+            )
+            checks["provider_source_revision"] = source_revision
+            checks["provider_source_revision_expected"] = (
+                DEFAULT_HUNYUAN3D_2MV_SOURCE_REVISION
+            )
+            checks["provider_source_revision_pinned"] = source_revision_pinned
+            if not source_revision_pinned:
+                actual = source_revision or "<unknown>"
+                setup_errors.append(
+                    "Hunyuan3D-2mv provider source must be checked out at "
+                    f"{DEFAULT_HUNYUAN3D_2MV_SOURCE_REVISION}; found {actual}."
+                )
+            package_source = provider_dir / "hy3dgen" / "shapegen" / "__init__.py"
+            package_source_found = package_source.is_file()
+            checks["hunyuan3d_2mv_package_source_found"] = package_source_found
+            if not package_source_found:
+                setup_errors.append(
+                    "Hunyuan3D-2mv provider repo is missing hy3dgen/shapegen/__init__.py."
+                )
+            if package_source_found and provider_python_found:
+                python_probe = probe_hunyuan3d_2mv_provider_python(
+                    provider_python,
+                    provider_dir,
+                )
+                checks["hunyuan3d_2mv_python_probe"] = python_probe
+                checks["hunyuan3d_2mv_shapegen_importable"] = bool(
+                    python_probe.get("shapegen_importable")
+                )
+                checks["hunyuan3d_2mv_pipeline_class_importable"] = bool(
+                    python_probe.get("pipeline_class_importable")
+                )
+                checks["hunyuan3d_2mv_backend_ready"] = bool(
+                    python_probe.get("backend_ready")
+                )
+                if not python_probe.get("backend_ready"):
+                    detail = python_probe.get("error") or "unknown provider Python error"
+                    setup_errors.append(
+                        f"Hunyuan3D-2mv provider Python preflight failed: {detail}"
+                    )
         if provider == TRELLIS2_PROVIDER and provider_dir:
             source_revision = provider_git_revision(provider_dir)
             source_revision_pinned = (
@@ -529,6 +709,7 @@ def experiment_provider_commands(experiments: list[dict]) -> dict[str, list[str]
                 "provider_dir": parsed.get("provider_dir") or "",
                 "provider_python": parsed.get("provider_python") or "",
                 "wrapper_python": parsed.get("wrapper_python") or "",
+                "input_bundle": parsed.get("input_bundle") or "",
                 "provider_models": parsed.get("provider_models") or {},
                 "provider_source_revision": parsed.get("provider_source_revision") or "",
                 "trellis2_resolution": parsed.get("trellis2_resolution"),

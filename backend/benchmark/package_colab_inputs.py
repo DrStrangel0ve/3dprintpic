@@ -15,6 +15,12 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 from backend.benchmark.rank_methods import SCORE_PROFILES
+from backend.benchmark.hunyuan3d_2mv_models import (
+    DEFAULT_HUNYUAN3D_2MV_MODEL,
+    DEFAULT_HUNYUAN3D_2MV_MODEL_REVISION,
+    DEFAULT_HUNYUAN3D_2MV_SOURCE_REVISION,
+    DEFAULT_HUNYUAN3D_2MV_SUBFOLDER,
+)
 from backend.benchmark.pixal3d_models import (
     DEFAULT_PIXAL3D_DINOV3_MODEL,
     DEFAULT_PIXAL3D_DINOV3_REVISION,
@@ -914,6 +920,84 @@ def build_pixal3d_setup_prelude() -> str:
     )
 
 
+def build_hunyuan3d_2mv_setup_prelude() -> str:
+    return (
+        "HUNYUAN3D_2MV_DIR=\"${HUNYUAN3D_2MV_DIR:-/content/Hunyuan3D-2}\"\n"
+        "HUNYUAN3D_2MV_VENV=\"${HUNYUAN3D_2MV_VENV:-/content/hunyuan3d-2mv-venv}\"\n"
+        f"HUNYUAN3D_2MV_REF=\"${{HUNYUAN3D_2MV_REF:-{DEFAULT_HUNYUAN3D_2MV_SOURCE_REVISION}}}\"\n"
+        f"HUNYUAN3D_2MV_MODEL_ID=\"${{HUNYUAN3D_2MV_MODEL_ID:-{DEFAULT_HUNYUAN3D_2MV_MODEL}}}\"\n"
+        f"HUNYUAN3D_2MV_MODEL_REVISION=\"${{HUNYUAN3D_2MV_MODEL_REVISION:-{DEFAULT_HUNYUAN3D_2MV_MODEL_REVISION}}}\"\n"
+        f"HUNYUAN3D_2MV_SUBFOLDER=\"${{HUNYUAN3D_2MV_SUBFOLDER:-{DEFAULT_HUNYUAN3D_2MV_SUBFOLDER}}}\"\n"
+        "export HUNYUAN3D_2MV_DIR HUNYUAN3D_2MV_VENV HUNYUAN3D_2MV_REF HUNYUAN3D_2MV_MODEL_ID HUNYUAN3D_2MV_MODEL_REVISION HUNYUAN3D_2MV_SUBFOLDER\n"
+        "if [[ ! -d \"$HUNYUAN3D_2MV_DIR/.git\" ]]; then\n"
+        "  rm -rf \"$HUNYUAN3D_2MV_DIR\"\n"
+        "  git clone --filter=blob:none https://github.com/Tencent-Hunyuan/Hunyuan3D-2 \"$HUNYUAN3D_2MV_DIR\"\n"
+        "fi\n"
+        "git -C \"$HUNYUAN3D_2MV_DIR\" fetch --filter=blob:none origin \"$HUNYUAN3D_2MV_REF\" || git -C \"$HUNYUAN3D_2MV_DIR\" fetch --filter=blob:none origin main\n"
+        "git -C \"$HUNYUAN3D_2MV_DIR\" checkout --detach \"$HUNYUAN3D_2MV_REF\"\n"
+        "git -C \"$HUNYUAN3D_2MV_DIR\" reset --hard \"$HUNYUAN3D_2MV_REF\"\n"
+        "test \"$(git -C \"$HUNYUAN3D_2MV_DIR\" rev-parse HEAD)\" = \"$HUNYUAN3D_2MV_REF\"\n"
+        "python -m pip install -q virtualenv\n"
+        "if [[ ! -x \"$HUNYUAN3D_2MV_VENV/bin/python\" ]]; then\n"
+        "  python -m virtualenv --system-site-packages \"$HUNYUAN3D_2MV_VENV\"\n"
+        "fi\n"
+        "HUNYUAN3D_2MV_PYTHON=\"$HUNYUAN3D_2MV_VENV/bin/python\"\n"
+        "export HUNYUAN3D_2MV_PYTHON\n"
+        "export PYTHONPATH=\"$HUNYUAN3D_2MV_DIR:${PYTHONPATH:-}\"\n"
+        "if ! \"$HUNYUAN3D_2MV_PYTHON\" - <<'PY'\n"
+        "import importlib\n"
+        "from importlib.metadata import version\n"
+        "for name in ('torch', 'torchvision', 'diffusers', 'transformers', 'accelerate', 'einops', 'cv2', 'omegaconf', 'trimesh', 'pymeshlab', 'skimage', 'safetensors', 'hy3dgen.shapegen'):\n"
+        "    importlib.import_module(name)\n"
+        "if not version('transformers').startswith('4.49.'):\n"
+        "    raise SystemExit(1)\n"
+        "PY\n"
+        "then\n"
+        "  \"$HUNYUAN3D_2MV_PYTHON\" -m pip install -U pip setuptools wheel\n"
+        "  \"$HUNYUAN3D_2MV_PYTHON\" -m pip install transformers==4.49.0 diffusers==0.32.2 accelerate==1.4.0 huggingface-hub==0.30.2 safetensors==0.5.3 einops==0.8.1 omegaconf==2.3.0 opencv-python-headless==4.11.0.86 tqdm==4.67.1 PyYAML==6.0.2 trimesh==4.12.2 pymeshlab==2025.7.post1 scikit-image==0.25.2\n"
+        "fi\n"
+        "\"$HUNYUAN3D_2MV_PYTHON\" - <<'PY'\n"
+        "import json\n"
+        "import shutil\n"
+        "import torch\n"
+        "import torchvision\n"
+        "from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline\n"
+        "if not torch.cuda.is_available():\n"
+        "    raise SystemExit('Hunyuan3D-2mv setup requires CUDA')\n"
+        "capability = torch.cuda.get_device_capability(0)\n"
+        "architectures = torch.cuda.get_arch_list()\n"
+        "expected_arch = f'sm_{capability[0]}{capability[1]}'\n"
+        "if expected_arch not in architectures:\n"
+        "    raise SystemExit(f'Torch wheel lacks {expected_arch}: {architectures}')\n"
+        "value = (torch.ones((256, 256), device='cuda') @ torch.ones((256, 256), device='cuda')).sum().item()\n"
+        "free_gib = shutil.disk_usage('/content').free / (1024 ** 3)\n"
+        "if free_gib < 8:\n"
+        "    raise SystemExit(f'Hunyuan3D-2mv setup needs at least 8 GiB free disk, got {free_gib:.1f}')\n"
+        "props = torch.cuda.get_device_properties(0)\n"
+        "print(json.dumps({\n"
+        "    'event': 'hunyuan3d_2mv_backend_ready',\n"
+        "    'pipeline_class': Hunyuan3DDiTFlowMatchingPipeline.__name__,\n"
+        "    'torch_version': torch.__version__,\n"
+        "    'torchvision_version': torchvision.__version__,\n"
+        "    'cuda_version': torch.version.cuda,\n"
+        "    'gpu': props.name,\n"
+        "    'capability': list(capability),\n"
+        "    'cuda_architectures': architectures,\n"
+        "    'cuda_smoke_value': value,\n"
+        "    'free_disk_gib': free_gib,\n"
+        "}, sort_keys=True))\n"
+        "PY\n"
+        "echo \"Hunyuan3D-2mv setup checkpoint: provider imports and CUDA kernel ready\"\n"
+        "HUNYUAN3D_2MV_PREFLIGHT_COMMAND=\"$HUNYUAN3D_2MV_PYTHON -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-2mv --provider-dir $HUNYUAN3D_2MV_DIR --provider-python $HUNYUAN3D_2MV_PYTHON --input-image '{input_image}' --input-bundle '{input_bundle}' --output-mesh '{output_mesh}' --hunyuan3d-2mv-model-path $HUNYUAN3D_2MV_MODEL_ID --hunyuan3d-2mv-model-revision $HUNYUAN3D_2MV_MODEL_REVISION --hunyuan3d-2mv-subfolder $HUNYUAN3D_2MV_SUBFOLDER\"\n"
+        "\"$HUNYUAN3D_2MV_PYTHON\" -m backend.benchmark.preflight_image_to_mesh_providers --command \"$HUNYUAN3D_2MV_PREFLIGHT_COMMAND\" --output \"${HUNYUAN3D_2MV_PREFLIGHT_PATH:-/tmp/hunyuan3d_2mv_provider_preflight.json}\" --require-runnable\n"
+        "echo \"Hunyuan3D-2mv setup checkpoint: provider preflight passed\"\n"
+        "if [[ \"${HUNYUAN3D_2MV_PREFETCH:-1}\" == \"1\" ]]; then\n"
+        "  \"$HUNYUAN3D_2MV_PYTHON\" -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-2mv --provider-dir \"$HUNYUAN3D_2MV_DIR\" --hunyuan3d-2mv-model-path \"$HUNYUAN3D_2MV_MODEL_ID\" --hunyuan3d-2mv-model-revision \"$HUNYUAN3D_2MV_MODEL_REVISION\" --hunyuan3d-2mv-subfolder \"$HUNYUAN3D_2MV_SUBFOLDER\" --timeout 3600 --prefetch-only\n"
+        "  echo \"Hunyuan3D-2mv setup checkpoint: pinned model prefetched\"\n"
+        "fi\n"
+    )
+
+
 def build_hunyuan3d_setup_prelude() -> str:
     return (
         "HUNYUAN3D_DIR=\"${HUNYUAN3D_DIR:-/content/Hunyuan3D-2.1}\"\n"
@@ -1048,6 +1132,7 @@ def build_colab_run_script(
     include_triposg_setup: bool = False,
     include_pixal3d_setup: bool = False,
     include_trellis2_setup: bool = False,
+    include_hunyuan3d_2mv_setup: bool = False,
     include_hunyuan3d_setup: bool = False,
 ) -> str:
     archive_default = colab_archive_path or f"/content/{archive_filename}"
@@ -1128,6 +1213,8 @@ def build_colab_run_script(
         provider_setup += build_pixal3d_setup_prelude()
     if include_trellis2_setup:
         provider_setup += build_trellis2_setup_prelude()
+    if include_hunyuan3d_2mv_setup:
+        provider_setup += build_hunyuan3d_2mv_setup_prelude()
     if include_hunyuan3d_setup:
         provider_setup += build_hunyuan3d_setup_prelude()
 
@@ -1137,6 +1224,9 @@ def build_colab_run_script(
     preflight_path = colab_path(extract_root, Path("launch_preflight.json"))
     trellis2_preflight_path = colab_path(
         extract_root, Path("trellis2_provider_preflight.json")
+    )
+    hunyuan3d_2mv_preflight_path = colab_path(
+        extract_root, Path("hunyuan3d_2mv_provider_preflight.json")
     )
     results_summary_path = colab_path(extract_root, Path("results_summary.json"))
     run_log_path = colab_path(extract_root, Path("run_colab_eval.log"))
@@ -1169,6 +1259,7 @@ def build_colab_run_script(
         f"GPU_PREFLIGHT_PATH={shell_join([gpu_preflight_path])}\n"
         f"PREFLIGHT_PATH={shell_join([preflight_path])}\n"
         f"TRELLIS2_PREFLIGHT_PATH={shell_join([trellis2_preflight_path])}\n"
+        f"HUNYUAN3D_2MV_PREFLIGHT_PATH={shell_join([hunyuan3d_2mv_preflight_path])}\n"
         "COLAB_REQUIRE_GPU_NAME_REGEX=\"${COLAB_REQUIRE_GPU_NAME_REGEX:-}\"\n"
         "if [[ -z \"$COLAB_REQUIRE_GPU_NAME_REGEX\" ]]; then\n"
         f"  COLAB_REQUIRE_GPU_NAME_REGEX={shell_join([gpu_name_default])}\n"
@@ -1177,7 +1268,7 @@ def build_colab_run_script(
         "if [[ -z \"$COLAB_MIN_GPU_MEMORY_GB\" ]]; then\n"
         f"  COLAB_MIN_GPU_MEMORY_GB={shell_join([gpu_memory_default])}\n"
         "fi\n"
-        "export ARCHIVE_PATH EXTRACT_ROOT REPO_DIR REPO_REMOTE REPO_REF RUN_NAME RUN_LOG OUTPUT_ROOT RESULTS_SUMMARY RESULTS_ARCHIVE STL_INGEST_DIR STL_INGEST_JSON STL_INGEST_MD MANIFEST_PATH LORA_PATH LORA_ADAPTER_PATH LORA_REPORT_PATH GPU_PREFLIGHT_PATH PREFLIGHT_PATH TRELLIS2_PREFLIGHT_PATH COLAB_REQUIRE_GPU_NAME_REGEX COLAB_MIN_GPU_MEMORY_GB\n"
+        "export ARCHIVE_PATH EXTRACT_ROOT REPO_DIR REPO_REMOTE REPO_REF RUN_NAME RUN_LOG OUTPUT_ROOT RESULTS_SUMMARY RESULTS_ARCHIVE STL_INGEST_DIR STL_INGEST_JSON STL_INGEST_MD MANIFEST_PATH LORA_PATH LORA_ADAPTER_PATH LORA_REPORT_PATH GPU_PREFLIGHT_PATH PREFLIGHT_PATH TRELLIS2_PREFLIGHT_PATH HUNYUAN3D_2MV_PREFLIGHT_PATH COLAB_REQUIRE_GPU_NAME_REGEX COLAB_MIN_GPU_MEMORY_GB\n"
         "mkdir -p \"$EXTRACT_ROOT\" \"$(dirname \"$RUN_LOG\")\" \"$(dirname \"$RESULTS_SUMMARY\")\" \"$(dirname \"$RESULTS_ARCHIVE\")\" \"$STL_INGEST_DIR\"\n"
         "set +e\n"
         "(\n"
@@ -1243,6 +1334,7 @@ def build_colab_run_script(
         "    'extract_root': os.environ['EXTRACT_ROOT'],\n"
         "    'gpu_preflight': os.environ['GPU_PREFLIGHT_PATH'],\n"
         "    'trellis2_provider_preflight': os.environ['TRELLIS2_PREFLIGHT_PATH'],\n"
+        "    'hunyuan3d_2mv_provider_preflight': os.environ['HUNYUAN3D_2MV_PREFLIGHT_PATH'],\n"
         "    'manifest': str(manifest),\n"
         "    'manifest_rows': sum(1 for line in manifest.read_text().splitlines() if line.strip()),\n"
         "}\n"
@@ -1251,7 +1343,7 @@ def build_colab_run_script(
         "    payload['lora_adapter'] = os.environ['LORA_ADAPTER_PATH']\n"
         "print(json.dumps(payload, indent=2, sort_keys=True))\n"
         "PY\n"
-        "if [[ \"${COLAB_PROVIDER_SETUP_ONLY:-0}\" == \"1\" || \"${HUNYUAN3D_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSR_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSG_SETUP_ONLY:-0}\" == \"1\" || \"${PIXAL3D_SETUP_ONLY:-0}\" == \"1\" || \"${TRELLIS2_SETUP_ONLY:-0}\" == \"1\" ]]; then\n"
+        "if [[ \"${COLAB_PROVIDER_SETUP_ONLY:-0}\" == \"1\" || \"${HUNYUAN3D_SETUP_ONLY:-0}\" == \"1\" || \"${HUNYUAN3D_2MV_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSR_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSG_SETUP_ONLY:-0}\" == \"1\" || \"${PIXAL3D_SETUP_ONLY:-0}\" == \"1\" || \"${TRELLIS2_SETUP_ONLY:-0}\" == \"1\" ]]; then\n"
         "  echo \"Provider setup only requested; skipping benchmark stages\"\n"
         "  exit 0\n"
         "fi\n"
@@ -1373,7 +1465,7 @@ def build_colab_run_script(
         "        'markdown': str(md_path),\n"
         "        'log': str(log_path),\n"
         "    }\n"
-        "    if os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1' or os.environ.get('PIXAL3D_SETUP_ONLY') == '1' or os.environ.get('TRELLIS2_SETUP_ONLY') == '1':\n"
+        "    if os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_2MV_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1' or os.environ.get('PIXAL3D_SETUP_ONLY') == '1' or os.environ.get('TRELLIS2_SETUP_ONLY') == '1':\n"
         "        result['reason'] = 'provider_setup_only'\n"
         "        return result\n"
         "    if not output_root.exists():\n"
@@ -1431,6 +1523,7 @@ def build_colab_run_script(
         "gpu_preflight = pathlib.Path(os.environ['GPU_PREFLIGHT_PATH'])\n"
         "preflight = pathlib.Path(os.environ['PREFLIGHT_PATH'])\n"
         "trellis2_preflight = pathlib.Path(os.environ['TRELLIS2_PREFLIGHT_PATH'])\n"
+        "hunyuan3d_2mv_preflight = pathlib.Path(os.environ['HUNYUAN3D_2MV_PREFLIGHT_PATH'])\n"
         "summary_path = pathlib.Path(os.environ['RESULTS_SUMMARY'])\n"
         "archive_path = pathlib.Path(os.environ['RESULTS_ARCHIVE'])\n"
         "stl_ingest_dir = pathlib.Path(os.environ['STL_INGEST_DIR'])\n"
@@ -1440,6 +1533,10 @@ def build_colab_run_script(
         "gpu_preflight_summary = summarize_gpu_preflight(gpu_preflight)\n"
         "trellis2_preflight_summary = read_json_object(trellis2_preflight)\n"
         "trellis2_preflight_failed = any(not row.get('runnable') for row in trellis2_preflight_summary.get('rows', []))\n"
+        f"hunyuan3d_2mv_preflight_expected = {include_hunyuan3d_2mv_setup!r}\n"
+        "hunyuan3d_2mv_preflight_summary = read_json_object(hunyuan3d_2mv_preflight)\n"
+        "hunyuan3d_2mv_preflight_rows = hunyuan3d_2mv_preflight_summary.get('rows', [])\n"
+        "hunyuan3d_2mv_preflight_failed = hunyuan3d_2mv_preflight_expected and (not hunyuan3d_2mv_preflight_rows or any(not row.get('runnable') for row in hunyuan3d_2mv_preflight_rows))\n"
         "orchestrator_result = output_root / 'orchestrator_result.json'\n"
         "selection_decisions = sorted(output_root.glob('combined/*/selection_decision.json')) if output_root.exists() else []\n"
         "eval_summaries = [summarize_benchmark_dir(path) for path in sorted(output_root.glob('experiments/*'))] if output_root.exists() else []\n"
@@ -1449,8 +1546,8 @@ def build_colab_run_script(
         "    'generated_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),\n"
         "    'run_name': os.environ['RUN_NAME'],\n"
         "    'run_status': run_status,\n"
-        "    'failure_stage': 'gpu_preflight' if run_status and gpu_preflight_summary.get('ok') is False else ('trellis2_preflight' if run_status and trellis2_preflight_failed else ''),\n"
-        "    'provider_setup_only': os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1' or os.environ.get('PIXAL3D_SETUP_ONLY') == '1' or os.environ.get('TRELLIS2_SETUP_ONLY') == '1',\n"
+        "    'failure_stage': 'gpu_preflight' if run_status and gpu_preflight_summary.get('ok') is False else ('hunyuan3d_2mv_preflight' if run_status and hunyuan3d_2mv_preflight_failed else ('trellis2_preflight' if run_status and trellis2_preflight_failed else '')),\n"
+        "    'provider_setup_only': os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_2MV_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1' or os.environ.get('PIXAL3D_SETUP_ONLY') == '1' or os.environ.get('TRELLIS2_SETUP_ONLY') == '1',\n"
         "    'output_root': str(output_root),\n"
         "    'output_root_exists': output_root.exists(),\n"
         "    'run_log': str(run_log),\n"
@@ -1459,6 +1556,9 @@ def build_colab_run_script(
         "    'preflight': str(preflight),\n"
         "    'trellis2_provider_preflight': str(trellis2_preflight),\n"
         "    'trellis2_provider_preflight_summary': trellis2_preflight_summary,\n"
+        "    'hunyuan3d_2mv_provider_preflight': str(hunyuan3d_2mv_preflight),\n"
+        "    'hunyuan3d_2mv_provider_preflight_expected': hunyuan3d_2mv_preflight_expected,\n"
+        "    'hunyuan3d_2mv_provider_preflight_summary': hunyuan3d_2mv_preflight_summary,\n"
         "    'results_archive': str(archive_path),\n"
         "    'stl_first_ingest_report': stl_ingest_report,\n"
         "    'orchestrator_result': str(orchestrator_result) if orchestrator_result.exists() else '',\n"
@@ -1472,6 +1572,7 @@ def build_colab_run_script(
         "    add_if_exists(tar, gpu_preflight, 'gpu_preflight.json')\n"
         "    add_if_exists(tar, preflight, 'launch_preflight.json')\n"
         "    add_if_exists(tar, trellis2_preflight, 'trellis2_provider_preflight.json')\n"
+        "    add_if_exists(tar, hunyuan3d_2mv_preflight, 'hunyuan3d_2mv_provider_preflight.json')\n"
         "    add_if_exists(tar, run_log, 'run_colab_eval.log')\n"
         "    add_if_exists(tar, summary_path, 'results_summary.json')\n"
         "    add_if_exists(tar, stl_ingest_json, 'stl_first_ingest_report.json')\n"
@@ -1769,6 +1870,7 @@ def package_inputs(
     include_triposg_setup: bool = False,
     include_pixal3d_setup: bool = False,
     include_trellis2_setup: bool = False,
+    include_hunyuan3d_2mv_setup: bool = False,
     include_hunyuan3d_setup: bool = False,
     colab_env: dict[str, str] | None = None,
     report_path: Path | None = None,
@@ -1855,6 +1957,7 @@ def package_inputs(
                 include_triposg_setup=include_triposg_setup,
                 include_pixal3d_setup=include_pixal3d_setup,
                 include_trellis2_setup=include_trellis2_setup,
+                include_hunyuan3d_2mv_setup=include_hunyuan3d_2mv_setup,
                 include_hunyuan3d_setup=include_hunyuan3d_setup,
             )
             add_text_file(tar, "run_colab_eval.sh", run_script_text, mode=0o755)
@@ -1928,6 +2031,21 @@ def package_inputs(
                 for name, spec in trellis2_model_specs().items()
             }
             if include_trellis2_setup
+            else {}
+        ),
+        "include_hunyuan3d_2mv_setup": include_hunyuan3d_2mv_setup,
+        "hunyuan3d_2mv_source_revision": (
+            DEFAULT_HUNYUAN3D_2MV_SOURCE_REVISION
+            if include_hunyuan3d_2mv_setup
+            else ""
+        ),
+        "hunyuan3d_2mv_model_snapshot": (
+            {
+                "repo_id": DEFAULT_HUNYUAN3D_2MV_MODEL,
+                "revision": DEFAULT_HUNYUAN3D_2MV_MODEL_REVISION,
+                "subfolder": DEFAULT_HUNYUAN3D_2MV_SUBFOLDER,
+            }
+            if include_hunyuan3d_2mv_setup
             else {}
         ),
         "include_hunyuan3d_setup": include_hunyuan3d_setup,
@@ -2065,6 +2183,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Embed a Colab setup prelude for /content/Hunyuan3D-2.1 and /content/hunyuan3d-venv before running eval.",
     )
+    parser.add_argument(
+        "--include-hunyuan3d-2mv-setup",
+        action="store_true",
+        help=(
+            "Embed a pinned shape-only Colab setup and preflight for /content/Hunyuan3D-2 "
+            "and /content/hunyuan3d-2mv-venv before running eval."
+        ),
+    )
     parser.add_argument("--report", default=None)
     parser.add_argument(
         "--inline-colab-launcher",
@@ -2142,6 +2268,7 @@ def main() -> None:
         include_triposg_setup=args.include_triposg_setup,
         include_pixal3d_setup=args.include_pixal3d_setup,
         include_trellis2_setup=args.include_trellis2_setup,
+        include_hunyuan3d_2mv_setup=args.include_hunyuan3d_2mv_setup,
         include_hunyuan3d_setup=args.include_hunyuan3d_setup,
         colab_env=parse_colab_env(args.colab_env),
         report_path=Path(args.report) if args.report else None,
