@@ -1648,6 +1648,36 @@ The 131,072-face ceiling still reduces Pixal's `964,623-998,737` raw faces by at
 
 All five compact evidence bundles were copied locally before disconnect, checksum-verified, and contain the result summary, selection decision, per-sample metrics, provider preflight, contact sheet, failure logs, and run-log tail. The final full archive was `655,742,061` bytes with SHA256 `c75c59822fbcecce3224e20420d1ef655f917bf6457f52e311d80d4e59512e09`; the final compact bundle was `1,254,954` bytes with SHA256 `8bac48828f71d49be6b48e15dfa6380a4801b3a5d5a42f1c2dae8593f3f317de`.
 
+### TRELLIS.2 G4 five-sample result
+
+The pinned TRELLIS.2 lane completed on the same five held-out ModelNet rows as `g4_stl_first_trellis2_vs_triposg_s40_n5_r3` at commit `6acebcd`. It used the exact source revision `75fbf0183001ed9876c8dbb35de6b68552ee08bd`, the pinned `microsoft/TRELLIS.2-4B` and sparse-structure snapshots, public exact-revision DINOv3 and BiRefNet substitutes for gated references, and a validated `xformers` attention backend. This is a compatibility-adapted pinned run, not an unmodified official pipeline. The complete machine-readable trail is [trellis2-g4-s40-n1-r3-n5-r1-r3.json](benchmark-evidence/trellis2-g4-s40-n1-r3-n5-r1-r3.json).
+
+| method | n | STL-quality score vs masked | mesh Chamfer med | mesh H95 med | complexity log1p med | printable samples |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `source_mesh_oracle` | 5 | 2.8629 | 0.0510 | 0.2687 | 5.6857 | 5/5 (diagnostic only) |
+| `trellis2_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh` | 5 | 1.3779 | 0.1676 | 0.3595 | 6.5909 | 5/5 |
+| `triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh` | 5 | 0.9521 | 0.1264 | 0.3492 | 9.5266 | 5/5 |
+| `biharmonic` | 5 | 0.1674 | 0.1604 | 0.4186 | 11.1779 | 5/5 |
+| `mirror` | 5 | 0.0394 | 0.1568 | 0.4698 | 11.2083 | 5/5 |
+| `masked` | 5 | 0.0000 | 0.1748 | 0.4505 | 11.1885 | 5/5 |
+| `trellis2_biharmonic_prefill_raw_direct_mesh` | 5 | -26.4387 | 0.2097 | 0.4543 | 16.4081 | 0/5 |
+
+The reliability work was measured in three five-row passes:
+
+| run | change | repaired TRELLIS coverage | measured outcome |
+| --- | --- | ---: | --- |
+| `n5_r1` | first pinned batch | 3/5 | one empty sparse structure and one `2,768,786`-face mesh above the safe repair limit |
+| `n5_r2` | one deterministic empty-structure retry plus bounded fast component filtering | 5/5 | retry seed `43` recovered the empty sample; all five STLs passed hard gates |
+| `n5_r3` | volume-first fast component ranking and timing/sidecar integrity fixes | 5/5 | corrected the destructive filter policy and kept legacy cached inference timing unknown |
+
+The final decision remains `hold`, despite the higher composite score and `4/5` paired objective wins against TripoSG. The paired CI95 lower bound was positive (`0.1693`), but the selector also protects worst-sample surface quality: TRELLIS-to-TripoSG worst ratios were `1.3447x` for Chamfer and `1.2580x` for H95, both above the `1.10x` ceiling. Median paired ratios were `1.0583x` and `0.9814x`, so the issue is localized rather than a blanket failure; the next repair experiment should target those outliers rather than weaken the gate.
+
+Raw TRELLIS meshes ranged from `550,804` to `2,768,786` faces and `319` to `133,533` components, and none were printable. Volume-first repair reduced the dense desk sample to a `48`-face printable body, but its H95 rose to `0.5487`, illustrating the same tradeoff seen with Pixal3D: closing a fragmented generative mesh can discard hidden-side shape. The next TRELLIS iteration should compare shape-preserving component closure against this fallback on the exact cached raw meshes before expanding the sample count.
+
+Runtime evidence is intentionally qualified. TRELLIS generation was measured on the cache-producing pass at a median `55.5545s`; final-run repair was `3.5903s` median. TripoSG used a legacy cache whose metadata did not contain inference duration, so its final-run inference field is blank rather than the cache lookup time. Peak child-process VRAM and self-intersection counts are also explicitly unsupported, not zero. This dataset has one view per asset, so held-out view agreement is unavailable; Chamfer/H95 against the hidden source mesh remain the relevant surface checks, with the source geometry kept diagnostic-only.
+
+The final package was `649,643` bytes with SHA256 `f541a97f0fddab2b70cdf26b1321e8698cf9e089a6fa01718bd741f2b252575d`. The full result archive was `290,340,713` bytes with SHA256 `61ba9e27746543e7cd0d2b7d182746b2980cd02de9ecef359f8889f470cb70ef`; the locally verified 150-file compact bundle was `1,905,521` bytes with SHA256 `a87d95b0408ea140154493c819c40100eb0f079ec067fcfc1fdc6af2708129a6`.
+
 ## Kaggle
 
 A GPU-enabled Kaggle kernel scaffold lives in `backend/benchmark/kaggle`.
