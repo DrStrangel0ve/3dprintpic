@@ -33,7 +33,7 @@
     "direct_mesh_input": "biharmonic",
     "direct_mesh_output_ext": "glb",
     "direct_mesh_timeout": 3600,
-    "direct_mesh_command": "/content/triposg-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider triposg --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --provider-dir /content/TripoSG --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --mesh-repair printable --mesh-target-bbox-extents \"{inferred_bbox_extents}\" --mesh-target-faces 40000 --mesh-max-normalized-face-density-log1p 9.95 --num-inference-steps 50 --guidance-scale 7.0",
+    "direct_mesh_command": "/content/triposg-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider triposg --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --provider-dir /content/TripoSG --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --mesh-repair printable --mesh-target-bbox-extents \"{inferred_bbox_extents}\" --mesh-target-faces 40000 --mesh-max-normalized-face-density-log1p 9.95 --triposg-model-revision 2c1c516d22d58db486a058d98d31bb6177344e06 --triposg-rembg-revision 2ceba5a5efaec153162aedea169f76caf9b46cf8 --num-inference-steps 50 --guidance-scale 7.0",
     "direct_mesh_bbox_source": "inferred",
     "direct_mesh_reference_method": "mirror",
     "oracle_diagnostic": false

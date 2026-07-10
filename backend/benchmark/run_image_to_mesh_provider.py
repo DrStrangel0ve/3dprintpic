@@ -33,6 +33,7 @@ from backend.benchmark.pixal3d_models import (
     DEFAULT_PIXAL3D_REMBG_REVISION,
     pixal3d_model_specs,
 )
+from backend.benchmark.triposg_models import triposg_model_specs
 
 
 MESH_EXTENSIONS = (".glb", ".gltf", ".obj", ".ply", ".stl")
@@ -265,6 +266,25 @@ def pixal3d_model_revisions_pinned(args: argparse.Namespace) -> bool:
     return len(present) == len(revisions)
 
 
+def triposg_provider_models(args: argparse.Namespace) -> dict[str, dict[str, str]]:
+    return triposg_model_specs(
+        model_revision=getattr(args, "triposg_model_revision", None) or "",
+        rembg_revision=getattr(args, "triposg_rembg_revision", None) or "",
+    )
+
+
+def triposg_model_revisions_pinned(args: argparse.Namespace) -> bool:
+    revisions = {
+        "model": getattr(args, "triposg_model_revision", None),
+        "rembg": getattr(args, "triposg_rembg_revision", None),
+    }
+    present = {name for name, revision in revisions.items() if str(revision or "").strip()}
+    if present and len(present) != len(revisions):
+        missing = ", ".join(sorted(set(revisions) - present))
+        raise ValueError(f"TripoSG model revisions must be supplied together; missing: {missing}")
+    return len(present) == len(revisions)
+
+
 def resolve_pixal3d_model_snapshots(args: argparse.Namespace) -> dict[str, Path]:
     from huggingface_hub import snapshot_download
 
@@ -367,6 +387,8 @@ def cli_provider_cache_payload(
     }
     if args.provider == PIXAL3D_PROVIDER:
         payload["provider_models"] = pixal3d_provider_models(args)
+    elif args.provider == "triposg":
+        payload["provider_models"] = triposg_provider_models(args)
     return payload
 
 
@@ -456,6 +478,7 @@ def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_outpu
 def run_cli_provider(args: argparse.Namespace) -> Path:
     provider_dir = resolve_provider_dir(args.provider, args.provider_dir)
     pixal3d_pinned = args.provider == PIXAL3D_PROVIDER and pixal3d_model_revisions_pinned(args)
+    triposg_pinned = args.provider == "triposg" and triposg_model_revisions_pinned(args)
     runner = CLI_PROVIDERS[args.provider].get("runner")
     if runner == "triposg-module":
         run_entry = provider_dir / "scripts" / "inference_triposg.py"
@@ -504,6 +527,13 @@ def run_cli_provider(args: argparse.Namespace) -> Path:
             return reused_mesh
     if pixal3d_pinned:
         resolve_pixal3d_model_snapshots(args)
+    if triposg_pinned:
+        os.environ.update(
+            {
+                "TRIPOSG_MODEL_REVISION": args.triposg_model_revision,
+                "TRIPOSG_REMBG_REVISION": args.triposg_rembg_revision,
+            }
+        )
     started_at = time.time()
     command = cli_provider_command(args, provider_dir, raw_output_dir)
     subprocess.run(command, cwd=provider_dir, check=True, timeout=args.timeout)
@@ -987,6 +1017,8 @@ def main() -> None:
     parser.add_argument("--pixal3d-dinov3-revision", default=None)
     parser.add_argument("--pixal3d-rembg-model", default=DEFAULT_PIXAL3D_REMBG_MODEL)
     parser.add_argument("--pixal3d-rembg-revision", default=None)
+    parser.add_argument("--triposg-model-revision", default=None)
+    parser.add_argument("--triposg-rembg-revision", default=None)
     parser.add_argument(
         "--mesh-repair",
         choices=MESH_REPAIR_MODES,

@@ -1614,6 +1614,8 @@ The original selector reported `promote` with no failed STL gates, but this is a
 
 The next-run setup also converts the four observed Hugging Face revisions into executable pins. It resolves Pixal3D, MoGe-2, DINOv3, and BiRefNet at their exact recorded SHAs, validates their required snapshot files, passes local paths into the patched official launcher (`model.pt` for MoGe), switches Hugging Face loading offline after resolution, and includes canonical repo IDs plus revisions in provider preflight, package reports, and raw-mesh cache identity. Changing any one revision invalidates the cache key.
 
+The TripoSG control arm is immutable in the same run: `VAST-AI/TripoSG` is pinned to `2c1c516d22d58db486a058d98d31bb6177344e06` and `briaai/RMBG-1.4` to `2ceba5a5efaec153162aedea169f76caf9b46cf8`. Setup prefetches those revisions into the official local directories, and the patched launcher requires the same revisions at inference time. This prevents a moving incumbent checkpoint from contaminating the Pixal3D comparison.
+
 Runtime retention note: the notebook preserved the complete result summary and archive digest, but the idle-cost automation disconnected the runtime before the archive/contact sheet could be copied locally. That automation is paused for the next measured batch so compact evidence can be captured before deliberate disconnect.
 
 ## Kaggle

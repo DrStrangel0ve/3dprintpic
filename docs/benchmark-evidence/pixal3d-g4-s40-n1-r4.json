@@ -188,7 +188,11 @@
     "cache_identity_includes_all_four_repo_ids_and_revisions": true,
     "runtime_uses_local_snapshot_paths": true,
     "mo_ge_runtime_path": "<snapshot>/model.pt",
-    "hugging_face_runtime_offline_after_resolution": true
+    "hugging_face_runtime_offline_after_resolution": true,
+    "triposg_control_snapshots": {
+      "VAST-AI/TripoSG": "2c1c516d22d58db486a058d98d31bb6177344e06",
+      "briaai/RMBG-1.4": "2ceba5a5efaec153162aedea169f76caf9b46cf8"
+    }
   },
   "validation": {
     "backend_tests": 220,
@@ -196,8 +200,8 @@
     "generated_runner_bash_syntax": "passed"
   },
   "followup_validation": {
-    "backend_tests": 227,
-    "backend_tests_passed": 227,
+    "backend_tests": 230,
+    "backend_tests_passed": 230,
     "generated_runner_bash_syntax": "passed",
     "snapshot_required_files_verified": 4,
     "snapshot_revision_matches_verified": 4

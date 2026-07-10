@@ -24,6 +24,7 @@ from backend.benchmark.pixal3d_models import (
     DEFAULT_PIXAL3D_REMBG_MODEL,
     pixal3d_model_specs,
 )
+from backend.benchmark.triposg_models import triposg_model_specs
 
 
 BUILTIN_PROVIDERS = {SOURCE_MESH_BUNDLE_ORACLE_PROVIDER, MULTIVIEW_VISUAL_HULL_PROVIDER}
@@ -92,6 +93,11 @@ def parse_provider_command(command: str) -> dict | None:
             name: {"repo_id": spec["repo_id"], "revision": spec["revision"]}
             for name, spec in specs.items()
         }
+    elif provider == "triposg":
+        parsed["provider_models"] = triposg_model_specs(
+            model_revision=flag_value(tokens, "--triposg-model-revision") or "",
+            rembg_revision=flag_value(tokens, "--triposg-rembg-revision") or "",
+        )
     return parsed
 
 
@@ -147,6 +153,17 @@ def provider_preflight_row(parsed: dict, experiment_names: list[str] | None = No
         checks["model_revisions_pinned"] = revisions_present == 4
         if not revisions_complete:
             setup_errors.append("Pixal3D model revisions must be supplied together for all four snapshots.")
+    elif provider == "triposg":
+        revisions = [
+            str(spec.get("revision") or "").strip()
+            for spec in (parsed.get("provider_models") or {}).values()
+        ]
+        revisions_present = sum(bool(revision) for revision in revisions)
+        revisions_complete = revisions_present in {0, 2}
+        checks["model_revisions_complete"] = revisions_complete
+        checks["model_revisions_pinned"] = revisions_present == 2
+        if not revisions_complete:
+            setup_errors.append("TripoSG model revisions must be supplied together for both snapshots.")
 
     provider_dir = None
     provider_dir_resolved = False

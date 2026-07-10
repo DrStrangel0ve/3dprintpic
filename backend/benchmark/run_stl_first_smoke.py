@@ -30,6 +30,10 @@ from backend.benchmark.pixal3d_models import (
     DEFAULT_PIXAL3D_REMBG_MODEL,
     DEFAULT_PIXAL3D_REMBG_REVISION,
 )
+from backend.benchmark.triposg_models import (
+    DEFAULT_TRIPOSG_MODEL_REVISION,
+    DEFAULT_TRIPOSG_REMBG_REVISION,
+)
 
 
 DEFAULT_DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Small-hf"
@@ -210,6 +214,10 @@ def hunyuan3d_command(args: argparse.Namespace, repaired: bool) -> str:
 
 def triposg_command(args: argparse.Namespace, repaired: bool) -> str:
     triposg_extra = [
+        "--triposg-model-revision",
+        getattr(args, "triposg_model_revision", DEFAULT_TRIPOSG_MODEL_REVISION),
+        "--triposg-rembg-revision",
+        getattr(args, "triposg_rembg_revision", DEFAULT_TRIPOSG_REMBG_REVISION),
         "--num-inference-steps",
         str(args.triposg_num_inference_steps),
         "--guidance-scale",
@@ -863,6 +871,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--triposg-num-inference-steps", type=int, default=50)
     parser.add_argument("--triposg-guidance-scale", type=float, default=7.0)
     parser.add_argument("--triposg-seed", type=int, default=None)
+    parser.add_argument("--triposg-model-revision", default=DEFAULT_TRIPOSG_MODEL_REVISION)
+    parser.add_argument("--triposg-rembg-revision", default=DEFAULT_TRIPOSG_REMBG_REVISION)
     parser.add_argument("--include-pixal3d", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument(
         "--pixal3d-direct-input",

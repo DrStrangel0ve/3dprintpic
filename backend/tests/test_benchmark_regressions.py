@@ -86,6 +86,10 @@ from backend.benchmark.run_triposr_repair_smoke import build_experiments, rows_f
 from backend.benchmark.run_completion_benchmark import evaluate_sample, run_one, stl_diagnostics, summarize, write_split_audit
 from backend.benchmark.select_completion_candidate import evaluate_selection, json_safe
 from backend.benchmark.train_inpainting_lora import InpaintPairDataset, collate, dry_run, read_metadata, weighted_mse_loss
+from backend.benchmark.triposg_models import (
+    DEFAULT_TRIPOSG_MODEL_REVISION,
+    DEFAULT_TRIPOSG_REMBG_REVISION,
+)
 from backend.benchmark.weight_training_pairs import weight_metadata_rows
 from backend.pic_to_3d import (
     _diagnostic_signed_volume,
@@ -4074,6 +4078,14 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
                 archive_run_script = tar.extractfile("run_colab_eval.sh").read().decode("utf-8")
 
         self.assertTrue(report["include_triposg_setup"])
+        self.assertEqual(
+            report["triposg_model_snapshots"]["triposg"]["revision"],
+            DEFAULT_TRIPOSG_MODEL_REVISION,
+        )
+        self.assertEqual(
+            report["triposg_model_snapshots"]["rembg"]["revision"],
+            DEFAULT_TRIPOSG_REMBG_REVISION,
+        )
         self.assertEqual(report["colab_require_gpu_name_regex"], "RTX PRO 6000|Blackwell")
         self.assertEqual(report["colab_min_gpu_memory_gb"], 90)
         self.assertLess(archive_run_script.index("COLAB_REQUIRE_GPU_NAME_REGEX='RTX PRO 6000|Blackwell'"), archive_run_script.index('TRIPOSG_DIR="${TRIPOSG_DIR:-/content/TripoSG}"'))
@@ -4106,6 +4118,11 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("torch.cuda.is_available()", archive_run_script)
         self.assertIn("VAST-AI/TripoSG", archive_run_script)
         self.assertIn("briaai/RMBG-1.4", archive_run_script)
+        self.assertIn(DEFAULT_TRIPOSG_MODEL_REVISION, archive_run_script)
+        self.assertIn(DEFAULT_TRIPOSG_REMBG_REVISION, archive_run_script)
+        self.assertIn("snapshot_download(repo_id=repo_id, revision=revision, local_dir=local_dir)", archive_run_script)
+        self.assertIn("python -m backend.benchmark.patch_triposg_sources", archive_run_script)
+        self.assertIn("export TRIPOSG_HF_LOCAL_ONLY=1", archive_run_script)
         self.assertIn("TRIPOSG_SETUP_ONLY", archive_run_script)
         self.assertIn("--candidate-method triposg_masked_repaired_direct_mesh", archive_run_script)
 

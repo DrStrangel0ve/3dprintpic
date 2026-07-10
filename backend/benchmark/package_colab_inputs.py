@@ -26,6 +26,13 @@ from backend.benchmark.pixal3d_models import (
     DEFAULT_PIXAL3D_REMBG_REVISION,
     pixal3d_model_specs,
 )
+from backend.benchmark.triposg_models import (
+    DEFAULT_TRIPOSG_MODEL,
+    DEFAULT_TRIPOSG_MODEL_REVISION,
+    DEFAULT_TRIPOSG_REMBG_MODEL,
+    DEFAULT_TRIPOSG_REMBG_REVISION,
+    triposg_model_specs,
+)
 
 
 DEFAULT_PATH_FIELDS = (
@@ -368,7 +375,9 @@ def build_triposg_setup_prelude() -> str:
         "TRIPOSG_DIR=\"${TRIPOSG_DIR:-/content/TripoSG}\"\n"
         "TRIPOSG_VENV=\"${TRIPOSG_VENV:-/content/triposg-venv}\"\n"
         "TRIPOSG_REF=\"${TRIPOSG_REF:-fc5c40990181e2a756c4e0b1c2f4d6b5202faf8c}\"\n"
-        "export TRIPOSG_DIR TRIPOSG_VENV TRIPOSG_REF\n"
+        f"TRIPOSG_MODEL_REVISION=\"${{TRIPOSG_MODEL_REVISION:-{DEFAULT_TRIPOSG_MODEL_REVISION}}}\"\n"
+        f"TRIPOSG_REMBG_REVISION=\"${{TRIPOSG_REMBG_REVISION:-{DEFAULT_TRIPOSG_REMBG_REVISION}}}\"\n"
+        "export TRIPOSG_DIR TRIPOSG_VENV TRIPOSG_REF TRIPOSG_MODEL_REVISION TRIPOSG_REMBG_REVISION\n"
         "if [[ ! -d \"$TRIPOSG_DIR/.git\" ]]; then\n"
         "  rm -rf \"$TRIPOSG_DIR\"\n"
         "  git clone --filter=blob:none https://github.com/VAST-AI-Research/TripoSG \"$TRIPOSG_DIR\"\n"
@@ -399,6 +408,7 @@ def build_triposg_setup_prelude() -> str:
         "script.write_text(text)\n"
         "print('TripoSG setup checkpoint: non-flash decoder patch applied')\n"
         "PY\n"
+        "python -m backend.benchmark.patch_triposg_sources --triposg-dir \"$TRIPOSG_DIR\"\n"
         "python -m pip install -q virtualenv\n"
         "if [[ ! -x \"$TRIPOSG_VENV/bin/python\" ]]; then\n"
         "  python -m virtualenv --system-site-packages \"$TRIPOSG_VENV\"\n"
@@ -472,6 +482,8 @@ def build_triposg_setup_prelude() -> str:
         "echo \"TripoSG setup checkpoint: CLI imports ok\"\n"
         "if [[ \"${TRIPOSG_PREFETCH:-0}\" == \"1\" ]]; then\n"
         "  \"$TRIPOSG_VENV/bin/python\" - <<'PY'\n"
+        "import os\n"
+        "from pathlib import Path\n"
         "import torch\n"
         "from huggingface_hub import snapshot_download\n"
         "if not torch.cuda.is_available():\n"
@@ -481,10 +493,16 @@ def build_triposg_setup_prelude() -> str:
         "print(f'TripoSG CUDA device: {props.name}, VRAM={total_gb:.1f} GB')\n"
         "if total_gb < 8:\n"
         "    raise SystemExit(f'TripoSG needs at least about 8 GB VRAM, got {total_gb:.1f} GB')\n"
-        "for repo_id in ('VAST-AI/TripoSG', 'briaai/RMBG-1.4'):\n"
-        "    path = snapshot_download(repo_id=repo_id)\n"
-        "    print(f'TripoSG prefetched {repo_id}: {path}')\n"
+        "root = Path(os.environ['TRIPOSG_DIR'])\n"
+        "specs = (\n"
+        f"    ('{DEFAULT_TRIPOSG_MODEL}', os.environ['TRIPOSG_MODEL_REVISION'], root / 'pretrained_weights' / 'TripoSG'),\n"
+        f"    ('{DEFAULT_TRIPOSG_REMBG_MODEL}', os.environ['TRIPOSG_REMBG_REVISION'], root / 'pretrained_weights' / 'RMBG-1.4'),\n"
+        ")\n"
+        "for repo_id, revision, local_dir in specs:\n"
+        "    path = snapshot_download(repo_id=repo_id, revision=revision, local_dir=local_dir)\n"
+        "    print(f'TripoSG prefetched {repo_id}@{revision}: {path}')\n"
         "PY\n"
+        "  export TRIPOSG_HF_LOCAL_ONLY=1\n"
         "  echo \"TripoSG setup checkpoint: weights prefetched\"\n"
         "fi\n"
     )
@@ -1677,6 +1695,9 @@ def package_inputs(
         "colab_min_gpu_memory_gb": colab_min_gpu_memory_gb,
         "include_triposr_setup": include_triposr_setup,
         "include_triposg_setup": include_triposg_setup,
+        "triposg_model_snapshots": (
+            triposg_model_specs() if include_triposg_setup else {}
+        ),
         "include_pixal3d_setup": include_pixal3d_setup,
         "pixal3d_model_snapshots": (
             {
