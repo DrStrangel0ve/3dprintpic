@@ -495,6 +495,7 @@ def write_architecture_report(experiment_dir: Path, output_dir: Path, label: str
         "promotion_eligible_winner": run.get("promotion_eligible_winner", {}),
         "oracle_diagnostic_winner": run.get("oracle_diagnostic_winner", {}),
         "best_by_stl_mode": run.get("best_by_stl_mode", []),
+        "architecture_replacement_decision": run.get("architecture_replacement_decision", {}),
         "ranked_methods": run.get("ranked_methods", []),
     }
 
@@ -640,6 +641,9 @@ def run_smoke(args: argparse.Namespace) -> dict:
         summary["promotion_eligible_winner"] = architecture_report.get("promotion_eligible_winner", {})
         summary["oracle_diagnostic_winner"] = architecture_report.get("oracle_diagnostic_winner", {})
         summary["best_by_stl_mode"] = architecture_report.get("best_by_stl_mode", [])
+        summary["architecture_replacement_decision"] = architecture_report.get(
+            "architecture_replacement_decision", {}
+        )
     summary["selection_decision"] = read_json(experiment_dir / "selection_decision.json")
     if (experiment_dir / "selection_decision.md").exists():
         summary["selection_decision_md"] = str(experiment_dir / "selection_decision.md")

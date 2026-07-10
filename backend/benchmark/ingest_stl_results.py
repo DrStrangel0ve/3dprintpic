@@ -17,12 +17,13 @@ from backend.benchmark.rank_methods import (
     with_derived_metrics,
 )
 from backend.benchmark.report_run import format_number, markdown_table
-from backend.benchmark.stl_modes import STL_MODE_SOURCE_MESH_ORACLE, STL_MODES, infer_stl_mode
+from backend.benchmark.stl_modes import STL_MODE_DEPTH_RELIEF, STL_MODE_SOURCE_MESH_ORACLE, STL_MODES, infer_stl_mode
 from backend.benchmark.select_completion_candidate import json_safe, load_per_sample_rows, load_summary_rows
 
 
 SUMMARY_FILES = ("aggregate_summary.csv", "summary_metrics.csv")
 DEPLOYABLE_STL_MODES = tuple(mode for mode in STL_MODES if mode != STL_MODE_SOURCE_MESH_ORACLE)
+CHALLENGER_STL_MODES = tuple(mode for mode in DEPLOYABLE_STL_MODES if mode != STL_MODE_DEPTH_RELIEF)
 MODE_ORDER = {mode: index for index, mode in enumerate(STL_MODES)}
 SCALE_FREE_COMPLEXITY_MEDIAN = "stl_faces_per_normalized_bbox_volume_log1p_median"
 SCALE_FREE_COMPLEXITY_SAMPLE = "stl_faces_per_normalized_bbox_volume_log1p"
@@ -460,6 +461,109 @@ def first_promotion_eligible(ranked_rows: list[dict], per_sample_rows: list[dict
     return {}
 
 
+def first_promotion_eligible_mode(
+    ranked_rows: list[dict],
+    mode: str,
+    per_sample_rows: list[dict] | None = None,
+) -> dict:
+    for row in ranked_rows:
+        if method_stl_mode(row) != mode or is_oracle_diagnostic(row):
+            continue
+        if promotion_eligible(row, per_sample_rows):
+            return compact_row(row, per_sample_rows)
+    return {}
+
+
+def first_deployable_challenger(
+    ranked_rows: list[dict],
+    per_sample_rows: list[dict] | None = None,
+) -> dict:
+    for row in ranked_rows:
+        if method_stl_mode(row) in CHALLENGER_STL_MODES and not is_oracle_diagnostic(row):
+            return compact_row(row, per_sample_rows)
+    return {}
+
+
+def first_promotion_eligible_challenger(
+    ranked_rows: list[dict],
+    per_sample_rows: list[dict] | None = None,
+) -> dict:
+    for row in ranked_rows:
+        if method_stl_mode(row) not in CHALLENGER_STL_MODES or is_oracle_diagnostic(row):
+            continue
+        if promotion_eligible(row, per_sample_rows):
+            return compact_row(row, per_sample_rows)
+    return {}
+
+
+def score_delta(candidate: dict, baseline: dict) -> float | None:
+    candidate_score = parse_float(candidate.get("rank_score"))
+    baseline_score = parse_float(baseline.get("rank_score"))
+    if candidate_score != candidate_score or baseline_score != baseline_score:
+        return None
+    return candidate_score - baseline_score
+
+
+def architecture_replacement_decision(
+    ranked_rows: list[dict],
+    per_sample_rows: list[dict] | None = None,
+) -> dict:
+    depth_relief = first_promotion_eligible_mode(ranked_rows, STL_MODE_DEPTH_RELIEF, per_sample_rows)
+    challenger = first_promotion_eligible_challenger(ranked_rows, per_sample_rows)
+    score_leading_challenger = first_deployable_challenger(ranked_rows, per_sample_rows)
+
+    if not challenger:
+        reason = "No full-mesh or multiview STL challenger cleared the hard promotion gates."
+        if score_leading_challenger and not score_leading_challenger.get("promotion_eligible"):
+            reason = "The highest-scoring full-mesh or multiview challenger was blocked by STL promotion gates."
+        return {
+            "decision": "keep-depth-relief",
+            "recommended_method": depth_relief.get("method", ""),
+            "recommended_stl_mode": depth_relief.get("stl_mode", ""),
+            "reason": reason,
+            "score_delta_vs_depth_relief": None,
+            "depth_relief_baseline": depth_relief,
+            "promotion_eligible_challenger": {},
+            "score_leading_challenger": score_leading_challenger,
+        }
+
+    delta = score_delta(challenger, depth_relief) if depth_relief else None
+    if not depth_relief:
+        return {
+            "decision": "promote-challenger",
+            "recommended_method": challenger.get("method", ""),
+            "recommended_stl_mode": challenger.get("stl_mode", ""),
+            "reason": "A full-mesh or multiview STL challenger cleared promotion gates and no promotion-eligible depth-relief baseline was found.",
+            "score_delta_vs_depth_relief": delta,
+            "depth_relief_baseline": {},
+            "promotion_eligible_challenger": challenger,
+            "score_leading_challenger": score_leading_challenger,
+        }
+
+    if delta is not None and delta > 0:
+        return {
+            "decision": "promote-challenger",
+            "recommended_method": challenger.get("method", ""),
+            "recommended_stl_mode": challenger.get("stl_mode", ""),
+            "reason": "The best promotion-eligible full-mesh or multiview STL challenger beat the best promotion-eligible depth-relief baseline.",
+            "score_delta_vs_depth_relief": delta,
+            "depth_relief_baseline": depth_relief,
+            "promotion_eligible_challenger": challenger,
+            "score_leading_challenger": score_leading_challenger,
+        }
+
+    return {
+        "decision": "keep-depth-relief",
+        "recommended_method": depth_relief.get("method", ""),
+        "recommended_stl_mode": depth_relief.get("stl_mode", ""),
+        "reason": "The best promotion-eligible full-mesh or multiview STL challenger did not beat the best promotion-eligible depth-relief baseline.",
+        "score_delta_vs_depth_relief": delta,
+        "depth_relief_baseline": depth_relief,
+        "promotion_eligible_challenger": challenger,
+        "score_leading_challenger": score_leading_challenger,
+    }
+
+
 def first_oracle(ranked_rows: list[dict], per_sample_rows: list[dict] | None = None) -> dict:
     for row in ranked_rows:
         if is_oracle_diagnostic(row):
@@ -500,6 +604,7 @@ def summarize_run(
         "promotion_eligible_winner": first_promotion_eligible(ranked_rows, per_sample_rows),
         "oracle_diagnostic_winner": first_oracle(ranked_rows, per_sample_rows),
         "best_by_stl_mode": best_by_mode(ranked_rows, per_sample_rows),
+        "architecture_replacement_decision": architecture_replacement_decision(ranked_rows, per_sample_rows),
         "ranked_methods": [compact_row(row, per_sample_rows) for row in ranked_rows[:top]],
         "gate_failures": gate_failures,
         "sample_failure_hotspots": sample_failure_hotspot_rows(gate_failures),
@@ -607,6 +712,26 @@ def sample_failure_hotspot_table_rows(rows: list[dict]) -> list[list[str]]:
     return table
 
 
+def architecture_decision_table_rows(decision: dict) -> list[list[str]]:
+    if not decision:
+        return []
+    depth = decision.get("depth_relief_baseline") or {}
+    challenger = decision.get("promotion_eligible_challenger") or {}
+    score_leader = decision.get("score_leading_challenger") or {}
+    return [
+        [
+            decision.get("decision", ""),
+            decision.get("recommended_method", ""),
+            decision.get("recommended_stl_mode", ""),
+            depth.get("method", ""),
+            challenger.get("method", ""),
+            score_leader.get("method", ""),
+            format_number(decision.get("score_delta_vs_depth_relief")),
+            decision.get("reason", ""),
+        ]
+    ]
+
+
 def render_markdown(report: dict) -> str:
     input_rows = [
         [item["label"], item["source"], item["extracted_to"] or item["root"]]
@@ -650,6 +775,22 @@ def render_markdown(report: dict) -> str:
             )
         lines.extend(
             [
+                "",
+                "### Architecture Decision",
+                "",
+                markdown_table(
+                    [
+                        "Decision",
+                        "Recommended",
+                        "Mode",
+                        "Depth-Relief Baseline",
+                        "Promotion Challenger",
+                        "Score-Leading Challenger",
+                        "Delta vs Depth-Relief",
+                        "Reason",
+                    ],
+                    architecture_decision_table_rows(run.get("architecture_replacement_decision", {})),
+                ),
                 "",
                 "### Architecture Leaders",
                 "",

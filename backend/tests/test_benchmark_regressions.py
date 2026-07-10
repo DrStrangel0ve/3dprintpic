@@ -2338,10 +2338,16 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertEqual(report["deployable_winner"]["method"], "triposr_repaired")
         self.assertEqual(report["promotion_eligible_winner"]["method"], "triposr_repaired")
         self.assertEqual(report["oracle_diagnostic_winner"]["method"], "source_mesh_oracle")
+        self.assertEqual(report["architecture_replacement_decision"]["decision"], "promote-challenger")
+        self.assertEqual(
+            report["architecture_replacement_decision"]["recommended_method"],
+            "triposr_repaired",
+        )
         self.assertEqual(leaders["depth-relief"], "mirror")
         self.assertEqual(leaders["single-image-mesh"], "triposr_repaired")
         self.assertEqual(leaders["multiview-mesh"], "vggt_multiview_repaired")
         self.assertTrue(Path(report["report_json"]).name.endswith(".json"))
+        self.assertIn("Architecture Decision", markdown)
         self.assertIn("Architecture Leaders", markdown)
 
     def test_stl_first_smoke_optimize_command_uses_stl_quality_profile(self):
@@ -5092,6 +5098,7 @@ class StlResultIngestRegressionTests(unittest.TestCase):
 
         run = report["runs"][0]
         leaders = {row["stl_mode"]: row["method"] for row in run["best_by_stl_mode"]}
+        decision = run["architecture_replacement_decision"]
 
         self.assertEqual(run["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
         self.assertEqual(run["promotion_eligible_winner"]["method"], "hunyuan3d_shape_repaired")
@@ -5099,7 +5106,15 @@ class StlResultIngestRegressionTests(unittest.TestCase):
         self.assertEqual(leaders["depth-relief"], "mirror")
         self.assertEqual(leaders["single-image-mesh"], "hunyuan3d_shape_repaired")
         self.assertEqual(leaders["multiview-mesh"], "vggt_multiview_repaired")
+        self.assertEqual(decision["decision"], "promote-challenger")
+        self.assertEqual(decision["recommended_method"], "hunyuan3d_shape_repaired")
+        self.assertEqual(decision["recommended_stl_mode"], "single-image-mesh")
+        self.assertEqual(decision["depth_relief_baseline"]["method"], "mirror")
+        self.assertEqual(decision["promotion_eligible_challenger"]["method"], "hunyuan3d_shape_repaired")
+        self.assertGreater(decision["score_delta_vs_depth_relief"], 0)
         self.assertIn("Source-mesh oracle rows, including source-mesh bundle oracles", markdown)
+        self.assertIn("Architecture Decision", markdown)
+        self.assertIn("promote-challenger", markdown)
         self.assertIn("Architecture Leaders", markdown)
 
     def test_stl_result_ingest_treats_source_mesh_bundle_oracle_as_diagnostic(self):
@@ -5158,11 +5173,48 @@ class StlResultIngestRegressionTests(unittest.TestCase):
 
         run = report["runs"][0]
         blocked_direct = next(row for row in run["ranked_methods"] if row["method"] == "hunyuan3d_shape_repaired")
+        decision = run["architecture_replacement_decision"]
         self.assertEqual(run["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
         self.assertEqual(run["promotion_eligible_winner"]["method"], "vggt_multiview_repaired")
+        self.assertEqual(decision["decision"], "promote-challenger")
+        self.assertEqual(decision["recommended_method"], "vggt_multiview_repaired")
+        self.assertEqual(decision["score_leading_challenger"]["method"], "hunyuan3d_shape_repaired")
         self.assertFalse(blocked_direct["promotion_eligible"])
         self.assertIn("Degenerate Face Ratio", blocked_direct["failed_promotion_gates"])
         self.assertIn("Promotion-eligible winner", markdown)
+
+    def test_stl_result_ingest_keeps_depth_relief_when_all_challengers_fail_gates(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = self.write_stl_result_run(root / "run")
+            summary_path = run_dir / "aggregate_summary.csv"
+            with summary_path.open(newline="", encoding="utf-8") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+            for row in rows:
+                if row["stl_mode"] in {"single-image-mesh", "multiview-mesh"}:
+                    row["mesh_surface_chamfer_l1_median"] = "0.01"
+                    row["mesh_surface_hausdorff95_median"] = "0.02"
+                    row["stl_degenerate_face_ratio_median"] = "0.01"
+            with summary_path.open("w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=list(rows[0].keys()))
+                writer.writeheader()
+                writer.writerows(rows)
+
+            report = summarize_stl_inputs([str(run_dir)], output_dir=root / "ingested", top=5)
+            markdown = render_stl_ingest_markdown(report)
+
+        run = report["runs"][0]
+        decision = run["architecture_replacement_decision"]
+
+        self.assertEqual(run["promotion_eligible_winner"]["method"], "mirror")
+        self.assertEqual(decision["decision"], "keep-depth-relief")
+        self.assertEqual(decision["recommended_method"], "mirror")
+        self.assertEqual(decision["recommended_stl_mode"], "depth-relief")
+        self.assertEqual(decision["depth_relief_baseline"]["method"], "mirror")
+        self.assertEqual(decision["promotion_eligible_challenger"], {})
+        self.assertEqual(decision["score_leading_challenger"]["method"], "hunyuan3d_shape_repaired")
+        self.assertIn("blocked by STL promotion gates", decision["reason"])
+        self.assertIn("keep-depth-relief", markdown)
 
     def test_stl_result_ingest_blocks_promotion_on_per_sample_stl_failure(self):
         with tempfile.TemporaryDirectory() as temp_dir:
