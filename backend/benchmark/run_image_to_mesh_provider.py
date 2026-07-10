@@ -239,10 +239,30 @@ def cli_provider_cache_payload(
         f"sha256:{input_sha256}" if str(token) == str(args.input_image) else str(token)
         for token in command
     ]
+    source_files = [run_entry]
+    if args.provider == PIXAL3D_PROVIDER:
+        source_files.append(provider_dir / "pixal3d" / "pipelines" / "pixal3d_image_to_3d.py")
+    source_sha256 = {
+        path.relative_to(provider_dir).as_posix(): sha256_file(path)
+        for path in source_files
+        if path.exists()
+    }
+    provider_environment = {
+        name: os.environ.get(name, "")
+        for name in (
+            "ATTN_BACKEND",
+            "PIXAL3D_REMBG_MODEL",
+            "SPARSE_ATTN_BACKEND",
+            "SPARSE_CONV_BACKEND",
+        )
+        if os.environ.get(name)
+    }
     return {
         "provider": args.provider,
         "provider_revision": provider_git_revision(provider_dir),
         "run_entry_sha256": sha256_file(run_entry),
+        "provider_source_sha256": source_sha256,
+        "provider_environment": provider_environment,
         "input_sha256": input_sha256,
         "command": normalized_command,
     }

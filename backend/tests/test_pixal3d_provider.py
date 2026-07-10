@@ -312,6 +312,9 @@ class Pixal3DProviderTest(unittest.TestCase):
             self.assertTrue((root / "repaired.stl").exists())
             self.assertEqual(len(list(cache_dir.glob("*.glb"))), 1)
             self.assertEqual(len(list(cache_dir.glob("*.json"))), 1)
+            cache_metadata = json.loads(next(cache_dir.glob("*.json")).read_text(encoding="utf-8"))
+            self.assertIn("inference.py", cache_metadata["provider_source_sha256"])
+            self.assertIn("provider_environment", cache_metadata)
 
 
 if __name__ == "__main__":
