@@ -250,6 +250,7 @@ class MainStlContractTest(unittest.TestCase):
             with (
                 patch.object(main_module, "OUTPUT_DIR", Path(temp_dir) / "output"),
                 patch.object(main_module, "sam2_selection_mask", side_effect=RuntimeError("checkpoint not cached locally")),
+                patch.object(main_module, "panoptic_selection_mask", side_effect=RuntimeError("panoptic checkpoint not cached locally")),
             ):
                 client = TestClient(main_module.app)
                 response = client.post(
@@ -270,7 +271,8 @@ class MainStlContractTest(unittest.TestCase):
                     self.assertEqual(artifact_response.status_code, 200, url_field)
 
         self.assertEqual(payload["model_status"], "fallback-click-region")
-        self.assertEqual(payload["model_error"], "SAM2 checkpoint is not cached locally")
+        self.assertIn("SAM2 checkpoint is not cached locally", payload["model_error"])
+        self.assertIn("panoptic", payload["model_error"])
         self.assertGreater(payload["mask_pixels"], 0)
         self.assertGreater(payload["mask_coverage"], 0.0)
         self.assertEqual(payload["background_mode"], "white")
@@ -280,6 +282,7 @@ class MainStlContractTest(unittest.TestCase):
             with (
                 patch.object(main_module, "OUTPUT_DIR", Path(temp_dir) / "output"),
                 patch.object(main_module, "sam2_selection_mask", side_effect=RuntimeError("checkpoint not cached locally")),
+                patch.object(main_module, "panoptic_selection_mask", side_effect=RuntimeError("panoptic checkpoint not cached locally")),
             ):
                 client = TestClient(main_module.app)
                 response = client.post(
@@ -302,11 +305,45 @@ class MainStlContractTest(unittest.TestCase):
         self.assertEqual(payload["model_status"], "fallback-click-region")
         self.assertGreater(payload["mask_pixels"], 0)
 
+    def test_selection_mask_preview_can_use_panoptic_segmenter(self):
+        def fake_panoptic(image, points, device="auto"):
+            mask = Image.new("L", image.size, 0)
+            for x in range(8, 18):
+                for y in range(6, 18):
+                    mask.putpixel((x, y), 255)
+            return mask, "facebook/detr-resnet-50-panoptic", ["chair"]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(main_module, "OUTPUT_DIR", Path(temp_dir) / "output"),
+                patch.object(main_module, "panoptic_selection_mask", side_effect=fake_panoptic),
+            ):
+                client = TestClient(main_module.app)
+                response = client.post(
+                    "/selection/mask",
+                    files={"file": ("object.png", self.png_bytes(), "image/png")},
+                    data={
+                        "points_json": json.dumps([{"x": 0.38, "y": 0.5}]),
+                        "model_id": "panoptic-detr",
+                        "mask_max_dimension": "64",
+                    },
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                payload = response.json()
+                mask_response = client.get(payload["mask_url"])
+                self.assertEqual(mask_response.status_code, 200)
+
+        self.assertEqual(payload["model_status"], "panoptic-click-segment")
+        self.assertEqual(payload["model_id"], "facebook/detr-resnet-50-panoptic")
+        self.assertEqual(payload["selection_labels"], ["chair"])
+        self.assertGreater(payload["mask_pixels"], 0)
+
     def test_selection_compose_accepts_fetch_urls_and_writes_selected_image(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             with (
                 patch.object(main_module, "OUTPUT_DIR", Path(temp_dir) / "output"),
                 patch.object(main_module, "sam2_selection_mask", side_effect=RuntimeError("checkpoint not cached locally")),
+                patch.object(main_module, "panoptic_selection_mask", side_effect=RuntimeError("panoptic checkpoint not cached locally")),
             ):
                 client = TestClient(main_module.app)
                 first = client.post(

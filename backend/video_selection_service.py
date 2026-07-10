@@ -179,6 +179,16 @@ app.add_middleware(
 MODEL_GROUPS = {
     "selection": [
         {
+            "id": "detr-resnet-50-panoptic",
+            "label": "DETR Panoptic",
+            "model": "facebook/detr-resnet-50-panoptic",
+            "role": "cached click-to-segment object masks for people, buildings, foliage, and scene parts",
+            "local": True,
+            "gpu_supported": True,
+            "availability": "configured",
+            "notes": "Practical default while SAM2 checkpoints are not cached; selects the panoptic segment under the cursor.",
+        },
+        {
             "id": "sam2.1-hiera-large",
             "label": "SAM 2.1 Hiera Large",
             "model": "facebook/sam2.1-hiera-large",
@@ -207,6 +217,16 @@ MODEL_GROUPS = {
             "gpu_supported": True,
             "availability": "adapter-planned",
             "notes": "Useful when the user names an object instead of clicking it.",
+        },
+        {
+            "id": "panoptic-detr",
+            "label": "DETR Panoptic",
+            "model": "facebook/detr-resnet-50-panoptic",
+            "role": "click nearest panoptic segment",
+            "local": True,
+            "gpu_supported": True,
+            "availability": "configured",
+            "notes": "Opt-in cached panoptic segment fallback for object selection when SAM2 is unavailable or too broad.",
         },
         {
             "id": "rmbg-2.0",
@@ -422,7 +442,7 @@ MODEL_GROUPS = {
 }
 
 DEFAULTS = {
-    "selection": "sam2.1-hiera-large",
+    "selection": "detr-resnet-50-panoptic",
     "frame_selection": "uniform-frame-sampler",
     "camera_pose": "hloc-lightglue",
     "video_reconstruction": "colmap-openmvs",

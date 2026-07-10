@@ -180,6 +180,7 @@ type SelectionResult = {
   model_id?: string;
   model_status?: string;
   model_error?: string | null;
+  selection_labels?: string[];
   mask_pixels?: number;
   mask_coverage?: number;
 };
@@ -298,7 +299,7 @@ const fallbackModelCatalog: ModelCatalog = {
   service: 'frontend-fallback',
   mode: 'planner-only',
   defaults: {
-    selection: 'sam2.1-hiera-large',
+    selection: 'detr-resnet-50-panoptic',
     frame_selection: 'uniform-frame-sampler',
     camera_pose: 'hloc-lightglue',
     video_reconstruction: 'colmap-openmvs',
@@ -307,6 +308,13 @@ const fallbackModelCatalog: ModelCatalog = {
   },
   groups: {
     selection: [
+      {
+        id: 'detr-resnet-50-panoptic',
+        label: 'DETR Panoptic',
+        model: 'facebook/detr-resnet-50-panoptic',
+        role: 'cached click-to-segment object masks for people, buildings, foliage, and scene parts',
+        availability: 'configured',
+      },
       {
         id: 'sam2.1-hiera-large',
         label: 'SAM 2.1 Hiera Large',
@@ -320,6 +328,13 @@ const fallbackModelCatalog: ModelCatalog = {
         model: 'IDEA-Research/GroundingDINO + facebook/sam2.1',
         role: 'text-prompted object box plus mask',
         availability: 'adapter-planned',
+      },
+      {
+        id: 'panoptic-detr',
+        label: 'DETR Panoptic',
+        model: 'facebook/detr-resnet-50-panoptic',
+        role: 'click nearest panoptic segment',
+        availability: 'configured',
       },
       {
         id: 'rmbg-2.0',
@@ -2020,6 +2035,16 @@ export default function Home() {
                         <div className="mt-2 text-xs text-zinc-500">
                           {selectionResult.model_status}
                           {selectionResult.model_error ? ` fallback: ${selectionResult.model_error}` : ''}
+                        </div>
+                      )}
+                      {(hoverSelection?.selection_labels?.length || selectedMasks.length > 0) && (
+                        <div className="mt-2 text-xs text-zinc-500">
+                          {(hoverSelection?.selection_labels?.length
+                            ? hoverSelection.selection_labels
+                            : selectedMasks.flatMap((mask) => mask.selection_labels || [])
+                          )
+                            .filter((label, index, labels) => label && labels.indexOf(label) === index)
+                            .join(', ') || 'object'}
                         </div>
                       )}
                     </div>

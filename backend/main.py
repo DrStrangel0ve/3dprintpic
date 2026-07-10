@@ -100,6 +100,7 @@ SELECTION_MODEL_IDS = {
     "sam2.1-hiera-base-plus": "facebook/sam2.1-hiera-base-plus",
     "grounding-dino-sam2": "facebook/sam2.1-hiera-large",
 }
+PANOPTIC_SELECTION_MODEL_ID = os.getenv("SELECTION_PANOPTIC_MODEL", "facebook/detr-resnet-50-panoptic")
 
 DEPTH_MODELS = [
     {
@@ -491,6 +492,135 @@ def sam2_selection_mask(image: Image.Image, points: list[dict[str, float]], mode
     return Image.fromarray((selected_mask.astype(np.uint8) * 255), mode="L"), hf_model_id
 
 
+def load_panoptic_selection_model(device: str):
+    import torch
+    from transformers import DetrForSegmentation, DetrImageProcessor
+
+    cache_key = (PANOPTIC_SELECTION_MODEL_ID, device)
+    with SELECTION_MODEL_LOCK:
+        if cache_key in SELECTION_MODEL_CACHE:
+            return SELECTION_MODEL_CACHE[cache_key]
+
+        allow_download = os.getenv("SELECTION_ALLOW_MODEL_DOWNLOAD", "").lower() in {"1", "true", "yes", "on"}
+        local_files_only = not allow_download
+        processor = DetrImageProcessor.from_pretrained(PANOPTIC_SELECTION_MODEL_ID, local_files_only=local_files_only)
+        model = DetrForSegmentation.from_pretrained(PANOPTIC_SELECTION_MODEL_ID, local_files_only=local_files_only)
+        model.to(device)
+        model.eval()
+        SELECTION_MODEL_CACHE[cache_key] = (processor, model, PANOPTIC_SELECTION_MODEL_ID)
+        return SELECTION_MODEL_CACHE[cache_key]
+
+
+def nearest_panoptic_segment_id(segmentation: np.ndarray, seed_x: int, seed_y: int) -> int | None:
+    height, width = segmentation.shape
+    if 0 <= seed_x < width and 0 <= seed_y < height:
+        segment_id = int(segmentation[seed_y, seed_x])
+        if segment_id >= 0:
+            return segment_id
+
+    for radius in (8, 16, 32, 64, 96):
+        left = max(0, seed_x - radius)
+        right = min(width, seed_x + radius + 1)
+        top = max(0, seed_y - radius)
+        bottom = min(height, seed_y + radius + 1)
+        window = segmentation[top:bottom, left:right]
+        valid_y, valid_x = np.where(window >= 0)
+        if len(valid_x) == 0:
+            continue
+        absolute_x = valid_x + left
+        absolute_y = valid_y + top
+        distances = (absolute_x - seed_x) ** 2 + (absolute_y - seed_y) ** 2
+        nearest_index = int(np.argmin(distances))
+        return int(window[valid_y[nearest_index], valid_x[nearest_index]])
+    return None
+
+
+def panoptic_selection_mask(
+    image: Image.Image,
+    points: list[dict[str, float]],
+    device: str = "auto",
+) -> tuple[Image.Image, str, list[str]]:
+    import torch
+
+    selected_device = device
+    if selected_device == "auto":
+        selected_device = "cuda" if torch.cuda.is_available() else "cpu"
+    processor, model, model_id = load_panoptic_selection_model(selected_device)
+
+    inputs = processor(images=image, return_tensors="pt")
+    inputs = inputs.to(selected_device)
+    with torch.inference_mode():
+        outputs = model(**inputs)
+
+    processed = processor.post_process_panoptic_segmentation(
+        outputs,
+        target_sizes=[(image.height, image.width)],
+        label_ids_to_fuse=set(),
+    )[0]
+    segmentation = processed["segmentation"].detach().cpu().numpy().astype(np.int32)
+    segment_labels = {
+        int(segment["id"]): str(model.config.id2label.get(int(segment["label_id"]), segment.get("label_id", "object")))
+        for segment in processed.get("segments_info", [])
+    }
+    pixels = selection_points_to_pixels(points, image.width, image.height)
+    selected_ids: set[int] = set()
+    for px_float, py_float in pixels:
+        segment_id = nearest_panoptic_segment_id(segmentation, int(round(px_float)), int(round(py_float)))
+        if segment_id is not None:
+            selected_ids.add(segment_id)
+
+    if not selected_ids:
+        raise RuntimeError("Panoptic segmenter did not find an object under the cursor")
+
+    mask_data = np.isin(segmentation, list(selected_ids))
+    if not np.any(mask_data):
+        raise RuntimeError("Panoptic segmenter returned an empty selection mask")
+
+    mask = Image.fromarray((mask_data.astype(np.uint8) * 255), mode="L")
+    mask = mask.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MinFilter(3))
+    labels = sorted({segment_labels.get(segment_id, f"segment-{segment_id}") for segment_id in selected_ids})
+    return mask, model_id, labels
+
+
+def compact_selection_error(exc: Exception, model_label: str = "model") -> str:
+    message = str(exc)
+    if "cache" in message.lower() and "local" in message.lower():
+        return f"{model_label} checkpoint is not cached locally"
+    if "couldn't connect" in message.lower() and "huggingface.co" in message.lower():
+        return f"{model_label} checkpoint is not cached locally"
+    if len(message) > 220:
+        return f"{message[:217]}..."
+    return message
+
+
+def selection_mask_for_points(
+    image: Image.Image,
+    points: list[dict[str, float]],
+    model_id: str,
+    device: str = "auto",
+    mask_max_dimension: int = 1024,
+) -> tuple[Image.Image, str, str | None, str, list[str]]:
+    model_error = None
+    if model_id.startswith("sam2") or model_id == "grounding-dino-sam2":
+        try:
+            mask, resolved_model_id = sam2_selection_mask(image, points, model_id=model_id, device=device)
+            return mask, resolved_model_id, model_error, "sam2-point-prompt", []
+        except Exception as exc:
+            model_error = compact_selection_error(exc, "SAM2")
+            logger.warning("SAM2 selection failed; trying panoptic segmenter: %s", model_error)
+
+    try:
+        mask, resolved_model_id, labels = panoptic_selection_mask(image, points, device=device)
+        return mask, resolved_model_id, model_error, "panoptic-click-segment", labels
+    except Exception as exc:
+        panoptic_error = compact_selection_error(exc, "Panoptic")
+        logger.warning("Panoptic selection failed; using fallback click-region mask: %s", panoptic_error)
+        model_error = f"{model_error}; panoptic: {panoptic_error}" if model_error else panoptic_error
+
+    mask = fallback_selection_mask(image, points, max_dimension=mask_max_dimension)
+    return mask, model_id, model_error, "fallback-click-region", []
+
+
 def selected_image_from_mask(image: Image.Image, mask: Image.Image, background_mode: str) -> Image.Image:
     background_colors = {
         "neutral": (245, 245, 245),
@@ -590,23 +720,13 @@ async def keep_selected_objects(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
 
-    model_status = "fallback-click-region"
-    model_error = None
-    try:
-        if model_id.startswith("sam2") or model_id == "grounding-dino-sam2":
-            mask, resolved_model_id = sam2_selection_mask(image, points, model_id=model_id, device=device)
-            model_status = "sam2-point-prompt"
-            model_id = resolved_model_id
-        else:
-            mask = fallback_selection_mask(image, points, max_dimension=mask_max_dimension)
-    except Exception as exc:
-        model_error = str(exc)
-        if "cache" in model_error.lower() and "local" in model_error.lower():
-            model_error = "SAM2 checkpoint is not cached locally"
-        elif len(model_error) > 220:
-            model_error = f"{model_error[:217]}..."
-        logger.warning("Selection model failed; using fallback click-region mask: %s", model_error)
-        mask = fallback_selection_mask(image, points, max_dimension=mask_max_dimension)
+    mask, model_id, model_error, model_status, selection_labels = selection_mask_for_points(
+        image,
+        points,
+        model_id=model_id,
+        device=device,
+        mask_max_dimension=mask_max_dimension,
+    )
 
     selected = selected_image_from_mask(image, mask, background_mode=background_mode)
     overlay = selection_overlay(image, mask)
@@ -630,6 +750,7 @@ async def keep_selected_objects(
         "model_id": model_id,
         "model_status": model_status,
         "model_error": model_error,
+        "selection_labels": selection_labels,
         "background_mode": background_mode,
         "image_size": {"width": image.width, "height": image.height},
         "mask_pixels": mask_pixels,
@@ -683,23 +804,13 @@ async def preview_selection_mask(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
 
-    model_status = "fallback-click-region"
-    model_error = None
-    try:
-        if model_id.startswith("sam2") or model_id == "grounding-dino-sam2":
-            mask, resolved_model_id = sam2_selection_mask(image, points, model_id=model_id, device=device)
-            model_status = "sam2-point-prompt"
-            model_id = resolved_model_id
-        else:
-            mask = fallback_selection_mask(image, points, max_dimension=mask_max_dimension)
-    except Exception as exc:
-        model_error = str(exc)
-        if "cache" in model_error.lower() and "local" in model_error.lower():
-            model_error = "SAM2 checkpoint is not cached locally"
-        elif len(model_error) > 220:
-            model_error = f"{model_error[:217]}..."
-        logger.warning("Selection preview model failed; using fallback click-region mask: %s", model_error)
-        mask = fallback_selection_mask(image, points, max_dimension=mask_max_dimension)
+    mask, model_id, model_error, model_status, selection_labels = selection_mask_for_points(
+        image,
+        points,
+        model_id=model_id,
+        device=device,
+        mask_max_dimension=mask_max_dimension,
+    )
 
     mask_path = job_dir / "selection_mask.png"
     overlay_path = job_dir / "selection_overlay.png"
@@ -717,6 +828,7 @@ async def preview_selection_mask(
         "model_id": model_id,
         "model_status": model_status,
         "model_error": model_error,
+        "selection_labels": selection_labels,
         "image_size": {"width": image.width, "height": image.height},
         "mask_pixels": mask_pixels,
         "mask_coverage": mask_pixels / float(max(1, image.width * image.height)),

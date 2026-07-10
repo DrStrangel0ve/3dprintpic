@@ -25,6 +25,7 @@ class VideoSelectionServiceTest(unittest.TestCase):
         self.assertIn("image-to-mesh", data["runner_modes"])
         self.assertEqual(data["defaults"]["image_to_mesh"], DEFAULTS["image_to_mesh"])
         self.assertIn("selection", data["groups"])
+        self.assertIn("panoptic-detr", {model["id"] for model in data["groups"]["selection"]})
         self.assertIn("video_reconstruction", data["groups"])
         self.assertIn("stl_postprocess", data["groups"])
         self.assertIn("watertightness", data["metrics"])
