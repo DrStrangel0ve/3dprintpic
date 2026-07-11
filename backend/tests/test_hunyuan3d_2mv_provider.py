@@ -601,6 +601,39 @@ class Hunyuan3D2mvProviderTest(unittest.TestCase):
                 2,
             )
 
+    def test_optimal_d985_n10_config_keeps_only_the_measured_candidate_and_controls(self):
+        config_path = Path(
+            "backend/benchmark/experiment_configs/"
+            "modelnet10_60_balanced_stl_quality_hunyuan3d_2mv_optimal_d985_s40_n10.json"
+        )
+        experiments = json.loads(config_path.read_text(encoding="utf-8"))
+        by_name = {experiment["name"]: experiment for experiment in experiments}
+
+        self.assertEqual(len(experiments), 5)
+        self.assertEqual(
+            set(by_name),
+            {
+                "masked",
+                "mirror",
+                "triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+                "hunyuan3d_2mv_cardinal4_raw_direct_mesh",
+                "hunyuan3d_2mv_voxel_r192_optimal_d985_repaired_stl_inferred_bbox_direct_mesh",
+            },
+        )
+        candidate = by_name[
+            "hunyuan3d_2mv_voxel_r192_optimal_d985_repaired_stl_inferred_bbox_direct_mesh"
+        ]
+        command = candidate["direct_mesh_command"]
+        self.assertIn("--mesh-repair-simplify-placement optimal", command)
+        self.assertIn("--mesh-max-normalized-face-density-log1p 9.85", command)
+        self.assertIn("--mesh-repair-voxel-resolution 192", command)
+        self.assertIn("--provider-mesh-cache-dir /content/hunyuan3d-2mv-provider-cache", command)
+        self.assertFalse(any("endpoint" in row.get("direct_mesh_command", "") for row in experiments))
+        self.assertFalse(any(row.get("oracle_diagnostic", False) for row in experiments))
+        self.assertTrue(
+            all("{source_bbox" not in row.get("direct_mesh_command", "") for row in experiments)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -53,14 +53,14 @@ filter changed too much geometry; the local filter preserves geometry but
 does not select the edge responsible for the degenerate triangle. Tightening
 or loosening the post-hoc acceptance limits will not solve this case.
 
-## Next Experiment
+## Measured Follow-Up
 
-Move the intervention upstream into topology-preserving voxel-mesh
-simplification. Compare endpoint versus optimal placement and nearby target
-face budgets on the exact cached raw meshes, then select only configurations
-that emit zero-degenerate pre-clean meshes while preserving held-out views,
-volume, complexity, and all printability gates. Do not weaken the selector or
-expand to ten rows until a four-row variant reduces hull use to at most one.
+The upstream [decimator ablation](../g4_stl_first_hunyuan3d_2mv_decimator_ablation_s40_s6_n4/README.md)
+found one bounded expansion candidate. Optimal placement at density cap
+`9.85` emits zero pre-clean degenerates, uses one hull across four rows, and
+passes the fill-drift, complexity, surface, and held-out guards. It remains
+`hold` only because its paired win rate against TripoSG is `0.75` rather than
+the required `0.8`, so the next action is a held-out-ten confirmation.
 
 ## Provenance
 

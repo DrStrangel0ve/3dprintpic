@@ -342,6 +342,37 @@ All three real attempts preserved geometry: each removed exactly two faces and o
 
 The verified compact archive is `1,297,705` bytes with SHA256 `ed34c41d81d392b0673acc7e8e529ef94b6eb1b584e1809c8b50204dfec4ab6e`. The [local-collapse evidence bundle](benchmark-evidence/g4_stl_first_hunyuan3d_2mv_local_collapse_guard_s40_s6_n4/README.md) includes the sixteen stage rows, local-edit/displacement metrics, selector decision, provider/GPU provenance, ingest report, and contact sheet.
 
+### Measured: Upstream Decimator Placement And Budget n4
+
+Run `g4_stl_first_hunyuan3d_2mv_decimator_ablation_s40_s6_n4` completed all
+`40/40` rows in `935.85s` on exact runtime commit
+`9e37d1c026236211f29052a990cb80aa8d3e55b4`. It compared optimal versus
+endpoint topology-preserving collapse placement at adaptive density caps
+`9.95`, `9.90`, and `9.85`, with one raw Hunyuan cache shared by every repair
+cell.
+
+Optimal `9.85` is the only bounded expansion candidate. It produces zero
+pre-clean degenerates on all four samples, uses exactly one hull, has median
+fill drift `0.4693`, keeps every complexity at or below `9.8499933`, and
+improves median held-out IoU from `0.4840` at optimal `9.95` to `0.5263`.
+Median mesh Chamfer/H95 are `0.1509`/`0.3495`, better than TripoSG's
+`0.1847`/`0.3617`. Endpoint placement is rejected: every endpoint budget uses
+two hulls and has median fill drift above `3.82`.
+
+The candidate passes all mechanical, surface, complexity, fill-drift, split,
+and held-out degradation checks. The strict selector remains `hold` because
+it wins `3/4` paired objectives against TripoSG (`0.75`) and policy requires
+`0.8`. The next G4 run should therefore compare only optimal `9.85`, TripoSG,
+raw Hunyuan, and the depth controls on the full held-out ten; endpoint
+placement and post-hoc retriangulation are closed.
+
+The verified compact archive is `1,513,003` bytes with SHA256
+`0c77ea4d78af8ce52c25ab6cc0548d51e8380be5e5abf18faf75c92edf7597ac`.
+The [decimator-ablation evidence bundle](benchmark-evidence/g4_stl_first_hunyuan3d_2mv_decimator_ablation_s40_s6_n4/README.md)
+preserves all six aggregate cells, twenty-four repair-stage rows, paired
+held-out results, both selector decisions, runtime/provider provenance, and
+the contact sheet.
+
 One-time Colab setup:
 
 ```bash

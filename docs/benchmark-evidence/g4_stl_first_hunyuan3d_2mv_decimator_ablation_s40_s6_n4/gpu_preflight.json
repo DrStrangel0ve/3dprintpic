@@ -1,0 +1,28 @@
+{
+  "cuda_visible_devices": "",
+  "eligible_gpus": [
+    {
+      "index": 0,
+      "memory_total_gb": 95.5927734375,
+      "memory_total_mib": 97887.0,
+      "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition"
+    }
+  ],
+  "errors": [],
+  "gpus": [
+    {
+      "index": 0,
+      "memory_total_gb": 95.5927734375,
+      "memory_total_mib": 97887.0,
+      "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition"
+    }
+  ],
+  "guard_requested": true,
+  "nvidia_smi_available": true,
+  "nvidia_smi_error": "",
+  "ok": true,
+  "requirements": {
+    "min_memory_gb": 80.0,
+    "name_regex": "RTX PRO 6000|Blackwell|G4"
+  }
+}
