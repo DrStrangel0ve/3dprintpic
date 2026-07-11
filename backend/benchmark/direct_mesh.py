@@ -25,6 +25,14 @@ MAX_MESH_REPAIR_VOXEL_RESOLUTION = 384
 MAX_MESH_REPAIR_COMPONENT_FILTER_FACES = 2_000_000
 MIN_SAFE_TOPOLOGY_REPAIR_FACES = 131_072
 MAX_FAST_COMPONENT_FILTER_FACES = 500_000
+RETRIANGULATION_SURFACE_SAMPLE_POINTS = 4_096
+RETRIANGULATION_MAX_FACE_COUNT_RELATIVE_CHANGE = 0.02
+RETRIANGULATION_MAX_VERTEX_COUNT_RELATIVE_CHANGE = 0.02
+RETRIANGULATION_MAX_VOLUME_RELATIVE_CHANGE = 0.01
+RETRIANGULATION_MAX_BBOX_EXTENT_RELATIVE_CHANGE = 0.01
+RETRIANGULATION_MAX_BOUNDS_CENTER_SHIFT_NORMALIZED = 0.005
+RETRIANGULATION_MAX_SURFACE_CHAMFER_NORMALIZED = 0.01
+RETRIANGULATION_MAX_SURFACE_HAUSDORFF95_NORMALIZED = 0.03
 DIRECT_MESH_BBOX_SOURCES = ("none", "source", "mirror", "inferred", "reference")
 DIRECT_MESH_BBOX_PLACEHOLDERS = {
     "source": "{source_bbox_extents}",
@@ -550,6 +558,103 @@ def _retriangulate_marching_cubes_mesh(mesh):
     return retriangulated
 
 
+def _retriangulation_geometry_audit(reference, candidate, prefix: str) -> dict:
+    from scipy.spatial import cKDTree
+
+    from backend.benchmark.metrics import _mesh_surface_points
+
+    reference_extents = np.asarray(reference.extents, dtype=np.float64)
+    candidate_extents = np.asarray(candidate.extents, dtype=np.float64)
+    reference_bounds_center = np.asarray(reference.bounds, dtype=np.float64).mean(axis=0)
+    candidate_bounds_center = np.asarray(candidate.bounds, dtype=np.float64).mean(axis=0)
+    reference_diagonal = float(np.linalg.norm(reference_extents))
+    reference_volume = abs(float(reference.volume))
+
+    face_count_relative_change = abs(len(candidate.faces) - len(reference.faces)) / max(
+        len(reference.faces),
+        1,
+    )
+    vertex_count_relative_change = abs(len(candidate.vertices) - len(reference.vertices)) / max(
+        len(reference.vertices),
+        1,
+    )
+    volume_relative_change = abs(abs(float(candidate.volume)) - reference_volume) / max(
+        reference_volume,
+        1e-12,
+    )
+    bbox_extent_relative_change = float(
+        np.max(
+            np.abs(candidate_extents - reference_extents)
+            / np.maximum(np.abs(reference_extents), 1e-12)
+        )
+    )
+    bounds_center_shift_normalized = float(
+        np.linalg.norm(candidate_bounds_center - reference_bounds_center)
+        / max(reference_diagonal, 1e-12)
+    )
+
+    reference_points = _mesh_surface_points(
+        reference,
+        max_points=RETRIANGULATION_SURFACE_SAMPLE_POINTS,
+    )
+    candidate_points = _mesh_surface_points(
+        candidate,
+        max_points=RETRIANGULATION_SURFACE_SAMPLE_POINTS,
+    )
+    if not len(reference_points) or not len(candidate_points):
+        surface_chamfer_normalized = math.nan
+        surface_hausdorff95_normalized = math.nan
+    else:
+        reference_tree = cKDTree(reference_points)
+        candidate_tree = cKDTree(candidate_points)
+        candidate_to_reference, _ = reference_tree.query(candidate_points, k=1)
+        reference_to_candidate, _ = candidate_tree.query(reference_points, k=1)
+        surface_chamfer_normalized = float(
+            (np.mean(candidate_to_reference) + np.mean(reference_to_candidate))
+            / 2.0
+            / max(reference_diagonal, 1e-12)
+        )
+        surface_hausdorff95_normalized = float(
+            max(
+                np.quantile(candidate_to_reference, 0.95),
+                np.quantile(reference_to_candidate, 0.95),
+            )
+            / max(reference_diagonal, 1e-12)
+        )
+
+    values = (
+        face_count_relative_change,
+        vertex_count_relative_change,
+        volume_relative_change,
+        bbox_extent_relative_change,
+        bounds_center_shift_normalized,
+        surface_chamfer_normalized,
+        surface_hausdorff95_normalized,
+    )
+    geometry_preserved = bool(
+        all(math.isfinite(value) for value in values)
+        and face_count_relative_change <= RETRIANGULATION_MAX_FACE_COUNT_RELATIVE_CHANGE
+        and vertex_count_relative_change <= RETRIANGULATION_MAX_VERTEX_COUNT_RELATIVE_CHANGE
+        and volume_relative_change <= RETRIANGULATION_MAX_VOLUME_RELATIVE_CHANGE
+        and bbox_extent_relative_change <= RETRIANGULATION_MAX_BBOX_EXTENT_RELATIVE_CHANGE
+        and bounds_center_shift_normalized
+        <= RETRIANGULATION_MAX_BOUNDS_CENTER_SHIFT_NORMALIZED
+        and surface_chamfer_normalized <= RETRIANGULATION_MAX_SURFACE_CHAMFER_NORMALIZED
+        and surface_hausdorff95_normalized
+        <= RETRIANGULATION_MAX_SURFACE_HAUSDORFF95_NORMALIZED
+    )
+    return {
+        f"{prefix}_face_count_relative_change_abs": float(face_count_relative_change),
+        f"{prefix}_vertex_count_relative_change_abs": float(vertex_count_relative_change),
+        f"{prefix}_volume_relative_change_abs": float(volume_relative_change),
+        f"{prefix}_bbox_extent_relative_change_max": bbox_extent_relative_change,
+        f"{prefix}_bounds_center_shift_normalized": bounds_center_shift_normalized,
+        f"{prefix}_surface_chamfer_l1_normalized": surface_chamfer_normalized,
+        f"{prefix}_surface_hausdorff95_normalized": surface_hausdorff95_normalized,
+        f"{prefix}_geometry_preserved": geometry_preserved,
+    }
+
+
 def _clean_mesh(mesh):
     import trimesh
 
@@ -678,9 +783,28 @@ def repair_mesh_for_printable_stl(
                     retriangulated,
                     "repair_preclean_retriangulated",
                 )
+                try:
+                    retriangulated_geometry_audit = _retriangulation_geometry_audit(
+                        mesh,
+                        retriangulated,
+                        "repair_preclean_retriangulated",
+                    )
+                except Exception as exc:
+                    retriangulated_geometry_audit = {
+                        "repair_preclean_retriangulated_geometry_preserved": False,
+                        "repair_preclean_retriangulated_geometry_audit_error": (
+                            f"{type(exc).__name__}: {exc}"
+                        ),
+                    }
                 if metrics is not None:
                     metrics.update(retriangulated_audit)
-                if retriangulated_audit["repair_preclean_retriangulated_printable"]:
+                    metrics.update(retriangulated_geometry_audit)
+                if (
+                    retriangulated_audit["repair_preclean_retriangulated_printable"]
+                    and retriangulated_geometry_audit[
+                        "repair_preclean_retriangulated_geometry_preserved"
+                    ]
+                ):
                     mesh = retriangulated
                     preclean_printable = True
                     retriangulation_accepted = True

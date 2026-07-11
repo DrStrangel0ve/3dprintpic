@@ -1365,6 +1365,7 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertFalse(repair_metrics["repair_preclean_printable"])
         self.assertEqual(repair_metrics["repair_preclean_degenerate_face_count"], 1)
         self.assertTrue(repair_metrics["repair_preclean_retriangulated_printable"])
+        self.assertTrue(repair_metrics["repair_preclean_retriangulated_geometry_preserved"])
         self.assertTrue(repair_metrics["repair_preclean_retriangulation_attempted"])
         self.assertTrue(repair_metrics["repair_preclean_retriangulation_accepted"])
         self.assertTrue(repair_metrics["repair_cleaning_skipped"])
@@ -1411,6 +1412,98 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(round_trip["stl_is_volume"])
         self.assertTrue(round_trip["stl_is_manifold"])
         self.assertEqual(round_trip["stl_degenerate_face_count"], 0)
+
+        geometry_audit = direct_mesh._retriangulation_geometry_audit(
+            mesh,
+            retriangulated,
+            "retriangulated",
+        )
+        self.assertTrue(geometry_audit["retriangulated_geometry_preserved"])
+        self.assertLessEqual(
+            geometry_audit["retriangulated_volume_relative_change_abs"],
+            direct_mesh.RETRIANGULATION_MAX_VOLUME_RELATIVE_CHANGE,
+        )
+
+    def test_marching_cubes_retriangulation_rejects_aggressive_simplification(self):
+        import trimesh
+
+        torus = trimesh.creation.torus(
+            major_radius=1.0,
+            minor_radius=0.32,
+            major_sections=96,
+            minor_sections=48,
+        )
+        voxel_mesh = direct_mesh._voxel_close_mesh(torus, 96, "orthographic")
+        simplified = direct_mesh._simplify_preserving_topology(
+            voxel_mesh,
+            3_000,
+            strict=True,
+        )
+        a, b, c = map(int, simplified.faces[0])
+        simplified.vertices[c] = (simplified.vertices[a] + simplified.vertices[b]) / 2.0
+
+        before_audit = direct_mesh._printability_audit(simplified, "before")
+        retriangulated = direct_mesh._retriangulate_marching_cubes_mesh(simplified)
+        after_audit = direct_mesh._printability_audit(retriangulated, "after")
+        geometry_audit = direct_mesh._retriangulation_geometry_audit(
+            simplified,
+            retriangulated,
+            "retriangulated",
+        )
+
+        self.assertEqual(before_audit["before_degenerate_face_count"], 1)
+        self.assertTrue(after_audit["after_printable"])
+        self.assertFalse(geometry_audit["retriangulated_geometry_preserved"])
+        self.assertGreater(
+            geometry_audit["retriangulated_face_count_relative_change_abs"],
+            direct_mesh.RETRIANGULATION_MAX_FACE_COUNT_RELATIVE_CHANGE,
+        )
+
+    def test_voxel_close_repair_falls_back_when_retriangulation_changes_geometry(self):
+        import trimesh
+
+        voxel_mesh = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
+        distorted = trimesh.creation.box(extents=(0.8, 0.75, 0.5))
+        original_audit = direct_mesh._printability_audit
+
+        def audit_with_decimation_artifact(mesh, prefix):
+            audit = original_audit(mesh, prefix)
+            if prefix == "repair_preclean":
+                audit["repair_preclean_printable"] = False
+                audit["repair_preclean_degenerate_face_count"] = 1
+            return audit
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repair_metrics = {}
+            with (
+                patch.object(direct_mesh, "load_mesh", return_value=voxel_mesh.copy()),
+                patch.object(direct_mesh, "_voxel_close_mesh", return_value=voxel_mesh.copy()),
+                patch.object(
+                    direct_mesh,
+                    "_printability_audit",
+                    side_effect=audit_with_decimation_artifact,
+                ),
+                patch.object(
+                    direct_mesh,
+                    "_retriangulate_marching_cubes_mesh",
+                    return_value=distorted,
+                ),
+                patch.object(direct_mesh, "_clean_mesh", return_value=voxel_mesh.copy()) as clean_mesh,
+            ):
+                repair_mesh_for_printable_stl(
+                    Path(temp_dir) / "input.glb",
+                    Path(temp_dir) / "repaired.stl",
+                    mode="printable",
+                    preconditioner="voxel-close",
+                    metrics=repair_metrics,
+                )
+
+        clean_mesh.assert_called_once()
+        self.assertTrue(repair_metrics["repair_preclean_retriangulation_attempted"])
+        self.assertTrue(repair_metrics["repair_preclean_retriangulated_printable"])
+        self.assertFalse(repair_metrics["repair_preclean_retriangulated_geometry_preserved"])
+        self.assertFalse(repair_metrics["repair_preclean_retriangulation_accepted"])
+        self.assertFalse(repair_metrics["repair_cleaning_skipped"])
 
     def test_voxel_close_repair_does_not_retriangulate_nonmanifold_preclean_mesh(self):
         import trimesh
@@ -4659,6 +4752,10 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn(') 2>&1 | tee "$RUN_LOG"\nrun_status="${PIPESTATUS[0]}"', archive_run_script)
         self.assertIn('export RUN_STATUS="$run_status"\ncd "$REPO_DIR"\npython - <<\'PY\'', archive_run_script)
         self.assertIn("'repair_preclean_retriangulation_accepted_mean'", archive_run_script)
+        self.assertIn(
+            "'repair_preclean_retriangulated_geometry_preserved_mean'",
+            archive_run_script,
+        )
         self.assertNotIn('backend.benchmark.colab_g4_orchestrator --use-current-repo --run-name g4_qwen_sanity 2>&1 | tee "$RUN_LOG"', archive_run_script)
         self.assertIn("--modern-config backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_g4_depth_stl.json", archive_run_script)
         self.assertIn("--cache-provider qwen-image-edit", archive_run_script)
