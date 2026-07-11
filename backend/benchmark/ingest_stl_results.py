@@ -19,7 +19,14 @@ from backend.benchmark.rank_methods import (
 from backend.benchmark.direct_mesh import direct_mesh_bbox_uses_hidden_source
 from backend.benchmark.report_run import format_number, markdown_table
 from backend.benchmark.stl_modes import STL_MODE_DEPTH_RELIEF, STL_MODE_SOURCE_MESH_ORACLE, STL_MODES, infer_stl_mode
-from backend.benchmark.select_completion_candidate import bool_value, json_safe, load_per_sample_rows, load_summary_rows
+from backend.benchmark.select_completion_candidate import (
+    bool_value,
+    json_safe,
+    load_per_sample_rows,
+    load_summary_rows,
+    repair_metrics_expected,
+    with_repair_summary_metrics,
+)
 
 
 SUMMARY_FILES = ("aggregate_summary.csv", "summary_metrics.csv")
@@ -30,6 +37,10 @@ SCALE_FREE_COMPLEXITY_MEDIAN = "stl_faces_per_normalized_bbox_volume_log1p_media
 SCALE_FREE_COMPLEXITY_SAMPLE = "stl_faces_per_normalized_bbox_volume_log1p"
 LEGACY_FACE_DENSITY_MEDIAN = "stl_faces_per_bbox_volume_log1p_median"
 LEGACY_FACE_DENSITY_SAMPLE = "stl_faces_per_bbox_volume_log1p"
+REPAIR_CONVEX_HULL_RATE_MEAN = "repair_convex_hull_used_mean"
+REPAIR_CONVEX_HULL_SAMPLE = "repair_convex_hull_used"
+REPAIR_FILL_DRIFT_MEDIAN = "repair_volume_fill_ratio_relative_change_abs_median"
+REPAIR_FILL_DRIFT_SAMPLE = "repair_volume_fill_ratio_relative_change_abs"
 COMPACT_METRICS = (
     "rank_score",
     "method",
@@ -49,9 +60,14 @@ COMPACT_METRICS = (
     "repair_runtime_seconds_median",
     "mesh_postprocess_runtime_seconds_median",
     "provider_peak_cuda_vram_gib_median",
+    "heldout_view_silhouette_iou_mean_median",
+    "heldout_view_silhouette_iou_min_median",
     "raw_mesh_volume_fill_ratio_median",
     "stl_volume_fill_ratio_median",
     "repair_volume_fill_ratio_relative_change_median",
+    REPAIR_FILL_DRIFT_MEDIAN,
+    "repair_convex_hull_used_median",
+    REPAIR_CONVEX_HULL_RATE_MEAN,
     "inferred_bbox_shape_log_mae_median",
     "inferred_bbox_shape_relative_mae_median",
     "inferred_bbox_centered_iou_median",
@@ -89,6 +105,15 @@ PROMOTION_MAXIMUMS = (
     ("stl_component_excess_log1p_median", 0.0, "Body Excess log1p"),
     ("stl_bbox_aspect_ratio_median", 10.0, "BBox Aspect"),
     (SCALE_FREE_COMPLEXITY_MEDIAN, 10.0, "Scale-Free Complexity log1p"),
+)
+
+OPTIONAL_PROMOTION_MAXIMUMS = (
+    (REPAIR_CONVEX_HULL_RATE_MEAN, 0.25, "Convex Hull Fallback"),
+    (REPAIR_FILL_DRIFT_MEDIAN, 0.5, "Repair Fill-Ratio Drift"),
+)
+
+OPTIONAL_SAMPLE_MAXIMUMS = (
+    (REPAIR_FILL_DRIFT_SAMPLE, 4.0, "Repair Fill-Ratio Drift Maximum"),
 )
 
 
@@ -218,6 +243,7 @@ def is_oracle_diagnostic(row: dict) -> bool:
 
 
 def compact_row(row: dict, per_sample_rows: list[dict] | None = None) -> dict:
+    row = with_repair_summary_metrics(row, per_sample_rows or [])
     compact = {key: row.get(key, "") for key in COMPACT_METRICS if key in row}
     compact["stl_mode"] = method_stl_mode(row)
     compact["oracle_diagnostic"] = is_oracle_diagnostic(row)
@@ -260,6 +286,10 @@ def metric_value(row: dict, field: str) -> float:
 
 
 def _sample_metric_field(summary_field: str) -> str:
+    if summary_field == REPAIR_CONVEX_HULL_RATE_MEAN:
+        return REPAIR_CONVEX_HULL_SAMPLE
+    if summary_field == REPAIR_FILL_DRIFT_MEDIAN:
+        return REPAIR_FILL_DRIFT_SAMPLE
     return summary_field[: -len("_median")] if summary_field.endswith("_median") else summary_field
 
 
@@ -282,7 +312,31 @@ def method_sample_rows(per_sample_rows: list[dict] | None, method: str) -> list[
 
 def per_sample_gate_results(row: dict, per_sample_rows: list[dict] | None = None) -> list[dict]:
     sample_rows = [with_derived_metrics(sample) for sample in method_sample_rows(per_sample_rows, row.get("method", ""))]
+    repair_metrics_required = repair_metrics_expected(row)
     if not sample_rows:
+        if repair_metrics_required:
+            return [
+                {
+                    "name": "Sample Repair Fill-Ratio Drift Maximum",
+                    "field": REPAIR_FILL_DRIFT_SAMPLE,
+                    "passed": False,
+                    "value": 0,
+                    "threshold": "per-sample repair metrics present",
+                    "detail": "missing_per_sample_repair_metrics",
+                    "failed_sample_count": 0,
+                    "failed_samples": [],
+                },
+                {
+                    "name": "Sample Repair Fill-Ratio Drift Coverage",
+                    "field": REPAIR_FILL_DRIFT_SAMPLE,
+                    "passed": False,
+                    "value": 0.0,
+                    "threshold": ">= 0.75 samples <= 0.5",
+                    "detail": "missing_per_sample_repair_metrics",
+                    "failed_sample_count": 0,
+                    "failed_samples": [],
+                },
+            ]
         return []
 
     gates = []
@@ -328,11 +382,55 @@ def per_sample_gate_results(row: dict, per_sample_rows: list[dict] | None = None
                 "failed_samples": failed,
             }
         )
+    for field, maximum, label in OPTIONAL_SAMPLE_MAXIMUMS:
+        if not repair_metrics_required and not any(_has_cell(sample, field) for sample in sample_rows):
+            continue
+        failed = []
+        for index, sample in enumerate(sample_rows):
+            value = metric_value(sample, field)
+            if value != value or value > maximum:
+                failed.append(_sample_label(sample, index))
+        gates.append(
+            {
+                "name": f"Sample {label}",
+                "field": field,
+                "passed": not failed,
+                "value": len(sample_rows) - len(failed),
+                "threshold": f"{len(sample_rows)}/{len(sample_rows)} samples <= {maximum}",
+                "detail": f"failed_samples={','.join(failed[:10])}" if failed else "",
+                "failed_sample_count": len(failed),
+                "failed_samples": failed,
+            }
+        )
+    if repair_metrics_required:
+        field = REPAIR_FILL_DRIFT_SAMPLE
+        within_limit = []
+        failed = []
+        for index, sample in enumerate(sample_rows):
+            value = metric_value(sample, field)
+            sample_id = _sample_label(sample, index)
+            if value == value and value <= 0.5:
+                within_limit.append(sample_id)
+            else:
+                failed.append(sample_id)
+        rate = len(within_limit) / len(sample_rows)
+        gates.append(
+            {
+                "name": "Sample Repair Fill-Ratio Drift Coverage",
+                "field": field,
+                "passed": rate >= 0.75,
+                "value": rate,
+                "threshold": ">= 0.75 samples <= 0.5",
+                "detail": f"failed_samples={','.join(failed[:10])}" if failed else "",
+                "failed_sample_count": len(failed),
+                "failed_samples": failed,
+            }
+        )
     return gates
 
 
 def promotion_gate_results(row: dict, per_sample_rows: list[dict] | None = None) -> list[dict]:
-    row = with_derived_metrics(row)
+    row = with_repair_summary_metrics(row, per_sample_rows or [])
     mode = method_stl_mode(row)
     oracle = is_oracle_diagnostic(row)
     gates = [
@@ -361,6 +459,20 @@ def promotion_gate_results(row: dict, per_sample_rows: list[dict] | None = None)
                 "name": label,
                 "field": field,
                 "passed": value <= maximum,
+                "value": None if value != value else value,
+                "threshold": f"<= {maximum}",
+            }
+        )
+    for field, maximum, label in OPTIONAL_PROMOTION_MAXIMUMS:
+        required = repair_metrics_expected(row)
+        if not _has_cell(row, field) and not required:
+            continue
+        value = metric_value(row, field)
+        gates.append(
+            {
+                "name": label,
+                "field": field,
+                "passed": value == value and value <= maximum,
                 "value": None if value != value else value,
                 "threshold": f"<= {maximum}",
             }

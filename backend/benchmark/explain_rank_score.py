@@ -9,6 +9,7 @@ from pathlib import Path
 from backend.benchmark.rank_methods import (
     SCORE_MODES,
     SCORE_PROFILES,
+    ZERO_BASELINE_METRICS,
     normalize,
     parse_float,
     parse_weights,
@@ -37,6 +38,8 @@ def baseline_delta_contributions(rows: list[dict], weights: dict[str, float], ba
         if metric not in field_names:
             continue
         baseline_value = parse_float(baseline.get(metric))
+        if not math.isfinite(baseline_value) and metric in ZERO_BASELINE_METRICS:
+            baseline_value = 0.0
         if not math.isfinite(baseline_value):
             continue
 

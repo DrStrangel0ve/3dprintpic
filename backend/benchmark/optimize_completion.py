@@ -42,8 +42,9 @@ from backend.benchmark.stl_modes import experiment_stl_mode, validate_stl_mode
 from backend.benchmark.select_completion_candidate import (
     decision_markdown,
     evaluate_selection,
-    is_oracle_diagnostic,
     json_safe,
+    summary_candidate_hard_eligible,
+    with_repair_summary_metrics,
 )
 from backend.pic_to_3d import MODERN_INPAINT_MODELS
 
@@ -978,7 +979,11 @@ def write_experiment_report(
     return output_path
 
 
-def infer_selection_candidate(args, aggregate_rows: list[dict]) -> str | None:
+def infer_selection_candidate(
+    args,
+    aggregate_rows: list[dict],
+    per_sample_rows: list[dict] | None = None,
+) -> str | None:
     if args.candidate_method:
         return args.candidate_method
     ranked_rows, _ = rank_summary_rows(
@@ -987,18 +992,54 @@ def infer_selection_candidate(args, aggregate_rows: list[dict]) -> str | None:
         score_mode="baseline-delta",
         baseline_method=args.baseline_method,
     )
+    per_sample_rows = per_sample_rows or []
+    ranked_rows = [with_repair_summary_metrics(row, per_sample_rows) for row in ranked_rows]
     return next(
         (
             row.get("method")
             for row in ranked_rows
-            if row.get("method") != args.baseline_method and not is_oracle_diagnostic(row)
+            if row.get("method") != args.baseline_method
+            and summary_candidate_hard_eligible(
+                row,
+                min_success_rate=getattr(args, "min_success_rate", 1.0),
+                min_stl_watertight=getattr(args, "min_stl_watertight", 1.0),
+                min_stl_is_volume=getattr(args, "min_stl_is_volume", 1.0),
+                min_stl_is_manifold=getattr(args, "min_stl_is_manifold", 1.0),
+                min_stl_winding_consistent=getattr(args, "min_stl_winding_consistent", 1.0),
+                min_stl_positive_volume=getattr(args, "min_stl_positive_volume", 1.0),
+                min_stl_single_component=getattr(args, "min_stl_single_component", 1.0),
+                min_stl_bbox_has_volume=getattr(args, "min_stl_bbox_has_volume", 1.0),
+                max_stl_nonmanifold_edge_count_log1p=getattr(
+                    args,
+                    "max_stl_nonmanifold_edge_count_log1p",
+                    0.0,
+                ),
+                max_stl_degenerate_face_ratio=getattr(args, "max_stl_degenerate_face_ratio", 0.0),
+                max_stl_component_excess_log1p=getattr(
+                    args,
+                    "max_stl_component_excess_log1p",
+                    0.0,
+                ),
+                max_stl_bbox_aspect_ratio=getattr(args, "max_stl_bbox_aspect_ratio", 10.0),
+                max_stl_faces_per_bbox_volume_log1p=getattr(
+                    args,
+                    "max_stl_faces_per_bbox_volume_log1p",
+                    10.0,
+                ),
+                max_repair_convex_hull_rate=getattr(args, "max_repair_convex_hull_rate", 0.25),
+                max_repair_volume_fill_ratio_relative_change_abs_median=getattr(
+                    args,
+                    "max_repair_volume_fill_ratio_relative_change_abs_median",
+                    0.5,
+                ),
+            )
         ),
         None,
     )
 
 
 def write_selection_decision(args, output_dir: Path, aggregate_rows: list[dict], per_sample_rows: list[dict]) -> tuple[Path, Path]:
-    candidate_method = infer_selection_candidate(args, aggregate_rows)
+    candidate_method = infer_selection_candidate(args, aggregate_rows, per_sample_rows)
     split_audit = read_json(output_dir / (candidate_method or "") / "split_audit.json") or read_json(output_dir / "split_audit.json")
     decision = evaluate_selection(
         aggregate_rows,
@@ -1024,11 +1065,32 @@ def write_selection_decision(args, output_dir: Path, aggregate_rows: list[dict],
         max_stl_component_excess_log1p=getattr(args, "max_stl_component_excess_log1p", 0.0),
         max_stl_bbox_aspect_ratio=getattr(args, "max_stl_bbox_aspect_ratio", 10.0),
         max_stl_faces_per_bbox_volume_log1p=getattr(args, "max_stl_faces_per_bbox_volume_log1p", 10.0),
+        max_repair_convex_hull_rate=getattr(args, "max_repair_convex_hull_rate", 0.25),
+        max_repair_volume_fill_ratio_relative_change_abs_median=getattr(
+            args,
+            "max_repair_volume_fill_ratio_relative_change_abs_median",
+            0.5,
+        ),
+        max_repair_volume_fill_ratio_relative_change_abs=getattr(
+            args,
+            "max_repair_volume_fill_ratio_relative_change_abs",
+            4.0,
+        ),
+        min_repair_volume_fill_ratio_within_limit_rate=getattr(
+            args,
+            "min_repair_volume_fill_ratio_within_limit_rate",
+            0.75,
+        ),
         max_mesh_surface_chamfer_ratio_vs_current=getattr(
-            args, "max_mesh_surface_chamfer_ratio_vs_current", 1.1
+            args, "max_mesh_surface_chamfer_ratio_vs_current", None
         ),
         max_mesh_surface_hausdorff95_ratio_vs_current=getattr(
-            args, "max_mesh_surface_hausdorff95_ratio_vs_current", 1.1
+            args, "max_mesh_surface_hausdorff95_ratio_vs_current", None
+        ),
+        max_heldout_view_silhouette_iou_degradation_ratio=getattr(
+            args,
+            "max_heldout_view_silhouette_iou_degradation_ratio",
+            1.1,
         ),
         max_train_eval_overlap=args.max_train_eval_overlap,
         split_audit=split_audit,
@@ -1142,8 +1204,13 @@ def main() -> None:
     parser.add_argument("--max-stl-component-excess-log1p", type=float, default=0.0)
     parser.add_argument("--max-stl-bbox-aspect-ratio", type=float, default=10.0)
     parser.add_argument("--max-stl-faces-per-bbox-volume-log1p", type=float, default=10.0)
-    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=1.1)
-    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=1.1)
+    parser.add_argument("--max-repair-convex-hull-rate", type=float, default=0.25)
+    parser.add_argument("--max-repair-volume-fill-ratio-relative-change-abs-median", type=float, default=0.5)
+    parser.add_argument("--max-repair-volume-fill-ratio-relative-change-abs", type=float, default=4.0)
+    parser.add_argument("--min-repair-volume-fill-ratio-within-limit-rate", type=float, default=0.75)
+    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=None)
+    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=None)
+    parser.add_argument("--max-heldout-view-silhouette-iou-degradation-ratio", type=float, default=1.1)
     parser.add_argument("--max-train-eval-overlap", type=int, default=0)
     parser.add_argument("--allow-missing-split-audit", action="store_true", help="Do not fail candidate selection when split_audit.json is absent.")
     parser.add_argument(

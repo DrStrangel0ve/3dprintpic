@@ -48,9 +48,8 @@ OBJECT_SURFACE_WEIGHTS = {
 }
 
 STL_QUALITY_WEIGHTS = {
-    "mesh_surface_chamfer_l1_median": -4.0,
-    "mesh_surface_chamfer_rmse_median": -3.0,
-    "mesh_surface_hausdorff95_median": -2.0,
+    "heldout_view_silhouette_iou_mean_median": 4.0,
+    "heldout_view_silhouette_iou_min_median": 1.0,
     "silhouette_iou_masked_median": 1.0,
     "stl_exists_median": 2.0,
     "stl_is_watertight_median": 3.0,
@@ -64,8 +63,14 @@ STL_QUALITY_WEIGHTS = {
     "stl_component_excess_log1p_median": -0.75,
     "stl_bbox_has_volume_median": 1.0,
     "stl_bbox_aspect_ratio_median": -0.5,
-    "stl_faces_per_normalized_bbox_volume_log1p_median": -0.25,
 }
+
+ZERO_BASELINE_METRICS = frozenset(
+    {
+        "heldout_view_silhouette_iou_mean_median",
+        "heldout_view_silhouette_iou_min_median",
+    }
+)
 
 SCORE_PROFILES = {
     "default": DEFAULT_WEIGHTS,
@@ -129,10 +134,21 @@ def _derive_scale_free_face_density(row: dict, suffix: str) -> None:
     row[target_field] = math.log1p(faces_per_normalized_volume)
 
 
+def _derive_absolute_repair_fill_change(row: dict, suffix: str) -> None:
+    target_field = f"repair_volume_fill_ratio_relative_change_abs{suffix}"
+    if _has_value(row, target_field):
+        return
+    source_field = f"repair_volume_fill_ratio_relative_change{suffix}"
+    value = parse_float(row.get(source_field))
+    if math.isfinite(value):
+        row[target_field] = abs(value)
+
+
 def with_derived_metrics(row: dict) -> dict:
     derived = dict(row)
     for suffix in ("", "_median", "_mean"):
         _derive_scale_free_face_density(derived, suffix)
+    _derive_absolute_repair_fill_change(derived, "")
     return derived
 
 
@@ -192,6 +208,8 @@ def score_baseline_delta(rows, weights, baseline_method="masked"):
         if metric not in field_names:
             continue
         baseline_value = parse_float(baseline.get(metric))
+        if not math.isfinite(baseline_value) and metric in ZERO_BASELINE_METRICS:
+            baseline_value = 0.0
         if not math.isfinite(baseline_value):
             continue
 

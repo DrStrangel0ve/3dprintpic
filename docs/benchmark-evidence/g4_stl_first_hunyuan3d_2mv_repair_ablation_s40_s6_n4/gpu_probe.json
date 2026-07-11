@@ -1,0 +1,16 @@
+{
+  "compute_capability": [
+    12,
+    0
+  ],
+  "cuda_available": true,
+  "cuda_device_count": 1,
+  "cuda_visible_devices": "",
+  "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+  "notebook_url": "https://colab.research.google.com/drive/1SuilhFuF5L3ELkEy2rnEsTmKAL19ob60",
+  "platform": "Linux-6.6.122+-x86_64-with-glibc2.35",
+  "python": "3.12.13 (main, Mar  4 2026, 09:23:07) [GCC 11.4.0]",
+  "torch": "2.11.0+cu128",
+  "vram_free_gb": 94.426,
+  "vram_total_gb": 94.971
+}

@@ -50,6 +50,8 @@ KEY_METRICS = [
     ("raw_mesh_volume_fill_ratio_median", "Raw Volume Fill Ratio"),
     ("stl_volume_fill_ratio_median", "STL Volume Fill Ratio"),
     ("repair_volume_fill_ratio_relative_change_median", "Repair Volume Fill Relative Change"),
+    ("repair_volume_fill_ratio_relative_change_abs_median", "Repair Volume Fill Absolute Relative Change"),
+    ("repair_convex_hull_used_mean", "Repair Convex Hull Fallback Rate"),
     ("inferred_bbox_shape_log_mae_median", "Inferred BBox Shape log-MAE"),
     ("inferred_bbox_shape_relative_mae_median", "Inferred BBox Shape Rel-MAE"),
     ("inferred_bbox_centered_iou_median", "Inferred BBox Centered IoU"),

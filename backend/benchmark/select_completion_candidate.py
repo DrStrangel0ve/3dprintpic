@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import math
+import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,6 +17,9 @@ SCALE_FREE_COMPLEXITY_MEDIAN = "stl_faces_per_normalized_bbox_volume_log1p_media
 SCALE_FREE_COMPLEXITY_SAMPLE = "stl_faces_per_normalized_bbox_volume_log1p"
 LEGACY_FACE_DENSITY_MEDIAN = "stl_faces_per_bbox_volume_log1p_median"
 LEGACY_FACE_DENSITY_SAMPLE = "stl_faces_per_bbox_volume_log1p"
+REPAIR_CONVEX_HULL_RATE_MEAN = "repair_convex_hull_used_mean"
+REPAIR_FILL_DRIFT_MEDIAN = "repair_volume_fill_ratio_relative_change_abs_median"
+REPAIR_FILL_DRIFT_SAMPLE = "repair_volume_fill_ratio_relative_change_abs"
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -136,6 +140,87 @@ def gate_cell(row: dict, field: str):
     return row.get(field)
 
 
+def repair_metrics_expected(row: dict) -> bool:
+    names = " ".join(str(row.get(field) or "") for field in ("method", "base_method")).lower()
+    repair_mode = str(row.get("provider_mesh_repair") or row.get("source_mesh_repair") or "").strip().lower()
+    repair_runtime = finite_number(row.get("repair_runtime_seconds_median"), default=0.0)
+    return bool(
+        "repaired" in names.replace("-", "_")
+        or repair_mode not in {"", "none"}
+        or _has_cell(row, "repair_input_faces_median")
+        or repair_runtime > 0.0
+    )
+
+
+def with_repair_summary_metrics(row: dict, per_sample_rows: list[dict]) -> dict:
+    enriched = with_derived_metrics(row)
+    if _has_cell(enriched, REPAIR_FILL_DRIFT_MEDIAN):
+        return enriched
+    values = []
+    method = enriched.get("method")
+    for sample in per_sample_rows:
+        if sample.get("method") != method:
+            continue
+        sample = with_derived_metrics(sample)
+        value = finite_number(sample.get(REPAIR_FILL_DRIFT_SAMPLE))
+        if math.isfinite(value):
+            values.append(value)
+    if values:
+        enriched[REPAIR_FILL_DRIFT_MEDIAN] = float(statistics.median(values))
+    return enriched
+
+
+def summary_candidate_hard_eligible(
+    row: dict,
+    *,
+    min_success_rate: float = 1.0,
+    min_stl_watertight: float = 1.0,
+    min_stl_is_volume: float = 1.0,
+    min_stl_is_manifold: float = 1.0,
+    min_stl_winding_consistent: float = 1.0,
+    min_stl_positive_volume: float = 1.0,
+    min_stl_single_component: float = 1.0,
+    min_stl_bbox_has_volume: float = 1.0,
+    max_stl_nonmanifold_edge_count_log1p: float = 0.0,
+    max_stl_degenerate_face_ratio: float = 0.0,
+    max_stl_component_excess_log1p: float = 0.0,
+    max_stl_bbox_aspect_ratio: float = 10.0,
+    max_stl_faces_per_bbox_volume_log1p: float = 10.0,
+    max_repair_convex_hull_rate: float = 0.25,
+    max_repair_volume_fill_ratio_relative_change_abs_median: float = 0.5,
+) -> bool:
+    if is_oracle_diagnostic(row) or finite_number(row.get("success_rate")) < min_success_rate:
+        return False
+    for field, minimum in (
+        ("stl_is_watertight_median", min_stl_watertight),
+        ("stl_is_volume_median", min_stl_is_volume),
+        ("stl_is_manifold_median", min_stl_is_manifold),
+        ("stl_winding_consistent_median", min_stl_winding_consistent),
+        ("stl_positive_volume_median", min_stl_positive_volume),
+        ("stl_single_component_median", min_stl_single_component),
+        ("stl_bbox_has_volume_median", min_stl_bbox_has_volume),
+    ):
+        if _has_cell(row, field) and finite_number(gate_cell(row, field)) < minimum:
+            return False
+    for field, maximum in (
+        ("stl_nonmanifold_edge_count_log1p_median", max_stl_nonmanifold_edge_count_log1p),
+        ("stl_degenerate_face_ratio_median", max_stl_degenerate_face_ratio),
+        ("stl_component_excess_log1p_median", max_stl_component_excess_log1p),
+        ("stl_bbox_aspect_ratio_median", max_stl_bbox_aspect_ratio),
+        (SCALE_FREE_COMPLEXITY_MEDIAN, max_stl_faces_per_bbox_volume_log1p),
+    ):
+        if _has_cell(row, field) and finite_number(gate_cell(row, field)) > maximum:
+            return False
+    if repair_metrics_expected(row):
+        for field, maximum in (
+            (REPAIR_CONVEX_HULL_RATE_MEAN, max_repair_convex_hull_rate),
+            (REPAIR_FILL_DRIFT_MEDIAN, max_repair_volume_fill_ratio_relative_change_abs_median),
+        ):
+            if not _has_cell(row, field) or finite_number(gate_cell(row, field)) > maximum:
+                return False
+    return True
+
+
 def stl_gate_number(value) -> float:
     if isinstance(value, bool):
         return 1.0 if value else 0.0
@@ -211,6 +296,7 @@ def paired_metric_ratio_check(
     label: str,
     maximum_ratio: float,
     minimum_pairs: int,
+    higher_is_better: bool = False,
 ):
     method_rows = [
         row
@@ -241,7 +327,11 @@ def paired_metric_ratio_check(
         ):
             missing.append(sample_id)
             continue
-        if current_value == 0:
+        if higher_is_better and candidate_value == 0:
+            ratio = 1.0 if current_value == 0 else math.inf
+        elif higher_is_better:
+            ratio = current_value / candidate_value
+        elif current_value == 0:
             ratio = 1.0 if candidate_value == 0 else math.inf
         else:
             ratio = candidate_value / current_value
@@ -284,6 +374,52 @@ def paired_metric_ratio_check(
     )
 
 
+def repair_integrity_checks(
+    candidate: dict,
+    per_sample_rows: list[dict],
+    method: str,
+    *,
+    max_fill_drift: float,
+    within_limit: float,
+    min_within_limit_rate: float,
+) -> list[dict]:
+    repair_metrics_required = repair_metrics_expected(candidate)
+    method_rows = [row for row in per_sample_rows if row.get("method") == method]
+    if not repair_metrics_required and not any(_has_cell(row, REPAIR_FILL_DRIFT_SAMPLE) for row in method_rows):
+        return []
+
+    failed_max = []
+    failed_limit = []
+    for index, row in enumerate(method_rows):
+        value = stl_gate_number(gate_cell(row, REPAIR_FILL_DRIFT_SAMPLE))
+        sample_id = _sample_label(row, index)
+        if not math.isfinite(value) or value > max_fill_drift:
+            failed_max.append(sample_id)
+        if not math.isfinite(value) or value > within_limit:
+            failed_limit.append(sample_id)
+
+    total = len(method_rows)
+    within_rate = ((total - len(failed_limit)) / total) if total else 0.0
+    max_detail = f"failed_samples={','.join(failed_max[:10])}" if failed_max else ""
+    coverage_detail = f"failed_samples={','.join(failed_limit[:10])}" if failed_limit else ""
+    return [
+        pass_check(
+            "per_sample_repair_volume_fill_ratio_relative_change_abs",
+            bool(total) and not failed_max,
+            total - len(failed_max),
+            f"{total}/{total} samples <= {max_fill_drift}",
+            detail=max_detail,
+        ),
+        pass_check(
+            "repair_volume_fill_ratio_relative_change_abs_coverage",
+            bool(total) and within_rate >= min_within_limit_rate,
+            within_rate,
+            f">= {min_within_limit_rate} samples <= {within_limit}",
+            detail=coverage_detail,
+        ),
+    ]
+
+
 def evaluate_selection(
     summary_rows,
     per_sample_rows,
@@ -309,16 +445,21 @@ def evaluate_selection(
     max_stl_component_excess_log1p=0.0,
     max_stl_bbox_aspect_ratio=10.0,
     max_stl_faces_per_bbox_volume_log1p=10.0,
-    max_mesh_surface_chamfer_ratio_vs_current=1.1,
-    max_mesh_surface_hausdorff95_ratio_vs_current=1.1,
+    max_repair_convex_hull_rate=0.25,
+    max_repair_volume_fill_ratio_relative_change_abs_median=0.5,
+    max_repair_volume_fill_ratio_relative_change_abs=4.0,
+    min_repair_volume_fill_ratio_within_limit_rate=0.75,
+    max_mesh_surface_chamfer_ratio_vs_current=None,
+    max_mesh_surface_hausdorff95_ratio_vs_current=None,
+    max_heldout_view_silhouette_iou_degradation_ratio=1.1,
     max_train_eval_overlap=0,
     split_audit=None,
     require_split_audit=True,
     bootstrap_samples=1000,
     bootstrap_seed=1234,
 ):
-    summary_rows = [with_derived_metrics(row) for row in summary_rows]
     per_sample_rows = [with_derived_metrics(row) for row in per_sample_rows]
+    summary_rows = [with_repair_summary_metrics(row, per_sample_rows) for row in summary_rows]
     weights = weights or parse_weights([])
     ranked_rows, used_metrics = rank_summary_rows(
         summary_rows,
@@ -333,7 +474,27 @@ def evaluate_selection(
         (
             row.get("method")
             for row in ranked_rows
-            if row.get("method") != baseline_method and not is_oracle_diagnostic(row)
+            if row.get("method") != baseline_method
+            and summary_candidate_hard_eligible(
+                row,
+                min_success_rate=min_success_rate,
+                min_stl_watertight=min_stl_watertight,
+                min_stl_is_volume=min_stl_is_volume,
+                min_stl_is_manifold=min_stl_is_manifold,
+                min_stl_winding_consistent=min_stl_winding_consistent,
+                min_stl_positive_volume=min_stl_positive_volume,
+                min_stl_single_component=min_stl_single_component,
+                min_stl_bbox_has_volume=min_stl_bbox_has_volume,
+                max_stl_nonmanifold_edge_count_log1p=max_stl_nonmanifold_edge_count_log1p,
+                max_stl_degenerate_face_ratio=max_stl_degenerate_face_ratio,
+                max_stl_component_excess_log1p=max_stl_component_excess_log1p,
+                max_stl_bbox_aspect_ratio=max_stl_bbox_aspect_ratio,
+                max_stl_faces_per_bbox_volume_log1p=max_stl_faces_per_bbox_volume_log1p,
+                max_repair_convex_hull_rate=max_repair_convex_hull_rate,
+                max_repair_volume_fill_ratio_relative_change_abs_median=(
+                    max_repair_volume_fill_ratio_relative_change_abs_median
+                ),
+            )
         ),
         None,
     )
@@ -437,18 +598,33 @@ def evaluate_selection(
                 detail=f"current_method={current_method}",
             )
         )
-        for field, label, maximum_ratio in (
+        paired_metric_gates = [
             (
-                "mesh_surface_chamfer_l1",
-                "mesh_surface_chamfer",
-                max_mesh_surface_chamfer_ratio_vs_current,
-            ),
-            (
-                "mesh_surface_hausdorff95",
-                "mesh_surface_hausdorff95",
-                max_mesh_surface_hausdorff95_ratio_vs_current,
-            ),
-        ):
+                "heldout_view_silhouette_iou_mean",
+                "heldout_view_silhouette_iou_mean",
+                max_heldout_view_silhouette_iou_degradation_ratio,
+                True,
+            )
+        ]
+        if max_mesh_surface_chamfer_ratio_vs_current is not None:
+            paired_metric_gates.append(
+                (
+                    "mesh_surface_chamfer_l1",
+                    "mesh_surface_chamfer",
+                    max_mesh_surface_chamfer_ratio_vs_current,
+                    False,
+                )
+            )
+        if max_mesh_surface_hausdorff95_ratio_vs_current is not None:
+            paired_metric_gates.append(
+                (
+                    "mesh_surface_hausdorff95",
+                    "mesh_surface_hausdorff95",
+                    max_mesh_surface_hausdorff95_ratio_vs_current,
+                    False,
+                )
+            )
+        for field, label, maximum_ratio, higher_is_better in paired_metric_gates:
             check = paired_metric_ratio_check(
                 per_sample_rows,
                 candidate_method,
@@ -457,6 +633,7 @@ def evaluate_selection(
                 label=label,
                 maximum_ratio=maximum_ratio,
                 minimum_pairs=min_paired_n,
+                higher_is_better=higher_is_better,
             )
             if check:
                 checks.append(check)
@@ -490,10 +667,28 @@ def evaluate_selection(
             "stl_scale_free_complexity",
             max_stl_faces_per_bbox_volume_log1p,
         ),
+        (
+            REPAIR_CONVEX_HULL_RATE_MEAN,
+            "repair_convex_hull_fallback_rate",
+            max_repair_convex_hull_rate,
+        ),
+        (
+            REPAIR_FILL_DRIFT_MEDIAN,
+            "repair_volume_fill_ratio_relative_change_abs",
+            max_repair_volume_fill_ratio_relative_change_abs_median,
+        ),
     ):
-        if _has_cell(candidate, field):
+        required_repair_field = field in {REPAIR_CONVEX_HULL_RATE_MEAN, REPAIR_FILL_DRIFT_MEDIAN} and repair_metrics_expected(candidate)
+        if _has_cell(candidate, field) or required_repair_field:
             value = finite_number(gate_cell(candidate, field))
-            checks.append(pass_check(label, value <= maximum, value, f"<= {maximum}"))
+            checks.append(
+                pass_check(
+                    label,
+                    math.isfinite(value) and value <= maximum,
+                    value,
+                    f"<= {maximum}",
+                )
+            )
 
     checks.extend(
         per_sample_stl_checks(
@@ -519,6 +714,16 @@ def evaluate_selection(
                     max_stl_faces_per_bbox_volume_log1p,
                 ),
             ),
+        )
+    )
+    checks.extend(
+        repair_integrity_checks(
+            candidate,
+            per_sample_rows,
+            candidate_method,
+            max_fill_drift=max_repair_volume_fill_ratio_relative_change_abs,
+            within_limit=max_repair_volume_fill_ratio_relative_change_abs_median,
+            min_within_limit_rate=min_repair_volume_fill_ratio_within_limit_rate,
         )
     )
 
@@ -739,8 +944,13 @@ def parse_args():
     parser.add_argument("--max-stl-component-excess-log1p", type=float, default=0.0)
     parser.add_argument("--max-stl-bbox-aspect-ratio", type=float, default=10.0)
     parser.add_argument("--max-stl-faces-per-bbox-volume-log1p", type=float, default=10.0)
-    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=1.1)
-    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=1.1)
+    parser.add_argument("--max-repair-convex-hull-rate", type=float, default=0.25)
+    parser.add_argument("--max-repair-volume-fill-ratio-relative-change-abs-median", type=float, default=0.5)
+    parser.add_argument("--max-repair-volume-fill-ratio-relative-change-abs", type=float, default=4.0)
+    parser.add_argument("--min-repair-volume-fill-ratio-within-limit-rate", type=float, default=0.75)
+    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=None)
+    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=None)
+    parser.add_argument("--max-heldout-view-silhouette-iou-degradation-ratio", type=float, default=1.1)
     parser.add_argument("--max-train-eval-overlap", type=int, default=0)
     parser.add_argument("--allow-missing-split-audit", action="store_true", help="Do not fail the promotion gate when split_audit.json is absent.")
     parser.add_argument("--paired-bootstrap-samples", type=int, default=1000)
@@ -760,6 +970,7 @@ def main():
 
     candidate_method = args.candidate_method
     if not candidate_method:
+        summary_rows = [with_repair_summary_metrics(row, per_sample_rows) for row in summary_rows]
         ranked_rows, _ = rank_summary_rows(
             summary_rows,
             parse_weights(args.weight or [], profile=args.score_profile),
@@ -770,7 +981,31 @@ def main():
             (
                 row.get("method")
                 for row in ranked_rows
-                if row.get("method") != args.baseline_method and not is_oracle_diagnostic(row)
+                if row.get("method") != args.baseline_method
+                and summary_candidate_hard_eligible(
+                    row,
+                    min_success_rate=args.min_success_rate,
+                    min_stl_watertight=args.min_stl_watertight,
+                    min_stl_is_volume=args.min_stl_is_volume,
+                    min_stl_is_manifold=args.min_stl_is_manifold,
+                    min_stl_winding_consistent=args.min_stl_winding_consistent,
+                    min_stl_positive_volume=args.min_stl_positive_volume,
+                    min_stl_single_component=args.min_stl_single_component,
+                    min_stl_bbox_has_volume=args.min_stl_bbox_has_volume,
+                    max_stl_nonmanifold_edge_count_log1p=(
+                        args.max_stl_nonmanifold_edge_count_log1p
+                    ),
+                    max_stl_degenerate_face_ratio=args.max_stl_degenerate_face_ratio,
+                    max_stl_component_excess_log1p=args.max_stl_component_excess_log1p,
+                    max_stl_bbox_aspect_ratio=args.max_stl_bbox_aspect_ratio,
+                    max_stl_faces_per_bbox_volume_log1p=(
+                        args.max_stl_faces_per_bbox_volume_log1p
+                    ),
+                    max_repair_convex_hull_rate=args.max_repair_convex_hull_rate,
+                    max_repair_volume_fill_ratio_relative_change_abs_median=(
+                        args.max_repair_volume_fill_ratio_relative_change_abs_median
+                    ),
+                )
             ),
             None,
         )
@@ -800,8 +1035,21 @@ def main():
         max_stl_component_excess_log1p=args.max_stl_component_excess_log1p,
         max_stl_bbox_aspect_ratio=args.max_stl_bbox_aspect_ratio,
         max_stl_faces_per_bbox_volume_log1p=args.max_stl_faces_per_bbox_volume_log1p,
+        max_repair_convex_hull_rate=args.max_repair_convex_hull_rate,
+        max_repair_volume_fill_ratio_relative_change_abs_median=(
+            args.max_repair_volume_fill_ratio_relative_change_abs_median
+        ),
+        max_repair_volume_fill_ratio_relative_change_abs=(
+            args.max_repair_volume_fill_ratio_relative_change_abs
+        ),
+        min_repair_volume_fill_ratio_within_limit_rate=(
+            args.min_repair_volume_fill_ratio_within_limit_rate
+        ),
         max_mesh_surface_chamfer_ratio_vs_current=args.max_mesh_surface_chamfer_ratio_vs_current,
         max_mesh_surface_hausdorff95_ratio_vs_current=args.max_mesh_surface_hausdorff95_ratio_vs_current,
+        max_heldout_view_silhouette_iou_degradation_ratio=(
+            args.max_heldout_view_silhouette_iou_degradation_ratio
+        ),
         max_train_eval_overlap=args.max_train_eval_overlap,
         split_audit=split_audit,
         require_split_audit=not args.allow_missing_split_audit,

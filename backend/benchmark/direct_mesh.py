@@ -229,6 +229,60 @@ def mesh_is_printable_volume(mesh) -> bool:
     )
 
 
+def _printability_audit(mesh, prefix: str) -> dict:
+    try:
+        extents = np.asarray(mesh.extents, dtype=np.float64)
+    except Exception:
+        extents = np.asarray([], dtype=np.float64)
+    bbox_has_volume = bool(
+        extents.shape == (3,)
+        and np.all(np.isfinite(extents))
+        and np.all(extents > 0)
+    )
+    try:
+        component_count = len(mesh.split(only_watertight=False))
+    except Exception:
+        component_count = -1
+    nonmanifold_edge_count, degenerate_face_count = mesh_face_health(mesh)
+    positive_volume = _finite_positive_volume(mesh)
+    try:
+        is_watertight = bool(mesh.is_watertight)
+    except Exception:
+        is_watertight = False
+    try:
+        is_volume = bool(mesh.is_volume)
+    except Exception:
+        is_volume = False
+    try:
+        winding_consistent = bool(mesh.is_winding_consistent)
+    except Exception:
+        winding_consistent = False
+    vertices = getattr(mesh, "vertices", ())
+    printable = bool(
+        len(vertices)
+        and len(mesh.faces)
+        and bbox_has_volume
+        and is_watertight
+        and is_volume
+        and winding_consistent
+        and component_count == 1
+        and nonmanifold_edge_count == 0
+        and degenerate_face_count == 0
+        and positive_volume
+    )
+    return {
+        f"{prefix}_printable": printable,
+        f"{prefix}_is_watertight": is_watertight,
+        f"{prefix}_is_volume": is_volume,
+        f"{prefix}_winding_consistent": winding_consistent,
+        f"{prefix}_component_count": int(component_count),
+        f"{prefix}_nonmanifold_edge_count": int(nonmanifold_edge_count),
+        f"{prefix}_degenerate_face_count": int(degenerate_face_count),
+        f"{prefix}_positive_volume": bool(positive_volume),
+        f"{prefix}_bbox_has_volume": bbox_has_volume,
+    }
+
+
 def _update_faces(mesh, mask) -> None:
     if mask is None:
         return
@@ -568,11 +622,25 @@ def repair_mesh_for_printable_stl(
                 f"remaining={len(mesh.faces)}. "
                 "Install fast-simplification or use a provider with native face-count control."
             )
+    preclean_printable = False
+    if preconditioner == "voxel-close":
+        preclean_audit = _printability_audit(mesh, "repair_preclean")
+        preclean_printable = preclean_audit["repair_preclean_printable"]
+        if metrics is not None:
+            metrics.update(preclean_audit)
     if mode == "convex-hull":
         repaired = _convex_hull_mesh(mesh)
         used_convex_hull = True
+        cleaning_skipped = True
+    elif preconditioner == "voxel-close" and preclean_printable:
+        repaired = mesh.copy()
+        used_convex_hull = False
+        cleaning_skipped = True
     else:
         repaired = _clean_mesh(mesh)
+        cleaning_skipped = False
+        if metrics is not None:
+            metrics.update(_printability_audit(repaired, "repair_cleaned"))
         used_convex_hull = mode == "printable" and not mesh_is_printable_volume(repaired)
         if used_convex_hull:
             repaired = _convex_hull_mesh(repaired)
@@ -581,6 +649,7 @@ def repair_mesh_for_printable_stl(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     repaired.export(output_path)
     if metrics is not None:
+        metrics["repair_cleaning_skipped"] = bool(cleaning_skipped)
         metrics["repair_convex_hull_used"] = bool(used_convex_hull)
         metrics["repair_output_faces"] = int(len(repaired.faces))
     return output_path

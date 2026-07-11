@@ -1281,16 +1281,21 @@ class StlExportRegressionTests(unittest.TestCase):
             broken.export(broken_path)
             repair_metrics = {}
 
-            repair_mesh_for_printable_stl(
-                broken_path,
-                repaired_path,
-                mode="printable",
-                target_faces=5_000,
-                preconditioner="voxel-close",
-                voxel_resolution=96,
-                voxel_fill_method="orthographic",
-                metrics=repair_metrics,
-            )
+            with patch.object(
+                direct_mesh,
+                "_clean_mesh",
+                side_effect=AssertionError("printable voxel mesh should bypass generic cleanup"),
+            ):
+                repair_mesh_for_printable_stl(
+                    broken_path,
+                    repaired_path,
+                    mode="printable",
+                    target_faces=5_000,
+                    preconditioner="voxel-close",
+                    voxel_resolution=96,
+                    voxel_fill_method="orthographic",
+                    metrics=repair_metrics,
+                )
 
             repaired = trimesh.load_mesh(repaired_path, force="mesh")
             diagnostics = stl_diagnostics(repaired_path)
@@ -1303,6 +1308,9 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertLess(abs(float(repaired.volume) - float(torus.volume)), 0.2)
         self.assertLess(float(repaired.volume), float(torus.convex_hull.volume) * 0.8)
         self.assertFalse(repair_metrics["repair_convex_hull_used"])
+        self.assertTrue(repair_metrics["repair_preclean_printable"])
+        self.assertTrue(repair_metrics["repair_cleaning_skipped"])
+        self.assertNotIn("repair_cleaned_printable", repair_metrics)
         self.assertGreater(repair_metrics["repair_precondition_voxel_faces"], 5_000)
         self.assertLessEqual(repair_metrics["repair_simplified_faces"], 5_000)
 
@@ -2375,8 +2383,45 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(row["raw_mesh_exists"])
         self.assertGreater(row["repair_volume_fill_ratio_change"], 0.0)
         self.assertGreater(row["repair_volume_fill_ratio_relative_change"], 0.0)
+        self.assertEqual(
+            row["repair_volume_fill_ratio_relative_change_abs"],
+            abs(row["repair_volume_fill_ratio_relative_change"]),
+        )
         self.assertFalse(row["provider_peak_cuda_vram_supported"])
         self.assertIsNone(row["provider_peak_cuda_vram_gib"])
+
+    def test_single_image_mesh_scores_views_held_out_from_primary_input(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images = [root / "front.png", root / "back.png"]
+            masks = [root / "front-mask.png", root / "back-mask.png"]
+            for image_path in images:
+                Image.new("RGB", (8, 8), (128, 128, 128)).save(image_path)
+            for mask_path in masks:
+                Image.new("L", (8, 8), 255).save(mask_path)
+            sample = {
+                "multiview_images": [str(path) for path in images],
+                "multiview_masks": [str(path) for path in masks],
+                "multiview_cameras": [{"view": "front"}, {"view": "back"}],
+            }
+            rendered = SimpleNamespace(silhouette=np.ones((16, 16), dtype=bool))
+            with (
+                patch.object(run_completion_benchmark, "load_mesh", return_value=object()),
+                patch.object(run_completion_benchmark, "render_mesh", return_value=rendered) as render,
+            ):
+                metrics = run_completion_benchmark.heldout_multiview_mesh_metrics(
+                    sample,
+                    root / "mesh.glb",
+                    {},
+                    primary_view_index=0,
+                    render_size=16,
+                )
+
+        self.assertTrue(metrics["heldout_view_agreement_supported"])
+        self.assertEqual(metrics["heldout_view_selected_count"], 1)
+        self.assertEqual(metrics["heldout_view_count"], 1)
+        self.assertEqual(metrics["heldout_view_silhouette_iou_mean"], 1.0)
+        self.assertEqual(render.call_args.kwargs["camera"], {"view": "back"})
 
     def test_direct_mesh_metrics_include_raw_geometry_without_mesh_repair(self):
         import trimesh
@@ -3048,6 +3093,7 @@ class StlExportRegressionTests(unittest.TestCase):
                     "error_count": "0",
                     "mesh_surface_chamfer_l1_median": "0.40",
                     "mesh_surface_hausdorff95_median": "0.50",
+                    "silhouette_iou_masked_median": "0.50",
                     "stl_is_watertight_median": "1.0",
                     "stl_is_volume_median": "1.0",
                     "stl_is_manifold_median": "1.0",
@@ -3065,6 +3111,7 @@ class StlExportRegressionTests(unittest.TestCase):
                     "error_count": "0",
                     "mesh_surface_chamfer_l1_median": "0.24",
                     "mesh_surface_hausdorff95_median": "0.32",
+                    "silhouette_iou_masked_median": "0.70",
                     "stl_is_watertight_median": "1.0",
                     "stl_is_volume_median": "1.0",
                     "stl_is_manifold_median": "1.0",
@@ -3076,6 +3123,8 @@ class StlExportRegressionTests(unittest.TestCase):
                     "method": "triposr_repaired",
                     "base_method": "external-image-to-mesh",
                     "stl_mode": "single-image-mesh",
+                    "heldout_view_silhouette_iou_mean_median": "0.80",
+                    "heldout_view_silhouette_iou_min_median": "0.70",
                     "n": "2",
                     "attempted_n": "2",
                     "success_rate": "1.0",
@@ -3093,6 +3142,8 @@ class StlExportRegressionTests(unittest.TestCase):
                     "method": "vggt_multiview_repaired",
                     "base_method": "external-multiview-to-mesh",
                     "stl_mode": "multiview-mesh",
+                    "heldout_view_silhouette_iou_mean_median": "0.60",
+                    "heldout_view_silhouette_iou_min_median": "0.50",
                     "n": "2",
                     "attempted_n": "2",
                     "success_rate": "1.0",
@@ -3134,12 +3185,51 @@ class StlExportRegressionTests(unittest.TestCase):
                         "stl_degenerate_face_ratio_median": "0.0",
                         "stl_component_excess_log1p_median": "0.0",
                         "stl_bbox_aspect_ratio_median": "2.0",
+                        "heldout_view_silhouette_iou_mean_median": row.get(
+                            "heldout_view_silhouette_iou_mean_median",
+                            "",
+                        ),
+                        "heldout_view_silhouette_iou_min_median": row.get(
+                            "heldout_view_silhouette_iou_min_median",
+                            "",
+                        ),
+                        "repair_convex_hull_used_mean": (
+                            "0.0" if "repaired" in row["method"] else ""
+                        ),
+                        "repair_volume_fill_ratio_relative_change_abs_median": (
+                            "0.1" if "repaired" in row["method"] else ""
+                        ),
                     }
                 )
             with (experiment_dir / "aggregate_summary.csv").open("w", newline="", encoding="utf-8") as csv_file:
                 writer = csv.DictWriter(csv_file, fieldnames=list(rows[0].keys()))
                 writer.writeheader()
                 writer.writerows(rows)
+            with (experiment_dir / "per_sample_metrics.csv").open(
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as csv_file:
+                writer = csv.DictWriter(
+                    csv_file,
+                    fieldnames=[
+                        "sample_id",
+                        "method",
+                        "repair_volume_fill_ratio_relative_change_abs",
+                    ],
+                )
+                writer.writeheader()
+                for sample_id in ("a", "b"):
+                    for row in rows:
+                        writer.writerow(
+                            {
+                                "sample_id": sample_id,
+                                "method": row["method"],
+                                "repair_volume_fill_ratio_relative_change_abs": (
+                                    "0.1" if "repaired" in row["method"] else ""
+                                ),
+                            }
+                        )
 
             report = write_stl_first_architecture_report(experiment_dir, root, label="unit")
 
@@ -3372,13 +3462,19 @@ class SurfaceMetricRegressionTests(unittest.TestCase):
                 "gt_depth": str(gt_depth_path),
                 "gt_silhouette": str(silhouette_path),
                 "completion_mode": "mirror-left-to-right",
+                "multiview_primary_index": 0,
             }
             args = SimpleNamespace(
                 skip_depth=False,
                 depth_provider="mock",
                 depth_model="mock",
                 device="cpu",
-                emit_stl=False,
+                emit_stl=True,
+                stl_target_dimension=96,
+                stl_z_scale=50.0,
+                stl_no_invert=False,
+                stl_sigma=4.0,
+                mesh_surface_max_points=64,
                 prompt="",
                 steps=1,
                 seed=1,
@@ -3389,9 +3485,22 @@ class SurfaceMetricRegressionTests(unittest.TestCase):
                 lora_scale=None,
             )
 
-            with patch(
-                "backend.benchmark.run_completion_benchmark.process_image_get_depth_data",
-                return_value=str(pred_depth_path),
+            with (
+                patch(
+                    "backend.benchmark.run_completion_benchmark.process_image_get_depth_data",
+                    return_value=str(pred_depth_path),
+                ),
+                patch.object(run_completion_benchmark, "depth_data_to_3d_model"),
+                patch.object(
+                    run_completion_benchmark,
+                    "stl_and_mesh_metrics",
+                    return_value={"stl_exists": True},
+                ),
+                patch.object(
+                    run_completion_benchmark,
+                    "heldout_multiview_mesh_metrics",
+                    return_value={"heldout_view_silhouette_iou_mean": 0.75},
+                ) as heldout,
             ):
                 row = evaluate_sample(sample, "mock-method", str(full_path), str(full_path), temp_path / "run", args)
             summary = summarize([row], methods=["mock-method"], attempted_n=1)
@@ -3401,6 +3510,8 @@ class SurfaceMetricRegressionTests(unittest.TestCase):
         self.assertGreater(row["object_surface_chamfer_l1"], 0)
         self.assertGreater(row["object_surface_chamfer_rmse"], 0)
         self.assertEqual(row["object_surface_point_count"], 8)
+        self.assertEqual(row["heldout_view_silhouette_iou_mean"], 0.75)
+        self.assertEqual(heldout.call_args.kwargs["primary_view_index"], 0)
         self.assertIn("object_surface_chamfer_l1_median", summary[0])
 
 
@@ -6025,6 +6136,12 @@ class StlResultIngestRegressionTests(unittest.TestCase):
                     "stl_degenerate_face_ratio_median": "0.0",
                     "stl_component_excess_log1p_median": "0.0",
                     "stl_bbox_aspect_ratio_median": "2.0",
+                    "repair_convex_hull_used_mean": (
+                        "0.0" if "repaired" in row["method"] else ""
+                    ),
+                    "repair_volume_fill_ratio_relative_change_abs_median": (
+                        "0.1" if "repaired" in row["method"] else ""
+                    ),
                 }
             )
         fieldnames = list(summary_rows[0].keys())
@@ -6049,6 +6166,7 @@ class StlResultIngestRegressionTests(unittest.TestCase):
             "stl_component_excess_log1p",
             "stl_bbox_aspect_ratio",
             "stl_faces_per_bbox_volume_log1p",
+            "repair_volume_fill_ratio_relative_change_abs",
         ]
         with (run_dir / "per_sample_metrics.csv").open("w", newline="", encoding="utf-8") as csv_file:
             writer = csv.DictWriter(csv_file, fieldnames=per_sample_fieldnames)
@@ -6073,6 +6191,9 @@ class StlResultIngestRegressionTests(unittest.TestCase):
                             "stl_component_excess_log1p": row["stl_component_excess_log1p_median"],
                             "stl_bbox_aspect_ratio": row["stl_bbox_aspect_ratio_median"],
                             "stl_faces_per_bbox_volume_log1p": row["stl_faces_per_bbox_volume_log1p_median"],
+                            "repair_volume_fill_ratio_relative_change_abs": (
+                                "0.1" if "repaired" in row["method"] else ""
+                            ),
                         }
                     )
         return run_dir
@@ -6325,6 +6446,54 @@ class StlResultIngestRegressionTests(unittest.TestCase):
         self.assertIn("Promotion Gate Failures", markdown)
         self.assertIn("Sample Failure Hotspots", markdown)
         self.assertIn("failed_samples=b", markdown)
+
+    def test_stl_result_ingest_blocks_destructive_repair_fallback(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = self.write_stl_result_run(root / "run")
+            summary_path = run_dir / "aggregate_summary.csv"
+            with summary_path.open(newline="", encoding="utf-8") as csv_file:
+                summary_rows = list(csv.DictReader(csv_file))
+            destructive = next(row for row in summary_rows if row["method"] == "hunyuan3d_shape_repaired")
+            destructive["repair_convex_hull_used_mean"] = "0.5"
+            destructive["repair_volume_fill_ratio_relative_change_abs_median"] = ""
+            with summary_path.open("w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=list(summary_rows[0].keys()))
+                writer.writeheader()
+                writer.writerows(summary_rows)
+
+            metrics_path = run_dir / "per_sample_metrics.csv"
+            with metrics_path.open(newline="", encoding="utf-8") as csv_file:
+                sample_rows = list(csv.DictReader(csv_file))
+            for row in sample_rows:
+                row["repair_volume_fill_ratio_relative_change"] = ""
+                if row["method"] == "hunyuan3d_shape_repaired":
+                    row["repair_volume_fill_ratio_relative_change_abs"] = ""
+                    row["repair_volume_fill_ratio_relative_change"] = (
+                        "0.2" if row["sample_id"] == "a" else "-5.0"
+                    )
+            with metrics_path.open("w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=list(sample_rows[0].keys()))
+                writer.writeheader()
+                writer.writerows(sample_rows)
+
+            report = summarize_stl_inputs([str(run_dir)], output_dir=root / "ingested", top=5)
+
+        run = report["runs"][0]
+        destructive_row = next(
+            row for row in run["ranked_methods"] if row["method"] == "hunyuan3d_shape_repaired"
+        )
+        failed = {
+            row["gate"]
+            for row in run["gate_failures"]
+            if row["method"] == "hunyuan3d_shape_repaired"
+        }
+        self.assertEqual(run["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
+        self.assertEqual(run["promotion_eligible_winner"]["method"], "vggt_multiview_repaired")
+        self.assertFalse(destructive_row["promotion_eligible"])
+        self.assertIn("Convex Hull Fallback", failed)
+        self.assertIn("Sample Repair Fill-Ratio Drift Maximum", failed)
+        self.assertIn("Sample Repair Fill-Ratio Drift Coverage", failed)
 
     def test_stl_result_ingest_extracts_colab_style_archive(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -7244,6 +7413,8 @@ class RankMethodRegressionTests(unittest.TestCase):
             },
             {
                 "method": "direct_mesh_good",
+                "heldout_view_silhouette_iou_mean_median": "0.75",
+                "heldout_view_silhouette_iou_min_median": "0.50",
                 "mesh_surface_chamfer_l1_median": "0.20",
                 "mesh_surface_chamfer_rmse_median": "0.25",
                 "mesh_surface_hausdorff95_median": "0.35",
@@ -7272,16 +7443,18 @@ class RankMethodRegressionTests(unittest.TestCase):
         )
         scores = {row["method"]: row["rank_score"] for row in ranked}
 
-        self.assertIn("mesh_surface_chamfer_l1_median", used_metrics)
-        self.assertIn("mesh_surface_chamfer_rmse_median", used_metrics)
-        self.assertIn("mesh_surface_hausdorff95_median", used_metrics)
+        self.assertIn("heldout_view_silhouette_iou_mean_median", used_metrics)
+        self.assertIn("heldout_view_silhouette_iou_min_median", used_metrics)
+        self.assertNotIn("mesh_surface_chamfer_l1_median", used_metrics)
+        self.assertNotIn("mesh_surface_chamfer_rmse_median", used_metrics)
+        self.assertNotIn("mesh_surface_hausdorff95_median", used_metrics)
         self.assertNotIn("object_surface_chamfer_l1_median", used_metrics)
         self.assertIn("stl_is_volume_median", used_metrics)
         self.assertIn("stl_winding_consistent_median", used_metrics)
         self.assertIn("stl_single_component_median", used_metrics)
         self.assertIn("stl_component_excess_log1p_median", used_metrics)
         self.assertIn("stl_bbox_has_volume_median", used_metrics)
-        self.assertIn("stl_faces_per_normalized_bbox_volume_log1p_median", used_metrics)
+        self.assertNotIn("stl_faces_per_normalized_bbox_volume_log1p_median", used_metrics)
         self.assertNotIn("stl_component_count_median", used_metrics)
         self.assertNotIn("stl_component_excess_median", used_metrics)
         self.assertNotIn("stl_faces_per_bbox_volume_median", used_metrics)
@@ -7504,6 +7677,80 @@ class SelectionRegressionTests(unittest.TestCase):
         self.assertEqual(decision["candidate_method"], "mirror")
         self.assertEqual(decision["decision"], "promote")
 
+    def test_selection_default_skips_higher_scoring_destructive_repair(self):
+        summary_rows = [
+            {"method": "masked", "success_rate": "1.0", "masked_mae_median": "0.60"},
+            {
+                "method": "hunyuan_repaired",
+                "success_rate": "1.0",
+                "masked_mae_median": "0.01",
+                "repair_convex_hull_used_mean": "1.0",
+                "repair_volume_fill_ratio_relative_change_abs_median": "0.1",
+            },
+            {
+                "method": "triposg_repaired",
+                "success_rate": "1.0",
+                "masked_mae_median": "0.10",
+                "repair_convex_hull_used_mean": "0.0",
+                "repair_volume_fill_ratio_relative_change_abs_median": "0.1",
+            },
+        ]
+        per_sample_rows = [
+            {"sample_id": "a", "method": "masked", "masked_mae": "0.60"},
+            {
+                "sample_id": "a",
+                "method": "hunyuan_repaired",
+                "masked_mae": "0.01",
+                "repair_volume_fill_ratio_relative_change_abs": "0.1",
+            },
+            {
+                "sample_id": "a",
+                "method": "triposg_repaired",
+                "masked_mae": "0.10",
+                "repair_volume_fill_ratio_relative_change_abs": "0.1",
+            },
+        ]
+
+        decision = evaluate_selection(
+            summary_rows,
+            per_sample_rows,
+            baseline_method="masked",
+            weights={"masked_mae_median": -4.0},
+            min_paired_n=1,
+            require_split_audit=False,
+            bootstrap_samples=0,
+        )
+
+        self.assertEqual(decision["candidate_method"], "triposg_repaired")
+        self.assertEqual(decision["decision"], "promote")
+
+    def test_selection_fails_closed_when_repaired_candidate_lacks_audits(self):
+        summary_rows = [
+            {"method": "masked", "success_rate": "1.0", "masked_mae_median": "0.60"},
+            {"method": "triposg_repaired", "success_rate": "1.0", "masked_mae_median": "0.10"},
+        ]
+        per_sample_rows = [
+            {"sample_id": "a", "method": "masked", "masked_mae": "0.60"},
+            {"sample_id": "a", "method": "triposg_repaired", "masked_mae": "0.10"},
+        ]
+
+        decision = evaluate_selection(
+            summary_rows,
+            per_sample_rows,
+            baseline_method="masked",
+            candidate_method="triposg_repaired",
+            weights={"masked_mae_median": -4.0},
+            min_paired_n=1,
+            require_split_audit=False,
+            bootstrap_samples=0,
+        )
+
+        failed = {check["name"] for check in decision["failed_checks"]}
+        self.assertEqual(decision["decision"], "hold")
+        self.assertIn("repair_convex_hull_fallback_rate", failed)
+        self.assertIn("repair_volume_fill_ratio_relative_change_abs", failed)
+        self.assertIn("per_sample_repair_volume_fill_ratio_relative_change_abs", failed)
+
     def test_selection_rejects_reference_alias_to_source_oracle(self):
         summary_rows = [
             {"method": "masked", "success_rate": "1.0", "masked_mae_median": "0.50"},
@@ -7654,6 +7901,60 @@ class SelectionRegressionTests(unittest.TestCase):
         self.assertIn("stl_nonmanifold_edges", failed_checks)
         self.assertIn("stl_degenerate_face_ratio", failed_checks)
         self.assertIn("stl_component_excess", failed_checks)
+
+    def test_selection_holds_high_scoring_destructive_repair(self):
+        summary_rows = [
+            {"method": "masked", "success_rate": "1.0", "masked_mae_median": "0.60"},
+            {
+                "method": "direct_mesh",
+                "success_rate": "1.0",
+                "masked_mae_median": "0.10",
+                "repair_convex_hull_used_mean": "0.5",
+                "repair_volume_fill_ratio_relative_change_median": "-0.4",
+            },
+        ]
+        per_sample_rows = [
+            {"sample_id": "a", "method": "masked", "masked_mae": "0.60"},
+            {"sample_id": "b", "method": "masked", "masked_mae": "0.70"},
+            {
+                "sample_id": "a",
+                "method": "direct_mesh",
+                "masked_mae": "0.10",
+                "repair_volume_fill_ratio_relative_change": "0.2",
+            },
+            {
+                "sample_id": "b",
+                "method": "direct_mesh",
+                "masked_mae": "0.05",
+                "repair_volume_fill_ratio_relative_change": "-5.0",
+            },
+        ]
+
+        decision = evaluate_selection(
+            summary_rows,
+            per_sample_rows,
+            baseline_method="masked",
+            candidate_method="direct_mesh",
+            weights={"masked_mae_median": -4.0},
+            min_paired_n=2,
+            require_split_audit=False,
+            bootstrap_samples=0,
+        )
+
+        failed_checks = {check["name"]: check for check in decision["failed_checks"]}
+        self.assertEqual(decision["decision"], "hold")
+        self.assertGreater(decision["candidate_rank_score"], 0)
+        self.assertIn("repair_convex_hull_fallback_rate", failed_checks)
+        self.assertAlmostEqual(
+            failed_checks["repair_volume_fill_ratio_relative_change_abs"]["value"],
+            2.6,
+        )
+        self.assertIn("per_sample_repair_volume_fill_ratio_relative_change_abs", failed_checks)
+        self.assertIn("repair_volume_fill_ratio_relative_change_abs_coverage", failed_checks)
+        self.assertIn(
+            "failed_samples=b",
+            failed_checks["per_sample_repair_volume_fill_ratio_relative_change_abs"]["detail"],
+        )
 
     def test_selection_holds_candidate_with_per_sample_stl_failure(self):
         summary_rows = [
@@ -7870,7 +8171,7 @@ class SelectionRegressionTests(unittest.TestCase):
         self.assertFalse(decision["failed_checks"])
         self.assertGreater(decision["paired_objective_vs_current"]["ci95_low"], 0)
 
-    def test_selection_holds_surface_geometry_regression_vs_current(self):
+    def test_selection_holds_heldout_view_regression_vs_current(self):
         summary_rows = [
             {"method": "masked", "success_rate": "1.0", "masked_mae_median": "0.60"},
             {"method": "current", "success_rate": "1.0", "masked_mae_median": "0.30"},
@@ -7882,6 +8183,7 @@ class SelectionRegressionTests(unittest.TestCase):
                 "sample_id": "a",
                 "method": "current",
                 "masked_mae": "0.30",
+                "heldout_view_silhouette_iou_mean": "0.80",
                 "mesh_surface_chamfer_l1": "0.10",
                 "mesh_surface_hausdorff95": "0.20",
             },
@@ -7889,6 +8191,7 @@ class SelectionRegressionTests(unittest.TestCase):
                 "sample_id": "a",
                 "method": "candidate",
                 "masked_mae": "0.10",
+                "heldout_view_silhouette_iou_mean": "0.60",
                 "mesh_surface_chamfer_l1": "0.15",
                 "mesh_surface_hausdorff95": "0.28",
             },
@@ -7897,6 +8200,7 @@ class SelectionRegressionTests(unittest.TestCase):
                 "sample_id": "b",
                 "method": "current",
                 "masked_mae": "0.40",
+                "heldout_view_silhouette_iou_mean": "0.70",
                 "mesh_surface_chamfer_l1": "0.20",
                 "mesh_surface_hausdorff95": "0.30",
             },
@@ -7904,6 +8208,7 @@ class SelectionRegressionTests(unittest.TestCase):
                 "sample_id": "b",
                 "method": "candidate",
                 "masked_mae": "0.20",
+                "heldout_view_silhouette_iou_mean": "0.50",
                 "mesh_surface_chamfer_l1": "0.21",
                 "mesh_surface_hausdorff95": "0.32",
             },
@@ -7925,15 +8230,13 @@ class SelectionRegressionTests(unittest.TestCase):
         self.assertEqual(decision["decision"], "hold")
         self.assertGreater(decision["candidate_rank_score"], decision["current_rank_score"])
         self.assertAlmostEqual(
-            failed_checks["paired_mesh_surface_chamfer_ratio_vs_current"]["value"],
-            1.5,
-        )
-        self.assertAlmostEqual(
-            failed_checks["paired_mesh_surface_hausdorff95_ratio_vs_current"]["value"],
+            failed_checks["paired_heldout_view_silhouette_iou_mean_ratio_vs_current"]["value"],
             1.4,
         )
+        self.assertNotIn("paired_mesh_surface_chamfer_ratio_vs_current", failed_checks)
+        self.assertNotIn("paired_mesh_surface_hausdorff95_ratio_vs_current", failed_checks)
 
-    def test_selection_promotes_when_paired_surface_geometry_stays_within_ratio(self):
+    def test_selection_promotes_when_heldout_view_agreement_stays_within_ratio(self):
         summary_rows = [
             {"method": "masked", "success_rate": "1.0", "masked_mae_median": "0.60"},
             {"method": "current", "success_rate": "1.0", "masked_mae_median": "0.30"},
@@ -7945,6 +8248,7 @@ class SelectionRegressionTests(unittest.TestCase):
                 "sample_id": "a",
                 "method": "current",
                 "masked_mae": "0.30",
+                "heldout_view_silhouette_iou_mean": "0.80",
                 "mesh_surface_chamfer_l1": "0.10",
                 "mesh_surface_hausdorff95": "0.20",
             },
@@ -7952,6 +8256,7 @@ class SelectionRegressionTests(unittest.TestCase):
                 "sample_id": "a",
                 "method": "candidate",
                 "masked_mae": "0.10",
+                "heldout_view_silhouette_iou_mean": "0.78",
                 "mesh_surface_chamfer_l1": "0.105",
                 "mesh_surface_hausdorff95": "0.21",
             },
@@ -7960,6 +8265,7 @@ class SelectionRegressionTests(unittest.TestCase):
                 "sample_id": "b",
                 "method": "current",
                 "masked_mae": "0.40",
+                "heldout_view_silhouette_iou_mean": "0.70",
                 "mesh_surface_chamfer_l1": "0.20",
                 "mesh_surface_hausdorff95": "0.30",
             },
@@ -7967,6 +8273,7 @@ class SelectionRegressionTests(unittest.TestCase):
                 "sample_id": "b",
                 "method": "candidate",
                 "masked_mae": "0.20",
+                "heldout_view_silhouette_iou_mean": "0.68",
                 "mesh_surface_chamfer_l1": "0.21",
                 "mesh_surface_hausdorff95": "0.315",
             },
@@ -7986,8 +8293,9 @@ class SelectionRegressionTests(unittest.TestCase):
 
         checks = {check["name"]: check for check in decision["checks"]}
         self.assertEqual(decision["decision"], "promote")
-        self.assertTrue(checks["paired_mesh_surface_chamfer_ratio_vs_current"]["passed"])
-        self.assertTrue(checks["paired_mesh_surface_hausdorff95_ratio_vs_current"]["passed"])
+        self.assertTrue(checks["paired_heldout_view_silhouette_iou_mean_ratio_vs_current"]["passed"])
+        self.assertNotIn("paired_mesh_surface_chamfer_ratio_vs_current", checks)
+        self.assertNotIn("paired_mesh_surface_hausdorff95_ratio_vs_current", checks)
 
     def test_selection_keeps_current_when_top_candidate_is_current_method(self):
         summary_rows = [

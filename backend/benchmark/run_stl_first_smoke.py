@@ -755,16 +755,26 @@ def build_optimize_command(args: argparse.Namespace, manifest_path: Path, experi
                 str(args.max_stl_faces_per_bbox_volume_log1p),
             ]
         )
+        max_source_chamfer_ratio = getattr(args, "max_mesh_surface_chamfer_ratio_vs_current", None)
+        if max_source_chamfer_ratio is not None:
+            command.extend(
+                [
+                    "--max-mesh-surface-chamfer-ratio-vs-current",
+                    str(max_source_chamfer_ratio),
+                ]
+            )
+        max_source_h95_ratio = getattr(args, "max_mesh_surface_hausdorff95_ratio_vs_current", None)
+        if max_source_h95_ratio is not None:
+            command.extend(
+                [
+                    "--max-mesh-surface-hausdorff95-ratio-vs-current",
+                    str(max_source_h95_ratio),
+                ]
+            )
         command.extend(
             [
-                "--max-mesh-surface-chamfer-ratio-vs-current",
-                str(getattr(args, "max_mesh_surface_chamfer_ratio_vs_current", 1.1)),
-            ]
-        )
-        command.extend(
-            [
-                "--max-mesh-surface-hausdorff95-ratio-vs-current",
-                str(getattr(args, "max_mesh_surface_hausdorff95_ratio_vs_current", 1.1)),
+                "--max-heldout-view-silhouette-iou-degradation-ratio",
+                str(getattr(args, "max_heldout_view_silhouette_iou_degradation_ratio", 1.1)),
             ]
         )
         if args.allow_missing_split_audit:
@@ -1000,8 +1010,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-stl-component-excess-log1p", type=float, default=0.0)
     parser.add_argument("--max-stl-bbox-aspect-ratio", type=float, default=10.0)
     parser.add_argument("--max-stl-faces-per-bbox-volume-log1p", type=float, default=10.0)
-    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=1.1)
-    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=1.1)
+    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=None)
+    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=None)
+    parser.add_argument("--max-heldout-view-silhouette-iou-degradation-ratio", type=float, default=1.1)
     parser.add_argument("--allow-missing-split-audit", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--dataset-timeout", type=int, default=600)
     parser.add_argument("--benchmark-timeout", type=int, default=7200)

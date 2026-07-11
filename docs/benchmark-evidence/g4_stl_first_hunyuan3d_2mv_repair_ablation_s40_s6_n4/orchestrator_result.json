@@ -1,0 +1,43 @@
+{
+  "combined_dir": "",
+  "duration_seconds": 677.128,
+  "eval_config": "/content/3dprintpic/backend/output/completion-benchmark/colab_g4/g4_stl_first_hunyuan3d_2mv_repair_ablation_s40_s6_n4/configs/modern_plus_weighted_lora.json",
+  "eval_config_report": {
+    "exists": true,
+    "is_file": true,
+    "path": "/content/3dprintpic/backend/output/completion-benchmark/colab_g4/g4_stl_first_hunyuan3d_2mv_repair_ablation_s40_s6_n4/configs/modern_plus_weighted_lora.json",
+    "sha256": "98a88f44dcb8c87f7f4afa6385fff51f1acdf48af7ccadaf4bfcb56f4018415b",
+    "size_bytes": 10992
+  },
+  "eval_dirs": [
+    "/content/3dprintpic/backend/output/completion-benchmark/colab_g4/g4_stl_first_hunyuan3d_2mv_repair_ablation_s40_s6_n4/experiments/modern_weighted_eval_s0_n4"
+  ],
+  "finished_at": "2026-07-11T00:53:43+00:00",
+  "lora_weights": "",
+  "manifest": "/content/3dprintpic_colab_inputs/modelnet10_hunyuan3d_2mv_repair_ablation_s40_s6_n4/inputs/manifest.jsonl",
+  "manifest_report": {
+    "exists": true,
+    "is_file": true,
+    "path": "/content/3dprintpic_colab_inputs/modelnet10_hunyuan3d_2mv_repair_ablation_s40_s6_n4/inputs/manifest.jsonl",
+    "sha256": "5ad5e40d84a387cbaaa5f10bf9ee2ad1b7e6e6ce687f7c03506fcb71034514bd",
+    "size_bytes": 26042
+  },
+  "repo_state": {
+    "branch": "main",
+    "dirty": false,
+    "head": "68f97d24c3ee87eb68c910efaa21d32fad4f4de3",
+    "remote_origin": "https://github.com/DrStrangel0ve/3dprintpic.git",
+    "repo_root": "/content/3dprintpic",
+    "status_short": ""
+  },
+  "source_modern_config": {
+    "exists": true,
+    "is_file": true,
+    "path": "/content/3dprintpic/backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_hunyuan3d_2mv_repair_ablation_s40_n4.json",
+    "sha256": "98a88f44dcb8c87f7f4afa6385fff51f1acdf48af7ccadaf4bfcb56f4018415b",
+    "size_bytes": 10992
+  },
+  "started_at": "2026-07-11T00:42:26+00:00",
+  "training_metadata": "",
+  "weighted_metadata": ""
+}

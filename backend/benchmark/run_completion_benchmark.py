@@ -594,6 +594,7 @@ def heldout_multiview_mesh_metrics(
     mesh_path: str | Path,
     provider_metrics: dict,
     *,
+    primary_view_index: int | None = None,
     render_size: int = HELDOUT_VIEW_RENDER_SIZE,
 ) -> dict:
     native_metrics = provider_metrics.get("provider_native_metrics") or {}
@@ -603,23 +604,30 @@ def heldout_multiview_mesh_metrics(
         for row in selected_rows
         if isinstance(row, dict) and row.get("source_image")
     }
+    images = _jsonish_list(sample.get("multiview_images"))
+    masks = _jsonish_list(sample.get("multiview_masks"))
+    cameras = _jsonish_list(sample.get("multiview_cameras"))
+    selected_indices = set()
+    if primary_view_index not in (None, ""):
+        try:
+            selected_indices.add(int(primary_view_index))
+        except (TypeError, ValueError):
+            pass
+    selected_indices = {index for index in selected_indices if 0 <= index < len(images)}
     base = {
-        "heldout_view_agreement_supported": bool(selected_images),
-        "heldout_view_selected_count": len(selected_images),
+        "heldout_view_agreement_supported": bool(selected_images or selected_indices),
+        "heldout_view_selected_count": len(selected_images) + len(selected_indices),
         "heldout_view_count": 0,
         "heldout_view_silhouette_iou_mean": math.nan,
         "heldout_view_silhouette_iou_median": math.nan,
         "heldout_view_silhouette_iou_min": math.nan,
     }
-    if not selected_images:
+    if not selected_images and not selected_indices:
         return base
 
-    images = _jsonish_list(sample.get("multiview_images"))
-    masks = _jsonish_list(sample.get("multiview_masks"))
-    cameras = _jsonish_list(sample.get("multiview_cameras"))
     candidate_views = []
     for index, image_path in enumerate(images):
-        if _normalized_path_key(image_path) in selected_images:
+        if index in selected_indices or _normalized_path_key(image_path) in selected_images:
             continue
         if index >= len(masks) or index >= len(cameras):
             continue
@@ -715,17 +723,22 @@ def evaluate_direct_mesh_sample(sample, method, output_dir, args):
             if math.isfinite(raw_fill) and math.isfinite(repaired_fill):
                 change = repaired_fill - raw_fill
                 row["repair_volume_fill_ratio_change"] = change
-                row["repair_volume_fill_ratio_relative_change"] = (
+                relative_change = (
                     change / abs(raw_fill) if abs(raw_fill) > 1e-12 else math.nan
                 )
-        if input_bundle:
-            row.update(
-                heldout_multiview_mesh_metrics(
-                    sample,
-                    output_mesh,
-                    provider_metrics,
-                )
+                row["repair_volume_fill_ratio_relative_change"] = relative_change
+                row["repair_volume_fill_ratio_relative_change_abs"] = abs(relative_change)
+        primary_view_index = None
+        if method == "external-image-to-mesh":
+            primary_view_index = sample.get("multiview_primary_index", sample.get("view_index", 0))
+        row.update(
+            heldout_multiview_mesh_metrics(
+                sample,
+                output_mesh,
+                provider_metrics,
+                primary_view_index=primary_view_index,
             )
+        )
     return row
 
 
@@ -843,6 +856,17 @@ def evaluate_sample(sample, method, raw_completed_path, completed_path, output_d
                 sigma=args.stl_sigma,
             )
             row.update(stl_and_mesh_metrics(sample, stl_path, max_points=args.mesh_surface_max_points))
+            row.update(
+                heldout_multiview_mesh_metrics(
+                    sample,
+                    stl_path,
+                    {},
+                    primary_view_index=sample.get(
+                        "multiview_primary_index",
+                        sample.get("view_index", 0),
+                    ),
+                )
+            )
 
     return row
 

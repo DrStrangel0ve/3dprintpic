@@ -302,6 +302,18 @@ Raw Hunyuan geometry reveals the next optimization target. Its meshes range from
 
 The full result archive is `444,218,826` bytes with SHA256 `65ac1aba0e30c287c48de66cc5514a0796d7f67e14ed47dcf8c20afff2dd8e06`. A locally checksum-verified and re-ingested metrics archive is `1,110,155` bytes with SHA256 `09156bbe5d877ba392d5690df9f63d0e972dc041b5f8e676a9b2ecc7990c60c9`. The compact [n10 evidence bundle](benchmark-evidence/g4_stl_first_hunyuan3d_2mv_vs_triposg_octants8_s40_n10/README.md) preserves the complete decision and per-sample metric surface without committing the 444 MB mesh archive. The G4 runtime was disconnected after evidence recovery.
 
+### Measured: Hunyuan Repair Ablation n4
+
+Run `g4_stl_first_hunyuan3d_2mv_repair_ablation_s40_s6_n4` isolated the three Hunyuan repair outliers plus one control on runtime code `68f97d24c3ee87eb68c910efaa21d32fad4f4de3`. It compared the raw cached Hunyuan mesh, legacy printable repair, voxel closure at r192/r256 with and without 1% component-area filtering, the promoted TripoSG control, and the depth baselines. All `36/36` rows completed on the G4 Blackwell runtime. Median Hunyuan inference was `34.7425` seconds with `5.8008` GiB peak CUDA VRAM.
+
+The configured r256 area-filtered candidate remained `hold`. It used convex hull fallback on `2/4` samples and had one `7.0766x` fill-ratio-drift outlier. Increasing voxel resolution did not remove the failure: the same bed and sofa fell back at r192 and r256. Failing post-decimation meshes collapsed from approximately `10.7k` faces to `134-210` hull faces, while successful samples retained approximately `10.7k` faces. The follow-up repair path therefore preserves an already printable voxel-decimated mesh before generic cleanup and records the exact printability predicates before and after cleanup.
+
+This run also exposed a scoring error. The legacy hull originally ranked first at `1.5729`, but `1.2653` of that score came from reducing complexity below the printer budget. It used a hull on `4/4` samples and had median fill-ratio drift `12.2245`. Complexity is now a hard gate rather than an additive reward. Source-mesh Chamfer/H95 remain in reports only; the deployable `stl-quality` objective uses held-out camera agreement and STL validity. Single-image providers now render views held out from their primary input so TripoSG and multiview providers can be compared on the same non-oracle signal.
+
+Repair promotion now requires hull fallback rate `<= 0.25`, median absolute fill drift `<= 0.5`, at least `75%` of samples within that drift, and no sample above `4.0`. Re-ingesting the recorded run under those gates blocks every Hunyuan repair variant and leaves TripoSG as the structurally eligible architecture. The incumbent-aware selector still returns `hold` because this four-row ablation is not a promotion run and the older TripoSG control lacks comparable held-out-view rows. Historical sections above describe the selector policy used at run time; source-geometry ratio gates are now opt-in diagnostics rather than defaults.
+
+The compact result archive is `1,258,420` bytes with SHA256 `eb368249c84692a2c3f01938615915b543261d2e1ab9109f0d99a34e35523568`. The [repair-ablation evidence bundle](benchmark-evidence/g4_stl_first_hunyuan3d_2mv_repair_ablation_s40_s6_n4/README.md) preserves both policy versions, per-sample repair metrics, runtime provenance, corrected ingest report, and contact sheet. The next G4 action is a four-row cache-reuse smoke with the cleanup bypass and stage audits; expansion to the held-out ten is conditional on reducing fallback to at most one row without regressing held-out agreement.
+
 One-time Colab setup:
 
 ```bash
