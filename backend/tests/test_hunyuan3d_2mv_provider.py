@@ -287,6 +287,7 @@ class Hunyuan3D2mvProviderTest(unittest.TestCase):
                 changed_repair_args.mesh_repair_component_area_ratio = 0.01
                 changed_repair_args.mesh_repair_voxel_resolution = 256
                 changed_repair_args.mesh_repair_voxel_fill_method = "orthographic"
+                changed_repair_args.mesh_repair_simplify_placement = "endpoint"
                 changed_repair = provider_module.cli_provider_cache_payload(
                     changed_repair_args,
                     provider_dir,
@@ -562,6 +563,43 @@ class Hunyuan3D2mvProviderTest(unittest.TestCase):
         }
         self.assertEqual(resolutions, {"192", "256"})
         self.assertEqual(ratios, {"0", "0.01"})
+
+    def test_decimator_ablation_config_sweeps_placement_and_bounded_face_budgets(self):
+        config_path = Path(
+            "backend/benchmark/experiment_configs/"
+            "modelnet10_60_balanced_stl_quality_hunyuan3d_2mv_decimator_ablation_s40_n4.json"
+        )
+        experiments = json.loads(config_path.read_text(encoding="utf-8"))
+        voxel_rows = [
+            experiment
+            for experiment in experiments
+            if "_voxel_" in experiment["name"]
+        ]
+
+        self.assertEqual(len(experiments), 10)
+        self.assertEqual(len(voxel_rows), 6)
+        self.assertFalse(any(row.get("oracle_diagnostic", False) for row in experiments))
+        for experiment in experiments:
+            self.assertNotIn("{source_bbox", experiment.get("direct_mesh_command", ""))
+        commands = [row["direct_mesh_command"] for row in voxel_rows]
+        self.assertTrue(all("--mesh-repair-voxel-resolution 192" in command for command in commands))
+        self.assertTrue(all("--mesh-repair-component-area-ratio 0" in command for command in commands))
+        self.assertEqual(
+            sum("--mesh-repair-simplify-placement endpoint" in command for command in commands),
+            3,
+        )
+        self.assertEqual(
+            sum("--mesh-repair-simplify-placement optimal" in command for command in commands),
+            3,
+        )
+        for density in ("9.85", "9.90", "9.95"):
+            self.assertEqual(
+                sum(
+                    f"--mesh-max-normalized-face-density-log1p {density}" in command
+                    for command in commands
+                ),
+                2,
+            )
 
 
 if __name__ == "__main__":

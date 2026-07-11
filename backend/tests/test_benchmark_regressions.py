@@ -1313,6 +1313,48 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertNotIn("repair_cleaned_printable", repair_metrics)
         self.assertGreater(repair_metrics["repair_precondition_voxel_faces"], 5_000)
         self.assertLessEqual(repair_metrics["repair_simplified_faces"], 5_000)
+        self.assertEqual(repair_metrics["repair_simplify_placement"], "optimal")
+        self.assertEqual(repair_metrics["repair_simplification_target_faces"], 5_000)
+        self.assertIn(
+            "repair_simplification_surface_chamfer_l1_normalized",
+            repair_metrics,
+        )
+        self.assertIn(
+            "repair_simplification_surface_hausdorff95_normalized",
+            repair_metrics,
+        )
+
+    def test_topology_preserving_simplification_supports_endpoint_placement(self):
+        import trimesh
+        from scipy.spatial import cKDTree
+
+        torus = trimesh.creation.torus(
+            major_radius=1.0,
+            minor_radius=0.32,
+            major_sections=48,
+            minor_sections=24,
+        )
+        voxel_mesh = direct_mesh._voxel_close_mesh(torus, 64, "orthographic")
+        simplified = direct_mesh._simplify_preserving_topology(
+            voxel_mesh,
+            2_000,
+            placement="endpoint",
+            strict=True,
+        )
+        nearest_source_distance, _ = cKDTree(voxel_mesh.vertices).query(
+            simplified.vertices,
+            k=1,
+        )
+
+        self.assertLessEqual(len(simplified.faces), 2_000)
+        self.assertLessEqual(float(np.max(nearest_source_distance)), 1e-12)
+        with self.assertRaisesRegex(ValueError, "simplification placement"):
+            direct_mesh._simplify_preserving_topology(
+                voxel_mesh,
+                2_000,
+                placement="centroid",
+                strict=True,
+            )
 
     def test_voxel_close_repair_retriangulates_single_degenerate_face_before_cleanup(self):
         import trimesh
@@ -2202,6 +2244,7 @@ class StlExportRegressionTests(unittest.TestCase):
                 mesh_repair_component_area_ratio=0.01,
                 mesh_repair_voxel_resolution=256,
                 mesh_repair_voxel_fill_method="orthographic",
+                mesh_repair_simplify_placement="endpoint",
                 mesh_target_max_dimension=0.0,
                 mesh_min_bbox_dimension=0.0,
                 mesh_max_bbox_aspect_ratio=0.0,
@@ -2228,6 +2271,11 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertEqual(repair_mesh.call_args.kwargs["component_area_ratio"], 0.01)
         self.assertEqual(repair_mesh.call_args.kwargs["voxel_resolution"], 256)
         self.assertEqual(repair_mesh.call_args.kwargs["voxel_fill_method"], "orthographic")
+        self.assertEqual(repair_mesh.call_args.kwargs["simplify_placement"], "endpoint")
+        self.assertEqual(
+            args._provider_metrics["provider_mesh_repair_simplify_placement"],
+            "endpoint",
+        )
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
 

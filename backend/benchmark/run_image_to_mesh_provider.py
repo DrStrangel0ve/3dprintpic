@@ -22,6 +22,7 @@ from backend.benchmark.direct_mesh import (
     MAX_MESH_REPAIR_VOXEL_RESOLUTION,
     MESH_REPAIR_PRECONDITIONERS,
     MESH_REPAIR_MODES,
+    MESH_REPAIR_SIMPLIFY_PLACEMENTS,
     MESH_REPAIR_VOXEL_FILL_METHODS,
     convert_mesh_to_stl,
     max_faces_for_normalized_bbox_complexity,
@@ -1395,6 +1396,15 @@ def validate_mesh_repair_options(args: argparse.Namespace) -> None:
         raise ValueError(
             f"Unsupported mesh repair voxel fill method {voxel_fill_method!r}; expected {expected}"
         )
+    simplify_placement = str(
+        getattr(args, "mesh_repair_simplify_placement", "optimal") or "optimal"
+    ).strip().lower()
+    if simplify_placement not in MESH_REPAIR_SIMPLIFY_PLACEMENTS:
+        expected = ", ".join(MESH_REPAIR_SIMPLIFY_PLACEMENTS)
+        raise ValueError(
+            "Unsupported topology-preserving simplification placement "
+            f"{simplify_placement!r}; expected {expected}"
+        )
     if preconditioner == "voxel-close" and importlib.util.find_spec("pymeshlab") is None:
         raise RuntimeError(
             "Voxel-close mesh repair requires pymeshlab; install backend/requirements-cuda.txt"
@@ -1403,6 +1413,7 @@ def validate_mesh_repair_options(args: argparse.Namespace) -> None:
     args.mesh_repair_component_area_ratio = component_area_ratio
     args.mesh_repair_voxel_resolution = voxel_resolution
     args.mesh_repair_voxel_fill_method = voxel_fill_method
+    args.mesh_repair_simplify_placement = simplify_placement
 
 
 def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
@@ -1455,6 +1466,9 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
         "provider_mesh_repair_voxel_fill_method": str(
             getattr(args, "mesh_repair_voxel_fill_method", "orthographic")
             or "orthographic"
+        ),
+        "provider_mesh_repair_simplify_placement": str(
+            getattr(args, "mesh_repair_simplify_placement", "optimal") or "optimal"
         ),
         "status": "failed",
     }
@@ -1539,6 +1553,11 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
                     args,
                     "mesh_repair_voxel_fill_method",
                     "orthographic",
+                ),
+                simplify_placement=getattr(
+                    args,
+                    "mesh_repair_simplify_placement",
+                    "optimal",
                 ),
                 metrics=args._provider_metrics,
             )
@@ -1740,6 +1759,15 @@ def main() -> None:
         choices=MESH_REPAIR_VOXEL_FILL_METHODS,
         default="orthographic",
         help="Trimesh voxel fill used by voxel-close repair.",
+    )
+    parser.add_argument(
+        "--mesh-repair-simplify-placement",
+        choices=MESH_REPAIR_SIMPLIFY_PLACEMENTS,
+        default="optimal",
+        help=(
+            "Quadric edge-collapse placement for voxel-close decimation. 'optimal' may move the "
+            "collapsed vertex; 'endpoint' retains an existing endpoint."
+        ),
     )
     parser.add_argument(
         "--mesh-target-max-dimension",

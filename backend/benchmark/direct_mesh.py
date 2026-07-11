@@ -20,6 +20,7 @@ DIRECT_MESH_INPUT_MODES = ("masked", "full", "mirror", "biharmonic")
 MESH_REPAIR_MODES = ("none", "basic", "convex-hull", "printable")
 MESH_REPAIR_PRECONDITIONERS = ("legacy", "voxel-close")
 MESH_REPAIR_VOXEL_FILL_METHODS = ("base", "holes", "orthographic")
+MESH_REPAIR_SIMPLIFY_PLACEMENTS = ("optimal", "endpoint")
 DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION = 192
 MAX_MESH_REPAIR_VOXEL_RESOLUTION = 384
 MAX_MESH_REPAIR_COMPONENT_FILTER_FACES = 2_000_000
@@ -478,8 +479,21 @@ def _voxel_close_mesh(mesh, resolution: int, fill_method: str):
     return _largest_component(closed).copy()
 
 
-def _simplify_preserving_topology(mesh, target_faces: int, *, strict: bool = False):
+def _simplify_preserving_topology(
+    mesh,
+    target_faces: int,
+    *,
+    placement: str = "optimal",
+    strict: bool = False,
+):
     target_faces = int(target_faces or 0)
+    placement = str(placement or "optimal").strip().lower()
+    if placement not in MESH_REPAIR_SIMPLIFY_PLACEMENTS:
+        expected = ", ".join(MESH_REPAIR_SIMPLIFY_PLACEMENTS)
+        raise ValueError(
+            f"Unsupported topology-preserving simplification placement {placement!r}; "
+            f"expected {expected}"
+        )
     if target_faces <= 0 or len(mesh.faces) <= target_faces:
         return mesh
     try:
@@ -504,7 +518,7 @@ def _simplify_preserving_topology(mesh, target_faces: int, *, strict: bool = Fal
             targetfacenum=target_faces,
             preservetopology=True,
             preserveboundary=True,
-            optimalplacement=True,
+            optimalplacement=placement == "optimal",
             autoclean=True,
         )
         simplified_mesh = mesh_set.current_mesh()
@@ -573,7 +587,7 @@ def _retriangulate_marching_cubes_mesh(mesh):
     return retriangulated
 
 
-def _retriangulation_geometry_audit(reference, candidate, prefix: str) -> dict:
+def _mesh_geometry_audit(reference, candidate, prefix: str) -> dict:
     from scipy.spatial import cKDTree
 
     from backend.benchmark.metrics import _mesh_surface_points
@@ -692,6 +706,10 @@ def _retriangulation_geometry_audit(reference, candidate, prefix: str) -> dict:
     }
 
 
+def _retriangulation_geometry_audit(reference, candidate, prefix: str) -> dict:
+    return _mesh_geometry_audit(reference, candidate, prefix)
+
+
 def _clean_mesh(mesh):
     import trimesh
 
@@ -744,6 +762,7 @@ def repair_mesh_for_printable_stl(
     component_area_ratio: float = 0.0,
     voxel_resolution: int = DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION,
     voxel_fill_method: str = "orthographic",
+    simplify_placement: str = "optimal",
     metrics: dict | None = None,
 ) -> Path:
     if mode not in MESH_REPAIR_MODES or mode == "none":
@@ -751,12 +770,20 @@ def repair_mesh_for_printable_stl(
     if preconditioner not in MESH_REPAIR_PRECONDITIONERS:
         expected = ", ".join(MESH_REPAIR_PRECONDITIONERS)
         raise ValueError(f"Unsupported mesh repair preconditioner {preconditioner!r}; expected {expected}")
+    simplify_placement = str(simplify_placement or "optimal").strip().lower()
+    if simplify_placement not in MESH_REPAIR_SIMPLIFY_PLACEMENTS:
+        expected = ", ".join(MESH_REPAIR_SIMPLIFY_PLACEMENTS)
+        raise ValueError(
+            f"Unsupported topology-preserving simplification placement {simplify_placement!r}; "
+            f"expected {expected}"
+        )
     component_area_ratio = float(component_area_ratio or 0.0)
     if component_area_ratio < 0.0 or component_area_ratio > 1.0 or not math.isfinite(component_area_ratio):
         raise ValueError("Mesh repair component area ratio must be in [0, 1]")
     mesh = load_mesh(mesh_path)
     if metrics is not None:
         metrics["repair_input_faces"] = int(len(mesh.faces))
+        metrics["repair_simplify_placement"] = simplify_placement
     if preconditioner == "voxel-close":
         mesh = _filter_face_components_by_area(mesh, component_area_ratio)
         if metrics is not None:
@@ -773,7 +800,27 @@ def repair_mesh_for_printable_stl(
     if target_faces > 0 and len(mesh.faces) > target_faces:
         original_faces = len(mesh.faces)
         if preconditioner == "voxel-close":
-            mesh = _simplify_preserving_topology(mesh, target_faces, strict=True)
+            pre_simplification_mesh = mesh
+            mesh = _simplify_preserving_topology(
+                mesh,
+                target_faces,
+                placement=simplify_placement,
+                strict=True,
+            )
+            if metrics is not None:
+                metrics["repair_simplification_target_faces"] = int(target_faces)
+                try:
+                    metrics.update(
+                        _mesh_geometry_audit(
+                            pre_simplification_mesh,
+                            mesh,
+                            "repair_simplification",
+                        )
+                    )
+                except Exception as exc:
+                    metrics["repair_simplification_geometry_audit_error"] = (
+                        f"{type(exc).__name__}: {exc}"
+                    )
         else:
             mesh = _simplify_to_face_count(mesh, target_faces, strict=True)
         if metrics is not None:
