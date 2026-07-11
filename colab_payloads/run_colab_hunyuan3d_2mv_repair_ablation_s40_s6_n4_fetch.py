@@ -10,8 +10,8 @@ import urllib.request
 PAYLOAD_URL = "https://raw.githubusercontent.com/DrStrangel0ve/3dprintpic/codex-colab-payloads/colab_payloads/modelnet10_hunyuan3d_2mv_repair_ablation_s40_s6_n4_colab_inputs.tar.gz"
 ARCHIVE_PATH = pathlib.Path("/content/modelnet10_hunyuan3d_2mv_repair_ablation_s40_s6_n4_colab_inputs.tar.gz")
 EXTRACT_ROOT = pathlib.Path("/content/3dprintpic_colab_inputs/modelnet10_hunyuan3d_2mv_repair_ablation_s40_s6_n4")
-EXPECTED_SHA256 = "3746789046291634300864c2e29e221cf93afd49d5ca17346549afaee53633fa"
-EXPECTED_SIZE = 806388
+EXPECTED_SHA256 = "f37656983f3e5688ee1c8d5fe513e6bf4218d829cd120f5309f12c1c1aa2d32e"
+EXPECTED_SIZE = 806390
 LAUNCH_ENV = {}
 
 ARCHIVE_PATH.parent.mkdir(parents=True, exist_ok=True)
