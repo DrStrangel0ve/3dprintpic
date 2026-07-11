@@ -18,6 +18,10 @@ from backend.pic_to_3d import _masked_edit_image
 DIRECT_MESH_METHODS = {"source-mesh-oracle", "external-image-to-mesh", "external-multiview-to-mesh"}
 DIRECT_MESH_INPUT_MODES = ("masked", "full", "mirror", "biharmonic")
 MESH_REPAIR_MODES = ("none", "basic", "convex-hull", "printable")
+MESH_REPAIR_PRECONDITIONERS = ("legacy", "voxel-close")
+MESH_REPAIR_VOXEL_FILL_METHODS = ("base", "holes", "orthographic")
+DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION = 192
+MAX_MESH_REPAIR_VOXEL_RESOLUTION = 384
 MIN_SAFE_TOPOLOGY_REPAIR_FACES = 131_072
 MAX_FAST_COMPONENT_FILTER_FACES = 500_000
 DIRECT_MESH_BBOX_SOURCES = ("none", "source", "mirror", "inferred", "reference")
@@ -325,6 +329,139 @@ def _largest_face_component(mesh):
         return mesh
 
 
+def _filter_face_components_by_area(mesh, min_area_ratio: float):
+    """Drop disconnected surface fragments below a fraction of the largest area."""
+    ratio = float(min_area_ratio or 0.0)
+    if ratio <= 0.0 or len(mesh.faces) <= 1:
+        return mesh
+    if ratio > 1.0 or not math.isfinite(ratio):
+        raise ValueError("Mesh repair component area ratio must be in [0, 1]")
+    try:
+        import trimesh
+
+        labels = np.asarray(
+            trimesh.graph.connected_component_labels(
+                mesh.face_adjacency,
+                node_count=len(mesh.faces),
+            ),
+            dtype=np.int64,
+        )
+        if labels.shape != (len(mesh.faces),) or not len(labels):
+            return mesh
+        counts = np.bincount(labels)
+        face_areas = np.asarray(mesh.area_faces, dtype=np.float64)
+        safe_areas = np.where(np.isfinite(face_areas), np.maximum(face_areas, 0.0), 0.0)
+        areas = np.bincount(labels, weights=safe_areas, minlength=len(counts))
+        scores = areas if float(np.max(areas, initial=0.0)) > 0.0 else counts.astype(np.float64)
+        keep_components = scores >= float(np.max(scores)) * ratio
+        face_indices = np.flatnonzero(keep_components[labels])
+        if not len(face_indices) or len(face_indices) == len(mesh.faces):
+            return mesh
+        reduced = mesh.submesh([face_indices], append=True, repair=False)
+        reduced.remove_unreferenced_vertices()
+        return reduced
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(
+            f"Mesh repair could not filter components at area ratio {ratio:.10g}"
+        ) from exc
+
+
+def _voxel_close_mesh(mesh, resolution: int, fill_method: str):
+    """Create a watertight surface while retaining concavities lost by a hull."""
+    import trimesh
+
+    resolution = int(resolution or 0)
+    if resolution < 16:
+        raise ValueError("Mesh repair voxel resolution must be at least 16")
+    if resolution > MAX_MESH_REPAIR_VOXEL_RESOLUTION:
+        raise ValueError(
+            "Mesh repair voxel resolution must be at most "
+            f"{MAX_MESH_REPAIR_VOXEL_RESOLUTION}"
+        )
+    if fill_method not in MESH_REPAIR_VOXEL_FILL_METHODS:
+        expected = ", ".join(MESH_REPAIR_VOXEL_FILL_METHODS)
+        raise ValueError(f"Unsupported mesh repair voxel fill method {fill_method!r}; expected {expected}")
+    extents = _valid_extents(mesh)
+    if extents is None:
+        raise ValueError("Mesh repair voxel closure requires a finite non-zero bounding box")
+    pitch = float(np.max(extents)) / float(resolution)
+    try:
+        voxels = mesh.voxelized(pitch=pitch, method="subdivide")
+        if int(voxels.filled_count) <= 0:
+            raise ValueError("voxelization produced no occupied cells")
+        voxels.fill(method=fill_method)
+        closed = voxels.marching_cubes.copy()
+        closed.apply_transform(voxels.transform)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Mesh repair voxel closure failed at resolution {resolution} with fill {fill_method!r}"
+        ) from exc
+    if not len(closed.vertices) or not len(closed.faces):
+        raise ValueError("Mesh repair voxel closure produced no triangles")
+    closed.process(validate=True)
+    trimesh.repair.fix_winding(closed)
+    trimesh.repair.fix_normals(closed)
+    trimesh.repair.fix_inversion(closed)
+    _drop_duplicate_and_degenerate_faces(closed)
+    closed.process(validate=True)
+    return _largest_component(closed).copy()
+
+
+def _simplify_preserving_topology(mesh, target_faces: int, *, strict: bool = False):
+    target_faces = int(target_faces or 0)
+    if target_faces <= 0 or len(mesh.faces) <= target_faces:
+        return mesh
+    try:
+        import pymeshlab
+        import trimesh
+    except ImportError as exc:
+        if strict:
+            raise RuntimeError(
+                "Topology-preserving voxel-closed repair requires pymeshlab"
+            ) from exc
+        return mesh
+    try:
+        mesh_set = pymeshlab.MeshSet()
+        mesh_set.add_mesh(
+            pymeshlab.Mesh(
+                vertex_matrix=np.asarray(mesh.vertices, dtype=np.float64),
+                face_matrix=np.asarray(mesh.faces, dtype=np.int32),
+            )
+        )
+        mesh_set.apply_filter(
+            "meshing_decimation_quadric_edge_collapse",
+            targetfacenum=target_faces,
+            preservetopology=True,
+            preserveboundary=True,
+            optimalplacement=True,
+            autoclean=True,
+        )
+        simplified_mesh = mesh_set.current_mesh()
+        simplified = trimesh.Trimesh(
+            vertices=np.asarray(simplified_mesh.vertex_matrix(), dtype=np.float64),
+            faces=np.asarray(simplified_mesh.face_matrix(), dtype=np.int64),
+            process=True,
+        )
+    except Exception as exc:
+        if strict:
+            raise RuntimeError(
+                f"Topology-preserving mesh repair failed while simplifying to {target_faces} faces"
+            ) from exc
+        return mesh
+    if not len(simplified.vertices) or not len(simplified.faces):
+        if strict:
+            raise RuntimeError("Topology-preserving mesh repair produced an empty mesh")
+        return mesh
+    if strict and len(simplified.faces) > target_faces:
+        raise RuntimeError(
+            "Topology-preserving mesh repair could not reach the requested face budget: "
+            f"target={target_faces}, remaining={len(simplified.faces)}"
+        )
+    return simplified
+
+
 def _clean_mesh(mesh):
     import trimesh
 
@@ -373,10 +510,30 @@ def repair_mesh_for_printable_stl(
     *,
     target_faces: int = 0,
     max_normalized_face_density_log1p: float = 0.0,
+    preconditioner: str = "legacy",
+    component_area_ratio: float = 0.0,
+    voxel_resolution: int = DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION,
+    voxel_fill_method: str = "orthographic",
+    metrics: dict | None = None,
 ) -> Path:
     if mode not in MESH_REPAIR_MODES or mode == "none":
         raise ValueError(f"Unsupported mesh repair mode: {mode}")
+    if preconditioner not in MESH_REPAIR_PRECONDITIONERS:
+        expected = ", ".join(MESH_REPAIR_PRECONDITIONERS)
+        raise ValueError(f"Unsupported mesh repair preconditioner {preconditioner!r}; expected {expected}")
+    component_area_ratio = float(component_area_ratio or 0.0)
+    if component_area_ratio < 0.0 or component_area_ratio > 1.0 or not math.isfinite(component_area_ratio):
+        raise ValueError("Mesh repair component area ratio must be in [0, 1]")
     mesh = load_mesh(mesh_path)
+    if metrics is not None:
+        metrics["repair_input_faces"] = int(len(mesh.faces))
+    if preconditioner == "voxel-close":
+        mesh = _filter_face_components_by_area(mesh, component_area_ratio)
+        if metrics is not None:
+            metrics["repair_precondition_filtered_faces"] = int(len(mesh.faces))
+        mesh = _voxel_close_mesh(mesh, int(voxel_resolution), voxel_fill_method)
+        if metrics is not None:
+            metrics["repair_precondition_voxel_faces"] = int(len(mesh.faces))
     target_faces = int(target_faces or 0)
     if target_faces <= 0:
         target_faces = max_faces_for_normalized_bbox_complexity(
@@ -385,7 +542,12 @@ def repair_mesh_for_printable_stl(
         )
     if target_faces > 0 and len(mesh.faces) > target_faces:
         original_faces = len(mesh.faces)
-        mesh = _simplify_to_face_count(mesh, target_faces, strict=True)
+        if preconditioner == "voxel-close":
+            mesh = _simplify_preserving_topology(mesh, target_faces, strict=True)
+        else:
+            mesh = _simplify_to_face_count(mesh, target_faces, strict=True)
+        if metrics is not None:
+            metrics["repair_simplified_faces"] = int(len(mesh.faces))
         safe_repair_faces = max(MIN_SAFE_TOPOLOGY_REPAIR_FACES, target_faces * 4)
         if safe_repair_faces < len(mesh.faces) <= MAX_FAST_COMPONENT_FILTER_FACES:
             filtered = _largest_face_component(mesh)
@@ -402,14 +564,19 @@ def repair_mesh_for_printable_stl(
             )
     if mode == "convex-hull":
         repaired = _convex_hull_mesh(mesh)
+        used_convex_hull = True
     else:
         repaired = _clean_mesh(mesh)
-        if mode == "printable" and not mesh_is_printable_volume(repaired):
+        used_convex_hull = mode == "printable" and not mesh_is_printable_volume(repaired)
+        if used_convex_hull:
             repaired = _convex_hull_mesh(repaired)
     if not len(repaired.vertices) or not len(repaired.faces):
         raise ValueError(f"Mesh repair produced no triangles: {mesh_path}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     repaired.export(output_path)
+    if metrics is not None:
+        metrics["repair_convex_hull_used"] = bool(used_convex_hull)
+        metrics["repair_output_faces"] = int(len(repaired.faces))
     return output_path
 
 

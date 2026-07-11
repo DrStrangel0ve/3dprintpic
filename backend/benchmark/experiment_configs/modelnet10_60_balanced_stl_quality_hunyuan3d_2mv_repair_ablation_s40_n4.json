@@ -1,0 +1,102 @@
+[
+  {
+    "name": "mirror",
+    "method": "mirror",
+    "stl_mode": "depth-relief"
+  },
+  {
+    "name": "triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+    "method": "external-image-to-mesh",
+    "stl_mode": "single-image-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "biharmonic",
+    "direct_mesh_output_ext": "glb",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/triposg-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider triposg --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --provider-dir /content/TripoSG --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --mesh-repair printable --mesh-target-bbox-extents \"{inferred_bbox_extents}\" --mesh-target-faces 40000 --mesh-max-normalized-face-density-log1p 9.95 --triposg-model-revision 2c1c516d22d58db486a058d98d31bb6177344e06 --triposg-rembg-revision 2ceba5a5efaec153162aedea169f76caf9b46cf8 --num-inference-steps 50 --guidance-scale 7.0 --seed 42 --provider-mesh-cache-dir /content/triposg-provider-cache",
+    "direct_mesh_bbox_source": "inferred",
+    "direct_mesh_reference_method": "mirror",
+    "oracle_diagnostic": false
+  },
+  {
+    "name": "hunyuan3d_2mv_cardinal4_raw_direct_mesh",
+    "method": "external-multiview-to-mesh",
+    "stl_mode": "multiview-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "full",
+    "direct_mesh_output_ext": "glb",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/hunyuan3d-2mv-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-2mv --provider-python /content/hunyuan3d-2mv-venv/bin/python --provider-dir /content/Hunyuan3D-2 --input-image \"{input_image}\" --input-bundle \"{input_bundle}\" --output-mesh \"{output_mesh}\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --hunyuan3d-2mv-model-path tencent/Hunyuan3D-2mv --hunyuan3d-2mv-model-revision 3a761b539b29fe4ff64714813aa9560fd66f5de0 --hunyuan3d-2mv-subfolder hunyuan3d-dit-v2-mv --hunyuan3d-2mv-required-view front --hunyuan3d-2mv-required-view left --hunyuan3d-2mv-required-view back --hunyuan3d-2mv-required-view right --hunyuan3d-2mv-max-view-angle-error 5 --num-inference-steps 50 --guidance-scale 5.0 --octree-resolution 380 --num-chunks 20000 --seed 42 --provider-mesh-cache-dir /content/hunyuan3d-2mv-provider-cache"
+  },
+  {
+    "name": "hunyuan3d_2mv_cardinal4_legacy_repaired_stl_inferred_bbox_direct_mesh",
+    "method": "external-multiview-to-mesh",
+    "stl_mode": "multiview-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "full",
+    "direct_mesh_output_ext": "glb",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/hunyuan3d-2mv-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-2mv --provider-python /content/hunyuan3d-2mv-venv/bin/python --provider-dir /content/Hunyuan3D-2 --input-image \"{input_image}\" --input-bundle \"{input_bundle}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --mesh-repair printable --mesh-target-bbox-extents \"{inferred_bbox_extents}\" --mesh-target-faces 40000 --mesh-max-normalized-face-density-log1p 9.95 --hunyuan3d-2mv-model-path tencent/Hunyuan3D-2mv --hunyuan3d-2mv-model-revision 3a761b539b29fe4ff64714813aa9560fd66f5de0 --hunyuan3d-2mv-subfolder hunyuan3d-dit-v2-mv --hunyuan3d-2mv-required-view front --hunyuan3d-2mv-required-view left --hunyuan3d-2mv-required-view back --hunyuan3d-2mv-required-view right --hunyuan3d-2mv-max-view-angle-error 5 --num-inference-steps 50 --guidance-scale 5.0 --octree-resolution 380 --num-chunks 20000 --seed 42 --provider-mesh-cache-dir /content/hunyuan3d-2mv-provider-cache",
+    "direct_mesh_bbox_source": "inferred",
+    "direct_mesh_reference_method": "mirror",
+    "oracle_diagnostic": false
+  },
+  {
+    "name": "hunyuan3d_2mv_voxel_r192_all_repaired_stl_inferred_bbox_direct_mesh",
+    "method": "external-multiview-to-mesh",
+    "stl_mode": "multiview-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "full",
+    "direct_mesh_output_ext": "glb",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/hunyuan3d-2mv-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-2mv --provider-python /content/hunyuan3d-2mv-venv/bin/python --provider-dir /content/Hunyuan3D-2 --input-image \"{input_image}\" --input-bundle \"{input_bundle}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --mesh-repair printable --mesh-repair-preconditioner voxel-close --mesh-repair-component-area-ratio 0 --mesh-repair-voxel-resolution 192 --mesh-repair-voxel-fill-method orthographic --mesh-target-bbox-extents \"{inferred_bbox_extents}\" --mesh-target-faces 40000 --mesh-max-normalized-face-density-log1p 9.95 --hunyuan3d-2mv-model-path tencent/Hunyuan3D-2mv --hunyuan3d-2mv-model-revision 3a761b539b29fe4ff64714813aa9560fd66f5de0 --hunyuan3d-2mv-subfolder hunyuan3d-dit-v2-mv --hunyuan3d-2mv-required-view front --hunyuan3d-2mv-required-view left --hunyuan3d-2mv-required-view back --hunyuan3d-2mv-required-view right --hunyuan3d-2mv-max-view-angle-error 5 --num-inference-steps 50 --guidance-scale 5.0 --octree-resolution 380 --num-chunks 20000 --seed 42 --provider-mesh-cache-dir /content/hunyuan3d-2mv-provider-cache",
+    "direct_mesh_bbox_source": "inferred",
+    "direct_mesh_reference_method": "mirror",
+    "oracle_diagnostic": false
+  },
+  {
+    "name": "hunyuan3d_2mv_voxel_r256_all_repaired_stl_inferred_bbox_direct_mesh",
+    "method": "external-multiview-to-mesh",
+    "stl_mode": "multiview-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "full",
+    "direct_mesh_output_ext": "glb",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/hunyuan3d-2mv-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-2mv --provider-python /content/hunyuan3d-2mv-venv/bin/python --provider-dir /content/Hunyuan3D-2 --input-image \"{input_image}\" --input-bundle \"{input_bundle}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --mesh-repair printable --mesh-repair-preconditioner voxel-close --mesh-repair-component-area-ratio 0 --mesh-repair-voxel-resolution 256 --mesh-repair-voxel-fill-method orthographic --mesh-target-bbox-extents \"{inferred_bbox_extents}\" --mesh-target-faces 40000 --mesh-max-normalized-face-density-log1p 9.95 --hunyuan3d-2mv-model-path tencent/Hunyuan3D-2mv --hunyuan3d-2mv-model-revision 3a761b539b29fe4ff64714813aa9560fd66f5de0 --hunyuan3d-2mv-subfolder hunyuan3d-dit-v2-mv --hunyuan3d-2mv-required-view front --hunyuan3d-2mv-required-view left --hunyuan3d-2mv-required-view back --hunyuan3d-2mv-required-view right --hunyuan3d-2mv-max-view-angle-error 5 --num-inference-steps 50 --guidance-scale 5.0 --octree-resolution 380 --num-chunks 20000 --seed 42 --provider-mesh-cache-dir /content/hunyuan3d-2mv-provider-cache",
+    "direct_mesh_bbox_source": "inferred",
+    "direct_mesh_reference_method": "mirror",
+    "oracle_diagnostic": false
+  },
+  {
+    "name": "hunyuan3d_2mv_voxel_r192_a001_repaired_stl_inferred_bbox_direct_mesh",
+    "method": "external-multiview-to-mesh",
+    "stl_mode": "multiview-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "full",
+    "direct_mesh_output_ext": "glb",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/hunyuan3d-2mv-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-2mv --provider-python /content/hunyuan3d-2mv-venv/bin/python --provider-dir /content/Hunyuan3D-2 --input-image \"{input_image}\" --input-bundle \"{input_bundle}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --mesh-repair printable --mesh-repair-preconditioner voxel-close --mesh-repair-component-area-ratio 0.01 --mesh-repair-voxel-resolution 192 --mesh-repair-voxel-fill-method orthographic --mesh-target-bbox-extents \"{inferred_bbox_extents}\" --mesh-target-faces 40000 --mesh-max-normalized-face-density-log1p 9.95 --hunyuan3d-2mv-model-path tencent/Hunyuan3D-2mv --hunyuan3d-2mv-model-revision 3a761b539b29fe4ff64714813aa9560fd66f5de0 --hunyuan3d-2mv-subfolder hunyuan3d-dit-v2-mv --hunyuan3d-2mv-required-view front --hunyuan3d-2mv-required-view left --hunyuan3d-2mv-required-view back --hunyuan3d-2mv-required-view right --hunyuan3d-2mv-max-view-angle-error 5 --num-inference-steps 50 --guidance-scale 5.0 --octree-resolution 380 --num-chunks 20000 --seed 42 --provider-mesh-cache-dir /content/hunyuan3d-2mv-provider-cache",
+    "direct_mesh_bbox_source": "inferred",
+    "direct_mesh_reference_method": "mirror",
+    "oracle_diagnostic": false
+  },
+  {
+    "name": "hunyuan3d_2mv_voxel_r256_a001_repaired_stl_inferred_bbox_direct_mesh",
+    "method": "external-multiview-to-mesh",
+    "stl_mode": "multiview-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "full",
+    "direct_mesh_output_ext": "glb",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/hunyuan3d-2mv-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-2mv --provider-python /content/hunyuan3d-2mv-venv/bin/python --provider-dir /content/Hunyuan3D-2 --input-image \"{input_image}\" --input-bundle \"{input_bundle}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --mesh-repair printable --mesh-repair-preconditioner voxel-close --mesh-repair-component-area-ratio 0.01 --mesh-repair-voxel-resolution 256 --mesh-repair-voxel-fill-method orthographic --mesh-target-bbox-extents \"{inferred_bbox_extents}\" --mesh-target-faces 40000 --mesh-max-normalized-face-density-log1p 9.95 --hunyuan3d-2mv-model-path tencent/Hunyuan3D-2mv --hunyuan3d-2mv-model-revision 3a761b539b29fe4ff64714813aa9560fd66f5de0 --hunyuan3d-2mv-subfolder hunyuan3d-dit-v2-mv --hunyuan3d-2mv-required-view front --hunyuan3d-2mv-required-view left --hunyuan3d-2mv-required-view back --hunyuan3d-2mv-required-view right --hunyuan3d-2mv-max-view-angle-error 5 --num-inference-steps 50 --guidance-scale 5.0 --octree-resolution 380 --num-chunks 20000 --seed 42 --provider-mesh-cache-dir /content/hunyuan3d-2mv-provider-cache",
+    "direct_mesh_bbox_source": "inferred",
+    "direct_mesh_reference_method": "mirror",
+    "oracle_diagnostic": false
+  }
+]

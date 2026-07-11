@@ -1261,6 +1261,99 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(diagnostics["stl_single_component"])
         self.assertTrue(diagnostics["stl_positive_volume"])
 
+    def test_voxel_close_repair_preserves_concavity_under_face_budget(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            broken_path = root / "open_torus.ply"
+            repaired_path = root / "repaired.stl"
+            torus = trimesh.creation.torus(
+                major_radius=1.0,
+                minor_radius=0.32,
+                major_sections=64,
+                minor_sections=32,
+            )
+            keep_faces = np.ones(len(torus.faces), dtype=bool)
+            centers = np.asarray(torus.triangles_center)
+            keep_faces[(centers[:, 0] > 1.15) & (centers[:, 2] > 0.0)] = False
+            broken = torus.submesh([np.flatnonzero(keep_faces)], append=True, repair=False)
+            broken.export(broken_path)
+            repair_metrics = {}
+
+            repair_mesh_for_printable_stl(
+                broken_path,
+                repaired_path,
+                mode="printable",
+                target_faces=5_000,
+                preconditioner="voxel-close",
+                voxel_resolution=96,
+                voxel_fill_method="orthographic",
+                metrics=repair_metrics,
+            )
+
+            repaired = trimesh.load_mesh(repaired_path, force="mesh")
+            diagnostics = stl_diagnostics(repaired_path)
+
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_is_volume"])
+        self.assertTrue(diagnostics["stl_is_manifold"])
+        self.assertTrue(diagnostics["stl_single_component"])
+        self.assertLessEqual(len(repaired.faces), 5_000)
+        self.assertLess(abs(float(repaired.volume) - float(torus.volume)), 0.2)
+        self.assertLess(float(repaired.volume), float(torus.convex_hull.volume) * 0.8)
+        self.assertFalse(repair_metrics["repair_convex_hull_used"])
+        self.assertGreater(repair_metrics["repair_precondition_voxel_faces"], 5_000)
+        self.assertLessEqual(repair_metrics["repair_simplified_faces"], 5_000)
+
+    def test_component_area_filter_drops_only_configured_surface_fragments(self):
+        import trimesh
+
+        main = trimesh.creation.icosphere(subdivisions=2, radius=1.0)
+        small = trimesh.creation.icosphere(subdivisions=1, radius=0.05)
+        small.apply_translation((4.0, 0.0, 0.0))
+        fragmented = trimesh.util.concatenate((main, small))
+
+        kept = direct_mesh._filter_face_components_by_area(fragmented, 0.0)
+        filtered = direct_mesh._filter_face_components_by_area(fragmented, 0.01)
+
+        self.assertEqual(len(kept.faces), len(fragmented.faces))
+        self.assertEqual(len(filtered.faces), len(main.faces))
+        np.testing.assert_allclose(filtered.extents, main.extents)
+
+    def test_voxel_close_repair_rejects_invalid_precondition_parameters(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            mesh_path = root / "box.ply"
+            trimesh.creation.box().export(mesh_path)
+
+            with self.assertRaisesRegex(ValueError, "area ratio"):
+                repair_mesh_for_printable_stl(
+                    mesh_path,
+                    root / "bad_ratio.stl",
+                    mode="printable",
+                    preconditioner="voxel-close",
+                    component_area_ratio=1.01,
+                )
+            with self.assertRaisesRegex(ValueError, "at least 16"):
+                repair_mesh_for_printable_stl(
+                    mesh_path,
+                    root / "bad_resolution.stl",
+                    mode="printable",
+                    preconditioner="voxel-close",
+                    voxel_resolution=8,
+                )
+            with self.assertRaisesRegex(ValueError, "at most 384"):
+                repair_mesh_for_printable_stl(
+                    mesh_path,
+                    root / "too_dense.stl",
+                    mode="printable",
+                    preconditioner="voxel-close",
+                    voxel_resolution=512,
+                )
+
     def test_printable_mesh_repair_preconditions_dense_mesh_to_face_budget(self):
         import trimesh
 
@@ -1672,6 +1765,10 @@ class StlExportRegressionTests(unittest.TestCase):
                 output_stl=output_stl,
                 raw_output_mesh=None,
                 mesh_repair="printable",
+                mesh_repair_preconditioner="legacy",
+                mesh_repair_component_area_ratio=0.01,
+                mesh_repair_voxel_resolution=256,
+                mesh_repair_voxel_fill_method="orthographic",
                 mesh_target_max_dimension=0.0,
                 mesh_min_bbox_dimension=0.0,
                 mesh_max_bbox_aspect_ratio=0.0,
@@ -1694,6 +1791,10 @@ class StlExportRegressionTests(unittest.TestCase):
 
         expected_target = max_faces_for_normalized_bbox_complexity((96.0, 48.0, 24.0), 8.0)
         self.assertEqual(repair_mesh.call_args.kwargs["target_faces"], expected_target)
+        self.assertEqual(repair_mesh.call_args.kwargs["preconditioner"], "legacy")
+        self.assertEqual(repair_mesh.call_args.kwargs["component_area_ratio"], 0.01)
+        self.assertEqual(repair_mesh.call_args.kwargs["voxel_resolution"], 256)
+        self.assertEqual(repair_mesh.call_args.kwargs["voxel_fill_method"], "orthographic")
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
 

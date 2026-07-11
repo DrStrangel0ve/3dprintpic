@@ -502,6 +502,51 @@ class Hunyuan3D2mvProviderTest(unittest.TestCase):
         self.assertNotIn("custom_rasterizer", run_script)
         self.assertNotIn("nvdiffrast", run_script)
 
+    def test_repair_ablation_config_keeps_inference_fixed_and_sweeps_only_repair(self):
+        config_path = Path(
+            "backend/benchmark/experiment_configs/"
+            "modelnet10_60_balanced_stl_quality_hunyuan3d_2mv_repair_ablation_s40_n4.json"
+        )
+        experiments = json.loads(config_path.read_text(encoding="utf-8"))
+        by_name = {experiment["name"]: experiment for experiment in experiments}
+        voxel_rows = [
+            experiment
+            for experiment in experiments
+            if "_voxel_" in experiment["name"]
+        ]
+
+        self.assertEqual(len(voxel_rows), 4)
+        self.assertIn("mirror", by_name)
+        self.assertIn("hunyuan3d_2mv_cardinal4_raw_direct_mesh", by_name)
+        self.assertIn(
+            "hunyuan3d_2mv_cardinal4_legacy_repaired_stl_inferred_bbox_direct_mesh",
+            by_name,
+        )
+        for experiment in voxel_rows:
+            command = experiment["direct_mesh_command"]
+            self.assertIn("--mesh-repair-preconditioner voxel-close", command)
+            self.assertIn("--mesh-repair-voxel-fill-method orthographic", command)
+            self.assertIn("--num-inference-steps 50", command)
+            self.assertIn("--guidance-scale 5.0", command)
+            self.assertIn("--octree-resolution 380", command)
+            self.assertIn("--seed 42", command)
+            self.assertIn("--mesh-max-normalized-face-density-log1p 9.95", command)
+            self.assertNotIn("{source_bbox", command)
+        resolutions = {
+            token
+            for experiment in voxel_rows
+            for token in experiment["direct_mesh_command"].split()
+            if token in {"192", "256"}
+        }
+        ratios = {
+            token
+            for experiment in voxel_rows
+            for token in experiment["direct_mesh_command"].split()
+            if token in {"0", "0.01"}
+        }
+        self.assertEqual(resolutions, {"192", "256"})
+        self.assertEqual(ratios, {"0", "0.01"})
+
 
 if __name__ == "__main__":
     unittest.main()

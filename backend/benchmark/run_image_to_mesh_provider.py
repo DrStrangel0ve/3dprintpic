@@ -17,7 +17,10 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 from backend.benchmark.direct_mesh import (
+    DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION,
+    MESH_REPAIR_PRECONDITIONERS,
     MESH_REPAIR_MODES,
+    MESH_REPAIR_VOXEL_FILL_METHODS,
     convert_mesh_to_stl,
     max_faces_for_normalized_bbox_complexity,
     postprocess_mesh_for_stl,
@@ -1377,6 +1380,24 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
         "provider_raw_output_mesh": "",
         "provider_final_output_mesh": "",
         "provider_mesh_repair": args.mesh_repair,
+        "provider_mesh_repair_preconditioner": str(
+            getattr(args, "mesh_repair_preconditioner", "legacy") or "legacy"
+        ),
+        "provider_mesh_repair_component_area_ratio": float(
+            getattr(args, "mesh_repair_component_area_ratio", 0.0) or 0.0
+        ),
+        "provider_mesh_repair_voxel_resolution": int(
+            getattr(
+                args,
+                "mesh_repair_voxel_resolution",
+                DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION,
+            )
+            or DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION
+        ),
+        "provider_mesh_repair_voxel_fill_method": str(
+            getattr(args, "mesh_repair_voxel_fill_method", "orthographic")
+            or "orthographic"
+        ),
         "status": "failed",
     }
     if not args.input_image.exists():
@@ -1445,6 +1466,23 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
                 args.mesh_repair,
                 target_faces=args.mesh_target_faces,
                 max_normalized_face_density_log1p=max_normalized_face_density_log1p,
+                preconditioner=getattr(args, "mesh_repair_preconditioner", "legacy"),
+                component_area_ratio=getattr(
+                    args,
+                    "mesh_repair_component_area_ratio",
+                    0.0,
+                ),
+                voxel_resolution=getattr(
+                    args,
+                    "mesh_repair_voxel_resolution",
+                    DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION,
+                ),
+                voxel_fill_method=getattr(
+                    args,
+                    "mesh_repair_voxel_fill_method",
+                    "orthographic",
+                ),
+                metrics=args._provider_metrics,
             )
         finally:
             args._provider_metrics["repair_runtime_seconds"] = (
@@ -1613,6 +1651,36 @@ def main() -> None:
             "runs Trimesh cleanup; 'convex-hull' forces a watertight hull; 'printable' tries basic repair and "
             "falls back to a hull only if watertight/volume/single-component checks still fail."
         ),
+    )
+    parser.add_argument(
+        "--mesh-repair-preconditioner",
+        choices=MESH_REPAIR_PRECONDITIONERS,
+        default="legacy",
+        help=(
+            "Optional shape-preserving work before printable repair. 'voxel-close' filters configured "
+            "surface fragments, closes the mesh on a voxel grid, and uses topology-preserving decimation."
+        ),
+    )
+    parser.add_argument(
+        "--mesh-repair-component-area-ratio",
+        type=float,
+        default=0.0,
+        help=(
+            "Before voxel closure, discard connected face components whose area is below this fraction "
+            "of the largest component. Zero keeps every component."
+        ),
+    )
+    parser.add_argument(
+        "--mesh-repair-voxel-resolution",
+        type=int,
+        default=DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION,
+        help="Voxel cells across the longest bbox side for voxel-close repair.",
+    )
+    parser.add_argument(
+        "--mesh-repair-voxel-fill-method",
+        choices=MESH_REPAIR_VOXEL_FILL_METHODS,
+        default="orthographic",
+        help="Trimesh voxel fill used by voxel-close repair.",
     )
     parser.add_argument(
         "--mesh-target-max-dimension",
