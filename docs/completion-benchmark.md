@@ -324,6 +324,16 @@ The run also exposed a Colab packaging defect: the benchmark changes directory i
 
 The verified compact archive is `1,325,106` bytes with SHA256 `fea5c1acf27ee1bffeebaeb8abe95a2a2fb21a5c04caa54f0cba0c63fde018ac`. The [cleanup-bypass evidence bundle](benchmark-evidence/g4_stl_first_hunyuan3d_2mv_cleanup_bypass_s40_s6_n4/README.md) includes the sixteen voxel-stage audit rows, selection decision, corrected ingest report, provider/GPU provenance, and contact sheet.
 
+### Measured: Retriangulation Guard Audit n4
+
+Run `g4_stl_first_hunyuan3d_2mv_retriangulation_guard_s40_s6_n4` completed all `36/36` rows on runtime code `d8e082e992d3f9d334db5469780c946247dd81aa`. It compared the same cached provider meshes and added fail-closed geometry checks around the proposed marching-cubes retriangulation. The configured r192 unfiltered candidate remains `hold`; hull fallback is `2/4`, median fill drift is `0.5621`, and the bathtub remains a `7.0545x` outlier. No held-out-ten expansion is justified.
+
+The parent unguarded run appeared to rescue one r192 area-filtered chair, but the filter removed `82.815%` of faces and `88.374%` of vertices, changed volume by `40.739%`, and changed one bbox extent by `6.052%`. The guarded run rejected it and restored the prior hull fallback. The r192 bathtub remained non-printable and also lost `43.826%` of faces under the broad filter. Aggregate hull use therefore returns to fourteen repaired rows, exactly matching cleanup bypass, and TripoSG remains the only promotion-eligible mesh provider.
+
+Retriangulation acceptance now requires strict printability plus finite limits on face/vertex count, volume, bbox extents, bounds center, normalized surface Chamfer, and normalized surface H95. The follow-up implementation replaces the broad filter with one topology-preserving quadric edge collapse and an absolute edit budget of at most two faces and one vertex; it retains the same geometry checks and adds a maximum normalized retained-vertex displacement gate.
+
+The checksum-verified compact archive is `1,298,196` bytes with SHA256 `bda740e5915ce86a0b0e888a352f3f78fb6e818e4e88a9fb45aa1dbfd5c56949`. The [retriangulation-guard evidence bundle](benchmark-evidence/g4_stl_first_hunyuan3d_2mv_retriangulation_guard_s40_s6_n4/README.md) preserves the selector decision, three-run comparison, sixteen stage rows, geometry-drift metrics, provider/GPU provenance, ingest report, and contact sheet.
+
 One-time Colab setup:
 
 ```bash
