@@ -1423,6 +1423,10 @@ class StlExportRegressionTests(unittest.TestCase):
         )
         self.assertTrue(geometry_audit["retriangulated_geometry_preserved"])
         self.assertLessEqual(
+            geometry_audit["retriangulated_vertex_displacement_max_normalized"],
+            direct_mesh.RETRIANGULATION_MAX_VERTEX_DISPLACEMENT_NORMALIZED,
+        )
+        self.assertLessEqual(
             geometry_audit["retriangulated_volume_relative_change_abs"],
             direct_mesh.RETRIANGULATION_MAX_VOLUME_RELATIVE_CHANGE,
         )
@@ -1461,6 +1465,79 @@ class StlExportRegressionTests(unittest.TestCase):
             geometry_audit["retriangulated_face_count_relative_change_abs"],
             direct_mesh.RETRIANGULATION_MAX_FACE_COUNT_RELATIVE_CHANGE,
         )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repair_metrics = {}
+            printable = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
+            with (
+                patch.object(direct_mesh, "load_mesh", return_value=simplified.copy()),
+                patch.object(direct_mesh, "_voxel_close_mesh", return_value=simplified.copy()),
+                patch.object(direct_mesh, "_clean_mesh", return_value=printable) as clean_mesh,
+            ):
+                repair_mesh_for_printable_stl(
+                    Path(temp_dir) / "input.glb",
+                    Path(temp_dir) / "repaired.stl",
+                    mode="printable",
+                    preconditioner="voxel-close",
+                    metrics=repair_metrics,
+                )
+
+        clean_mesh.assert_called_once()
+        self.assertTrue(repair_metrics["repair_preclean_retriangulation_attempted"])
+        self.assertTrue(repair_metrics["repair_preclean_retriangulated_geometry_preserved"])
+        self.assertFalse(repair_metrics["repair_preclean_retriangulated_printable"])
+        self.assertFalse(repair_metrics["repair_preclean_retriangulation_accepted"])
+
+    def test_retriangulation_geometry_audit_rejects_local_vertex_displacement(self):
+        import trimesh
+
+        reference = trimesh.creation.icosphere(subdivisions=2)
+        a, b, c = map(int, reference.faces[0])
+        reference.vertices[c] = (reference.vertices[a] + reference.vertices[b]) / 2.0
+        candidate = direct_mesh._retriangulate_marching_cubes_mesh(reference)
+        candidate.vertices[10] += np.array([0.05, 0.0, 0.0]) * np.linalg.norm(reference.extents)
+
+        geometry_audit = direct_mesh._retriangulation_geometry_audit(
+            reference,
+            candidate,
+            "retriangulated",
+        )
+
+        self.assertFalse(geometry_audit["retriangulated_geometry_preserved"])
+        self.assertGreater(
+            geometry_audit["retriangulated_vertex_displacement_max_normalized"],
+            direct_mesh.RETRIANGULATION_MAX_VERTEX_DISPLACEMENT_NORMALIZED,
+        )
+
+    def test_marching_cubes_retriangulation_rejects_edit_budget_overshoot(self):
+        import pymeshlab
+        import trimesh
+
+        reference = trimesh.creation.icosphere(subdivisions=2)
+        a, b, c = map(int, reference.faces[0])
+        reference.vertices[c] = (reference.vertices[a] + reference.vertices[b]) / 2.0
+        bounded = direct_mesh._retriangulate_marching_cubes_mesh(reference)
+
+        class FakeMesh:
+            def vertex_matrix(self):
+                return np.asarray(bounded.vertices, dtype=np.float64)
+
+            def face_matrix(self):
+                return np.asarray(bounded.faces[:-1], dtype=np.int32)
+
+        class FakeMeshSet:
+            def add_mesh(self, _mesh):
+                pass
+
+            def apply_filter(self, *_args, **_kwargs):
+                pass
+
+            def current_mesh(self):
+                return FakeMesh()
+
+        with patch.object(pymeshlab, "MeshSet", return_value=FakeMeshSet()):
+            with self.assertRaisesRegex(RuntimeError, "exceeded its local edit budget"):
+                direct_mesh._retriangulate_marching_cubes_mesh(reference)
 
     def test_voxel_close_repair_falls_back_when_retriangulation_changes_geometry(self):
         import trimesh
@@ -4757,6 +4834,10 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("'repair_preclean_retriangulation_accepted_mean'", archive_run_script)
         self.assertIn(
             "'repair_preclean_retriangulated_geometry_preserved_mean'",
+            archive_run_script,
+        )
+        self.assertIn(
+            "'repair_preclean_retriangulated_vertex_displacement_max_normalized_median'",
             archive_run_script,
         )
         self.assertNotIn('backend.benchmark.colab_g4_orchestrator --use-current-repo --run-name g4_qwen_sanity 2>&1 | tee "$RUN_LOG"', archive_run_script)

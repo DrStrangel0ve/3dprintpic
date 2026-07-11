@@ -31,6 +31,7 @@ RETRIANGULATION_MAX_VERTEX_COUNT_RELATIVE_CHANGE = 0.02
 RETRIANGULATION_MAX_VOLUME_RELATIVE_CHANGE = 0.01
 RETRIANGULATION_MAX_BBOX_EXTENT_RELATIVE_CHANGE = 0.01
 RETRIANGULATION_MAX_BOUNDS_CENTER_SHIFT_NORMALIZED = 0.005
+RETRIANGULATION_MAX_VERTEX_DISPLACEMENT_NORMALIZED = 0.001
 RETRIANGULATION_MAX_SURFACE_CHAMFER_NORMALIZED = 0.01
 RETRIANGULATION_MAX_SURFACE_HAUSDORFF95_NORMALIZED = 0.03
 DIRECT_MESH_BBOX_SOURCES = ("none", "source", "mirror", "inferred", "reference")
@@ -549,7 +550,7 @@ def _retriangulate_marching_cubes_mesh(mesh):
             targetfacenum=max(len(mesh.faces) - 2, 4),
             preservetopology=True,
             preserveboundary=True,
-            optimalplacement=True,
+            optimalplacement=False,
             autoclean=True,
         )
         result = mesh_set.current_mesh()
@@ -607,6 +608,24 @@ def _retriangulation_geometry_audit(reference, candidate, prefix: str) -> dict:
         / max(reference_diagonal, 1e-12)
     )
 
+    reference_vertices = np.asarray(reference.vertices, dtype=np.float64)
+    candidate_vertices = np.asarray(candidate.vertices, dtype=np.float64)
+    reference_vertex_tree = cKDTree(reference_vertices)
+    candidate_vertex_tree = cKDTree(candidate_vertices)
+    candidate_to_reference_vertices, _ = reference_vertex_tree.query(candidate_vertices, k=1)
+    reference_to_candidate_vertices, _ = candidate_vertex_tree.query(reference_vertices, k=1)
+    removed_vertex_count = max(len(reference_vertices) - len(candidate_vertices), 0)
+    retained_reference_distances = np.sort(reference_to_candidate_vertices)
+    if removed_vertex_count:
+        retained_reference_distances = retained_reference_distances[:-removed_vertex_count]
+    vertex_displacement_max_normalized = float(
+        max(
+            np.max(candidate_to_reference_vertices, initial=0.0),
+            np.max(retained_reference_distances, initial=0.0),
+        )
+        / max(reference_diagonal, 1e-12)
+    )
+
     reference_points = _mesh_surface_points(
         reference,
         max_points=RETRIANGULATION_SURFACE_SAMPLE_POINTS,
@@ -642,6 +661,7 @@ def _retriangulation_geometry_audit(reference, candidate, prefix: str) -> dict:
         volume_relative_change,
         bbox_extent_relative_change,
         bounds_center_shift_normalized,
+        vertex_displacement_max_normalized,
         surface_chamfer_normalized,
         surface_hausdorff95_normalized,
     )
@@ -653,6 +673,8 @@ def _retriangulation_geometry_audit(reference, candidate, prefix: str) -> dict:
         and bbox_extent_relative_change <= RETRIANGULATION_MAX_BBOX_EXTENT_RELATIVE_CHANGE
         and bounds_center_shift_normalized
         <= RETRIANGULATION_MAX_BOUNDS_CENTER_SHIFT_NORMALIZED
+        and vertex_displacement_max_normalized
+        <= RETRIANGULATION_MAX_VERTEX_DISPLACEMENT_NORMALIZED
         and surface_chamfer_normalized <= RETRIANGULATION_MAX_SURFACE_CHAMFER_NORMALIZED
         and surface_hausdorff95_normalized
         <= RETRIANGULATION_MAX_SURFACE_HAUSDORFF95_NORMALIZED
@@ -663,6 +685,7 @@ def _retriangulation_geometry_audit(reference, candidate, prefix: str) -> dict:
         f"{prefix}_volume_relative_change_abs": float(volume_relative_change),
         f"{prefix}_bbox_extent_relative_change_max": bbox_extent_relative_change,
         f"{prefix}_bounds_center_shift_normalized": bounds_center_shift_normalized,
+        f"{prefix}_vertex_displacement_max_normalized": vertex_displacement_max_normalized,
         f"{prefix}_surface_chamfer_l1_normalized": surface_chamfer_normalized,
         f"{prefix}_surface_hausdorff95_normalized": surface_hausdorff95_normalized,
         f"{prefix}_geometry_preserved": geometry_preserved,

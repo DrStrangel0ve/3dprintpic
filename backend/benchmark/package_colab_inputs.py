@@ -1461,6 +1461,7 @@ def build_colab_run_script(
         "        'repair_preclean_retriangulated_volume_relative_change_abs_median',\n"
         "        'repair_preclean_retriangulated_bbox_extent_relative_change_max_median',\n"
         "        'repair_preclean_retriangulated_bounds_center_shift_normalized_median',\n"
+        "        'repair_preclean_retriangulated_vertex_displacement_max_normalized_median',\n"
         "        'repair_preclean_retriangulated_surface_chamfer_l1_normalized_median',\n"
         "        'repair_preclean_retriangulated_surface_hausdorff95_normalized_median',\n"
         "        'repair_cleaning_skipped_mean',\n"
