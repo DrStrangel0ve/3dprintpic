@@ -522,6 +522,34 @@ def _simplify_preserving_topology(mesh, target_faces: int, *, strict: bool = Fal
     return simplified
 
 
+def _retriangulate_marching_cubes_mesh(mesh):
+    try:
+        import pymeshlab
+        import trimesh
+    except ImportError as exc:
+        raise RuntimeError("Marching-cubes retriangulation requires pymeshlab") from exc
+    try:
+        mesh_set = pymeshlab.MeshSet()
+        mesh_set.add_mesh(
+            pymeshlab.Mesh(
+                vertex_matrix=np.asarray(mesh.vertices, dtype=np.float64),
+                face_matrix=np.asarray(mesh.faces, dtype=np.int32),
+            )
+        )
+        mesh_set.apply_filter("meshing_decimation_edge_collapse_for_marching_cube_meshes")
+        result = mesh_set.current_mesh()
+        retriangulated = trimesh.Trimesh(
+            vertices=np.asarray(result.vertex_matrix(), dtype=np.float64),
+            faces=np.asarray(result.face_matrix(), dtype=np.int64),
+            process=False,
+        )
+    except Exception as exc:
+        raise RuntimeError("Marching-cubes retriangulation failed") from exc
+    if not len(retriangulated.vertices) or not len(retriangulated.faces):
+        raise RuntimeError("Marching-cubes retriangulation produced an empty mesh")
+    return retriangulated
+
+
 def _clean_mesh(mesh):
     import trimesh
 
@@ -628,6 +656,37 @@ def repair_mesh_for_printable_stl(
         preclean_printable = preclean_audit["repair_preclean_printable"]
         if metrics is not None:
             metrics.update(preclean_audit)
+        retriangulation_attempted = bool(
+            not preclean_printable
+            and preclean_audit["repair_preclean_degenerate_face_count"] == 1
+            and preclean_audit["repair_preclean_bbox_has_volume"]
+            and preclean_audit["repair_preclean_is_watertight"]
+            and preclean_audit["repair_preclean_is_volume"]
+            and preclean_audit["repair_preclean_winding_consistent"]
+            and preclean_audit["repair_preclean_component_count"] == 1
+            and preclean_audit["repair_preclean_nonmanifold_edge_count"] == 0
+            and preclean_audit["repair_preclean_positive_volume"]
+        )
+        retriangulation_accepted = False
+        if retriangulation_attempted:
+            try:
+                retriangulated = _retriangulate_marching_cubes_mesh(mesh)
+            except RuntimeError:
+                retriangulated = None
+            if retriangulated is not None:
+                retriangulated_audit = _printability_audit(
+                    retriangulated,
+                    "repair_preclean_retriangulated",
+                )
+                if metrics is not None:
+                    metrics.update(retriangulated_audit)
+                if retriangulated_audit["repair_preclean_retriangulated_printable"]:
+                    mesh = retriangulated
+                    preclean_printable = True
+                    retriangulation_accepted = True
+        if metrics is not None:
+            metrics["repair_preclean_retriangulation_attempted"] = retriangulation_attempted
+            metrics["repair_preclean_retriangulation_accepted"] = retriangulation_accepted
     if mode == "convex-hull":
         repaired = _convex_hull_mesh(mesh)
         used_convex_hull = True

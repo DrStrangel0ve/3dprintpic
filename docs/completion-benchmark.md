@@ -314,6 +314,16 @@ Repair promotion now requires hull fallback rate `<= 0.25`, median absolute fill
 
 The compact result archive is `1,258,420` bytes with SHA256 `eb368249c84692a2c3f01938615915b543261d2e1ab9109f0d99a34e35523568`. The [repair-ablation evidence bundle](benchmark-evidence/g4_stl_first_hunyuan3d_2mv_repair_ablation_s40_s6_n4/README.md) preserves both policy versions, per-sample repair metrics, runtime provenance, corrected ingest report, and contact sheet. The next G4 action is a four-row cache-reuse smoke with the cleanup bypass and stage audits; expansion to the held-out ten is conditional on reducing fallback to at most one row without regressing held-out agreement.
 
+### Measured: Cleanup-Bypass Audit n4
+
+Run `g4_stl_first_hunyuan3d_2mv_cleanup_bypass_s40_s6_n4` replayed the same four assets on runtime code `d122a749b95eba893c6c881419a920e66a60860d`. All `36/36` rows completed, and depth relief plus single-image meshes now have held-out-view measurements. The configured r256 area-filtered candidate remains `hold`: hull fallback is still `2/4`, and the bathtub remains a `7.0766x` fill-drift outlier. TripoSG is the only promotion-eligible mesh provider in the slice.
+
+The stage audit disproves generic cleanup as the sole failure. Five voxel meshes are fully printable before cleanup and now bypass it, but aggregate hull use remains unchanged. The r192 bathtub is otherwise printable and fails only because decimation leaves one degenerate face; the sofa is genuinely invalid before cleanup with `3-65` components and `6-97` nonmanifold edges. Area filtering also regresses printable chair/bed cases. The next bounded repair runs marching-cubes retriangulation only when exactly one degenerate face is the sole failed predicate, then bypasses cleanup only if the full strict audit passes. The held-out ten remains gated on the four-row result.
+
+The run also exposed a Colab packaging defect: the benchmark changes directory inside a subshell, so post-run Python previously executed outside the repository and could not import `backend`. The generator now changes to `$REPO_DIR` before ingest/archive creation. The completed metrics were recovered without repeating inference.
+
+The verified compact archive is `1,325,106` bytes with SHA256 `fea5c1acf27ee1bffeebaeb8abe95a2a2fb21a5c04caa54f0cba0c63fde018ac`. The [cleanup-bypass evidence bundle](benchmark-evidence/g4_stl_first_hunyuan3d_2mv_cleanup_bypass_s40_s6_n4/README.md) includes the sixteen voxel-stage audit rows, selection decision, corrected ingest report, provider/GPU provenance, and contact sheet.
+
 One-time Colab setup:
 
 ```bash

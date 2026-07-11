@@ -1314,6 +1314,195 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertGreater(repair_metrics["repair_precondition_voxel_faces"], 5_000)
         self.assertLessEqual(repair_metrics["repair_simplified_faces"], 5_000)
 
+    def test_voxel_close_repair_retriangulates_single_degenerate_face_before_cleanup(self):
+        import trimesh
+
+        voxel_mesh = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
+        original_audit = direct_mesh._printability_audit
+
+        def audit_with_decimation_artifact(mesh, prefix):
+            audit = original_audit(mesh, prefix)
+            if prefix == "repair_preclean":
+                audit["repair_preclean_printable"] = False
+                audit["repair_preclean_degenerate_face_count"] = 1
+            return audit
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "repaired.stl"
+            repair_metrics = {}
+            with (
+                patch.object(direct_mesh, "load_mesh", return_value=voxel_mesh.copy()),
+                patch.object(direct_mesh, "_voxel_close_mesh", return_value=voxel_mesh.copy()),
+                patch.object(
+                    direct_mesh,
+                    "_printability_audit",
+                    side_effect=audit_with_decimation_artifact,
+                ),
+                patch.object(
+                    direct_mesh,
+                    "_retriangulate_marching_cubes_mesh",
+                    return_value=voxel_mesh.copy(),
+                ) as retriangulate,
+                patch.object(
+                    direct_mesh,
+                    "_clean_mesh",
+                    side_effect=AssertionError(
+                        "retriangulated printable mesh should bypass generic cleanup"
+                    ),
+                ),
+            ):
+                repair_mesh_for_printable_stl(
+                    Path(temp_dir) / "input.glb",
+                    output_path,
+                    mode="printable",
+                    preconditioner="voxel-close",
+                    metrics=repair_metrics,
+                )
+
+            diagnostics = stl_diagnostics(output_path)
+
+        retriangulate.assert_called_once()
+        self.assertFalse(repair_metrics["repair_preclean_printable"])
+        self.assertEqual(repair_metrics["repair_preclean_degenerate_face_count"], 1)
+        self.assertTrue(repair_metrics["repair_preclean_retriangulated_printable"])
+        self.assertTrue(repair_metrics["repair_preclean_retriangulation_attempted"])
+        self.assertTrue(repair_metrics["repair_preclean_retriangulation_accepted"])
+        self.assertTrue(repair_metrics["repair_cleaning_skipped"])
+        self.assertFalse(repair_metrics["repair_convex_hull_used"])
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_is_volume"])
+
+    def test_marching_cubes_retriangulation_repairs_collinear_face_without_shape_drift(self):
+        import trimesh
+
+        mesh = trimesh.creation.icosphere(subdivisions=2)
+        a, b, c = map(int, mesh.faces[0])
+        mesh.vertices[c] = (mesh.vertices[a] + mesh.vertices[b]) / 2.0
+        before_vertices = np.asarray(mesh.vertices, dtype=np.float64).copy()
+        before_faces = np.asarray(mesh.faces, dtype=np.int64).copy()
+        before_volume = float(mesh.volume)
+
+        before_audit = direct_mesh._printability_audit(mesh, "before")
+        cleaned_audit = direct_mesh._printability_audit(
+            direct_mesh._clean_mesh(mesh),
+            "cleaned",
+        )
+        retriangulated = direct_mesh._retriangulate_marching_cubes_mesh(mesh)
+        after_audit = direct_mesh._printability_audit(retriangulated, "after")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "retriangulated.stl"
+            retriangulated.export(output_path)
+            round_trip = stl_diagnostics(output_path)
+
+        self.assertFalse(before_audit["before_printable"])
+        self.assertEqual(before_audit["before_degenerate_face_count"], 1)
+        self.assertEqual(before_audit["before_nonmanifold_edge_count"], 0)
+        self.assertFalse(cleaned_audit["cleaned_printable"])
+        self.assertEqual(cleaned_audit["cleaned_nonmanifold_edge_count"], 3)
+        self.assertTrue(after_audit["after_printable"])
+        self.assertEqual(after_audit["after_degenerate_face_count"], 0)
+        self.assertEqual(after_audit["after_nonmanifold_edge_count"], 0)
+        np.testing.assert_allclose(retriangulated.vertices, before_vertices)
+        self.assertEqual(len(retriangulated.faces), len(before_faces))
+        self.assertFalse(np.array_equal(retriangulated.faces, before_faces))
+        self.assertAlmostEqual(float(retriangulated.volume), before_volume, places=12)
+        self.assertTrue(round_trip["stl_is_watertight"])
+        self.assertTrue(round_trip["stl_is_volume"])
+        self.assertTrue(round_trip["stl_is_manifold"])
+        self.assertEqual(round_trip["stl_degenerate_face_count"], 0)
+
+    def test_voxel_close_repair_does_not_retriangulate_nonmanifold_preclean_mesh(self):
+        import trimesh
+
+        voxel_mesh = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
+        printable = voxel_mesh.copy()
+        original_audit = direct_mesh._printability_audit
+
+        def audit_with_sofa_failure(mesh, prefix):
+            audit = original_audit(mesh, prefix)
+            if prefix == "repair_preclean":
+                audit["repair_preclean_printable"] = False
+                audit["repair_preclean_component_count"] = 3
+                audit["repair_preclean_nonmanifold_edge_count"] = 6
+            return audit
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "repaired.stl"
+            repair_metrics = {}
+            with (
+                patch.object(direct_mesh, "load_mesh", return_value=voxel_mesh.copy()),
+                patch.object(direct_mesh, "_voxel_close_mesh", return_value=voxel_mesh.copy()),
+                patch.object(
+                    direct_mesh,
+                    "_printability_audit",
+                    side_effect=audit_with_sofa_failure,
+                ),
+                patch.object(
+                    direct_mesh,
+                    "_retriangulate_marching_cubes_mesh",
+                    side_effect=AssertionError("nonmanifold mesh must not enter targeted retriangulation"),
+                ),
+                patch.object(direct_mesh, "_clean_mesh", return_value=printable) as clean_mesh,
+            ):
+                repair_mesh_for_printable_stl(
+                    Path(temp_dir) / "input.glb",
+                    output_path,
+                    mode="printable",
+                    preconditioner="voxel-close",
+                    metrics=repair_metrics,
+                )
+
+        clean_mesh.assert_called_once()
+        self.assertFalse(repair_metrics["repair_preclean_retriangulation_attempted"])
+        self.assertFalse(repair_metrics["repair_preclean_retriangulation_accepted"])
+        self.assertFalse(repair_metrics["repair_cleaning_skipped"])
+        self.assertFalse(repair_metrics["repair_convex_hull_used"])
+
+    def test_voxel_close_repair_falls_back_when_retriangulation_fails(self):
+        import trimesh
+
+        voxel_mesh = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
+        original_audit = direct_mesh._printability_audit
+
+        def audit_with_decimation_artifact(mesh, prefix):
+            audit = original_audit(mesh, prefix)
+            if prefix == "repair_preclean":
+                audit["repair_preclean_printable"] = False
+                audit["repair_preclean_degenerate_face_count"] = 1
+            return audit
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repair_metrics = {}
+            with (
+                patch.object(direct_mesh, "load_mesh", return_value=voxel_mesh.copy()),
+                patch.object(direct_mesh, "_voxel_close_mesh", return_value=voxel_mesh.copy()),
+                patch.object(
+                    direct_mesh,
+                    "_printability_audit",
+                    side_effect=audit_with_decimation_artifact,
+                ),
+                patch.object(
+                    direct_mesh,
+                    "_retriangulate_marching_cubes_mesh",
+                    side_effect=RuntimeError("filter unavailable"),
+                ),
+                patch.object(direct_mesh, "_clean_mesh", return_value=voxel_mesh.copy()) as clean_mesh,
+            ):
+                repair_mesh_for_printable_stl(
+                    Path(temp_dir) / "input.glb",
+                    Path(temp_dir) / "repaired.stl",
+                    mode="printable",
+                    preconditioner="voxel-close",
+                    metrics=repair_metrics,
+                )
+
+        clean_mesh.assert_called_once()
+        self.assertTrue(repair_metrics["repair_preclean_retriangulation_attempted"])
+        self.assertFalse(repair_metrics["repair_preclean_retriangulation_accepted"])
+        self.assertFalse(repair_metrics["repair_cleaning_skipped"])
+        self.assertFalse(repair_metrics["repair_convex_hull_used"])
+
     def test_component_area_filter_drops_only_configured_surface_fragments(self):
         import trimesh
 
@@ -4468,6 +4657,8 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn('export CUDA_MODULE_LOADING="${CUDA_MODULE_LOADING:-LAZY}"', archive_run_script)
         self.assertIn('export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"', archive_run_script)
         self.assertIn(') 2>&1 | tee "$RUN_LOG"\nrun_status="${PIPESTATUS[0]}"', archive_run_script)
+        self.assertIn('export RUN_STATUS="$run_status"\ncd "$REPO_DIR"\npython - <<\'PY\'', archive_run_script)
+        self.assertIn("'repair_preclean_retriangulation_accepted_mean'", archive_run_script)
         self.assertNotIn('backend.benchmark.colab_g4_orchestrator --use-current-repo --run-name g4_qwen_sanity 2>&1 | tee "$RUN_LOG"', archive_run_script)
         self.assertIn("--modern-config backend/benchmark/experiment_configs/modelnet10_60_balanced_modern_qwen_edit_g4_depth_stl.json", archive_run_script)
         self.assertIn("--cache-provider qwen-image-edit", archive_run_script)
