@@ -22,6 +22,7 @@ MESH_REPAIR_PRECONDITIONERS = ("legacy", "voxel-close")
 MESH_REPAIR_VOXEL_FILL_METHODS = ("base", "holes", "orthographic")
 DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION = 192
 MAX_MESH_REPAIR_VOXEL_RESOLUTION = 384
+MAX_MESH_REPAIR_COMPONENT_FILTER_FACES = 2_000_000
 MIN_SAFE_TOPOLOGY_REPAIR_FACES = 131_072
 MAX_FAST_COMPONENT_FILTER_FACES = 500_000
 DIRECT_MESH_BBOX_SOURCES = ("none", "source", "mirror", "inferred", "reference")
@@ -336,6 +337,11 @@ def _filter_face_components_by_area(mesh, min_area_ratio: float):
         return mesh
     if ratio > 1.0 or not math.isfinite(ratio):
         raise ValueError("Mesh repair component area ratio must be in [0, 1]")
+    if len(mesh.faces) > MAX_MESH_REPAIR_COMPONENT_FILTER_FACES:
+        raise RuntimeError(
+            "Mesh repair component filtering exceeds the bounded face limit: "
+            f"faces={len(mesh.faces)}, limit={MAX_MESH_REPAIR_COMPONENT_FILTER_FACES}"
+        )
     try:
         import trimesh
 
@@ -881,6 +887,7 @@ def postprocess_mesh_for_stl(
     target_bbox_extents=None,
     target_faces: int = 0,
     max_normalized_face_density_log1p: float = 0.0,
+    preserve_printability: bool = False,
 ) -> Path:
     mesh = load_mesh(mesh_path)
     if not len(mesh.vertices) or not len(mesh.faces):
@@ -891,7 +898,14 @@ def postprocess_mesh_for_stl(
     processed = _match_bbox_extents(processed, target_bbox_extents)
     fixed_target = int(target_faces or 0)
     if fixed_target > 0:
-        processed = _simplify_to_face_count(processed, fixed_target)
+        if preserve_printability:
+            processed = _simplify_preserving_topology(
+                processed,
+                fixed_target,
+                strict=True,
+            )
+        else:
+            processed = _simplify_to_face_count(processed, fixed_target)
 
     complexity_limit = float(max_normalized_face_density_log1p or 0.0)
     if complexity_limit > 0:
@@ -904,7 +918,14 @@ def postprocess_mesh_for_stl(
                 complexity_limit,
             )
             previous_faces = len(processed.faces)
-            processed = _simplify_to_face_count(processed, adaptive_target)
+            if preserve_printability:
+                processed = _simplify_preserving_topology(
+                    processed,
+                    adaptive_target,
+                    strict=True,
+                )
+            else:
+                processed = _simplify_to_face_count(processed, adaptive_target)
             if len(processed.faces) >= previous_faces:
                 break
         final_complexity = normalized_bbox_complexity_log1p(processed)
@@ -915,6 +936,10 @@ def postprocess_mesh_for_stl(
                 "Install fast-simplification or use a provider with native face-count control."
             )
     processed.remove_unreferenced_vertices()
+    if preserve_printability and not mesh_is_printable_volume(processed):
+        raise RuntimeError(
+            "Mesh postprocess would emit a non-printable volume after topology-preserving simplification"
+        )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     processed.export(output_path)
     return output_path

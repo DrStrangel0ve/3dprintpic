@@ -1321,6 +1321,44 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertEqual(len(filtered.faces), len(main.faces))
         np.testing.assert_allclose(filtered.extents, main.extents)
 
+    def test_component_area_filter_rejects_unbounded_raw_adjacency(self):
+        import trimesh
+
+        mesh = trimesh.creation.icosphere(subdivisions=2)
+        with (
+            patch.object(direct_mesh, "MAX_MESH_REPAIR_COMPONENT_FILTER_FACES", 100),
+            self.assertRaisesRegex(RuntimeError, "bounded face limit"),
+        ):
+            direct_mesh._filter_face_components_by_area(mesh, 0.01)
+
+    def test_postprocess_preserves_printable_topology_during_decimation(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_path = root / "torus.ply"
+            output_path = root / "decimated.stl"
+            trimesh.creation.torus(
+                major_radius=1.0,
+                minor_radius=0.32,
+                major_sections=64,
+                minor_sections=32,
+            ).export(input_path)
+
+            postprocess_mesh_for_stl(
+                input_path,
+                output_path,
+                target_faces=20,
+                preserve_printability=True,
+            )
+            diagnostics = stl_diagnostics(output_path)
+
+        self.assertLessEqual(diagnostics["stl_faces"], 20)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_is_volume"])
+        self.assertTrue(diagnostics["stl_is_manifold"])
+        self.assertTrue(diagnostics["stl_single_component"])
+
     def test_voxel_close_repair_rejects_invalid_precondition_parameters(self):
         import trimesh
 
@@ -1745,6 +1783,31 @@ class StlExportRegressionTests(unittest.TestCase):
         expected_target = max_faces_for_normalized_bbox_complexity((96.0, 48.0, 24.0), 8.0)
         self.assertEqual(observed_targets, [expected_target])
         self.assertLessEqual(diagnostics["stl_faces_per_normalized_bbox_volume_log1p"], 8.01)
+
+    def test_provider_rejects_invalid_repair_options_before_inference(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            args = SimpleNamespace(
+                provider="triposg",
+                input_image=root / "input.png",
+                input_bundle=None,
+                output_mesh=root / "output.ply",
+                output_stl=None,
+                raw_output_mesh=None,
+                mesh_repair="printable",
+                mesh_repair_preconditioner="voxel-close",
+                mesh_repair_component_area_ratio=0.01,
+                mesh_repair_voxel_resolution=0,
+                mesh_repair_voxel_fill_method="orthographic",
+            )
+
+            with (
+                patch.object(run_image_to_mesh_provider, "run_cli_provider") as provider,
+                self.assertRaisesRegex(ValueError, "between 16 and 384"),
+            ):
+                run_image_to_mesh_provider.run_provider(args)
+
+        provider.assert_not_called()
 
     def test_provider_passes_adaptive_face_target_into_printable_repair(self):
         import trimesh

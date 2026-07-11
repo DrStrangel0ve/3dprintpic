@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -18,6 +19,7 @@ from PIL import Image, ImageFilter
 
 from backend.benchmark.direct_mesh import (
     DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION,
+    MAX_MESH_REPAIR_VOXEL_RESOLUTION,
     MESH_REPAIR_PRECONDITIONERS,
     MESH_REPAIR_MODES,
     MESH_REPAIR_VOXEL_FILL_METHODS,
@@ -1348,11 +1350,67 @@ def run_triposr_api(args: argparse.Namespace) -> Path:
     return args.output_mesh
 
 
+def validate_mesh_repair_options(args: argparse.Namespace) -> None:
+    preconditioner = str(
+        getattr(args, "mesh_repair_preconditioner", "legacy") or "legacy"
+    )
+    if preconditioner not in MESH_REPAIR_PRECONDITIONERS:
+        expected = ", ".join(MESH_REPAIR_PRECONDITIONERS)
+        raise ValueError(
+            f"Unsupported mesh repair preconditioner {preconditioner!r}; expected {expected}"
+        )
+    try:
+        component_area_ratio = float(
+            getattr(args, "mesh_repair_component_area_ratio", 0.0)
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Mesh repair component area ratio must be a number in [0, 1]") from exc
+    if (
+        not math.isfinite(component_area_ratio)
+        or component_area_ratio < 0.0
+        or component_area_ratio > 1.0
+    ):
+        raise ValueError("Mesh repair component area ratio must be in [0, 1]")
+    try:
+        voxel_resolution = int(
+            getattr(
+                args,
+                "mesh_repair_voxel_resolution",
+                DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION,
+            )
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Mesh repair voxel resolution must be an integer") from exc
+    if voxel_resolution < 16 or voxel_resolution > MAX_MESH_REPAIR_VOXEL_RESOLUTION:
+        raise ValueError(
+            "Mesh repair voxel resolution must be between 16 and "
+            f"{MAX_MESH_REPAIR_VOXEL_RESOLUTION}"
+        )
+    voxel_fill_method = str(
+        getattr(args, "mesh_repair_voxel_fill_method", "orthographic")
+        or "orthographic"
+    )
+    if voxel_fill_method not in MESH_REPAIR_VOXEL_FILL_METHODS:
+        expected = ", ".join(MESH_REPAIR_VOXEL_FILL_METHODS)
+        raise ValueError(
+            f"Unsupported mesh repair voxel fill method {voxel_fill_method!r}; expected {expected}"
+        )
+    if preconditioner == "voxel-close" and importlib.util.find_spec("pymeshlab") is None:
+        raise RuntimeError(
+            "Voxel-close mesh repair requires pymeshlab; install backend/requirements-cuda.txt"
+        )
+    args.mesh_repair_preconditioner = preconditioner
+    args.mesh_repair_component_area_ratio = component_area_ratio
+    args.mesh_repair_voxel_resolution = voxel_resolution
+    args.mesh_repair_voxel_fill_method = voxel_fill_method
+
+
 def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
     args.input_image = Path(args.input_image)
     args.output_mesh = Path(args.output_mesh)
     args.output_stl = Path(args.output_stl) if args.output_stl else None
     args.raw_output_mesh = Path(args.raw_output_mesh) if args.raw_output_mesh else None
+    validate_mesh_repair_options(args)
     max_normalized_face_density_log1p = float(
         getattr(args, "mesh_max_normalized_face_density_log1p", 0.0) or 0.0
     )
@@ -1520,6 +1578,7 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
                 target_bbox_extents=args.mesh_target_bbox_extents,
                 target_faces=args.mesh_target_faces,
                 max_normalized_face_density_log1p=max_normalized_face_density_log1p,
+                preserve_printability=args.mesh_repair == "printable",
             )
         finally:
             args._provider_metrics["mesh_postprocess_runtime_seconds"] = (

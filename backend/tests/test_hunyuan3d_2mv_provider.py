@@ -282,6 +282,16 @@ class Hunyuan3D2mvProviderTest(unittest.TestCase):
                 changed_primary = provider_module.cli_provider_cache_payload(
                     changed_primary_args, provider_dir, run_entry
                 )
+                changed_repair_args = self._provider_args(root, bundle)
+                changed_repair_args.mesh_repair_preconditioner = "voxel-close"
+                changed_repair_args.mesh_repair_component_area_ratio = 0.01
+                changed_repair_args.mesh_repair_voxel_resolution = 256
+                changed_repair_args.mesh_repair_voxel_fill_method = "orthographic"
+                changed_repair = provider_module.cli_provider_cache_payload(
+                    changed_repair_args,
+                    provider_dir,
+                    run_entry,
+                )
                 mask = Image.open(root / "left_mask.png").convert("L")
                 mask.putpixel((0, 0), 255)
                 mask.save(root / "left_mask.png")
@@ -292,6 +302,9 @@ class Hunyuan3D2mvProviderTest(unittest.TestCase):
             baseline_key = provider_module.cli_provider_cache_key(baseline)
             self.assertEqual(
                 provider_module.cli_provider_cache_key(changed_primary), baseline_key
+            )
+            self.assertEqual(
+                provider_module.cli_provider_cache_key(changed_repair), baseline_key
             )
             self.assertNotEqual(
                 provider_module.cli_provider_cache_key(changed_mask), baseline_key
@@ -516,12 +529,16 @@ class Hunyuan3D2mvProviderTest(unittest.TestCase):
         ]
 
         self.assertEqual(len(voxel_rows), 4)
+        self.assertIn("masked", by_name)
         self.assertIn("mirror", by_name)
         self.assertIn("hunyuan3d_2mv_cardinal4_raw_direct_mesh", by_name)
         self.assertIn(
             "hunyuan3d_2mv_cardinal4_legacy_repaired_stl_inferred_bbox_direct_mesh",
             by_name,
         )
+        self.assertFalse(any(row.get("oracle_diagnostic", False) for row in experiments))
+        for experiment in experiments:
+            self.assertNotIn("{source_bbox", experiment.get("direct_mesh_command", ""))
         for experiment in voxel_rows:
             command = experiment["direct_mesh_command"]
             self.assertIn("--mesh-repair-preconditioner voxel-close", command)
@@ -531,7 +548,6 @@ class Hunyuan3D2mvProviderTest(unittest.TestCase):
             self.assertIn("--octree-resolution 380", command)
             self.assertIn("--seed 42", command)
             self.assertIn("--mesh-max-normalized-face-density-log1p 9.95", command)
-            self.assertNotIn("{source_bbox", command)
         resolutions = {
             token
             for experiment in voxel_rows
