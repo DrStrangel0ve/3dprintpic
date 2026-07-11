@@ -1,0 +1,3 @@
+run,runtime_commit,rows,retriangulation_attempts,retriangulation_accepts,attempted_geometry_preserved_rate,attempted_vertex_displacement_max,total_repaired_hulls,h2_r192_area_hull_rate,h2_r192_all_hull_rate,decision,sole_promotion_eligible_mesh_provider
+global_retriangulation_guarded,d8e082e992d3f9d334db5469780c946247dd81aa,36,3,0,0.0,,14,0.75,0.50,hold,triposg
+local_collapse_guarded,3da31816575fa26b370c7601c02c2d8ebb2fe8eb,36,3,0,1.0,0.0,14,0.75,0.50,hold,triposg

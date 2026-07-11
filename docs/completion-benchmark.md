@@ -334,6 +334,14 @@ Retriangulation acceptance now requires strict printability plus finite limits o
 
 The checksum-verified compact archive is `1,298,196` bytes with SHA256 `bda740e5915ce86a0b0e888a352f3f78fb6e818e4e88a9fb45aa1dbfd5c56949`. The [retriangulation-guard evidence bundle](benchmark-evidence/g4_stl_first_hunyuan3d_2mv_retriangulation_guard_s40_s6_n4/README.md) preserves the selector decision, three-run comparison, sixteen stage rows, geometry-drift metrics, provider/GPU provenance, ingest report, and contact sheet.
 
+### Measured: Local-Collapse Guard Audit n4
+
+Run `g4_stl_first_hunyuan3d_2mv_local_collapse_guard_s40_s6_n4` completed all `36/36` rows in `597.744s` on exact runtime commit `3da31816575fa26b370c7601c02c2d8ebb2fe8eb`. The broad filter was replaced by one topology-preserving quadric edge collapse with endpoint placement, a hard budget of two removed faces and one removed vertex, and a maximum normalized retained-vertex displacement gate.
+
+All three real attempts preserved geometry: each removed exactly two faces and one vertex, moved no retained vertex, and changed measured volume by zero. None became printable because the one degenerate face remained. Hull use, fill drift, held-out agreement, rankings, and the `hold` decision are therefore identical to cleanup bypass. This safely closes the post-hoc retriangulation branch; the next experiment should prevent the artifact in the upstream voxel decimator by comparing placement policy and nearby target budgets on the exact cached raw meshes.
+
+The verified compact archive is `1,297,705` bytes with SHA256 `ed34c41d81d392b0673acc7e8e529ef94b6eb1b584e1809c8b50204dfec4ab6e`. The [local-collapse evidence bundle](benchmark-evidence/g4_stl_first_hunyuan3d_2mv_local_collapse_guard_s40_s6_n4/README.md) includes the sixteen stage rows, local-edit/displacement metrics, selector decision, provider/GPU provenance, ingest report, and contact sheet.
+
 One-time Colab setup:
 
 ```bash

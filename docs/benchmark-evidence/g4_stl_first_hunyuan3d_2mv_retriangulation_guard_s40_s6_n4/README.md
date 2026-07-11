@@ -69,11 +69,12 @@ run comparison is in `retriangulation_comparison.csv`.
 
 ## Next Repair
 
-The next bounded experiment replaces the broad marching-cubes simplifier with
-one topology-preserving quadric edge collapse. Its hard edit budget is at most
-two removed faces and one removed vertex, and it still has to pass the full
-printability and geometry guard. This can repair the synthetic one-degenerate
-case without turning a hard mesh into a low-detail surrogate.
+The measured [local-collapse follow-up](../g4_stl_first_hunyuan3d_2mv_local_collapse_guard_s40_s6_n4/README.md)
+replaced the broad simplifier with one topology-preserving edge collapse and
+an absolute two-face/one-vertex budget. It preserved geometry on every real
+attempt but left the degenerate face in place, so all three attempts were
+rejected and the decision remained `hold`. The next intervention belongs in
+the upstream voxel decimator rather than another post-hoc repair.
 
 ## Provenance
 
