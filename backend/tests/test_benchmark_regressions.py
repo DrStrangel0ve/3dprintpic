@@ -1404,10 +1404,13 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertTrue(after_audit["after_printable"])
         self.assertEqual(after_audit["after_degenerate_face_count"], 0)
         self.assertEqual(after_audit["after_nonmanifold_edge_count"], 0)
-        np.testing.assert_allclose(retriangulated.vertices, before_vertices)
-        self.assertEqual(len(retriangulated.faces), len(before_faces))
+        self.assertEqual(len(retriangulated.vertices), len(before_vertices) - 1)
+        self.assertEqual(len(retriangulated.faces), len(before_faces) - 2)
         self.assertFalse(np.array_equal(retriangulated.faces, before_faces))
-        self.assertAlmostEqual(float(retriangulated.volume), before_volume, places=12)
+        self.assertLess(
+            abs(float(retriangulated.volume) - before_volume) / abs(before_volume),
+            direct_mesh.RETRIANGULATION_MAX_VOLUME_RELATIVE_CHANGE,
+        )
         self.assertTrue(round_trip["stl_is_watertight"])
         self.assertTrue(round_trip["stl_is_volume"])
         self.assertTrue(round_trip["stl_is_manifold"])
@@ -1424,7 +1427,7 @@ class StlExportRegressionTests(unittest.TestCase):
             direct_mesh.RETRIANGULATION_MAX_VOLUME_RELATIVE_CHANGE,
         )
 
-    def test_marching_cubes_retriangulation_rejects_aggressive_simplification(self):
+    def test_marching_cubes_retriangulation_keeps_failed_local_collapse_bounded(self):
         import trimesh
 
         torus = trimesh.creation.torus(
@@ -1452,9 +1455,9 @@ class StlExportRegressionTests(unittest.TestCase):
         )
 
         self.assertEqual(before_audit["before_degenerate_face_count"], 1)
-        self.assertTrue(after_audit["after_printable"])
-        self.assertFalse(geometry_audit["retriangulated_geometry_preserved"])
-        self.assertGreater(
+        self.assertFalse(after_audit["after_printable"])
+        self.assertTrue(geometry_audit["retriangulated_geometry_preserved"])
+        self.assertLessEqual(
             geometry_audit["retriangulated_face_count_relative_change_abs"],
             direct_mesh.RETRIANGULATION_MAX_FACE_COUNT_RELATIVE_CHANGE,
         )

@@ -544,7 +544,14 @@ def _retriangulate_marching_cubes_mesh(mesh):
                 face_matrix=np.asarray(mesh.faces, dtype=np.int32),
             )
         )
-        mesh_set.apply_filter("meshing_decimation_edge_collapse_for_marching_cube_meshes")
+        mesh_set.apply_filter(
+            "meshing_decimation_quadric_edge_collapse",
+            targetfacenum=max(len(mesh.faces) - 2, 4),
+            preservetopology=True,
+            preserveboundary=True,
+            optimalplacement=True,
+            autoclean=True,
+        )
         result = mesh_set.current_mesh()
         retriangulated = trimesh.Trimesh(
             vertices=np.asarray(result.vertex_matrix(), dtype=np.float64),
@@ -552,9 +559,16 @@ def _retriangulate_marching_cubes_mesh(mesh):
             process=False,
         )
     except Exception as exc:
-        raise RuntimeError("Marching-cubes retriangulation failed") from exc
+        raise RuntimeError("Single-edge marching-cubes repair failed") from exc
     if not len(retriangulated.vertices) or not len(retriangulated.faces):
-        raise RuntimeError("Marching-cubes retriangulation produced an empty mesh")
+        raise RuntimeError("Single-edge marching-cubes repair produced an empty mesh")
+    removed_faces = len(mesh.faces) - len(retriangulated.faces)
+    removed_vertices = len(mesh.vertices) - len(retriangulated.vertices)
+    if not (0 <= removed_faces <= 2 and 0 <= removed_vertices <= 1):
+        raise RuntimeError(
+            "Single-edge marching-cubes repair exceeded its local edit budget: "
+            f"removed_faces={removed_faces}, removed_vertices={removed_vertices}"
+        )
     return retriangulated
 
 
