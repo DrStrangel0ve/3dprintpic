@@ -587,7 +587,14 @@ def _retriangulate_marching_cubes_mesh(mesh):
     return retriangulated
 
 
-def _mesh_geometry_audit(reference, candidate, prefix: str) -> dict:
+def _mesh_geometry_audit(
+    reference,
+    candidate,
+    prefix: str,
+    *,
+    include_vertex_displacement: bool = True,
+    include_preservation_verdict: bool = True,
+) -> dict:
     from scipy.spatial import cKDTree
 
     from backend.benchmark.metrics import _mesh_surface_points
@@ -622,23 +629,25 @@ def _mesh_geometry_audit(reference, candidate, prefix: str) -> dict:
         / max(reference_diagonal, 1e-12)
     )
 
-    reference_vertices = np.asarray(reference.vertices, dtype=np.float64)
-    candidate_vertices = np.asarray(candidate.vertices, dtype=np.float64)
-    reference_vertex_tree = cKDTree(reference_vertices)
-    candidate_vertex_tree = cKDTree(candidate_vertices)
-    candidate_to_reference_vertices, _ = reference_vertex_tree.query(candidate_vertices, k=1)
-    reference_to_candidate_vertices, _ = candidate_vertex_tree.query(reference_vertices, k=1)
-    removed_vertex_count = max(len(reference_vertices) - len(candidate_vertices), 0)
-    retained_reference_distances = np.sort(reference_to_candidate_vertices)
-    if removed_vertex_count:
-        retained_reference_distances = retained_reference_distances[:-removed_vertex_count]
-    vertex_displacement_max_normalized = float(
-        max(
-            np.max(candidate_to_reference_vertices, initial=0.0),
-            np.max(retained_reference_distances, initial=0.0),
+    vertex_displacement_max_normalized = math.nan
+    if include_vertex_displacement:
+        reference_vertices = np.asarray(reference.vertices, dtype=np.float64)
+        candidate_vertices = np.asarray(candidate.vertices, dtype=np.float64)
+        reference_vertex_tree = cKDTree(reference_vertices)
+        candidate_vertex_tree = cKDTree(candidate_vertices)
+        candidate_to_reference_vertices, _ = reference_vertex_tree.query(candidate_vertices, k=1)
+        reference_to_candidate_vertices, _ = candidate_vertex_tree.query(reference_vertices, k=1)
+        removed_vertex_count = max(len(reference_vertices) - len(candidate_vertices), 0)
+        retained_reference_distances = np.sort(reference_to_candidate_vertices)
+        if removed_vertex_count:
+            retained_reference_distances = retained_reference_distances[:-removed_vertex_count]
+        vertex_displacement_max_normalized = float(
+            max(
+                np.max(candidate_to_reference_vertices, initial=0.0),
+                np.max(retained_reference_distances, initial=0.0),
+            )
+            / max(reference_diagonal, 1e-12)
         )
-        / max(reference_diagonal, 1e-12)
-    )
 
     reference_points = _mesh_surface_points(
         reference,
@@ -669,16 +678,17 @@ def _mesh_geometry_audit(reference, candidate, prefix: str) -> dict:
             / max(reference_diagonal, 1e-12)
         )
 
-    values = (
+    values = [
         face_count_relative_change,
         vertex_count_relative_change,
         volume_relative_change,
         bbox_extent_relative_change,
         bounds_center_shift_normalized,
-        vertex_displacement_max_normalized,
         surface_chamfer_normalized,
         surface_hausdorff95_normalized,
-    )
+    ]
+    if include_vertex_displacement:
+        values.append(vertex_displacement_max_normalized)
     geometry_preserved = bool(
         all(math.isfinite(value) for value in values)
         and face_count_relative_change <= RETRIANGULATION_MAX_FACE_COUNT_RELATIVE_CHANGE
@@ -687,23 +697,31 @@ def _mesh_geometry_audit(reference, candidate, prefix: str) -> dict:
         and bbox_extent_relative_change <= RETRIANGULATION_MAX_BBOX_EXTENT_RELATIVE_CHANGE
         and bounds_center_shift_normalized
         <= RETRIANGULATION_MAX_BOUNDS_CENTER_SHIFT_NORMALIZED
-        and vertex_displacement_max_normalized
-        <= RETRIANGULATION_MAX_VERTEX_DISPLACEMENT_NORMALIZED
+        and (
+            not include_vertex_displacement
+            or vertex_displacement_max_normalized
+            <= RETRIANGULATION_MAX_VERTEX_DISPLACEMENT_NORMALIZED
+        )
         and surface_chamfer_normalized <= RETRIANGULATION_MAX_SURFACE_CHAMFER_NORMALIZED
         and surface_hausdorff95_normalized
         <= RETRIANGULATION_MAX_SURFACE_HAUSDORFF95_NORMALIZED
     )
-    return {
+    audit = {
         f"{prefix}_face_count_relative_change_abs": float(face_count_relative_change),
         f"{prefix}_vertex_count_relative_change_abs": float(vertex_count_relative_change),
         f"{prefix}_volume_relative_change_abs": float(volume_relative_change),
         f"{prefix}_bbox_extent_relative_change_max": bbox_extent_relative_change,
         f"{prefix}_bounds_center_shift_normalized": bounds_center_shift_normalized,
-        f"{prefix}_vertex_displacement_max_normalized": vertex_displacement_max_normalized,
         f"{prefix}_surface_chamfer_l1_normalized": surface_chamfer_normalized,
         f"{prefix}_surface_hausdorff95_normalized": surface_hausdorff95_normalized,
-        f"{prefix}_geometry_preserved": geometry_preserved,
     }
+    if include_vertex_displacement:
+        audit[f"{prefix}_vertex_displacement_max_normalized"] = (
+            vertex_displacement_max_normalized
+        )
+    if include_preservation_verdict:
+        audit[f"{prefix}_geometry_preserved"] = geometry_preserved
+    return audit
 
 
 def _retriangulation_geometry_audit(reference, candidate, prefix: str) -> dict:
@@ -797,6 +815,11 @@ def repair_mesh_for_printable_stl(
             _valid_extents(mesh),
             max_normalized_face_density_log1p,
         )
+    if metrics is not None and preconditioner == "voxel-close":
+        metrics["repair_simplification_target_faces"] = int(target_faces)
+        metrics["repair_simplification_applied"] = False
+        metrics["repair_simplification_audit_available"] = False
+        metrics["repair_simplification_audit_runtime_seconds"] = 0.0
     if target_faces > 0 and len(mesh.faces) > target_faces:
         original_faces = len(mesh.faces)
         if preconditioner == "voxel-close":
@@ -808,18 +831,26 @@ def repair_mesh_for_printable_stl(
                 strict=True,
             )
             if metrics is not None:
-                metrics["repair_simplification_target_faces"] = int(target_faces)
+                metrics["repair_simplification_applied"] = True
+                audit_started = time.perf_counter()
                 try:
                     metrics.update(
                         _mesh_geometry_audit(
                             pre_simplification_mesh,
                             mesh,
                             "repair_simplification",
+                            include_vertex_displacement=False,
+                            include_preservation_verdict=False,
                         )
                     )
+                    metrics["repair_simplification_audit_available"] = True
                 except Exception as exc:
                     metrics["repair_simplification_geometry_audit_error"] = (
                         f"{type(exc).__name__}: {exc}"
+                    )
+                finally:
+                    metrics["repair_simplification_audit_runtime_seconds"] = (
+                        time.perf_counter() - audit_started
                     )
         else:
             mesh = _simplify_to_face_count(mesh, target_faces, strict=True)
@@ -1224,6 +1255,7 @@ def postprocess_mesh_for_stl(
     target_faces: int = 0,
     max_normalized_face_density_log1p: float = 0.0,
     preserve_printability: bool = False,
+    simplify_placement: str = "optimal",
 ) -> Path:
     mesh = load_mesh(mesh_path)
     if not len(mesh.vertices) or not len(mesh.faces):
@@ -1238,6 +1270,7 @@ def postprocess_mesh_for_stl(
             processed = _simplify_preserving_topology(
                 processed,
                 fixed_target,
+                placement=simplify_placement,
                 strict=True,
             )
         else:
@@ -1258,6 +1291,7 @@ def postprocess_mesh_for_stl(
                 processed = _simplify_preserving_topology(
                     processed,
                     adaptive_target,
+                    placement=simplify_placement,
                     strict=True,
                 )
             else:

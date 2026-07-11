@@ -1562,8 +1562,21 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
                 metrics=args._provider_metrics,
             )
         finally:
-            args._provider_metrics["repair_runtime_seconds"] = (
-                time.perf_counter() - repair_started
+            repair_total_runtime = time.perf_counter() - repair_started
+            repair_diagnostic_runtime = float(
+                args._provider_metrics.get(
+                    "repair_simplification_audit_runtime_seconds",
+                    0.0,
+                )
+                or 0.0
+            )
+            args._provider_metrics["repair_total_runtime_seconds"] = repair_total_runtime
+            args._provider_metrics["repair_diagnostic_runtime_seconds"] = (
+                repair_diagnostic_runtime
+            )
+            args._provider_metrics["repair_runtime_seconds"] = max(
+                repair_total_runtime - repair_diagnostic_runtime,
+                0.0,
             )
 
     needs_postprocess = (
@@ -1598,6 +1611,11 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
                 target_faces=args.mesh_target_faces,
                 max_normalized_face_density_log1p=max_normalized_face_density_log1p,
                 preserve_printability=args.mesh_repair == "printable",
+                simplify_placement=(
+                    getattr(args, "mesh_repair_simplify_placement", "optimal")
+                    if getattr(args, "mesh_repair_preconditioner", "legacy") == "voxel-close"
+                    else "optimal"
+                ),
             )
         finally:
             args._provider_metrics["mesh_postprocess_runtime_seconds"] = (

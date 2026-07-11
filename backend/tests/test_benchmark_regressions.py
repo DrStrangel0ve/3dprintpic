@@ -1315,12 +1315,23 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertLessEqual(repair_metrics["repair_simplified_faces"], 5_000)
         self.assertEqual(repair_metrics["repair_simplify_placement"], "optimal")
         self.assertEqual(repair_metrics["repair_simplification_target_faces"], 5_000)
+        self.assertTrue(repair_metrics["repair_simplification_applied"])
+        self.assertTrue(repair_metrics["repair_simplification_audit_available"])
+        self.assertGreater(
+            repair_metrics["repair_simplification_audit_runtime_seconds"],
+            0.0,
+        )
         self.assertIn(
             "repair_simplification_surface_chamfer_l1_normalized",
             repair_metrics,
         )
         self.assertIn(
             "repair_simplification_surface_hausdorff95_normalized",
+            repair_metrics,
+        )
+        self.assertNotIn("repair_simplification_geometry_preserved", repair_metrics)
+        self.assertNotIn(
+            "repair_simplification_vertex_displacement_max_normalized",
             repair_metrics,
         )
 
@@ -1762,6 +1773,7 @@ class StlExportRegressionTests(unittest.TestCase):
                 output_path,
                 target_faces=20,
                 preserve_printability=True,
+                simplify_placement="endpoint",
             )
             diagnostics = stl_diagnostics(output_path)
 
