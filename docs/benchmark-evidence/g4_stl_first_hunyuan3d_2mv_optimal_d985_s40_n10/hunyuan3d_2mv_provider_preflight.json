@@ -1,0 +1,52 @@
+{
+  "generated_at": "2026-07-12T16:10:13+00:00",
+  "require_runnable": true,
+  "rows": [
+    {
+      "provider": "hunyuan3d-2mv",
+      "readiness": "ready",
+      "runnable": true,
+      "experiment_names": [],
+      "wrapper_python": "/content/hunyuan3d-2mv-venv/bin/python",
+      "provider_python": "/content/hunyuan3d-2mv-venv/bin/python",
+      "provider_dir_configured": true,
+      "provider_dir_env_names": [
+        "HUNYUAN3D_2MV_DIR"
+      ],
+      "provider_models": {
+        "hunyuan3d_2mv": {
+          "repo_id": "tencent/Hunyuan3D-2mv",
+          "revision": "3a761b539b29fe4ff64714813aa9560fd66f5de0",
+          "subfolder": "hunyuan3d-dit-v2-mv"
+        }
+      },
+      "setup_errors": [],
+      "checks": {
+        "wrapper_python_found": true,
+        "provider_python_found": true,
+        "model_revision_pinned": true,
+        "model_revisions_complete": true,
+        "model_revisions_pinned": true,
+        "input_bundle_configured": true,
+        "entrypoint": "hy3dgen/shapegen/pipelines.py",
+        "entrypoint_found": true,
+        "provider_source_revision": "f8db63096c8282cb27354314d896feba5ba6ff8a",
+        "provider_source_revision_expected": "f8db63096c8282cb27354314d896feba5ba6ff8a",
+        "provider_source_revision_pinned": true,
+        "hunyuan3d_2mv_package_source_found": true,
+        "hunyuan3d_2mv_python_probe": {
+          "backend_ready": true,
+          "error": "",
+          "pipeline_class_importable": true,
+          "python_executable": "/content/hunyuan3d-2mv-venv/bin/python",
+          "shapegen_importable": true,
+          "returncode": 0
+        },
+        "hunyuan3d_2mv_shapegen_importable": true,
+        "hunyuan3d_2mv_pipeline_class_importable": true,
+        "hunyuan3d_2mv_backend_ready": true,
+        "provider_dir_resolved": true
+      }
+    }
+  ]
+}

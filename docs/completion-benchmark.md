@@ -373,6 +373,40 @@ preserves all six aggregate cells, twenty-four repair-stage rows, paired
 held-out results, both selector decisions, runtime/provider provenance, and
 the contact sheet.
 
+### Measured: Optimal d9.85 Held-Out Ten
+
+Run `g4_stl_first_hunyuan3d_2mv_optimal_d985_s40_n10` completed all
+`50/50` rows in `2388.395s` on exact runtime commit
+`a674560f7a537c45477c9c028cdfa61831ae52d9`. It compared only masked,
+mirror, the promoted TripoSG incumbent, raw Hunyuan3D-2mv, and optimal d9.85
+on the full held-out ten.
+
+Hunyuan d9.85 is the score leader and wins `9/10` paired objectives against
+TripoSG, with CI95 low `0.4980`. Median held-out IoU is `0.6748` versus
+`0.5491`; median Chamfer/H95 are `0.1548`/`0.3523` versus
+`0.1956`/`0.4608`. Every final mesh is printable and every complexity is at
+or below `9.8499933`.
+
+The strict selector nevertheless returns `hold`. Six of ten repairs use a
+convex hull, only six of ten stay within absolute fill drift `0.5`, and two
+rows exceed the hard per-sample limit `4.0` at `9.2483` and `13.9271`.
+Only four pre-clean meshes are printable. TripoSG therefore remains the
+production incumbent even though Hunyuan passes the paired objective,
+surface, held-out, complexity, split, and final-printability checks.
+
+This closes Hunyuan decimator tuning. Optimal placement preserves geometry,
+but the expanded slice exposes a downstream hull-fallback problem that
+further density-budget changes will not solve. The next bounded experiment is
+the cached TRELLIS.2 component-filter/hole-close repair lane, with hull
+fallback disabled.
+
+The verified compact archive is `1,905,135` bytes with SHA256
+`f1396c15cfbfae03bdebec23db3524268f1d51f8e20b479043ffbd026124f4f9`.
+The [held-out-ten evidence bundle](benchmark-evidence/g4_stl_first_hunyuan3d_2mv_optimal_d985_s40_n10/README.md)
+preserves all fifty rows, direct candidate/TripoSG deltas, repair-stage
+diagnostics, the strict selector, runtime/provider provenance, ingest report,
+and the visually checked contact sheet.
+
 One-time Colab setup:
 
 ```bash

@@ -86,10 +86,12 @@ diagnostic-only and no oracle method is present.
 Validation: full backend suite `312` passing; complete benchmark/provider
 regression slice `206` passing.
 
-## Next Experiment
+## Measured Follow-Up
 
-Run only the two depth controls, TripoSG, raw Hunyuan, and optimal `9.85` on
-the full held-out ten. Promotion still requires at least `0.8` paired win rate
-against TripoSG plus every existing STL, per-sample fill-drift, complexity,
-surface, and held-out-view guard. Do not spend more compute on endpoint
-placement or post-hoc retriangulation.
+The prescribed held-out-ten confirmation completed `50/50` rows. Optimal
+d9.85 won `9/10` paired objectives against TripoSG but remained `hold`: hull
+fallback rose to six of ten, only six rows stayed within fill drift `0.5`, and
+two rows exceeded the hard drift limit `4.0`. The
+[held-out-ten evidence bundle](../g4_stl_first_hunyuan3d_2mv_optimal_d985_s40_n10/README.md)
+records the result. Hunyuan decimator tuning, endpoint placement, and post-hoc
+retriangulation are now closed.
