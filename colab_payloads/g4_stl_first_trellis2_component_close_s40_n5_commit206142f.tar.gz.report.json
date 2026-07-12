@@ -1,0 +1,114 @@
+{
+  "allow_missing_split_audit": true,
+  "archive_files": 35,
+  "cache_download_mode": "snapshot",
+  "cache_full": false,
+  "cache_max_workers": 8,
+  "cache_providers": [],
+  "candidate_method": "trellis2_biharmonic_prefill_component_close_d995_no_hull_stl_inferred_bbox_direct_mesh",
+  "colab_env": {
+    "ATTN_BACKEND": "sdpa",
+    "SPARSE_ATTN_BACKEND": "sdpa",
+    "SPARSE_CONV_BACKEND": "flex_gemm",
+    "TRELLIS2_PREFETCH": "1",
+    "TRIPOSG_USE_FLASH_DECODER": "0"
+  },
+  "colab_min_gpu_memory_gb": 90.0,
+  "colab_require_gpu_name_regex": "RTX PRO 6000|Blackwell|G4",
+  "contact_sheet_max_samples": 5,
+  "contact_sheet_methods": "masked,mirror,triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh,trellis2_biharmonic_prefill_raw_direct_mesh,trellis2_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh,trellis2_biharmonic_prefill_component_close_d995_no_hull_stl_inferred_bbox_direct_mesh",
+  "current_method": "triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+  "depth_model": "depth-anything/Depth-Anything-V2-Small-hf",
+  "depth_provider": "depth-anything-v2",
+  "eval_guidance": null,
+  "eval_inpaint_max_dimension": null,
+  "eval_steps": null,
+  "extract_root": "/content/3dprintpic_colab_inputs",
+  "fetch_colab_expected_size": 650450,
+  "fetch_colab_launcher": "backend\\output\\completion-benchmark\\colab_payloads\\g4_stl_first_trellis2_component_close_s40_n5_commit206142f_fetch.py",
+  "fetch_colab_launcher_sha256": "5ea3192554a389c9a2af753aa549917faed05c122ec2471861b41f4408c2b291",
+  "fetch_colab_notebook": "backend\\output\\completion-benchmark\\colab_payloads\\run_colab_trellis2_component_close_s40_n5_fetch_notebook.ipynb",
+  "fetch_colab_notebook_sha256": "217475e2c4b1021c4db8a8fbc1416ee095e32c12bf829597fb9df9d88b4a2348",
+  "fetch_colab_payload_url": "https://raw.githubusercontent.com/DrStrangel0ve/3dprintpic/codex-colab-payloads/colab_payloads/g4_stl_first_trellis2_component_close_s40_n5_commit206142f.tar.gz",
+  "generated_at": "2026-07-12T01:14:58+00:00",
+  "hunyuan3d_2mv_model_snapshot": {},
+  "hunyuan3d_2mv_source_revision": "",
+  "include_hunyuan3d_2mv_setup": false,
+  "include_hunyuan3d_setup": false,
+  "include_pixal3d_setup": false,
+  "include_trellis2_setup": true,
+  "include_triposg_setup": true,
+  "include_triposr_setup": false,
+  "inline_colab_chunk_count": 12,
+  "inline_colab_chunk_size": 76000,
+  "inline_colab_encoded_bytes": 867268,
+  "inline_colab_expected_size": 650450,
+  "inline_colab_launcher": "backend\\output\\completion-benchmark\\colab_payloads\\g4_stl_first_trellis2_component_close_s40_n5_commit206142f_launcher.py",
+  "inline_colab_launcher_sha256": "94397a1a224e629a4ceb1d850028ad8fbd3bcee2212c5bd463e678a869604e06",
+  "input_rows": 60,
+  "limit": 5,
+  "lora_weights": "",
+  "manifest": "backend\\output\\completion-benchmark\\modelnet10_60_balanced_s256_seed4040\\manifest.jsonl",
+  "manifest_sha256": "c3b80165e372d06c33bf755dcaa5024f7ba57f21aa3b12a33986887c673e6726",
+  "max_method_failures": 5,
+  "modern_config": "backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_trellis2_component_close_s40_n5.json",
+  "output": "backend\\output\\completion-benchmark\\colab_payloads\\g4_stl_first_trellis2_component_close_s40_n5_commit206142f.tar.gz",
+  "output_sha256": "dd78c636a7f676f8ce2014135ad85b632b2b29d49577f161cfcc6895726815ef",
+  "output_size": 650450,
+  "packaged_rows": 5,
+  "path_fields": [
+    "full_image",
+    "masked_image",
+    "mask",
+    "gt_depth",
+    "gt_silhouette",
+    "silhouette",
+    "mesh",
+    "asset_path",
+    "multiview_images",
+    "multiview_masks",
+    "video_path",
+    "frames_dir"
+  ],
+  "pixal3d_model_snapshots": {},
+  "referenced_files": 35,
+  "report": "backend\\output\\completion-benchmark\\colab_payloads\\g4_stl_first_trellis2_component_close_s40_n5_commit206142f.tar.gz.report.json",
+  "require_image_to_mesh_providers": true,
+  "rewritten_lora_weights": "",
+  "rewritten_manifest": "/content/3dprintpic_colab_inputs/inputs/manifest.jsonl",
+  "run_script_in_archive": "run_colab_eval.sh",
+  "skip_cache": true,
+  "start_index": 40,
+  "stl_target_dimension": 96,
+  "trellis2_attention_backend": "xformers",
+  "trellis2_model_snapshots": {
+    "dinov3": {
+      "repo_id": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
+      "revision": "3c276edd87d6f6e569ff0c4400e086807d0f3881"
+    },
+    "rembg": {
+      "repo_id": "ZhengPeng7/BiRefNet",
+      "revision": "e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4"
+    },
+    "sparse_structure_decoder": {
+      "repo_id": "microsoft/TRELLIS-image-large",
+      "revision": "25e0d31ffbebe4b5a97464dd851910efc3002d96"
+    },
+    "trellis2": {
+      "repo_id": "microsoft/TRELLIS.2-4B",
+      "revision": "af44b45f2e35a493886929c6d786e563ec68364d"
+    }
+  },
+  "trellis2_python": "/content/trellis2-venv/bin/python",
+  "trellis2_source_revision": "75fbf0183001ed9876c8dbb35de6b68552ee08bd",
+  "triposg_model_snapshots": {
+    "rembg": {
+      "repo_id": "briaai/RMBG-1.4",
+      "revision": "2ceba5a5efaec153162aedea169f76caf9b46cf8"
+    },
+    "triposg": {
+      "repo_id": "VAST-AI/TripoSG",
+      "revision": "2c1c516d22d58db486a058d98d31bb6177344e06"
+    }
+  }
+}
