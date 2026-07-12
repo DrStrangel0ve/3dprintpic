@@ -276,6 +276,51 @@ class Trellis2ColabSetupTest(unittest.TestCase):
                 command,
             )
 
+    def test_component_close_config_is_cached_bounded_and_hull_free(self):
+        config_path = (
+            Path(__file__).parents[1]
+            / "benchmark"
+            / "experiment_configs"
+            / "modelnet10_60_balanced_stl_quality_trellis2_component_close_s40_n5.json"
+        )
+        experiments = json.loads(config_path.read_text(encoding="utf-8"))
+        by_name = {experiment["name"]: experiment for experiment in experiments}
+        candidate_name = (
+            "trellis2_biharmonic_prefill_component_close_d995_no_hull_"
+            "stl_inferred_bbox_direct_mesh"
+        )
+
+        self.assertEqual(len(experiments), 6)
+        self.assertEqual(set(by_name) & {"masked", "mirror"}, {"masked", "mirror"})
+        self.assertNotIn("source_mesh_oracle", by_name)
+        candidate = by_name[candidate_name]
+        command = candidate["direct_mesh_command"]
+        self.assertIn("--mesh-repair basic", command)
+        self.assertIn("--mesh-repair-preconditioner component-close", command)
+        self.assertIn("--mesh-repair-component-area-ratio 0.01", command)
+        self.assertIn("--mesh-repair-hole-face-addition-ratio 0.02", command)
+        self.assertIn("--mesh-repair-simplify-placement optimal", command)
+        self.assertIn("--mesh-max-normalized-face-density-log1p 9.95", command)
+        self.assertNotIn("--mesh-repair printable", command)
+        self.assertNotIn("{source_bbox", command)
+        self.assertEqual(candidate["direct_mesh_bbox_source"], "inferred")
+        self.assertFalse(candidate["oracle_diagnostic"])
+
+        trellis_commands = [
+            experiment["direct_mesh_command"]
+            for experiment in experiments
+            if "--provider trellis2" in experiment.get("direct_mesh_command", "")
+        ]
+        self.assertEqual(len(trellis_commands), 3)
+        for trellis_command in trellis_commands:
+            self.assertIn("--provider-mesh-cache-dir /content/trellis2-provider-cache", trellis_command)
+            self.assertIn(f"--trellis2-model-path {DEFAULT_TRELLIS2_MODEL}", trellis_command)
+            self.assertIn(
+                f"--trellis2-model-revision {DEFAULT_TRELLIS2_MODEL_REVISION}",
+                trellis_command,
+            )
+            self.assertIn("--seed 42", trellis_command)
+
 
 if __name__ == "__main__":
     unittest.main()

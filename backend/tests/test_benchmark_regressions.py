@@ -726,6 +726,38 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertIn("output_model.stl", rows[0]["stl_model"])
         self.assertGreater(float(rows[0]["inferred_bbox_centered_iou"]), 0.0)
 
+    def test_external_image_to_mesh_inferred_bbox_fails_closed_without_mirror(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            full = root / "full.png"
+            masked = root / "masked.png"
+            mask = root / "mask.png"
+            Image.new("RGB", (12, 12), (80, 120, 160)).save(full)
+            Image.new("RGB", (12, 12), (255, 255, 255)).save(masked)
+            Image.fromarray(np.zeros((12, 12), dtype=np.uint8)).save(mask)
+            sample = {
+                "id": "missing-mirror",
+                "full_image": str(full),
+                "masked_image": str(masked),
+                "mask": str(mask),
+            }
+            args = SimpleNamespace(
+                direct_mesh_input="full",
+                direct_mesh_output_ext="ply",
+                direct_mesh_command='provider --bbox "{inferred_bbox_extents}"',
+                direct_mesh_reference_output_dir=str(root / "reference"),
+                direct_mesh_reference_method="mirror",
+                stl_target_dimension=96.0,
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "valid inferred bbox"):
+                run_direct_mesh(
+                    sample,
+                    "external-image-to-mesh",
+                    root / "candidate",
+                    args,
+                )
+
     def test_bbox_extent_comparison_metrics_separate_shape_from_absolute_scale(self):
         metrics = bbox_extent_comparison_metrics(
             (96.0, 72.0, 48.0),
@@ -1732,8 +1764,8 @@ class StlExportRegressionTests(unittest.TestCase):
     def test_component_area_filter_drops_only_configured_surface_fragments(self):
         import trimesh
 
-        main = trimesh.creation.icosphere(subdivisions=2, radius=1.0)
-        small = trimesh.creation.icosphere(subdivisions=1, radius=0.05)
+        main = trimesh.creation.box(extents=(2.0, 1.5, 1.0))
+        small = trimesh.creation.icosphere(subdivisions=3, radius=0.01)
         small.apply_translation((4.0, 0.0, 0.0))
         fragmented = trimesh.util.concatenate((main, small))
 
@@ -1753,6 +1785,136 @@ class StlExportRegressionTests(unittest.TestCase):
             self.assertRaisesRegex(RuntimeError, "bounded face limit"),
         ):
             direct_mesh._filter_face_components_by_area(mesh, 0.01)
+
+    def test_component_close_filters_fragments_and_fills_only_small_holes(self):
+        import trimesh
+
+        box = trimesh.creation.box(extents=(1.0, 0.8, 0.6))
+        open_box = trimesh.Trimesh(
+            vertices=np.asarray(box.vertices).copy(),
+            faces=np.delete(np.asarray(box.faces), 0, axis=0),
+            process=False,
+        )
+        fragment = trimesh.creation.icosphere(subdivisions=1, radius=0.03)
+        fragment.apply_translation((3.0, 0.0, 0.0))
+        fragmented = trimesh.util.concatenate((open_box, fragment))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_path = root / "fragmented.ply"
+            output_path = root / "component_closed.stl"
+            fragmented.export(input_path)
+            repair_metrics = {}
+
+            repair_mesh_for_printable_stl(
+                input_path,
+                output_path,
+                mode="basic",
+                preconditioner="component-close",
+                component_area_ratio=0.01,
+                hole_face_addition_ratio=0.02,
+                target_faces=100,
+                metrics=repair_metrics,
+            )
+            diagnostics = stl_diagnostics(output_path)
+
+        self.assertEqual(repair_metrics["repair_component_filter_input_components"], 2)
+        self.assertEqual(repair_metrics["repair_component_filter_output_components"], 1)
+        self.assertEqual(repair_metrics["repair_bounded_hole_fill_max_boundary_edges"], 4)
+        self.assertEqual(repair_metrics["repair_bounded_hole_fill_faces_added"], 1)
+        self.assertEqual(repair_metrics["repair_simplification_requested_target_faces"], 100)
+        self.assertEqual(repair_metrics["repair_simplification_reserved_hole_faces"], 2)
+        self.assertEqual(repair_metrics["repair_simplification_target_faces"], 98)
+        self.assertFalse(repair_metrics["repair_convex_hull_used"])
+        self.assertLessEqual(diagnostics["stl_faces"], 100)
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_is_volume"])
+        self.assertTrue(diagnostics["stl_is_manifold"])
+        self.assertTrue(diagnostics["stl_single_component"])
+
+    def test_component_close_rejects_hole_fill_above_configured_budget(self):
+        import trimesh
+
+        box = trimesh.creation.box()
+        open_box = trimesh.Trimesh(
+            vertices=np.asarray(box.vertices).copy(),
+            faces=np.delete(np.asarray(box.faces), 0, axis=0),
+            process=False,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "face-addition budget"):
+            direct_mesh._bounded_fill_small_holes(open_box, 0.0)
+
+    def test_component_close_uses_optimal_topology_preserving_simplification(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_path = root / "dense.ply"
+            output_path = root / "simplified.stl"
+            trimesh.creation.icosphere(subdivisions=3).export(input_path)
+            repair_metrics = {}
+
+            with patch.object(
+                direct_mesh,
+                "_simplify_preserving_topology",
+                wraps=direct_mesh._simplify_preserving_topology,
+            ) as simplify:
+                repair_mesh_for_printable_stl(
+                    input_path,
+                    output_path,
+                    mode="basic",
+                    preconditioner="component-close",
+                    component_area_ratio=0.01,
+                    hole_face_addition_ratio=0.02,
+                    target_faces=100,
+                    simplify_placement="optimal",
+                    metrics=repair_metrics,
+                )
+
+            simplified = direct_mesh.load_mesh(output_path)
+
+        self.assertEqual(simplify.call_args.kwargs["placement"], "optimal")
+        self.assertTrue(repair_metrics["repair_simplification_applied"])
+        self.assertLessEqual(len(simplified.faces), 100)
+        self.assertLessEqual(direct_mesh.normalized_bbox_complexity_log1p(simplified), 9.95)
+        self.assertTrue(mesh_is_printable_volume(simplified))
+
+    def test_component_close_basic_never_uses_hull_for_retained_components(self):
+        import trimesh
+
+        first = trimesh.creation.box()
+        second = trimesh.creation.box()
+        second.apply_translation((2.0, 0.0, 0.0))
+        disconnected = trimesh.util.concatenate((first, second))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_path = root / "disconnected.ply"
+            output_path = root / "no_hull.stl"
+            disconnected.export(input_path)
+            repair_metrics = {}
+
+            with patch.object(
+                direct_mesh,
+                "_convex_hull_mesh",
+                side_effect=AssertionError("component-close basic must not use a hull"),
+            ) as hull:
+                repair_mesh_for_printable_stl(
+                    input_path,
+                    output_path,
+                    mode="basic",
+                    preconditioner="component-close",
+                    component_area_ratio=0.01,
+                    hole_face_addition_ratio=0.02,
+                    metrics=repair_metrics,
+                )
+            diagnostics = stl_diagnostics(output_path)
+
+        hull.assert_not_called()
+        self.assertFalse(repair_metrics["repair_convex_hull_used"])
+        self.assertEqual(diagnostics["stl_component_count"], 2)
+        self.assertFalse(diagnostics["stl_single_component"])
 
     def test_postprocess_preserves_printable_topology_during_decimation(self):
         import trimesh
@@ -2254,6 +2416,7 @@ class StlExportRegressionTests(unittest.TestCase):
                 mesh_repair="printable",
                 mesh_repair_preconditioner="legacy",
                 mesh_repair_component_area_ratio=0.01,
+                mesh_repair_hole_face_addition_ratio=0.03,
                 mesh_repair_voxel_resolution=256,
                 mesh_repair_voxel_fill_method="orthographic",
                 mesh_repair_simplify_placement="endpoint",
@@ -2281,6 +2444,7 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertEqual(repair_mesh.call_args.kwargs["target_faces"], expected_target)
         self.assertEqual(repair_mesh.call_args.kwargs["preconditioner"], "legacy")
         self.assertEqual(repair_mesh.call_args.kwargs["component_area_ratio"], 0.01)
+        self.assertEqual(repair_mesh.call_args.kwargs["hole_face_addition_ratio"], 0.03)
         self.assertEqual(repair_mesh.call_args.kwargs["voxel_resolution"], 256)
         self.assertEqual(repair_mesh.call_args.kwargs["voxel_fill_method"], "orthographic")
         self.assertEqual(repair_mesh.call_args.kwargs["simplify_placement"], "endpoint")
@@ -2288,8 +2452,67 @@ class StlExportRegressionTests(unittest.TestCase):
             args._provider_metrics["provider_mesh_repair_simplify_placement"],
             "endpoint",
         )
+        self.assertEqual(
+            args._provider_metrics["provider_mesh_repair_hole_face_addition_ratio"],
+            0.03,
+        )
         self.assertTrue(diagnostics["stl_is_watertight"])
         self.assertTrue(diagnostics["stl_positive_volume"])
+
+    def test_component_close_provider_keeps_postprocess_fail_closed_without_hull(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_image = root / "input.png"
+            provider_mesh = root / "provider.ply"
+            output_mesh = root / "output.ply"
+            output_stl = root / "output.stl"
+            Image.new("RGB", (8, 8), "white").save(input_image)
+            trimesh.creation.box().export(provider_mesh)
+            args = SimpleNamespace(
+                provider="triposg",
+                input_image=input_image,
+                input_bundle=None,
+                output_mesh=output_mesh,
+                output_stl=output_stl,
+                raw_output_mesh=None,
+                mesh_repair="basic",
+                mesh_repair_preconditioner="component-close",
+                mesh_repair_component_area_ratio=0.01,
+                mesh_repair_hole_face_addition_ratio=0.02,
+                mesh_repair_voxel_resolution=192,
+                mesh_repair_voxel_fill_method="orthographic",
+                mesh_repair_simplify_placement="optimal",
+                mesh_target_max_dimension=0.0,
+                mesh_min_bbox_dimension=0.0,
+                mesh_max_bbox_aspect_ratio=0.0,
+                mesh_target_bbox_extents=(96.0, 48.0, 24.0),
+                mesh_target_faces=40000,
+                mesh_max_normalized_face_density_log1p=8.0,
+            )
+
+            with (
+                patch.object(
+                    run_image_to_mesh_provider,
+                    "run_cli_provider",
+                    return_value=provider_mesh,
+                ),
+                patch.object(
+                    run_image_to_mesh_provider,
+                    "postprocess_mesh_for_stl",
+                    wraps=postprocess_mesh_for_stl,
+                ) as postprocess,
+            ):
+                run_image_to_mesh_provider.run_provider(args)
+
+            diagnostics = stl_diagnostics(output_stl)
+
+        self.assertTrue(postprocess.call_args.kwargs["preserve_printability"])
+        self.assertFalse(args._provider_metrics["repair_convex_hull_used"])
+        self.assertTrue(diagnostics["stl_is_watertight"])
+        self.assertTrue(diagnostics["stl_is_volume"])
+        self.assertTrue(diagnostics["stl_is_manifold"])
 
     def test_image_to_mesh_provider_wrapper_can_repair_unprintable_mesh(self):
         with tempfile.TemporaryDirectory() as temp_dir:

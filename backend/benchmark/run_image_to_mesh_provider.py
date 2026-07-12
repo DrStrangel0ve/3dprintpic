@@ -18,6 +18,7 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 from backend.benchmark.direct_mesh import (
+    DEFAULT_MESH_REPAIR_HOLE_FACE_ADDITION_RATIO,
     DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION,
     MAX_MESH_REPAIR_VOXEL_RESOLUTION,
     MESH_REPAIR_PRECONDITIONERS,
@@ -1373,6 +1374,22 @@ def validate_mesh_repair_options(args: argparse.Namespace) -> None:
     ):
         raise ValueError("Mesh repair component area ratio must be in [0, 1]")
     try:
+        hole_face_addition_ratio = float(
+            getattr(
+                args,
+                "mesh_repair_hole_face_addition_ratio",
+                DEFAULT_MESH_REPAIR_HOLE_FACE_ADDITION_RATIO,
+            )
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Mesh repair hole face addition ratio must be a number in [0, 1]") from exc
+    if (
+        not math.isfinite(hole_face_addition_ratio)
+        or hole_face_addition_ratio < 0.0
+        or hole_face_addition_ratio > 1.0
+    ):
+        raise ValueError("Mesh repair hole face addition ratio must be in [0, 1]")
+    try:
         voxel_resolution = int(
             getattr(
                 args,
@@ -1405,12 +1422,17 @@ def validate_mesh_repair_options(args: argparse.Namespace) -> None:
             "Unsupported topology-preserving simplification placement "
             f"{simplify_placement!r}; expected {expected}"
         )
-    if preconditioner == "voxel-close" and importlib.util.find_spec("pymeshlab") is None:
+    if (
+        preconditioner in ("voxel-close", "component-close")
+        and importlib.util.find_spec("pymeshlab") is None
+    ):
         raise RuntimeError(
-            "Voxel-close mesh repair requires pymeshlab; install backend/requirements-cuda.txt"
+            "Topology-preserving mesh repair requires pymeshlab; install "
+            "backend/requirements-cuda.txt"
         )
     args.mesh_repair_preconditioner = preconditioner
     args.mesh_repair_component_area_ratio = component_area_ratio
+    args.mesh_repair_hole_face_addition_ratio = hole_face_addition_ratio
     args.mesh_repair_voxel_resolution = voxel_resolution
     args.mesh_repair_voxel_fill_method = voxel_fill_method
     args.mesh_repair_simplify_placement = simplify_placement
@@ -1454,6 +1476,14 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
         ),
         "provider_mesh_repair_component_area_ratio": float(
             getattr(args, "mesh_repair_component_area_ratio", 0.0) or 0.0
+        ),
+        "provider_mesh_repair_hole_face_addition_ratio": float(
+            getattr(
+                args,
+                "mesh_repair_hole_face_addition_ratio",
+                DEFAULT_MESH_REPAIR_HOLE_FACE_ADDITION_RATIO,
+            )
+            or 0.0
         ),
         "provider_mesh_repair_voxel_resolution": int(
             getattr(
@@ -1554,6 +1584,11 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
                     "mesh_repair_voxel_fill_method",
                     "orthographic",
                 ),
+                hole_face_addition_ratio=getattr(
+                    args,
+                    "mesh_repair_hole_face_addition_ratio",
+                    DEFAULT_MESH_REPAIR_HOLE_FACE_ADDITION_RATIO,
+                ),
                 simplify_placement=getattr(
                     args,
                     "mesh_repair_simplify_placement",
@@ -1610,10 +1645,15 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
                 target_bbox_extents=args.mesh_target_bbox_extents,
                 target_faces=args.mesh_target_faces,
                 max_normalized_face_density_log1p=max_normalized_face_density_log1p,
-                preserve_printability=args.mesh_repair == "printable",
+                preserve_printability=(
+                    args.mesh_repair == "printable"
+                    or getattr(args, "mesh_repair_preconditioner", "legacy")
+                    == "component-close"
+                ),
                 simplify_placement=(
                     getattr(args, "mesh_repair_simplify_placement", "optimal")
-                    if getattr(args, "mesh_repair_preconditioner", "legacy") == "voxel-close"
+                    if getattr(args, "mesh_repair_preconditioner", "legacy")
+                    in ("voxel-close", "component-close")
                     else "optimal"
                 ),
             )
@@ -1754,7 +1794,9 @@ def main() -> None:
         default="legacy",
         help=(
             "Optional shape-preserving work before printable repair. 'voxel-close' filters configured "
-            "surface fragments, closes the mesh on a voxel grid, and uses topology-preserving decimation."
+            "surface fragments, closes the mesh on a voxel grid, and uses topology-preserving decimation. "
+            "'component-close' filters fragments, uses topology-preserving decimation, and fills only "
+            "small boundary loops without voxelization."
         ),
     )
     parser.add_argument(
@@ -1762,8 +1804,17 @@ def main() -> None:
         type=float,
         default=0.0,
         help=(
-            "Before voxel closure, discard connected face components whose area is below this fraction "
-            "of the largest component. Zero keeps every component."
+            "Before voxel or component closure, discard connected face components whose area is below "
+            "this fraction of the largest component. Zero keeps every component."
+        ),
+    )
+    parser.add_argument(
+        "--mesh-repair-hole-face-addition-ratio",
+        type=float,
+        default=DEFAULT_MESH_REPAIR_HOLE_FACE_ADDITION_RATIO,
+        help=(
+            "Maximum ratio of faces that bounded component-close hole filling may add. Only triangle "
+            "and quad boundary loops are eligible, with an absolute cap of 2048 added faces."
         ),
     )
     parser.add_argument(

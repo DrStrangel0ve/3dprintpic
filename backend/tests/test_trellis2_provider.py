@@ -626,7 +626,7 @@ class Trellis2ProviderTest(unittest.TestCase):
                 baseline["command"],
             )
 
-    def test_raw_and_repaired_outputs_share_one_cached_inference(self):
+    def test_raw_and_repair_variants_share_one_cached_inference(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             provider_dir = root / "TRELLIS.2"
@@ -694,9 +694,41 @@ class Trellis2ProviderTest(unittest.TestCase):
                 "--mesh-repair",
                 "printable",
             ]
+            third_argv = [
+                "run_image_to_mesh_provider",
+                "--provider",
+                "trellis2",
+                "--provider-dir",
+                str(provider_dir),
+                "--provider-python",
+                "trellis2-python",
+                "--input-image",
+                str(input_image),
+                "--output-mesh",
+                str(root / "component-close.glb"),
+                "--raw-output-mesh",
+                str(root / "component-close-source.glb"),
+                "--provider-mesh-cache-dir",
+                str(cache_dir),
+                "--trellis2-resolution",
+                "512",
+                "--seed",
+                "31",
+                "--mesh-repair",
+                "basic",
+                "--mesh-repair-preconditioner",
+                "component-close",
+                "--mesh-repair-component-area-ratio",
+                "0.01",
+                "--mesh-repair-hole-face-addition-ratio",
+                "0.02",
+                "--mesh-repair-simplify-placement",
+                "optimal",
+            ]
 
             first_stderr = io.StringIO()
             second_stderr = io.StringIO()
+            third_stderr = io.StringIO()
             with patch.object(
                 provider_module,
                 "provider_git_revision",
@@ -709,6 +741,10 @@ class Trellis2ProviderTest(unittest.TestCase):
                 provider_module,
                 "repair_mesh_for_printable_stl",
                 side_effect=fake_repair,
+            ), patch.object(
+                provider_module.importlib.util,
+                "find_spec",
+                return_value=object(),
             ):
                 with patch.object(sys, "argv", first_argv), contextlib.redirect_stdout(
                     io.StringIO()
@@ -728,15 +764,30 @@ class Trellis2ProviderTest(unittest.TestCase):
                         encoding="utf-8"
                     )
                 )
+                with patch.object(sys, "argv", third_argv), contextlib.redirect_stdout(
+                    io.StringIO()
+                ), contextlib.redirect_stderr(third_stderr):
+                    provider_module.main()
+                third_metrics = json.loads(
+                    (root / provider_module.PROVIDER_METRICS_FILENAME).read_text(
+                        encoding="utf-8"
+                    )
+                )
 
             self.assertEqual(len(invocations), 1)
             self.assertIn('"status": "stored"', first_stderr.getvalue())
             self.assertIn('"status": "hit"', second_stderr.getvalue())
+            self.assertIn('"status": "hit"', third_stderr.getvalue())
             self.assertEqual(
                 (root / "raw.glb").read_bytes(),
                 (root / "repaired-source.glb").read_bytes(),
             )
             self.assertTrue((root / "repaired.glb").is_file())
+            self.assertTrue((root / "component-close.glb").is_file())
+            self.assertEqual(
+                (root / "raw.glb").read_bytes(),
+                (root / "component-close-source.glb").read_bytes(),
+            )
             self.assertEqual(len(list(cache_dir.glob("*.glb"))), 1)
             metadata = json.loads(
                 next(cache_dir.glob("*.json")).read_text(encoding="utf-8")
@@ -747,6 +798,7 @@ class Trellis2ProviderTest(unittest.TestCase):
             )
             self.assertFalse(first_metrics["provider_cache_hit"])
             self.assertTrue(second_metrics["provider_cache_hit"])
+            self.assertTrue(third_metrics["provider_cache_hit"])
             self.assertEqual(
                 second_metrics["provider_inference_runtime_seconds"],
                 first_metrics["provider_inference_runtime_seconds"],
@@ -755,6 +807,18 @@ class Trellis2ProviderTest(unittest.TestCase):
             self.assertEqual(
                 second_metrics["provider_raw_output_mesh"],
                 str(root / "repaired-source.glb"),
+            )
+            self.assertEqual(
+                third_metrics["provider_mesh_repair_preconditioner"],
+                "component-close",
+            )
+            self.assertEqual(
+                third_metrics["provider_mesh_repair_component_area_ratio"],
+                0.01,
+            )
+            self.assertEqual(
+                third_metrics["provider_mesh_repair_hole_face_addition_ratio"],
+                0.02,
             )
 
     def test_stl_smoke_config_compares_raw_and_repaired_geometry(self):

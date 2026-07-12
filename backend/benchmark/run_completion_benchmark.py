@@ -97,6 +97,7 @@ METADATA_FIELDS = {
     "provider_mesh_repair",
     "provider_mesh_repair_preconditioner",
     "provider_mesh_repair_component_area_ratio",
+    "provider_mesh_repair_hole_face_addition_ratio",
     "provider_mesh_repair_voxel_resolution",
     "provider_mesh_repair_voxel_fill_method",
     "provider_peak_cuda_vram_supported",
