@@ -1,0 +1,76 @@
+{
+  "generated_at": "2026-07-12T20:06:55+00:00",
+  "require_runnable": true,
+  "rows": [
+    {
+      "provider": "trellis2",
+      "readiness": "ready",
+      "runnable": true,
+      "experiment_names": [],
+      "wrapper_python": "/content/trellis2-venv/bin/python",
+      "provider_python": "/content/trellis2-venv/bin/python",
+      "provider_dir_configured": true,
+      "provider_dir_env_names": [
+        "TRELLIS2_DIR"
+      ],
+      "provider_models": {
+        "trellis2": {
+          "repo_id": "microsoft/TRELLIS.2-4B",
+          "revision": "af44b45f2e35a493886929c6d786e563ec68364d"
+        },
+        "sparse_structure_decoder": {
+          "repo_id": "microsoft/TRELLIS-image-large",
+          "revision": "25e0d31ffbebe4b5a97464dd851910efc3002d96"
+        },
+        "dinov3": {
+          "repo_id": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
+          "revision": "3c276edd87d6f6e569ff0c4400e086807d0f3881"
+        },
+        "rembg": {
+          "repo_id": "ZhengPeng7/BiRefNet",
+          "revision": "e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4"
+        }
+      },
+      "setup_errors": [],
+      "checks": {
+        "wrapper_python_found": true,
+        "provider_python_found": true,
+        "model_revision_pinned": true,
+        "model_revisions_complete": true,
+        "model_revisions_pinned": true,
+        "trellis2_resolution": 512,
+        "trellis2_resolution_supported": true,
+        "entrypoint": "trellis2/pipelines/trellis2_image_to_3d.py",
+        "entrypoint_found": true,
+        "provider_source_revision": "75fbf0183001ed9876c8dbb35de6b68552ee08bd",
+        "provider_source_revision_expected": "75fbf0183001ed9876c8dbb35de6b68552ee08bd",
+        "provider_source_revision_pinned": true,
+        "trellis2_package_source_found": true,
+        "trellis2_python_probe": {
+          "attention_backend": "xformers",
+          "attention_backend_accepted": true,
+          "attention_backend_api_ready": true,
+          "attention_backend_importable": true,
+          "attention_backend_module": "xformers.ops",
+          "attention_backend_requested": "xformers",
+          "backend_ready": true,
+          "error": "",
+          "pipeline_class_importable": true,
+          "pipelines_importable": true,
+          "python_executable": "/content/trellis2-venv/bin/python",
+          "returncode": 0
+        },
+        "trellis2_pipelines_importable": true,
+        "trellis2_pipeline_class_importable": true,
+        "trellis2_attention_backend_requested": "xformers",
+        "trellis2_attention_backend": "xformers",
+        "trellis2_attention_backend_accepted": true,
+        "trellis2_attention_backend_module": "xformers.ops",
+        "trellis2_attention_backend_importable": true,
+        "trellis2_attention_backend_api_ready": true,
+        "trellis2_attention_backend_ready": true,
+        "provider_dir_resolved": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "combined_dir": "",
+  "duration_seconds": 219.018,
+  "eval_config": "/content/3dprintpic/backend/output/completion-benchmark/colab_g4/g4_stl_first_trellis2_component_close_guard_s40_n1/configs/modern_plus_weighted_lora.json",
+  "eval_config_report": {
+    "exists": true,
+    "is_file": true,
+    "path": "/content/3dprintpic/backend/output/completion-benchmark/colab_g4/g4_stl_first_trellis2_component_close_guard_s40_n1/configs/modern_plus_weighted_lora.json",
+    "sha256": "e5161e3e9ecee7f743dd9461f306b540ab62802f7804f5d6315d233606cf11d1",
+    "size_bytes": 4592
+  },
+  "eval_dirs": [
+    "/content/3dprintpic/backend/output/completion-benchmark/colab_g4/g4_stl_first_trellis2_component_close_guard_s40_n1/experiments/modern_weighted_eval_s0_n1"
+  ],
+  "finished_at": "2026-07-12T20:11:38+00:00",
+  "lora_weights": "",
+  "manifest": "/content/3dprintpic_colab_inputs/inputs/manifest.jsonl",
+  "manifest_report": {
+    "exists": true,
+    "is_file": true,
+    "path": "/content/3dprintpic_colab_inputs/inputs/manifest.jsonl",
+    "sha256": "39678c2533fbfc240e15b816cec115660f879f11f3dca56d9a5a6bd24773f8c3",
+    "size_bytes": 1671
+  },
+  "repo_state": {
+    "branch": "main",
+    "dirty": false,
+    "head": "a628e172a1ab61d3bc57eb991dc9854065c617a5",
+    "remote_origin": "https://github.com/DrStrangel0ve/3dprintpic.git",
+    "repo_root": "/content/3dprintpic",
+    "status_short": ""
+  },
+  "source_modern_config": {
+    "exists": true,
+    "is_file": true,
+    "path": "/content/3dprintpic/backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_trellis2_component_close_s40_n5.json",
+    "sha256": "e5161e3e9ecee7f743dd9461f306b540ab62802f7804f5d6315d233606cf11d1",
+    "size_bytes": 4592
+  },
+  "started_at": "2026-07-12T20:07:59+00:00",
+  "training_metadata": "",
+  "weighted_metadata": ""
+}

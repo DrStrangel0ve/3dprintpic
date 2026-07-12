@@ -407,6 +407,44 @@ preserves all fifty rows, direct candidate/TripoSG deltas, repair-stage
 diagnostics, the strict selector, runtime/provider provenance, ingest report,
 and the visually checked contact sheet.
 
+### Measured: Guarded TRELLIS.2 Component-Close Smoke
+
+Run `g4_stl_first_trellis2_component_close_guard_s40_n1` executed the prepared
+one-row gate on exact runtime commit
+`a628e172a1ab61d3bc57eb991dc9854065c617a5`. Five control/diagnostic rows
+completed; the new no-hull component-close candidate failed closed, so the
+five-row expansion was not run.
+
+The one-percent area filter reduced the exact cached raw mesh from `632` to
+four components and from `657,642` to `641,832` faces. Bounded hole closure
+added `98` faces. Optimal simplification stalled at `20,834` faces with
+topology and boundaries preserved, reached `18,862` after topology
+relaxation, and reached the `10,704` target only after boundary relaxation.
+The mandatory final audit then found `2,943` self-intersecting faces. The
+candidate emitted `0/1` STLs and did not use a convex hull.
+
+Cached prefill, filled-voxel, and shell-only ablations did not expose a safe
+fallback. Strictly simplified voxel output retained nonmanifold edges and
+self-intersections. Native voxel outputs could be printable, but high-
+resolution variants exceeded complexity `9.95`, while under-cap variants had
+large volume/fill drift. The shell-only under-cap resolutions had relative
+fill drift between `104.091` and `139.016`.
+
+This result closes the current post-hoc TRELLIS repair lane. It also exposes a
+measurement limitation: raw TRELLIS is open and inconsistently wound, while
+repair fill drift currently uses its signed volume as the denominator. The
+run remains `hold` under the existing gate; the gate was not weakened after
+the result. The next harness task is to validate a topology-aware,
+surface-derived volume proxy for open raw meshes and add explicit paired
+Chamfer/H95 promotion guards before another provider comparison.
+
+The verified compact archive is `314,308` bytes with `73` entries and SHA256
+`271aac157ac2978dbef3fadb653bb06eee75158f32e0cadee141f781d4d523b6`.
+The [guarded smoke evidence bundle](benchmark-evidence/g4_stl_first_trellis2_component_close_guard_s40_n1/README.md)
+includes the failed-provider telemetry, cached ablation table, preflights,
+selector output, contact sheet, and locally regenerated ingest report. The G4
+runtime was disconnected and deleted after transfer.
+
 One-time Colab setup:
 
 ```bash

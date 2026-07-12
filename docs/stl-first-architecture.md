@@ -67,6 +67,18 @@ Single-image mesh calibration update on July 10, 2026: `backend.benchmark.run_st
 
 **Measured TRELLIS.2 challenger.** The benchmark has a separate `/content/trellis2-venv` setup path for pinned TRELLIS.2 source and model revisions. It substitutes public exact-revision DINOv3 and BiRefNet snapshots for gated references, rewrites the pipeline manifest to local offline paths, uses the official `(x,y,z) -> (x,z,-y)` export convention, and validates pinned `xformers` before inference. Run `g4_stl_first_trellis2_vs_triposg_s40_n5_r3` completed all five TRELLIS raw/repaired rows and all five TripoSG control rows on G4. Repaired TRELLIS produced `5/5` watertight, manifold, positive-volume, single-component STLs and led the composite score (`1.3779` versus `0.9521`), but remained `hold`: worst paired Chamfer and H95 ratios were `1.3447x` and `1.2580x`, above the `1.10x` ceiling. One deterministic seed retry recovered an empty sparse-structure sample; bounded volume-first component repair recovered a `2,768,786`-face, `133,533`-component desk mesh. The final machine-readable record is `docs/benchmark-evidence/trellis2-g4-s40-n1-r3-n5-r1-r3.json`.
 
+**Guarded TRELLIS.2 repair follow-up.** Run
+`g4_stl_first_trellis2_component_close_guard_s40_n1` tested one exact cached
+raw mesh before authorizing the prepared five-row expansion. Area filtering
+and bounded hole closure preserved most of the surface, but optimal
+simplification reached its `10,704`-face target only after topology and
+boundary relaxation. The final no-hull mesh had `2,943` self-intersections
+and was rejected, so the candidate emitted `0/1` STLs and the five-row run was
+not launched. Cached voxel prefill and shell variants also failed either
+topology, complexity, or repair-drift guards. This closes the current
+post-hoc TRELLIS repair lane; compact evidence is under
+`docs/benchmark-evidence/g4_stl_first_trellis2_component_close_guard_s40_n1`.
+
 **Promoted inferred-bbox TripoSG run.** `backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_triposg_inferred_bbox_generated.json` applies `--mesh-max-normalized-face-density-log1p 9.95`, deriving each mesh face cap from normalized bbox volume and the same scale-free metric used by the promotion gate. Run `g4_stl_first_triposg_inferred_adaptive_s40_n10` completed `70/70` rows and promoted the biharmonic-prefill candidate over `mirror`: score `1.1038838` versus `0.1991798`, no failed checks, and all ten candidate complexities at or below `9.9499179`. Compact evidence is committed under `docs/benchmark-evidence/g4_stl_first_triposg_inferred_adaptive_s40_n10`.
 
 **Pinned Hunyuan3D-2mv lane.** The `hunyuan3d-2mv` provider uses official `Tencent-Hunyuan/Hunyuan3D-2` source commit `f8db63096c8282cb27354314d896feba5ba6ff8a` and `tencent/Hunyuan3D-2mv` model revision `3a761b539b29fe4ff64714813aa9560fd66f5de0`, filtered to the standard `hunyuan3d-dit-v2-mv` FP16 safetensors checkpoint. It passes a keyed PIL dictionary in the model's required `front, left, back, right` slot order, maps benchmark camera azimuths to those slots with a bounded angular tolerance, and converts each rendered silhouette into an RGBA alpha cutout. The adapter never reads `source_mesh` or `asset_path`; those fields remain diagnostic-only. Every selected image, mask, camera, model/source revision, generation setting, and wrapper source hash participates in the raw-mesh cache key, so raw and identically repaired STL rows share one inference without cross-sample cache leakage. CUDA-synchronized generation runtime plus PyTorch peak allocated and reserved memory are carried into `provider_metrics.json` and the cache metadata; the generic peak field is explicitly labeled `torch_peak_reserved`, not presented as an NVML device-wide measurement.
@@ -103,9 +115,9 @@ Ground-truth mesh datasets should be used whenever possible. A small initial bat
 
 1. Keep the current depth/inpaint benchmark as the regression baseline.
 2. Keep pinned TripoSG as the promoted full-mesh incumbent and preserve its adaptive scale-free face-density limit `9.95`.
-3. Reprocess the five cached Pixal and TRELLIS raw meshes with shape-preserving component filtering and closure, then compare them against the recorded coarse printable fallbacks and TripoSG with the same paired Chamfer/H95 gates.
-4. Expand TRELLIS.2 beyond five samples only after its repaired path passes the current surface-regression ceilings; do not weaken the selector because its composite score is higher.
-5. Keep TripoSG as incumbent while tuning Hunyuan repair on the three recorded surface outliers. Filter/close the dominant raw component before adaptive decimation, then rerun the same paired n10 gate without weakening the `1.10x` surface ceilings or STL checks.
+3. Validate a topology-aware, surface-derived volume proxy before using fill drift to compare an open generative raw mesh with a watertight repair; preserve the current metric alongside it during calibration.
+4. Add explicit paired Chamfer and H95 promotion guards to the standard STL selector instead of leaving those surface metrics diagnostic-only.
+5. Keep the current post-hoc Hunyuan and TRELLIS repair searches closed. Move the next provider experiment upstream to a model or reconstruction path that emits cleaner connected geometry.
 6. Score every depth-to-STL and direct-mesh output with the same watertightness, manifoldness, thickness, complexity, runtime, and Chamfer metrics; keep every source-mesh/source-bbox lane diagnostic-only.
 7. Promote only a deployable backend that passes every per-sample STL gate, then expand beyond the current calibration slice.
 
