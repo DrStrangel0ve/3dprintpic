@@ -41,6 +41,12 @@ REPAIR_CONVEX_HULL_RATE_MEAN = "repair_convex_hull_used_mean"
 REPAIR_CONVEX_HULL_SAMPLE = "repair_convex_hull_used"
 REPAIR_FILL_DRIFT_MEDIAN = "repair_volume_fill_ratio_relative_change_abs_median"
 REPAIR_FILL_DRIFT_SAMPLE = "repair_volume_fill_ratio_relative_change_abs"
+PROVIDER_METRICS_FILENAME = "provider_metrics.json"
+FAILED_PROVIDER_DIAGNOSTIC_PREFIXES = (
+    "repair_component_filter_",
+    "repair_simplification_",
+    "repair_output_self_intersection_",
+)
 COMPACT_METRICS = (
     "rank_score",
     "method",
@@ -77,6 +83,14 @@ COMPACT_METRICS = (
     "repair_simplification_reserved_hole_faces_median",
     "repair_simplification_target_faces_median",
     "repair_simplification_applied_mean",
+    "repair_simplification_topology_preserving_faces_median",
+    "repair_simplification_boundary_relaxation_allowed_mean",
+    "repair_simplification_topology_relaxation_attempted_mean",
+    "repair_simplification_topology_relaxation_used_mean",
+    "repair_simplification_boundary_preserving_faces_median",
+    "repair_simplification_boundary_relaxation_attempted_mean",
+    "repair_simplification_boundary_relaxed_faces_median",
+    "repair_simplification_boundary_relaxation_used_mean",
     "repair_simplification_audit_available_mean",
     "repair_simplification_audit_runtime_seconds_median",
     "repair_simplification_volume_relative_change_abs_median",
@@ -99,6 +113,8 @@ COMPACT_METRICS = (
     "repair_preclean_retriangulated_surface_hausdorff95_normalized_median",
     "repair_cleaning_skipped_mean",
     "repair_cleaned_printable_mean",
+    "repair_output_self_intersection_supported_mean",
+    "repair_output_self_intersection_count_median",
     "heldout_view_silhouette_iou_mean_median",
     "heldout_view_silhouette_iou_min_median",
     "raw_mesh_volume_fill_ratio_median",
@@ -255,6 +271,43 @@ def discover_result_runs(root: Path) -> list[Path]:
         if not any(is_within(summary_root, aggregate_root) for aggregate_root in aggregate_roots)
     )
     return sorted(roots, key=lambda path: path.as_posix())
+
+
+def load_failed_provider_diagnostics(run_dir: Path) -> list[dict]:
+    rows = []
+    for metrics_path in sorted(run_dir.rglob(PROVIDER_METRICS_FILENAME)):
+        try:
+            metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if str(metrics.get("status") or "").strip().lower() != "failed":
+            continue
+        try:
+            relative_parts = metrics_path.relative_to(run_dir).parts
+        except ValueError:
+            relative_parts = ()
+        row = {
+            "method": relative_parts[0] if len(relative_parts) >= 1 else "",
+            "sample_id": relative_parts[1] if len(relative_parts) >= 2 else "",
+            "path": str(metrics_path),
+            "provider": metrics.get("provider", ""),
+            "provider_cache_hit": metrics.get("provider_cache_hit", ""),
+            "provider_inference_runtime_seconds": metrics.get(
+                "provider_inference_runtime_seconds",
+                "",
+            ),
+            "repair_total_runtime_seconds": metrics.get(
+                "repair_total_runtime_seconds",
+                "",
+            ),
+            "error_type": metrics.get("error_type", ""),
+            "error": metrics.get("error", ""),
+        }
+        for key, value in metrics.items():
+            if key.startswith(FAILED_PROVIDER_DIAGNOSTIC_PREFIXES):
+                row[key] = value
+        rows.append(row)
+    return rows
 
 
 def method_stl_mode(row: dict) -> str:
@@ -768,6 +821,7 @@ def summarize_run(
         baseline_method=baseline_method,
     )
     gate_failures = gate_failure_rows(ranked_rows[:top], per_sample_rows)
+    failed_provider_diagnostics = load_failed_provider_diagnostics(run_dir)
     return {
         "label": label,
         "run_dir": str(run_dir),
@@ -784,6 +838,7 @@ def summarize_run(
         "best_by_stl_mode": best_by_mode(ranked_rows, per_sample_rows),
         "architecture_replacement_decision": architecture_replacement_decision(ranked_rows, per_sample_rows),
         "ranked_methods": [compact_row(row, per_sample_rows) for row in ranked_rows[:top]],
+        "failed_provider_diagnostics": failed_provider_diagnostics,
         "gate_failures": gate_failures,
         "sample_failure_hotspots": sample_failure_hotspot_rows(gate_failures),
     }
@@ -885,6 +940,29 @@ def sample_failure_hotspot_table_rows(rows: list[dict]) -> list[list[str]]:
                 ", ".join(row.get("methods", [])),
                 ", ".join(row.get("stl_modes", [])),
                 ", ".join(row.get("gates", [])),
+            ]
+        )
+    return table
+
+
+def failed_provider_diagnostic_table_rows(rows: list[dict]) -> list[list[str]]:
+    table = []
+    for row in rows:
+        table.append(
+            [
+                row.get("method", ""),
+                row.get("sample_id", ""),
+                row.get("error_type", ""),
+                format_number(row.get("repair_simplification_target_faces")),
+                format_number(
+                    row.get("repair_simplification_topology_preserving_faces")
+                ),
+                format_number(
+                    row.get("repair_simplification_boundary_preserving_faces")
+                ),
+                format_number(row.get("repair_simplification_boundary_relaxed_faces")),
+                format_number(row.get("repair_output_self_intersection_count")),
+                str(row.get("error", "")),
             ]
         )
     return table
@@ -1012,6 +1090,25 @@ def render_markdown(report: dict) -> str:
                         "Gate Failures",
                     ],
                     mode_table_rows(run.get("ranked_methods", [])),
+                ),
+                "",
+                "### Failed Provider Diagnostics",
+                "",
+                markdown_table(
+                    [
+                        "Method",
+                        "Sample",
+                        "Error Type",
+                        "Target Faces",
+                        "Strict Faces",
+                        "Topology-Relaxed Faces",
+                        "Boundary-Relaxed Faces",
+                        "Self-Intersections",
+                        "Error",
+                    ],
+                    failed_provider_diagnostic_table_rows(
+                        run.get("failed_provider_diagnostics", [])
+                    ),
                 ),
                 "",
                 "### Promotion Gate Failures",

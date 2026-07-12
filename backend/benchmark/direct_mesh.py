@@ -296,6 +296,34 @@ def _printability_audit(mesh, prefix: str) -> dict:
     }
 
 
+def _self_intersection_audit(mesh, prefix: str) -> dict:
+    supported = False
+    count = math.nan
+    error = ""
+    try:
+        import pymeshlab
+
+        mesh_set = pymeshlab.MeshSet()
+        mesh_set.add_mesh(
+            pymeshlab.Mesh(
+                vertex_matrix=np.asarray(mesh.vertices, dtype=np.float64),
+                face_matrix=np.asarray(mesh.faces, dtype=np.int32),
+            )
+        )
+        mesh_set.apply_filter("compute_selection_by_self_intersections_per_face")
+        count = int(mesh_set.current_mesh().selected_face_number())
+        supported = True
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+    result = {
+        f"{prefix}_self_intersection_supported": supported,
+        f"{prefix}_self_intersection_count": count,
+    }
+    if error:
+        result[f"{prefix}_self_intersection_error"] = error
+    return result
+
+
 def _update_faces(mesh, mask) -> None:
     if mask is None:
         return
@@ -579,6 +607,8 @@ def _simplify_preserving_topology(
     *,
     placement: str = "optimal",
     strict: bool = False,
+    allow_boundary_relaxation: bool = False,
+    metrics: dict | None = None,
 ):
     target_faces = int(target_faces or 0)
     placement = str(placement or "optimal").strip().lower()
@@ -599,27 +629,34 @@ def _simplify_preserving_topology(
                 "Topology-preserving mesh repair requires pymeshlab"
             ) from exc
         return mesh
-    try:
+    def simplify_pass(source, *, preserve_topology: bool, preserve_boundary: bool):
         mesh_set = pymeshlab.MeshSet()
         mesh_set.add_mesh(
             pymeshlab.Mesh(
-                vertex_matrix=np.asarray(mesh.vertices, dtype=np.float64),
-                face_matrix=np.asarray(mesh.faces, dtype=np.int32),
+                vertex_matrix=np.asarray(source.vertices, dtype=np.float64),
+                face_matrix=np.asarray(source.faces, dtype=np.int32),
             )
         )
         mesh_set.apply_filter(
             "meshing_decimation_quadric_edge_collapse",
             targetfacenum=target_faces,
-            preservetopology=True,
-            preserveboundary=True,
+            preservetopology=preserve_topology,
+            preserveboundary=preserve_boundary,
             optimalplacement=placement == "optimal",
             autoclean=True,
         )
         simplified_mesh = mesh_set.current_mesh()
-        simplified = trimesh.Trimesh(
+        return trimesh.Trimesh(
             vertices=np.asarray(simplified_mesh.vertex_matrix(), dtype=np.float64),
             faces=np.asarray(simplified_mesh.face_matrix(), dtype=np.int64),
             process=True,
+        )
+
+    try:
+        simplified = simplify_pass(
+            mesh,
+            preserve_topology=True,
+            preserve_boundary=True,
         )
     except Exception as exc:
         if strict:
@@ -631,6 +668,71 @@ def _simplify_preserving_topology(
         if strict:
             raise RuntimeError("Topology-preserving mesh repair produced an empty mesh")
         return mesh
+    if metrics is not None:
+        metrics["repair_simplification_topology_preserving_faces"] = int(
+            len(simplified.faces)
+        )
+        metrics["repair_simplification_boundary_relaxation_allowed"] = bool(
+            allow_boundary_relaxation
+        )
+        metrics["repair_simplification_topology_relaxation_attempted"] = False
+        metrics["repair_simplification_topology_relaxation_used"] = False
+        metrics["repair_simplification_boundary_relaxation_attempted"] = False
+        metrics["repair_simplification_boundary_relaxation_used"] = False
+
+    if len(simplified.faces) > target_faces and allow_boundary_relaxation:
+        strict_faces = len(simplified.faces)
+        if metrics is not None:
+            metrics["repair_simplification_topology_relaxation_attempted"] = True
+        try:
+            boundary_preserving = simplify_pass(
+                simplified,
+                preserve_topology=False,
+                preserve_boundary=True,
+            )
+        except Exception as exc:
+            if metrics is not None:
+                metrics["repair_simplification_topology_relaxation_error"] = (
+                    f"{type(exc).__name__}: {exc}"
+                )
+            boundary_preserving = simplified
+        if len(boundary_preserving.vertices) and len(boundary_preserving.faces):
+            simplified = boundary_preserving
+        if metrics is not None:
+            metrics["repair_simplification_boundary_preserving_faces"] = int(
+                len(simplified.faces)
+            )
+            metrics["repair_simplification_topology_relaxation_used"] = bool(
+                len(simplified.faces) < strict_faces
+            )
+
+    if len(simplified.faces) > target_faces and allow_boundary_relaxation:
+        boundary_preserving_faces = len(simplified.faces)
+        if metrics is not None:
+            metrics["repair_simplification_boundary_relaxation_attempted"] = True
+        try:
+            boundary_relaxed = simplify_pass(
+                simplified,
+                preserve_topology=False,
+                preserve_boundary=False,
+            )
+        except Exception as exc:
+            if strict:
+                raise RuntimeError(
+                    "Boundary-relaxed mesh repair failed after bounded component filtering: "
+                    f"target={target_faces}, remaining={len(simplified.faces)}"
+                ) from exc
+            boundary_relaxed = simplified
+        if len(boundary_relaxed.vertices) and len(boundary_relaxed.faces):
+            simplified = boundary_relaxed
+        if metrics is not None:
+            metrics["repair_simplification_boundary_relaxed_faces"] = int(
+                len(simplified.faces)
+            )
+            metrics["repair_simplification_boundary_relaxation_used"] = bool(
+                len(simplified.faces) < boundary_preserving_faces
+            )
+
     if strict and len(simplified.faces) > target_faces:
         raise RuntimeError(
             "Topology-preserving mesh repair could not reach the requested face budget: "
@@ -962,6 +1064,8 @@ def repair_mesh_for_printable_stl(
                 simplification_target_faces,
                 placement=simplify_placement,
                 strict=True,
+                allow_boundary_relaxation=preconditioner == "component-close",
+                metrics=metrics,
             )
             if metrics is not None:
                 metrics["repair_simplification_applied"] = True
@@ -1099,6 +1203,18 @@ def repair_mesh_for_printable_stl(
             repaired = _convex_hull_mesh(repaired)
     if not len(repaired.vertices) or not len(repaired.faces):
         raise ValueError(f"Mesh repair produced no triangles: {mesh_path}")
+    if preconditioner == "component-close":
+        self_intersection_audit = _self_intersection_audit(repaired, "repair_output")
+        if metrics is not None:
+            metrics.update(self_intersection_audit)
+        if (
+            self_intersection_audit["repair_output_self_intersection_supported"]
+            and self_intersection_audit["repair_output_self_intersection_count"] > 0
+        ):
+            raise RuntimeError(
+                "Component-close mesh repair produced self-intersecting faces: "
+                f"count={self_intersection_audit['repair_output_self_intersection_count']}"
+            )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     repaired.export(output_path)
     if metrics is not None:

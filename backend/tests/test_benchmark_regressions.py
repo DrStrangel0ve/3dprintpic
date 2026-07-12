@@ -1399,6 +1399,101 @@ class StlExportRegressionTests(unittest.TestCase):
                 strict=True,
             )
 
+    def test_component_close_relaxes_open_boundaries_only_after_strict_stall(self):
+        import trimesh
+
+        side = 41
+        vertices = np.asarray(
+            [
+                (x / (side - 1), y / (side - 1), 0.0)
+                for y in range(side)
+                for x in range(side)
+            ],
+            dtype=np.float64,
+        )
+        faces = []
+        for y in range(side - 1):
+            for x in range(side - 1):
+                a = y * side + x
+                b = a + 1
+                c = a + side
+                d = c + 1
+                faces.extend(((a, b, d), (a, d, c)))
+        open_grid = trimesh.Trimesh(
+            vertices=vertices,
+            faces=np.asarray(faces, dtype=np.int64),
+            process=False,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "could not reach"):
+            direct_mesh._simplify_preserving_topology(
+                open_grid,
+                100,
+                placement="optimal",
+                strict=True,
+            )
+
+        repair_metrics = {}
+        simplified = direct_mesh._simplify_preserving_topology(
+            open_grid,
+            100,
+            placement="optimal",
+            strict=True,
+            allow_boundary_relaxation=True,
+            metrics=repair_metrics,
+        )
+
+        self.assertLessEqual(len(simplified.faces), 100)
+        self.assertGreater(
+            repair_metrics["repair_simplification_topology_preserving_faces"],
+            100,
+        )
+        self.assertGreater(
+            repair_metrics["repair_simplification_boundary_preserving_faces"],
+            100,
+        )
+        self.assertLessEqual(
+            repair_metrics["repair_simplification_boundary_relaxed_faces"],
+            100,
+        )
+        self.assertTrue(
+            repair_metrics["repair_simplification_boundary_relaxation_used"]
+        )
+        self.assertTrue(
+            repair_metrics["repair_simplification_topology_relaxation_attempted"]
+        )
+        self.assertFalse(
+            repair_metrics["repair_simplification_topology_relaxation_used"]
+        )
+        self.assertTrue(
+            repair_metrics["repair_simplification_boundary_relaxation_attempted"]
+        )
+
+    def test_self_intersection_audit_uses_pymeshlab_when_available(self):
+        import trimesh
+
+        vertices = np.asarray(
+            [
+                (-1.0, -1.0, 0.0),
+                (1.0, -1.0, 0.0),
+                (0.0, 1.0, 0.0),
+                (0.0, -0.5, -1.0),
+                (0.0, -0.5, 1.0),
+                (0.0, 1.0, 0.5),
+            ],
+            dtype=np.float64,
+        )
+        intersecting = trimesh.Trimesh(
+            vertices=vertices,
+            faces=np.asarray(((0, 1, 2), (3, 4, 5)), dtype=np.int64),
+            process=False,
+        )
+
+        audit = direct_mesh._self_intersection_audit(intersecting, "probe")
+
+        self.assertTrue(audit["probe_self_intersection_supported"])
+        self.assertEqual(audit["probe_self_intersection_count"], 2)
+
     def test_voxel_close_repair_retriangulates_single_degenerate_face_before_cleanup(self):
         import trimesh
 
@@ -1875,6 +1970,7 @@ class StlExportRegressionTests(unittest.TestCase):
             simplified = direct_mesh.load_mesh(output_path)
 
         self.assertEqual(simplify.call_args.kwargs["placement"], "optimal")
+        self.assertTrue(simplify.call_args.kwargs["allow_boundary_relaxation"])
         self.assertTrue(repair_metrics["repair_simplification_applied"])
         self.assertLessEqual(len(simplified.faces), 100)
         self.assertLessEqual(direct_mesh.normalized_bbox_complexity_log1p(simplified), 9.95)
@@ -6894,6 +6990,55 @@ class StlResultIngestRegressionTests(unittest.TestCase):
             self.assertNotIn(f"{prefix}/{name}", names)
         self.assertEqual(len(ingest_report["runs"]), 1)
         self.assertEqual(ingest_report["runs"][0]["deployable_winner"]["method"], "hunyuan3d_shape_repaired")
+
+    def test_stl_result_ingest_preserves_failed_provider_repair_diagnostics(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = self.write_stl_result_run(root / "run")
+            metrics_path = (
+                run_dir
+                / "trellis_component_close"
+                / "sample_a"
+                / "external-image-to-mesh"
+                / "provider_metrics.json"
+            )
+            metrics_path.parent.mkdir(parents=True)
+            metrics_path.write_text(
+                json.dumps(
+                    {
+                        "status": "failed",
+                        "provider": "trellis2",
+                        "provider_cache_hit": True,
+                        "repair_simplification_target_faces": 100,
+                        "repair_simplification_topology_preserving_faces": 160,
+                        "repair_simplification_topology_relaxation_attempted": True,
+                        "repair_simplification_boundary_preserving_faces": 160,
+                        "repair_simplification_boundary_relaxation_attempted": True,
+                        "repair_simplification_boundary_relaxed_faces": 120,
+                        "repair_output_self_intersection_supported": True,
+                        "repair_output_self_intersection_count": 2,
+                        "error_type": "RuntimeError",
+                        "error": "repair did not pass the final guard",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = summarize_stl_inputs(
+                [str(run_dir)],
+                output_dir=root / "ingested",
+                top=5,
+            )
+            markdown = render_stl_ingest_markdown(report)
+
+        failed = report["runs"][0]["failed_provider_diagnostics"]
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(failed[0]["method"], "trellis_component_close")
+        self.assertEqual(failed[0]["sample_id"], "sample_a")
+        self.assertEqual(failed[0]["repair_simplification_target_faces"], 100)
+        self.assertEqual(failed[0]["repair_output_self_intersection_count"], 2)
+        self.assertIn("Failed Provider Diagnostics", markdown)
+        self.assertIn("repair did not pass the final guard", markdown)
 
     def test_stl_result_ingest_reports_deployable_winner_by_architecture(self):
         with tempfile.TemporaryDirectory() as temp_dir:
