@@ -434,9 +434,24 @@ This result closes the current post-hoc TRELLIS repair lane. It also exposes a
 measurement limitation: raw TRELLIS is open and inconsistently wound, while
 repair fill drift currently uses its signed volume as the denominator. The
 run remains `hold` under the existing gate; the gate was not weakened after
-the result. The next harness task is to validate a topology-aware,
-surface-derived volume proxy for open raw meshes and add explicit paired
-Chamfer/H95 promotion guards before another provider comparison.
+the result.
+
+That harness task is now implemented as metric schema v2. New runs retain the
+legacy volume fields, classify raw signed-volume reliability as `reliable`,
+`unreliable`, or `unknown`, and use a bounded component-centered unsigned-
+tetrahedron surface proxy when signed volume is unsafe. Canonical
+`repair_fill_ratio_*` fields drive the selector, while historical evidence
+falls back to the legacy values. Paired worst-sample Chamfer and H95 gates now
+default to `1.10x` across standalone, combined, G4, packaged Colab, and
+STL-first smoke paths.
+
+The [schema-v2 replay bundle](benchmark-evidence/stl_metric_schema_v2_replay/README.md)
+records fixed closed/open/reversed/thin/tiny/fragmented fixtures and replays
+three historical runs. Hunyuan and TRELLIS remain `hold`. The older promoted
+TripoSG evidence lacks repair-audit coverage and has a `1.15871x` worst
+Chamfer ratio versus mirror, so it remains a grandfathered incumbent pending
+an exact schema-v2 confirmation rather than being silently re-promoted or
+silently removed.
 
 The verified compact archive is `314,308` bytes with `73` entries and SHA256
 `271aac157ac2978dbef3fadb653bb06eee75158f32e0cadee141f781d4d523b6`.

@@ -594,6 +594,10 @@ def run_eval_slices(
                 "--select-candidate",
                 "--min-paired-n",
                 str(args.min_paired_n),
+                "--max-mesh-surface-chamfer-ratio-vs-current",
+                str(getattr(args, "max_mesh_surface_chamfer_ratio_vs_current", 1.1)),
+                "--max-mesh-surface-hausdorff95-ratio-vs-current",
+                str(getattr(args, "max_mesh_surface_hausdorff95_ratio_vs_current", 1.1)),
                 "--max-method-failures",
                 str(args.max_method_failures),
                 "--contact-sheet",
@@ -646,6 +650,10 @@ def combine_eval_slices(
             "--select-candidate",
             "--min-paired-n",
             str(args.min_paired_n),
+            "--max-mesh-surface-chamfer-ratio-vs-current",
+            str(getattr(args, "max_mesh_surface_chamfer_ratio_vs_current", 1.1)),
+            "--max-mesh-surface-hausdorff95-ratio-vs-current",
+            str(getattr(args, "max_mesh_surface_hausdorff95_ratio_vs_current", 1.1)),
         ],
         args.python,
     )
@@ -747,6 +755,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidate-method", default=None)
     parser.add_argument("--current-method", default="mirror")
     parser.add_argument("--min-paired-n", type=int, default=5)
+    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=1.1)
+    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=1.1)
     parser.add_argument(
         "--max-method-failures",
         type=int,

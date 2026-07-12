@@ -699,7 +699,13 @@ def evaluate_direct_mesh_sample(sample, method, output_dir, args):
     ):
         if bbox_diagnostics.get(field) not in (None, ""):
             row[field] = float(bbox_diagnostics[field])
-    row.update(stl_and_mesh_metrics(sample, stl_path, max_points=args.mesh_surface_max_points))
+    row.update(
+        stl_and_mesh_metrics(
+            sample,
+            stl_path,
+            max_points=args.mesh_surface_max_points,
+        )
+    )
     command_metrics = load_optional_json(output_dir / "direct_mesh_command_metrics.json")
     if command_metrics:
         row.update(command_metrics)
@@ -710,7 +716,8 @@ def evaluate_direct_mesh_sample(sample, method, output_dir, args):
         row["provider_status"] = provider_metrics.get("status", "")
         row["provider_metrics_path"] = str(provider_metrics_path)
         raw_mesh_path = provider_metrics.get("provider_raw_output_mesh")
-        if raw_mesh_path and Path(raw_mesh_path).is_file():
+        raw_mesh_path = Path(raw_mesh_path) if raw_mesh_path else None
+        if raw_mesh_path and raw_mesh_path.is_file():
             row.update(
                 mesh_diagnostics(
                     raw_mesh_path,
@@ -729,6 +736,53 @@ def evaluate_direct_mesh_sample(sample, method, output_dir, args):
                 )
                 row["repair_volume_fill_ratio_relative_change"] = relative_change
                 row["repair_volume_fill_ratio_relative_change_abs"] = abs(relative_change)
+            raw_volume_reliable = bool(row.get("raw_mesh_volume_fill_ratio_reliable", False))
+            stl_volume_reliable = bool(row.get("stl_volume_fill_ratio_reliable", False))
+            if raw_volume_reliable and stl_volume_reliable:
+                canonical_raw_fill = raw_fill
+                canonical_repaired_fill = repaired_fill
+                metric = "signed-volume"
+                surface_proxy_used = False
+            else:
+                if raw_mesh_path and raw_mesh_path.is_file():
+                    row.update(
+                        mesh_diagnostics(
+                            raw_mesh_path,
+                            prefix="raw_mesh",
+                            include_topology=False,
+                            include_surface_fill_proxy=True,
+                        )
+                    )
+                    row.update(
+                        stl_diagnostics(
+                            stl_path,
+                            include_surface_fill_proxy=True,
+                            force_surface_fill_proxy=True,
+                        )
+                    )
+                canonical_raw_fill = float(
+                    row.get("raw_mesh_surface_fill_ratio_comparison", math.nan)
+                )
+                canonical_repaired_fill = float(
+                    row.get("stl_surface_fill_ratio_comparison", math.nan)
+                )
+                metric = "surface-component-unsigned-tetrahedra"
+                surface_proxy_used = True
+            row["repair_fill_ratio_metric"] = metric
+            row["repair_fill_ratio_surface_proxy_used"] = surface_proxy_used
+            row["repair_fill_ratio_supported"] = bool(
+                math.isfinite(canonical_raw_fill)
+                and math.isfinite(canonical_repaired_fill)
+                and abs(canonical_raw_fill) > 1e-12
+            )
+            if row["repair_fill_ratio_supported"]:
+                canonical_change = canonical_repaired_fill - canonical_raw_fill
+                canonical_relative_change = canonical_change / abs(canonical_raw_fill)
+                row["repair_fill_ratio_change"] = canonical_change
+                row["repair_fill_ratio_relative_change"] = canonical_relative_change
+                row["repair_fill_ratio_relative_change_abs"] = abs(
+                    canonical_relative_change
+                )
         primary_view_index = None
         if method == "external-image-to-mesh":
             primary_view_index = sample.get("multiview_primary_index", sample.get("view_index", 0))

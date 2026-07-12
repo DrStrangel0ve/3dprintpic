@@ -25,7 +25,7 @@ from backend.benchmark import (
     run_completion_benchmark,
     run_image_to_mesh_provider,
 )
-from backend.benchmark.combine_optimize_runs import combine_runs
+from backend.benchmark.combine_optimize_runs import combine_runs, write_selection as write_combined_selection
 from backend.benchmark.compare_optimize_runs import add_score_deltas, compare_run, render_markdown
 from backend.benchmark.direct_mesh import (
     bbox_extent_comparison_metrics,
@@ -79,7 +79,7 @@ from backend.benchmark.make_artifact_contact_sheet import (
 )
 from backend.benchmark.metrics import mesh_surface_distance_metrics, surface_distance_metrics
 from backend.benchmark.report_run import baseline_delta_rows, paired_baseline_delta_rows, paired_objective_rows, render_report
-from backend.benchmark.rank_methods import parse_weights, rank_summary_rows
+from backend.benchmark.rank_methods import parse_weights, rank_summary_rows, with_derived_metrics
 from backend.benchmark.run_image_to_mesh_provider import main as run_image_to_mesh_provider_main
 from backend.benchmark.run_stl_first_smoke import (
     build_experiments as build_stl_first_experiments,
@@ -257,6 +257,180 @@ class StlExportRegressionTests(unittest.TestCase):
         self.assertAlmostEqual(diagnostics["raw_mesh_volume_fill_ratio"], 1.0)
         self.assertFalse(diagnostics["raw_mesh_self_intersection_supported"])
         self.assertTrue(math.isnan(diagnostics["raw_mesh_self_intersection_count"]))
+
+    def test_mesh_diagnostics_fill_reliability_and_surface_proxy_fixtures(self):
+        import warnings
+
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            closed = trimesh.creation.box(extents=(2.0, 3.0, 4.0))
+            reversed_mesh = closed.copy()
+            reversed_mesh.invert()
+            open_mesh = closed.copy()
+            open_mesh.update_faces(open_mesh.face_normals[:, 0] < 0.9)
+            open_mesh.remove_unreferenced_vertices()
+            thin = trimesh.creation.box(extents=(4.0, 0.1, 4.0))
+            tiny = closed.copy()
+            tiny.apply_scale(1e-5)
+            second = closed.copy()
+            second.apply_translation((5.0, 0.0, 0.0))
+            fragmented = trimesh.util.concatenate((closed.copy(), second))
+            reversed_second = closed.copy()
+            reversed_second.invert()
+            reversed_second.apply_translation((5.0, 0.0, 0.0))
+            fragmented_mixed_winding = trimesh.util.concatenate(
+                (closed.copy(), reversed_second)
+            )
+            touching_second = closed.copy()
+            touching_second.apply_translation((2.0, 3.0, 4.0))
+            point_touching = trimesh.util.concatenate((closed.copy(), touching_second))
+            overlapping_second = closed.copy()
+            overlapping_second.apply_translation((0.2, 0.0, 0.0))
+            overlapping = trimesh.util.concatenate((closed.copy(), overlapping_second))
+            meshes = {
+                "closed": closed,
+                "reversed": reversed_mesh,
+                "open": open_mesh,
+                "thin": thin,
+                "tiny": tiny,
+                "fragmented": fragmented,
+                "fragmented_mixed": fragmented_mixed_winding,
+                "point_touching": point_touching,
+                "overlapping": overlapping,
+            }
+            diagnostics = {}
+            for name, mesh in meshes.items():
+                path = root / f"{name}.ply"
+                mesh.export(path)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    diagnostics[name] = mesh_diagnostics(
+                        path,
+                        prefix=name,
+                        include_surface_fill_proxy=True,
+                    )
+            closed_path = root / "closed.ply"
+            with patch("backend.stl_diagnostics.MAX_SIGNED_VOLUME_RELIABILITY_FACES", 1):
+                diagnostics["unknown"] = mesh_diagnostics(
+                    closed_path,
+                    prefix="unknown",
+                    include_topology=False,
+                    include_surface_fill_proxy=True,
+                )
+            open_path = root / "open.ply"
+            with patch("backend.stl_diagnostics.MAX_SURFACE_FILL_PROXY_FACES", 1):
+                diagnostics["proxy_limited"] = mesh_diagnostics(
+                    open_path,
+                    prefix="proxy_limited",
+                    include_surface_fill_proxy=True,
+                )
+
+        self.assertTrue(diagnostics["closed"]["closed_volume_fill_ratio_reliable"])
+        self.assertIn(
+            ":positive",
+            diagnostics["closed"]["closed_volume_fill_ratio_reliability_reason"],
+        )
+        self.assertTrue(diagnostics["reversed"]["reversed_volume_fill_ratio_reliable"])
+        self.assertIn(
+            ":reversed",
+            diagnostics["reversed"]["reversed_volume_fill_ratio_reliability_reason"],
+        )
+        self.assertFalse(diagnostics["open"]["open_volume_fill_ratio_reliable"])
+        self.assertEqual(
+            diagnostics["open"]["open_volume_fill_ratio_reliability_reason"],
+            "not-watertight",
+        )
+        self.assertTrue(diagnostics["thin"]["thin_volume_fill_ratio_reliable"])
+        self.assertTrue(diagnostics["tiny"]["tiny_volume_fill_ratio_reliable"])
+        self.assertFalse(diagnostics["fragmented"]["fragmented_volume_fill_ratio_reliable"])
+        self.assertEqual(
+            diagnostics["fragmented"]["fragmented_volume_fill_ratio_reliability_reason"],
+            "component-count:2",
+        )
+        self.assertFalse(
+            diagnostics["fragmented_mixed"][
+                "fragmented_mixed_volume_fill_ratio_reliable"
+            ]
+        )
+        self.assertEqual(
+            diagnostics["point_touching"][
+                "point_touching_volume_fill_ratio_reliability_reason"
+            ],
+            "component-count:2",
+        )
+        self.assertEqual(
+            diagnostics["unknown"]["unknown_volume_fill_ratio_reliability_status"],
+            "unknown",
+        )
+        self.assertFalse(
+            diagnostics["unknown"]["unknown_volume_fill_ratio_topology_assessed"]
+        )
+        self.assertEqual(
+            diagnostics["unknown"]["unknown_volume_fill_ratio_reliability_reason"],
+            "topology-not-assessed-face-limit",
+        )
+        for name in (
+            "open",
+            "fragmented",
+            "fragmented_mixed",
+            "point_touching",
+            "overlapping",
+            "unknown",
+        ):
+            self.assertTrue(diagnostics[name][f"{name}_surface_fill_ratio_supported"])
+            self.assertGreater(diagnostics[name][f"{name}_surface_fill_ratio"], 0.0)
+            self.assertLessEqual(diagnostics[name][f"{name}_surface_fill_ratio"], 1.0)
+        for name in ("closed", "reversed", "thin", "tiny"):
+            self.assertNotIn(f"{name}_surface_fill_ratio", diagnostics[name])
+        self.assertAlmostEqual(
+            diagnostics["open"]["open_surface_fill_ratio"],
+            5.0 / 6.0,
+            places=6,
+        )
+        self.assertAlmostEqual(
+            diagnostics["fragmented"]["fragmented_surface_fill_ratio"],
+            diagnostics["fragmented_mixed"]["fragmented_mixed_surface_fill_ratio"],
+            places=6,
+        )
+        self.assertEqual(diagnostics["overlapping"]["overlapping_surface_fill_ratio"], 1.0)
+        self.assertGreater(
+            diagnostics["overlapping"]["overlapping_surface_fill_ratio_comparison"],
+            1.0,
+        )
+        self.assertTrue(
+            diagnostics["overlapping"]["overlapping_surface_fill_proxy_clipped"]
+        )
+        self.assertFalse(
+            diagnostics["proxy_limited"][
+                "proxy_limited_surface_fill_ratio_supported"
+            ]
+        )
+        self.assertIn(
+            "bounded face limit",
+            diagnostics["proxy_limited"]["proxy_limited_surface_fill_ratio_error"],
+        )
+
+    def test_derived_fill_metric_preserves_legacy_replay(self):
+        row = with_derived_metrics(
+            {
+                "repair_volume_fill_ratio_relative_change_abs": "0.25",
+                "repair_volume_fill_ratio_relative_change_abs_median": "0.5",
+            }
+        )
+
+        self.assertEqual(row["repair_fill_ratio_relative_change_abs"], 0.25)
+        self.assertEqual(row["repair_fill_ratio_relative_change_abs_median"], 0.5)
+        self.assertEqual(row["repair_fill_ratio_metric"], "legacy-signed-volume-fallback")
+
+        unsupported_v2 = with_derived_metrics(
+            {
+                "repair_fill_ratio_supported": False,
+                "repair_volume_fill_ratio_relative_change_abs": "0.1",
+            }
+        )
+        self.assertNotIn("repair_fill_ratio_relative_change_abs", unsupported_v2)
 
     def test_stl_diagnostics_flags_flat_bbox_as_non_printable(self):
         import warnings
@@ -3118,7 +3292,6 @@ class StlExportRegressionTests(unittest.TestCase):
                     root,
                     args,
                 )
-
         self.assertEqual(row["provider_inference_runtime_seconds"], 12.5)
         self.assertEqual(row["direct_mesh_command_runtime_seconds"], 14.5)
         self.assertTrue(row["raw_mesh_exists"])
@@ -3130,6 +3303,112 @@ class StlExportRegressionTests(unittest.TestCase):
         )
         self.assertFalse(row["provider_peak_cuda_vram_supported"])
         self.assertIsNone(row["provider_peak_cuda_vram_gib"])
+
+    def test_direct_mesh_repair_uses_surface_proxy_for_open_raw_mesh(self):
+        import trimesh
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_image = root / "input.png"
+            raw_mesh = root / "raw-open.ply"
+            output_mesh = root / "normalized.glb"
+            output_stl = root / "normalized.stl"
+            Image.new("RGB", (8, 8), (120, 130, 140)).save(input_image)
+            closed = trimesh.creation.box(extents=(2.0, 3.0, 4.0))
+            open_mesh = closed.copy()
+            open_mesh.update_faces(open_mesh.face_normals[:, 0] < 0.9)
+            open_mesh.remove_unreferenced_vertices()
+            open_mesh.export(raw_mesh)
+            closed.export(output_mesh)
+            closed.export(output_stl)
+            (root / "provider_metrics.json").write_text(
+                json.dumps(
+                    {
+                        "provider": "fixture",
+                        "provider_raw_output_mesh": str(raw_mesh),
+                        "provider_final_output_mesh": str(output_mesh),
+                        "provider_mesh_repair": "printable",
+                        "status": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            sample = {
+                "id": "open-box",
+                "full_image": str(input_image),
+                "masked_image": str(input_image),
+                "mask": str(input_image),
+            }
+            args = SimpleNamespace(
+                direct_mesh_command="provider-wrapper",
+                direct_mesh_input="biharmonic",
+                direct_mesh_output_ext="glb",
+                direct_mesh_reference_method="mirror",
+                direct_mesh_reference_output_dir=None,
+                source_mesh_repair="none",
+                stl_target_dimension=96,
+                mesh_surface_max_points=64,
+                emit_stl=True,
+            )
+            with patch.object(
+                run_completion_benchmark,
+                "run_direct_mesh",
+                return_value=(input_image, output_mesh, output_stl, None),
+            ):
+                row = evaluate_direct_mesh_sample(
+                    sample,
+                    "external-image-to-mesh",
+                    root,
+                    args,
+                )
+
+            overlap_raw = root / "raw-overlap.ply"
+            overlap_second = closed.copy()
+            overlap_second.apply_translation((0.2, 0.0, 0.0))
+            trimesh.util.concatenate((closed.copy(), overlap_second)).export(overlap_raw)
+            (root / "provider_metrics.json").write_text(
+                json.dumps(
+                    {
+                        "provider": "fixture",
+                        "provider_raw_output_mesh": str(overlap_raw),
+                        "provider_final_output_mesh": str(output_mesh),
+                        "provider_mesh_repair": "printable",
+                        "status": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(
+                run_completion_benchmark,
+                "run_direct_mesh",
+                return_value=(input_image, output_mesh, output_stl, None),
+            ):
+                overlap_row = evaluate_direct_mesh_sample(
+                    sample,
+                    "external-image-to-mesh",
+                    root,
+                    args,
+                )
+
+        self.assertFalse(row["raw_mesh_volume_fill_ratio_reliable"])
+        self.assertTrue(row["raw_mesh_surface_fill_ratio_supported"])
+        self.assertTrue(row["stl_surface_fill_ratio_supported"])
+        self.assertEqual(
+            row["repair_fill_ratio_metric"],
+            "surface-component-unsigned-tetrahedra",
+        )
+        self.assertTrue(row["repair_fill_ratio_surface_proxy_used"])
+        self.assertTrue(row["repair_fill_ratio_supported"])
+        self.assertGreater(row["repair_fill_ratio_relative_change_abs"], 0.0)
+        self.assertAlmostEqual(row["repair_fill_ratio_relative_change_abs"], 0.2, places=6)
+        self.assertLessEqual(row["repair_fill_ratio_relative_change_abs"], 0.5)
+        self.assertNotEqual(
+            row["repair_fill_ratio_relative_change_abs"],
+            row["repair_volume_fill_ratio_relative_change_abs"],
+        )
+        self.assertEqual(overlap_row["raw_mesh_surface_fill_ratio"], 1.0)
+        self.assertGreater(overlap_row["raw_mesh_surface_fill_ratio_comparison"], 1.0)
+        self.assertGreater(overlap_row["repair_fill_ratio_relative_change_abs"], 0.4)
 
     def test_single_image_mesh_scores_views_held_out_from_primary_input(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -4447,6 +4726,18 @@ class ColabG4OrchestratorRegressionTests(unittest.TestCase):
         self.assertIn("--current-method", first_eval_command)
         self.assertEqual(first_eval_command[first_eval_command.index("--current-method") + 1], "mirror")
         self.assertIn("--require-image-to-mesh-providers", first_eval_command)
+        for command in (first_eval_command, combine_command):
+            self.assertEqual(
+                command[command.index("--max-mesh-surface-chamfer-ratio-vs-current") + 1],
+                "1.1",
+            )
+            self.assertEqual(
+                command[
+                    command.index("--max-mesh-surface-hausdorff95-ratio-vs-current")
+                    + 1
+                ],
+                "1.1",
+            )
         self.assertIn("--candidate-method", combine_command)
         self.assertEqual(
             combine_command[combine_command.index("--candidate-method") + 1],
@@ -4687,6 +4978,8 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertTrue(report["require_image_to_mesh_providers"])
         self.assertEqual(report["candidate_method"], "dreamshaper_weighted_lora")
         self.assertEqual(report["current_method"], "mirror")
+        self.assertEqual(report["max_mesh_surface_chamfer_ratio_vs_current"], 1.1)
+        self.assertEqual(report["max_mesh_surface_hausdorff95_ratio_vs_current"], 1.1)
         self.assertEqual(report["colab_require_gpu_name_regex"], "RTX PRO 6000|Blackwell")
         self.assertEqual(report["colab_min_gpu_memory_gb"], 90)
         self.assertIn("inputs/files/backend/output/completion-benchmark/modelnet/sample_full.png", names)
@@ -4717,6 +5010,8 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("manifest_rows", archive_run_script)
         self.assertIn("pytorch_lora_weights.safetensors", archive_run_script)
         self.assertIn("training_report.json", archive_run_script)
+        self.assertIn("--max-mesh-surface-chamfer-ratio-vs-current 1.1", archive_run_script)
+        self.assertIn("--max-mesh-surface-hausdorff95-ratio-vs-current 1.1", archive_run_script)
         self.assertIn("run_colab_eval.log", archive_run_script)
         self.assertIn("results_summary.json", archive_run_script)
         self.assertIn("g4_test_eval_results.tar.gz", archive_run_script)
@@ -6765,6 +7060,62 @@ class CombineOptimizeRunsRegressionTests(unittest.TestCase):
         self.assertEqual(mirror["attempted_n"], 2)
         self.assertAlmostEqual(mirror["object_surface_chamfer_l1_median"], 0.30)
 
+    def test_combined_selection_applies_surface_ratio_thresholds(self):
+        summary_rows = [
+            {"method": "masked", "success_rate": "1.0", "masked_mae_median": "0.6"},
+            {"method": "current", "success_rate": "1.0", "masked_mae_median": "0.3"},
+            {"method": "candidate", "success_rate": "1.0", "masked_mae_median": "0.1"},
+        ]
+        per_sample_rows = [
+            {"sample_id": "a", "method": "masked", "masked_mae": "0.6"},
+            {
+                "sample_id": "a",
+                "method": "current",
+                "masked_mae": "0.3",
+                "mesh_surface_chamfer_l1": "0.10",
+                "mesh_surface_hausdorff95": "0.20",
+            },
+            {
+                "sample_id": "a",
+                "method": "candidate",
+                "masked_mae": "0.1",
+                "mesh_surface_chamfer_l1": "0.12",
+                "mesh_surface_hausdorff95": "0.23",
+            },
+        ]
+        args = SimpleNamespace(
+            baseline_method="masked",
+            candidate_method="candidate",
+            current_method="current",
+            min_success_rate=1.0,
+            min_paired_n=1,
+            min_win_rate=0.0,
+            min_ci95_low=-1.0,
+            min_score_margin=0.0,
+            min_stl_watertight=1.0,
+            min_stl_positive_volume=1.0,
+            max_mesh_surface_chamfer_ratio_vs_current=1.1,
+            max_mesh_surface_hausdorff95_ratio_vs_current=1.1,
+            paired_bootstrap_samples=0,
+            paired_bootstrap_seed=1234,
+            score_profile="default",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+            output_json, _ = write_combined_selection(
+                args,
+                output_dir,
+                summary_rows,
+                per_sample_rows,
+                {"masked_mae_median": -4.0},
+            )
+            decision = json.loads(output_json.read_text(encoding="utf-8"))
+
+        failed = {check["name"] for check in decision["failed_checks"]}
+        self.assertEqual(decision["decision"], "hold")
+        self.assertIn("paired_mesh_surface_chamfer_ratio_vs_current", failed)
+        self.assertIn("paired_mesh_surface_hausdorff95_ratio_vs_current", failed)
+
 
 class StlResultIngestRegressionTests(unittest.TestCase):
     def test_result_discovery_ignores_method_summaries_nested_under_aggregate_run(self):
@@ -8550,6 +8901,84 @@ class SelectionRegressionTests(unittest.TestCase):
         self.assertIn("repair_convex_hull_fallback_rate", failed)
         self.assertIn("repair_volume_fill_ratio_relative_change_abs", failed)
         self.assertIn("per_sample_repair_volume_fill_ratio_relative_change_abs", failed)
+
+    def test_selection_does_not_fallback_when_v2_fill_proxy_is_unsupported(self):
+        summary_rows = [
+            {"method": "masked", "success_rate": "1.0", "masked_mae_median": "0.60"},
+            {
+                "method": "candidate_repaired",
+                "success_rate": "1.0",
+                "masked_mae_median": "0.10",
+                "repair_convex_hull_used_mean": "0.0",
+                "repair_fill_ratio_supported_mean": "0.0",
+                "repair_volume_fill_ratio_relative_change_abs_median": "0.1",
+            },
+        ]
+        per_sample_rows = [
+            {"sample_id": "a", "method": "masked", "masked_mae": "0.60"},
+            {
+                "sample_id": "a",
+                "method": "candidate_repaired",
+                "masked_mae": "0.10",
+                "repair_fill_ratio_supported": "False",
+                "repair_volume_fill_ratio_relative_change_abs": "0.1",
+            },
+        ]
+
+        decision = evaluate_selection(
+            summary_rows,
+            per_sample_rows,
+            baseline_method="masked",
+            candidate_method="candidate_repaired",
+            weights={"masked_mae_median": -4.0},
+            min_paired_n=1,
+            require_split_audit=False,
+            bootstrap_samples=0,
+        )
+
+        failed = {check["name"] for check in decision["failed_checks"]}
+        candidate = next(
+            row for row in decision["ranked_methods"] if row["method"] == "candidate_repaired"
+        )
+        self.assertEqual(decision["decision"], "hold")
+        self.assertNotIn("repair_fill_ratio_relative_change_abs_median", candidate)
+        self.assertIn("repair_volume_fill_ratio_relative_change_abs", failed)
+        self.assertIn("per_sample_repair_volume_fill_ratio_relative_change_abs", failed)
+
+    def test_enabled_surface_gates_fail_when_metrics_are_absent(self):
+        summary_rows = [
+            {"method": "masked", "success_rate": "1.0", "masked_mae_median": "0.60"},
+            {"method": "current", "success_rate": "1.0", "masked_mae_median": "0.30"},
+            {"method": "candidate", "success_rate": "1.0", "masked_mae_median": "0.10"},
+        ]
+        per_sample_rows = [
+            {"sample_id": "a", "method": "masked", "masked_mae": "0.60"},
+            {"sample_id": "a", "method": "current", "masked_mae": "0.30"},
+            {"sample_id": "a", "method": "candidate", "masked_mae": "0.10"},
+        ]
+
+        decision = evaluate_selection(
+            summary_rows,
+            per_sample_rows,
+            baseline_method="masked",
+            candidate_method="candidate",
+            current_method="current",
+            weights={"masked_mae_median": -4.0},
+            min_paired_n=1,
+            max_mesh_surface_chamfer_ratio_vs_current=1.1,
+            max_mesh_surface_hausdorff95_ratio_vs_current=1.1,
+            require_split_audit=False,
+            bootstrap_samples=0,
+        )
+
+        failed = {check["name"]: check for check in decision["failed_checks"]}
+        self.assertEqual(decision["decision"], "hold")
+        for name in (
+            "paired_mesh_surface_chamfer_ratio_vs_current",
+            "paired_mesh_surface_hausdorff95_ratio_vs_current",
+        ):
+            self.assertIn(name, failed)
+            self.assertIn("metric_absent", failed[name]["detail"])
 
     def test_selection_rejects_reference_alias_to_source_oracle(self):
         summary_rows = [

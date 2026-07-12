@@ -39,8 +39,8 @@ LEGACY_FACE_DENSITY_MEDIAN = "stl_faces_per_bbox_volume_log1p_median"
 LEGACY_FACE_DENSITY_SAMPLE = "stl_faces_per_bbox_volume_log1p"
 REPAIR_CONVEX_HULL_RATE_MEAN = "repair_convex_hull_used_mean"
 REPAIR_CONVEX_HULL_SAMPLE = "repair_convex_hull_used"
-REPAIR_FILL_DRIFT_MEDIAN = "repair_volume_fill_ratio_relative_change_abs_median"
-REPAIR_FILL_DRIFT_SAMPLE = "repair_volume_fill_ratio_relative_change_abs"
+REPAIR_FILL_DRIFT_MEDIAN = "repair_fill_ratio_relative_change_abs_median"
+REPAIR_FILL_DRIFT_SAMPLE = "repair_fill_ratio_relative_change_abs"
 PROVIDER_METRICS_FILENAME = "provider_metrics.json"
 FAILED_PROVIDER_DIAGNOSTIC_PREFIXES = (
     "repair_component_filter_",
@@ -118,8 +118,19 @@ COMPACT_METRICS = (
     "heldout_view_silhouette_iou_mean_median",
     "heldout_view_silhouette_iou_min_median",
     "raw_mesh_volume_fill_ratio_median",
+    "raw_mesh_volume_fill_ratio_reliable_mean",
+    "raw_mesh_volume_fill_ratio_topology_assessed_mean",
+    "raw_mesh_volume_fill_ratio_self_intersection_assessed_mean",
+    "raw_mesh_surface_fill_ratio_median",
+    "raw_mesh_surface_fill_ratio_supported_mean",
     "stl_volume_fill_ratio_median",
+    "stl_surface_fill_ratio_median",
     "repair_volume_fill_ratio_relative_change_median",
+    "repair_volume_fill_ratio_relative_change_abs_median",
+    "repair_fill_ratio_relative_change_median",
+    "repair_fill_ratio_relative_change_abs_median",
+    "repair_fill_ratio_surface_proxy_used_mean",
+    "repair_fill_ratio_supported_mean",
     REPAIR_FILL_DRIFT_MEDIAN,
     "repair_convex_hull_used_median",
     REPAIR_CONVEX_HULL_RATE_MEAN,

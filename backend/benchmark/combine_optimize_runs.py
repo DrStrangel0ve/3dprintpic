@@ -109,6 +109,12 @@ def write_selection(args, output_dir: Path, summary_rows: list[dict], per_sample
         min_score_margin=args.min_score_margin,
         min_stl_watertight=args.min_stl_watertight,
         min_stl_positive_volume=args.min_stl_positive_volume,
+        max_mesh_surface_chamfer_ratio_vs_current=(
+            args.max_mesh_surface_chamfer_ratio_vs_current
+        ),
+        max_mesh_surface_hausdorff95_ratio_vs_current=(
+            args.max_mesh_surface_hausdorff95_ratio_vs_current
+        ),
         split_audit={},
         require_split_audit=False,
         bootstrap_samples=max(args.paired_bootstrap_samples, 0),
@@ -132,6 +138,14 @@ def write_metadata(output_dir: Path, args, runs: list[tuple[str, Path]], used_me
         "score_mode": args.score_mode,
         "score_profile": args.score_profile,
         "baseline_method": args.baseline_method,
+        "selection_thresholds": {
+            "max_mesh_surface_chamfer_ratio_vs_current": (
+                args.max_mesh_surface_chamfer_ratio_vs_current
+            ),
+            "max_mesh_surface_hausdorff95_ratio_vs_current": (
+                args.max_mesh_surface_hausdorff95_ratio_vs_current
+            ),
+        },
         "weights": args.weight or [],
         "used_metrics": used_metrics,
     }
@@ -167,6 +181,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-score-margin", type=float, default=0.0)
     parser.add_argument("--min-stl-watertight", type=float, default=1.0)
     parser.add_argument("--min-stl-positive-volume", type=float, default=1.0)
+    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=1.1)
+    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=1.1)
     parser.add_argument("--paired-bootstrap-samples", type=int, default=1000)
     parser.add_argument("--paired-bootstrap-seed", type=int, default=1234)
     return parser.parse_args()

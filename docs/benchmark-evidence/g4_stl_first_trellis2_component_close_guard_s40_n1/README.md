@@ -88,10 +88,11 @@ the very large fill-drift values are useful warnings but not reliable shape
 measurements on their own.
 
 This run does not waive or retune the existing gate after seeing the result.
-The next harness change should introduce a topology-aware, surface-derived
-volume proxy for open raw meshes and add explicit paired Chamfer/H95 promotion
-guards. Until both are validated on fixed fixtures and historical evidence,
-the original fill gate remains authoritative.
+Metric schema v2 subsequently introduced a bounded component-centered
+unsigned-tetrahedron proxy for unreliable raw meshes and activated explicit
+paired Chamfer/H95 promotion guards. The original result and decision remain
+unchanged; the implementation and historical replay are documented in the
+[schema-v2 evidence bundle](../stl_metric_schema_v2_replay/README.md).
 
 ## Provenance
 

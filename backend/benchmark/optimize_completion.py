@@ -684,6 +684,12 @@ def write_resolved_config(args, experiments: list[dict], output_dir: Path) -> Pa
                 "max_stl_component_excess_log1p": args.max_stl_component_excess_log1p,
                 "max_stl_bbox_aspect_ratio": args.max_stl_bbox_aspect_ratio,
                 "max_stl_faces_per_bbox_volume_log1p": args.max_stl_faces_per_bbox_volume_log1p,
+                "max_mesh_surface_chamfer_ratio_vs_current": (
+                    getattr(args, "max_mesh_surface_chamfer_ratio_vs_current", 1.1)
+                ),
+                "max_mesh_surface_hausdorff95_ratio_vs_current": (
+                    getattr(args, "max_mesh_surface_hausdorff95_ratio_vs_current", 1.1)
+                ),
                 "max_train_eval_overlap": args.max_train_eval_overlap,
                 "allow_missing_split_audit": args.allow_missing_split_audit,
             },
@@ -1208,8 +1214,8 @@ def main() -> None:
     parser.add_argument("--max-repair-volume-fill-ratio-relative-change-abs-median", type=float, default=0.5)
     parser.add_argument("--max-repair-volume-fill-ratio-relative-change-abs", type=float, default=4.0)
     parser.add_argument("--min-repair-volume-fill-ratio-within-limit-rate", type=float, default=0.75)
-    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=None)
-    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=None)
+    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=1.1)
+    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=1.1)
     parser.add_argument("--max-heldout-view-silhouette-iou-degradation-ratio", type=float, default=1.1)
     parser.add_argument("--max-train-eval-overlap", type=int, default=0)
     parser.add_argument("--allow-missing-split-audit", action="store_true", help="Do not fail candidate selection when split_audit.json is absent.")

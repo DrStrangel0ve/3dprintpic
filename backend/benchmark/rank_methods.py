@@ -108,6 +108,20 @@ def _has_value(row: dict, field: str) -> bool:
     return field in row and str(row.get(field, "")).strip() != ""
 
 
+def uses_repair_fill_schema_v2(row: dict) -> bool:
+    if row.get("repair_fill_ratio_metric") == "legacy-signed-volume-fallback":
+        return False
+    return any(
+        str(key).startswith(
+            (
+                "repair_fill_ratio_",
+                "raw_mesh_volume_fill_ratio_reliability_",
+            )
+        )
+        for key in row
+    )
+
+
 def _derive_scale_free_face_density(row: dict, suffix: str) -> None:
     target_field = f"stl_faces_per_normalized_bbox_volume_log1p{suffix}"
     if _has_value(row, target_field):
@@ -144,11 +158,37 @@ def _derive_absolute_repair_fill_change(row: dict, suffix: str) -> None:
         row[target_field] = abs(value)
 
 
+def _derive_absolute_canonical_repair_fill_change(row: dict, suffix: str) -> None:
+    target_field = f"repair_fill_ratio_relative_change_abs{suffix}"
+    if _has_value(row, target_field):
+        return
+    source_field = f"repair_fill_ratio_relative_change{suffix}"
+    value = parse_float(row.get(source_field))
+    if math.isfinite(value):
+        row[target_field] = abs(value)
+
+
+def _derive_canonical_repair_fill_change(row: dict, suffix: str) -> None:
+    target_field = f"repair_fill_ratio_relative_change_abs{suffix}"
+    if _has_value(row, target_field):
+        return
+    if uses_repair_fill_schema_v2(row):
+        return
+    legacy_field = f"repair_volume_fill_ratio_relative_change_abs{suffix}"
+    value = parse_float(row.get(legacy_field))
+    if math.isfinite(value):
+        row[target_field] = value
+        row.setdefault("repair_fill_ratio_metric", "legacy-signed-volume-fallback")
+
+
 def with_derived_metrics(row: dict) -> dict:
     derived = dict(row)
     for suffix in ("", "_median", "_mean"):
         _derive_scale_free_face_density(derived, suffix)
     _derive_absolute_repair_fill_change(derived, "")
+    for suffix in ("", "_median", "_mean"):
+        _derive_absolute_canonical_repair_fill_change(derived, suffix)
+        _derive_canonical_repair_fill_change(derived, suffix)
     return derived
 
 

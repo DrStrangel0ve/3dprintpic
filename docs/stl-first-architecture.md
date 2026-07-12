@@ -93,6 +93,21 @@ Deployable multiview baseline on July 10, 2026: the benchmark provider wrapper n
 
 ## Evaluation Metrics
 
+Metric schema v2 separates historical signed-volume telemetry from the
+canonical repair-fill gate. Closed, consistently wound, single-component raw
+meshes use signed-volume magnitude. Open, fragmented, or topology-unknown raw
+meshes use a bounded component-centered unsigned-tetrahedron surface proxy;
+the matching repaired proxy is computed only for that row. Reliability
+status, reason, topology coverage, self-intersection coverage, proxy support,
+and proxy-use rate are retained in evidence. Legacy `repair_volume_*` fields
+remain unchanged and historical archives derive canonical values from them.
+
+All standard selection paths now apply explicit worst-sample Chamfer and H95
+ratios of `1.10x` against the current method. The migration replay is under
+`docs/benchmark-evidence/stl_metric_schema_v2_replay`; it keeps TripoSG as a
+grandfathered incumbent but requires a schema-v2 confirmation before that old
+archive can support a new promotion.
+
 The benchmark should rank candidates with STL-facing metrics:
 
 - **Watertightness:** whether the exported STL encloses a valid solid.

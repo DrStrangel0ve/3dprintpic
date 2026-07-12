@@ -9,7 +9,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.benchmark.direct_mesh import direct_mesh_bbox_uses_hidden_source
-from backend.benchmark.rank_methods import SCORE_PROFILES, parse_float, parse_weights, rank_summary_rows, with_derived_metrics
+from backend.benchmark.rank_methods import (
+    SCORE_PROFILES,
+    parse_float,
+    parse_weights,
+    rank_summary_rows,
+    uses_repair_fill_schema_v2,
+    with_derived_metrics,
+)
 from backend.benchmark.report_run import format_number, markdown_table, paired_objective_rows
 
 
@@ -18,8 +25,10 @@ SCALE_FREE_COMPLEXITY_SAMPLE = "stl_faces_per_normalized_bbox_volume_log1p"
 LEGACY_FACE_DENSITY_MEDIAN = "stl_faces_per_bbox_volume_log1p_median"
 LEGACY_FACE_DENSITY_SAMPLE = "stl_faces_per_bbox_volume_log1p"
 REPAIR_CONVEX_HULL_RATE_MEAN = "repair_convex_hull_used_mean"
-REPAIR_FILL_DRIFT_MEDIAN = "repair_volume_fill_ratio_relative_change_abs_median"
-REPAIR_FILL_DRIFT_SAMPLE = "repair_volume_fill_ratio_relative_change_abs"
+REPAIR_FILL_DRIFT_MEDIAN = "repair_fill_ratio_relative_change_abs_median"
+REPAIR_FILL_DRIFT_SAMPLE = "repair_fill_ratio_relative_change_abs"
+LEGACY_REPAIR_FILL_DRIFT_MEDIAN = "repair_volume_fill_ratio_relative_change_abs_median"
+LEGACY_REPAIR_FILL_DRIFT_SAMPLE = "repair_volume_fill_ratio_relative_change_abs"
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -121,18 +130,24 @@ def fallback_metric_field(field: str) -> str | None:
     return {
         SCALE_FREE_COMPLEXITY_MEDIAN: LEGACY_FACE_DENSITY_MEDIAN,
         SCALE_FREE_COMPLEXITY_SAMPLE: LEGACY_FACE_DENSITY_SAMPLE,
+        REPAIR_FILL_DRIFT_MEDIAN: LEGACY_REPAIR_FILL_DRIFT_MEDIAN,
+        REPAIR_FILL_DRIFT_SAMPLE: LEGACY_REPAIR_FILL_DRIFT_SAMPLE,
     }.get(field)
 
 
 def _has_cell(row: dict, field: str) -> bool:
     if field in row and str(row.get(field, "")).strip() != "":
         return True
+    if field in {REPAIR_FILL_DRIFT_MEDIAN, REPAIR_FILL_DRIFT_SAMPLE} and uses_repair_fill_schema_v2(row):
+        return False
     fallback = fallback_metric_field(field)
     return bool(fallback and fallback in row and str(row.get(fallback, "")).strip() != "")
 
 
 def gate_cell(row: dict, field: str):
     if field in row and str(row.get(field, "")).strip() != "":
+        return row.get(field)
+    if field in {REPAIR_FILL_DRIFT_MEDIAN, REPAIR_FILL_DRIFT_SAMPLE} and uses_repair_fill_schema_v2(row):
         return row.get(field)
     fallback = fallback_metric_field(field)
     if fallback:
@@ -297,6 +312,7 @@ def paired_metric_ratio_check(
     maximum_ratio: float,
     minimum_pairs: int,
     higher_is_better: bool = False,
+    require_coverage: bool = False,
 ):
     method_rows = [
         row
@@ -304,6 +320,14 @@ def paired_metric_ratio_check(
         if row.get("method") in {candidate_method, current_method}
     ]
     if not any(_has_cell(row, field) for row in method_rows):
+        if require_coverage:
+            return pass_check(
+                f"paired_{label}_ratio_vs_current",
+                False,
+                math.nan,
+                f"<= {maximum_ratio}",
+                detail=f"paired_n=0; required_n={minimum_pairs}; metric_absent",
+            )
         return None
 
     by_sample_method = {
@@ -604,6 +628,7 @@ def evaluate_selection(
                 "heldout_view_silhouette_iou_mean",
                 max_heldout_view_silhouette_iou_degradation_ratio,
                 True,
+                False,
             )
         ]
         if max_mesh_surface_chamfer_ratio_vs_current is not None:
@@ -613,6 +638,7 @@ def evaluate_selection(
                     "mesh_surface_chamfer",
                     max_mesh_surface_chamfer_ratio_vs_current,
                     False,
+                    True,
                 )
             )
         if max_mesh_surface_hausdorff95_ratio_vs_current is not None:
@@ -622,9 +648,16 @@ def evaluate_selection(
                     "mesh_surface_hausdorff95",
                     max_mesh_surface_hausdorff95_ratio_vs_current,
                     False,
+                    True,
                 )
             )
-        for field, label, maximum_ratio, higher_is_better in paired_metric_gates:
+        for (
+            field,
+            label,
+            maximum_ratio,
+            higher_is_better,
+            require_coverage,
+        ) in paired_metric_gates:
             check = paired_metric_ratio_check(
                 per_sample_rows,
                 candidate_method,
@@ -634,6 +667,7 @@ def evaluate_selection(
                 maximum_ratio=maximum_ratio,
                 minimum_pairs=min_paired_n,
                 higher_is_better=higher_is_better,
+                require_coverage=require_coverage,
             )
             if check:
                 checks.append(check)
@@ -774,6 +808,7 @@ def evaluate_selection(
 
     failed = [check for check in checks if not check["passed"]]
     return {
+        "metric_schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "decision": decision,
         "candidate_method": candidate_method,
@@ -783,6 +818,8 @@ def evaluate_selection(
         "candidate_rank_score": candidate_score,
         "current_rank_score": current_score if math.isfinite(current_score) else None,
         "used_metrics": used_metrics,
+        "repair_fill_ratio_metric_field": REPAIR_FILL_DRIFT_SAMPLE,
+        "repair_fill_ratio_legacy_fallback_field": LEGACY_REPAIR_FILL_DRIFT_SAMPLE,
         "checks": checks,
         "failed_checks": failed,
         "paired_objective": objective or {},
@@ -948,8 +985,8 @@ def parse_args():
     parser.add_argument("--max-repair-volume-fill-ratio-relative-change-abs-median", type=float, default=0.5)
     parser.add_argument("--max-repair-volume-fill-ratio-relative-change-abs", type=float, default=4.0)
     parser.add_argument("--min-repair-volume-fill-ratio-within-limit-rate", type=float, default=0.75)
-    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=None)
-    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=None)
+    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=1.1)
+    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=1.1)
     parser.add_argument("--max-heldout-view-silhouette-iou-degradation-ratio", type=float, default=1.1)
     parser.add_argument("--max-train-eval-overlap", type=int, default=0)
     parser.add_argument("--allow-missing-split-audit", action="store_true", help="Do not fail the promotion gate when split_audit.json is absent.")

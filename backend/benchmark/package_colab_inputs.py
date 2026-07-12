@@ -1170,6 +1170,8 @@ def build_colab_run_script(
     allow_missing_split_audit: bool,
     contact_sheet_methods: str | None,
     contact_sheet_max_samples: int | None,
+    max_mesh_surface_chamfer_ratio_vs_current: float = 1.1,
+    max_mesh_surface_hausdorff95_ratio_vs_current: float = 1.1,
     colab_require_gpu_name_regex: str | None = None,
     colab_min_gpu_memory_gb: float | None = None,
     include_triposr_setup: bool = False,
@@ -1206,6 +1208,10 @@ def build_colab_run_script(
         str(cache_max_workers),
         "--min-paired-n",
         str(min_paired_n),
+        "--max-mesh-surface-chamfer-ratio-vs-current",
+        str(max_mesh_surface_chamfer_ratio_vs_current),
+        "--max-mesh-surface-hausdorff95-ratio-vs-current",
+        str(max_mesh_surface_hausdorff95_ratio_vs_current),
     ]
     if max_method_failures:
         command.extend(["--max-method-failures", str(max_method_failures)])
@@ -1490,9 +1496,18 @@ def build_colab_run_script(
         "        'repair_cleaning_skipped_mean',\n"
         "        'repair_cleaned_printable_mean',\n"
         "        'heldout_view_silhouette_iou_mean_median', 'heldout_view_silhouette_iou_min_median',\n"
-        "        'raw_mesh_volume_fill_ratio_median', 'stl_volume_fill_ratio_median',\n"
+        "        'raw_mesh_volume_fill_ratio_median', 'raw_mesh_volume_fill_ratio_reliable_mean',\n"
+        "        'raw_mesh_volume_fill_ratio_topology_assessed_mean',\n"
+        "        'raw_mesh_volume_fill_ratio_self_intersection_assessed_mean',\n"
+        "        'raw_mesh_surface_fill_ratio_median', 'stl_volume_fill_ratio_median',\n"
+        "        'raw_mesh_surface_fill_ratio_supported_mean',\n"
+        "        'stl_surface_fill_ratio_median',\n"
         "        'repair_volume_fill_ratio_relative_change_median',\n"
         "        'repair_volume_fill_ratio_relative_change_abs_median',\n"
+        "        'repair_fill_ratio_relative_change_median',\n"
+        "        'repair_fill_ratio_relative_change_abs_median',\n"
+        "        'repair_fill_ratio_surface_proxy_used_mean',\n"
+        "        'repair_fill_ratio_supported_mean',\n"
         "        'repair_convex_hull_used_mean',\n"
         "        'silhouette_iou_masked_median', 'stl_exists_median', 'stl_is_watertight_median',\n"
         "        'stl_is_volume_median', 'stl_is_manifold_median', 'stl_positive_volume_median',\n"
@@ -1969,6 +1984,8 @@ def package_inputs(
     cache_max_workers: int = 8,
     max_method_failures: int = 2,
     min_paired_n: int = 5,
+    max_mesh_surface_chamfer_ratio_vs_current: float = 1.1,
+    max_mesh_surface_hausdorff95_ratio_vs_current: float = 1.1,
     allow_missing_split_audit: bool = False,
     contact_sheet_methods: str | None = None,
     contact_sheet_max_samples: int | None = None,
@@ -2056,6 +2073,12 @@ def package_inputs(
                 cache_max_workers=cache_max_workers,
                 max_method_failures=max_method_failures,
                 min_paired_n=min_paired_n,
+                max_mesh_surface_chamfer_ratio_vs_current=(
+                    max_mesh_surface_chamfer_ratio_vs_current
+                ),
+                max_mesh_surface_hausdorff95_ratio_vs_current=(
+                    max_mesh_surface_hausdorff95_ratio_vs_current
+                ),
                 allow_missing_split_audit=allow_missing_split_audit,
                 contact_sheet_methods=contact_sheet_methods,
                 contact_sheet_max_samples=contact_sheet_max_samples,
@@ -2106,6 +2129,12 @@ def package_inputs(
         "stl_target_dimension": stl_target_dimension,
         "candidate_method": candidate_method or "",
         "current_method": current_method or "",
+        "max_mesh_surface_chamfer_ratio_vs_current": (
+            max_mesh_surface_chamfer_ratio_vs_current
+        ),
+        "max_mesh_surface_hausdorff95_ratio_vs_current": (
+            max_mesh_surface_hausdorff95_ratio_vs_current
+        ),
         "allow_missing_split_audit": allow_missing_split_audit,
         "contact_sheet_methods": contact_sheet_methods or "",
         "contact_sheet_max_samples": contact_sheet_max_samples,
@@ -2252,6 +2281,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-max-workers", type=int, default=8)
     parser.add_argument("--max-method-failures", type=int, default=2)
     parser.add_argument("--min-paired-n", type=int, default=5)
+    parser.add_argument("--max-mesh-surface-chamfer-ratio-vs-current", type=float, default=1.1)
+    parser.add_argument("--max-mesh-surface-hausdorff95-ratio-vs-current", type=float, default=1.1)
     parser.add_argument("--allow-missing-split-audit", action="store_true")
     parser.add_argument("--contact-sheet-methods", default=None)
     parser.add_argument("--contact-sheet-max-samples", type=int, default=None)
@@ -2367,6 +2398,12 @@ def main() -> None:
         cache_max_workers=args.cache_max_workers,
         max_method_failures=args.max_method_failures,
         min_paired_n=args.min_paired_n,
+        max_mesh_surface_chamfer_ratio_vs_current=(
+            args.max_mesh_surface_chamfer_ratio_vs_current
+        ),
+        max_mesh_surface_hausdorff95_ratio_vs_current=(
+            args.max_mesh_surface_hausdorff95_ratio_vs_current
+        ),
         allow_missing_split_audit=args.allow_missing_split_audit,
         contact_sheet_methods=args.contact_sheet_methods,
         contact_sheet_max_samples=args.contact_sheet_max_samples,
