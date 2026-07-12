@@ -108,6 +108,31 @@ ratios of `1.10x` against the current method. The migration replay is under
 grandfathered incumbent but requires a schema-v2 confirmation before that old
 archive can support a new promotion.
 
+**Prepared Step1X-3D geometry lane.** The next bounded challenger uses the
+geometry stage from [Step1X-3D](https://github.com/stepfun-ai/Step1X-3D),
+pinned to source `cb5ac944709c6c913109070c7b90c3447f57f3d4` and public model
+snapshot `bf7084495b3a72222f36549b7942948aa4d9daa7`. The official model emits a
+TSDF-derived `trimesh` mesh, making it a stronger upstream printability
+hypothesis than another repair pass over fragmented TRELLIS-family output.
+The benchmark adapter runs geometry only, disables optional SageAttention,
+preserves the provider-native raw mesh without floater removal or upstream
+decimation, and records PyTorch peak allocated/reserved VRAM. Raw and repaired
+rows share one content-addressed inference; only the repaired row receives the
+same inferred bbox, printable repair, 40,000-face ceiling, and scale-free
+complexity cap used by the promoted TripoSG lane.
+
+Fresh packages can include `--include-step1x3d-setup`. The generated G4 setup
+retains Colab's PyTorch `2.11` CUDA `12.8` build, checks compute capability
+`(12, 0)` and `sm_120`, installs only geometry dependencies, and excludes
+texture/training-only NVDiffRast, PyTorch3D, Kaolin, DeepSpeed, CuPy, and
+SageAttention. Source, CUDA, provider import, exact snapshot download, and
+required-file checks all fail before benchmark work. The exact one-row config is
+`backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_step1x3d_triposg_s40_n1.json`:
+it remeasures the biharmonic-prefill TripoSG incumbent under metric schema v2
+and compares Step1X raw/repaired output on held-out row 40. Step1X remains
+unmeasured until that G4 smoke completes; no expansion is authorized by this
+integration alone.
+
 The benchmark should rank candidates with STL-facing metrics:
 
 - **Watertightness:** whether the exported STL encloses a valid solid.

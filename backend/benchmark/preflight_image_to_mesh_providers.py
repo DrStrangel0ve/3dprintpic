@@ -17,6 +17,7 @@ from backend.benchmark.run_image_to_mesh_provider import (
     MULTIVIEW_VISUAL_HULL_PROVIDER,
     PROVIDERS,
     SOURCE_MESH_BUNDLE_ORACLE_PROVIDER,
+    STEP1X3D_PROVIDER,
     TRELLIS2_PROVIDER,
     TRIPOSR_API_PROVIDER,
     provider_dir_config_key,
@@ -36,6 +37,14 @@ from backend.benchmark.pixal3d_models import (
     pixal3d_model_specs,
 )
 from backend.benchmark.triposg_models import triposg_model_specs
+from backend.benchmark.step1x3d_models import (
+    DEFAULT_STEP1X3D_MODEL,
+    DEFAULT_STEP1X3D_MODEL_REVISION,
+    DEFAULT_STEP1X3D_SOURCE_REVISION,
+    DEFAULT_STEP1X3D_SUBFOLDER,
+    step1x3d_model_specs,
+    verify_step1x3d_source_integrity,
+)
 from backend.benchmark.trellis2_models import (
     DEFAULT_TRELLIS2_ATTENTION_BACKEND,
     DEFAULT_TRELLIS2_MODEL,
@@ -56,6 +65,7 @@ TRELLIS2_ATTENTION_MODULES = {
 }
 TRELLIS2_PROBE_JSON_PREFIX = "TRELLIS2_PREFLIGHT_JSON="
 HUNYUAN3D_2MV_PROBE_JSON_PREFIX = "HUNYUAN3D_2MV_PREFLIGHT_JSON="
+STEP1X3D_PROBE_JSON_PREFIX = "STEP1X3D_PREFLIGHT_JSON="
 
 
 def command_exists(executable: str | None) -> bool:
@@ -294,6 +304,102 @@ def probe_hunyuan3d_2mv_provider_python(
     return payload
 
 
+def build_step1x3d_python_probe_script() -> str:
+    return (
+        "import json, os, sys\n"
+        "payload = {\n"
+        "    'python_executable': sys.executable,\n"
+        "    'pipeline_module_importable': False,\n"
+        "    'pipeline_class_importable': False,\n"
+        "    'torch_cuda_available': False,\n"
+        "    'torch_cuda_capability': [],\n"
+        "    'backend_ready': False,\n"
+        "    'error': '',\n"
+        "}\n"
+        "try:\n"
+        "    os.environ['USE_SAGEATTN'] = '0'\n"
+        "    import torch\n"
+        "    payload['torch_cuda_available'] = bool(torch.cuda.is_available())\n"
+        "    if torch.cuda.is_available():\n"
+        "        payload['torch_cuda_capability'] = list(torch.cuda.get_device_capability())\n"
+        "    from step1x3d_geometry.models.pipelines import pipeline as pipeline_module\n"
+        "    payload['pipeline_module_importable'] = True\n"
+        "    getattr(pipeline_module, 'Step1X3DGeometryPipeline')\n"
+        "    payload['pipeline_class_importable'] = True\n"
+        "except Exception as exc:\n"
+        "    payload['error'] = f'{type(exc).__name__}: {exc}'\n"
+        "payload['backend_ready'] = bool(\n"
+        "    payload['pipeline_module_importable']\n"
+        "    and payload['pipeline_class_importable']\n"
+        "    and payload['torch_cuda_available']\n"
+        ")\n"
+        f"print({STEP1X3D_PROBE_JSON_PREFIX!r} + json.dumps(payload, sort_keys=True))\n"
+        "raise SystemExit(0 if payload['backend_ready'] else 1)\n"
+    )
+
+
+def probe_step1x3d_provider_python(
+    provider_python: str,
+    provider_dir: Path,
+    *,
+    timeout_seconds: int = 60,
+) -> dict:
+    env = os.environ.copy()
+    env["USE_SAGEATTN"] = "0"
+    current_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(provider_dir), current_pythonpath) if part
+    )
+    try:
+        completed = subprocess.run(
+            [provider_python, "-c", build_step1x3d_python_probe_script()],
+            cwd=provider_dir,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=timeout_seconds,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "python_executable": provider_python,
+            "returncode": None,
+            "pipeline_module_importable": False,
+            "pipeline_class_importable": False,
+            "torch_cuda_available": False,
+            "torch_cuda_capability": [],
+            "backend_ready": False,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    payload = None
+    for line in reversed(completed.stdout.splitlines()):
+        if not line.startswith(STEP1X3D_PROBE_JSON_PREFIX):
+            continue
+        try:
+            payload = json.loads(line[len(STEP1X3D_PROBE_JSON_PREFIX) :])
+        except json.JSONDecodeError:
+            payload = None
+        break
+    if not isinstance(payload, dict):
+        payload = {
+            "python_executable": provider_python,
+            "pipeline_module_importable": False,
+            "pipeline_class_importable": False,
+            "torch_cuda_available": False,
+            "torch_cuda_capability": [],
+            "backend_ready": False,
+            "error": "Provider Python did not emit a Step1X-3D preflight payload.",
+        }
+    payload["returncode"] = completed.returncode
+    if completed.returncode and not payload.get("error"):
+        stderr = completed.stderr.strip()
+        payload["error"] = stderr[-2000:] or f"Provider Python exited with {completed.returncode}."
+    payload["backend_ready"] = bool(
+        payload.get("backend_ready") and completed.returncode == 0
+    )
+    return payload
+
+
 def flag_value(tokens: list[str], flag: str) -> str | None:
     prefix = f"{flag}="
     for index, token in enumerate(tokens):
@@ -369,6 +475,30 @@ def parse_provider_command(command: str) -> dict | None:
             model_revision=flag_value(tokens, "--triposg-model-revision") or "",
             rembg_revision=flag_value(tokens, "--triposg-rembg-revision") or "",
         )
+    elif provider == STEP1X3D_PROVIDER:
+        specs = step1x3d_model_specs(
+            model_repo=(
+                flag_value(tokens, "--step1x3d-model-path")
+                or DEFAULT_STEP1X3D_MODEL
+            ),
+            model_revision=(
+                flag_value(tokens, "--step1x3d-model-revision")
+                or DEFAULT_STEP1X3D_MODEL_REVISION
+            ),
+            subfolder=(
+                flag_value(tokens, "--step1x3d-subfolder")
+                or DEFAULT_STEP1X3D_SUBFOLDER
+            ),
+        )
+        parsed["provider_models"] = {
+            name: {
+                "repo_id": str(spec["repo_id"]),
+                "revision": str(spec["revision"]),
+                "subfolder": str(spec["subfolder"]),
+            }
+            for name, spec in specs.items()
+        }
+        parsed["provider_source_revision"] = DEFAULT_STEP1X3D_SOURCE_REVISION
     elif provider == TRELLIS2_PROVIDER:
         specs = trellis2_model_specs(
             model_repo=(
@@ -415,6 +545,8 @@ def provider_entrypoint(provider: str) -> Path | None:
             return Path("inference.py")
         if runner == "trellis2-wrapper":
             return Path("trellis2/pipelines/trellis2_image_to_3d.py")
+        if runner == "step1x3d-wrapper":
+            return Path("step1x3d_geometry/models/pipelines/pipeline.py")
         return Path("run.py")
     if provider == TRIPOSR_API_PROVIDER:
         return Path("tsr/system.py")
@@ -478,6 +610,22 @@ def provider_preflight_row(parsed: dict, experiment_names: list[str] | None = No
         checks["model_revisions_pinned"] = revisions_present == 2
         if not revisions_complete:
             setup_errors.append("TripoSG model revisions must be supplied together for both snapshots.")
+    elif provider == STEP1X3D_PROVIDER:
+        model_spec = (parsed.get("provider_models") or {}).get("step1x3d") or {}
+        model_pinned = (
+            model_spec.get("repo_id") == DEFAULT_STEP1X3D_MODEL
+            and model_spec.get("revision") == DEFAULT_STEP1X3D_MODEL_REVISION
+            and model_spec.get("subfolder") == DEFAULT_STEP1X3D_SUBFOLDER
+        )
+        checks["model_revision_pinned"] = model_pinned
+        checks["model_revisions_complete"] = bool(model_spec.get("revision"))
+        checks["model_revisions_pinned"] = model_pinned
+        if not model_pinned:
+            setup_errors.append(
+                "Step1X-3D requires model "
+                f"{DEFAULT_STEP1X3D_MODEL}@{DEFAULT_STEP1X3D_MODEL_REVISION} "
+                f"subfolder {DEFAULT_STEP1X3D_SUBFOLDER}."
+            )
     elif provider == TRELLIS2_PROVIDER:
         model_spec = (parsed.get("provider_models") or {}).get("trellis2") or {}
         model_pinned = (
@@ -562,6 +710,71 @@ def provider_preflight_row(parsed: dict, experiment_names: list[str] | None = No
                     detail = python_probe.get("error") or "unknown provider Python error"
                     setup_errors.append(
                         f"Hunyuan3D-2mv provider Python preflight failed: {detail}"
+                    )
+        if provider == STEP1X3D_PROVIDER and provider_dir:
+            source_revision = provider_git_revision(provider_dir)
+            source_revision_pinned = (
+                source_revision == DEFAULT_STEP1X3D_SOURCE_REVISION
+            )
+            checks["provider_source_revision"] = source_revision
+            checks["provider_source_revision_expected"] = (
+                DEFAULT_STEP1X3D_SOURCE_REVISION
+            )
+            checks["provider_source_revision_pinned"] = source_revision_pinned
+            if not source_revision_pinned:
+                actual = source_revision or "<unknown>"
+                setup_errors.append(
+                    "Step1X-3D provider source must be checked out at "
+                    f"{DEFAULT_STEP1X3D_SOURCE_REVISION}; found {actual}."
+                )
+            try:
+                source_integrity = verify_step1x3d_source_integrity(provider_dir)
+            except (FileNotFoundError, OSError, subprocess.CalledProcessError, ValueError) as exc:
+                source_integrity = {
+                    "ok": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+                setup_errors.append(
+                    f"Step1X-3D provider source integrity failed: {exc}"
+                )
+            else:
+                source_integrity = {"ok": True, **source_integrity}
+            checks["step1x3d_source_integrity"] = source_integrity
+            checks["step1x3d_source_integrity_ok"] = bool(
+                source_integrity.get("ok")
+            )
+            package_source = provider_dir / "step1x3d_geometry" / "__init__.py"
+            package_source_found = package_source.is_file()
+            checks["step1x3d_package_source_found"] = package_source_found
+            if not package_source_found:
+                setup_errors.append(
+                    "Step1X-3D provider repo is missing step1x3d_geometry/__init__.py."
+                )
+            if package_source_found and provider_python_found:
+                python_probe = probe_step1x3d_provider_python(
+                    provider_python,
+                    provider_dir,
+                )
+                checks["step1x3d_python_probe"] = python_probe
+                checks["step1x3d_pipeline_module_importable"] = bool(
+                    python_probe.get("pipeline_module_importable")
+                )
+                checks["step1x3d_pipeline_class_importable"] = bool(
+                    python_probe.get("pipeline_class_importable")
+                )
+                checks["step1x3d_torch_cuda_available"] = bool(
+                    python_probe.get("torch_cuda_available")
+                )
+                checks["step1x3d_torch_cuda_capability"] = (
+                    python_probe.get("torch_cuda_capability") or []
+                )
+                checks["step1x3d_backend_ready"] = bool(
+                    python_probe.get("backend_ready")
+                )
+                if not python_probe.get("backend_ready"):
+                    detail = python_probe.get("error") or "unknown provider Python error"
+                    setup_errors.append(
+                        f"Step1X-3D provider Python preflight failed: {detail}"
                     )
         if provider == TRELLIS2_PROVIDER and provider_dir:
             source_revision = provider_git_revision(provider_dir)

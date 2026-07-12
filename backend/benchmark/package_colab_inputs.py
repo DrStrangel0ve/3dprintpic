@@ -39,6 +39,13 @@ from backend.benchmark.triposg_models import (
     DEFAULT_TRIPOSG_REMBG_REVISION,
     triposg_model_specs,
 )
+from backend.benchmark.step1x3d_models import (
+    DEFAULT_STEP1X3D_MODEL,
+    DEFAULT_STEP1X3D_MODEL_REVISION,
+    DEFAULT_STEP1X3D_SOURCE_REVISION,
+    DEFAULT_STEP1X3D_SUBFOLDER,
+    step1x3d_model_specs,
+)
 from backend.benchmark.trellis2_models import (
     DEFAULT_TRELLIS2_MODEL,
     DEFAULT_TRELLIS2_MODEL_REVISION,
@@ -69,6 +76,7 @@ DEFAULT_INLINE_B64_CHUNK_SIZE = 76_000
 DETERMINISTIC_TAR_MTIME = 0
 COMPACT_RESULT_SUFFIXES = frozenset({".csv", ".json", ".jsonl", ".log", ".md"})
 DEFAULT_TRELLIS2_COLAB_PYTHON = "/content/trellis2-venv/bin/python"
+DEFAULT_STEP1X3D_COLAB_PYTHON = "/content/step1x3d-venv/bin/python"
 TRELLIS2_XFORMERS_VERSION = "0.0.35"
 TRELLIS2_UTILS3D_REVISION = "9a4eb15e4021b67b12c460c7057d642626897ec8"
 TRELLIS2_CUMESH_REVISION = "12289e1062f0603f2f0d0771b02e1395d247f26f"
@@ -964,6 +972,76 @@ def build_pixal3d_setup_prelude() -> str:
     )
 
 
+def build_step1x3d_setup_prelude() -> str:
+    geometry_requirements = (
+        "accelerate==1.5.2",
+        "beautifulsoup4==4.12.3",
+        "diffusers==0.32.2",
+        "einops==0.8.0",
+        "huggingface-hub==0.26.2",
+        "jaxtyping==0.2.28",
+        "omegaconf==2.3.0",
+        "onnxruntime==1.21.0",
+        "opencv-python-headless==4.10.0.84",
+        "pymeshlab==2025.7",
+        "pytorch-lightning==2.2.4",
+        "rembg==2.0.65",
+        "safetensors==0.4.3",
+        "scikit-image==0.23.2",
+        "timm==0.9.16",
+        "transformers==4.48.0",
+        "trimesh==4.3.2",
+        "typeguard==2.13.3",
+    )
+    requirements = " ".join(shell_join([requirement]) for requirement in geometry_requirements)
+    return (
+        "\n"
+        "STEP1X3D_DIR=\"${STEP1X3D_DIR:-/content/Step1X-3D}\"\n"
+        "STEP1X3D_VENV=\"${STEP1X3D_VENV:-/content/step1x3d-venv}\"\n"
+        "STEP1X3D_PYTHON=\"$STEP1X3D_VENV/bin/python\"\n"
+        f"STEP1X3D_SOURCE_REVISION=\"${{STEP1X3D_SOURCE_REVISION:-{DEFAULT_STEP1X3D_SOURCE_REVISION}}}\"\n"
+        f"STEP1X3D_MODEL_ID=\"${{STEP1X3D_MODEL_ID:-{DEFAULT_STEP1X3D_MODEL}}}\"\n"
+        f"STEP1X3D_MODEL_REVISION=\"${{STEP1X3D_MODEL_REVISION:-{DEFAULT_STEP1X3D_MODEL_REVISION}}}\"\n"
+        f"STEP1X3D_SUBFOLDER=\"${{STEP1X3D_SUBFOLDER:-{DEFAULT_STEP1X3D_SUBFOLDER}}}\"\n"
+        "export STEP1X3D_DIR STEP1X3D_VENV STEP1X3D_PYTHON STEP1X3D_SOURCE_REVISION STEP1X3D_MODEL_ID STEP1X3D_MODEL_REVISION STEP1X3D_SUBFOLDER\n"
+        "export USE_SAGEATTN=0\n"
+        "if [[ ! -d \"$STEP1X3D_DIR/.git\" ]]; then\n"
+        "  git clone --filter=blob:none --no-checkout https://github.com/stepfun-ai/Step1X-3D.git \"$STEP1X3D_DIR\"\n"
+        "fi\n"
+        "git -C \"$STEP1X3D_DIR\" fetch --depth 1 origin \"$STEP1X3D_SOURCE_REVISION\"\n"
+        "git -C \"$STEP1X3D_DIR\" checkout --detach --force \"$STEP1X3D_SOURCE_REVISION\"\n"
+        "STEP1X3D_RESOLVED_SOURCE=\"$(git -C \"$STEP1X3D_DIR\" rev-parse HEAD)\"\n"
+        "if [[ \"$STEP1X3D_RESOLVED_SOURCE\" != \"$STEP1X3D_SOURCE_REVISION\" ]]; then\n"
+        "  echo \"Step1X-3D source revision mismatch: expected $STEP1X3D_SOURCE_REVISION got $STEP1X3D_RESOLVED_SOURCE\" >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "python -m backend.benchmark.patch_step1x3d_sources --step1x3d-dir \"$STEP1X3D_DIR\"\n"
+        "if [[ ! -x \"$STEP1X3D_PYTHON\" ]]; then\n"
+        "  python -m venv --system-site-packages \"$STEP1X3D_VENV\"\n"
+        "fi\n"
+        "\"$STEP1X3D_PYTHON\" -m pip install -U pip setuptools==69.5.1 wheel\n"
+        f"\"$STEP1X3D_PYTHON\" -m pip install {requirements}\n"
+        "\"$STEP1X3D_PYTHON\" -m pip check > /tmp/step1x3d_pip_check.txt || { cat /tmp/step1x3d_pip_check.txt >&2; exit 2; }\n"
+        "PYTHONPATH=\"$STEP1X3D_DIR${PYTHONPATH:+:$PYTHONPATH}\" \"$STEP1X3D_PYTHON\" - <<'PY'\n"
+        "import os, torch\n"
+        "assert torch.__version__.startswith('2.11.'), torch.__version__\n"
+        "assert torch.version.cuda == '12.8', torch.version.cuda\n"
+        "assert torch.cuda.is_available()\n"
+        "assert torch.cuda.get_device_capability(0) == (12, 0), torch.cuda.get_device_capability(0)\n"
+        "assert 'sm_120' in torch.cuda.get_arch_list(), torch.cuda.get_arch_list()\n"
+        "os.environ['USE_SAGEATTN'] = '0'\n"
+        "from step1x3d_geometry.models.pipelines.pipeline import Step1X3DGeometryPipeline\n"
+        "assert Step1X3DGeometryPipeline is not None\n"
+        "PY\n"
+        "if [[ \"${STEP1X3D_PREFETCH:-1}\" == \"1\" ]]; then\n"
+        "  \"$STEP1X3D_PYTHON\" -m backend.benchmark.run_image_to_mesh_provider --provider step1x3d --provider-dir \"$STEP1X3D_DIR\" --step1x3d-model-path \"$STEP1X3D_MODEL_ID\" --step1x3d-model-revision \"$STEP1X3D_MODEL_REVISION\" --step1x3d-subfolder \"$STEP1X3D_SUBFOLDER\" --timeout 3600 --prefetch-only\n"
+        "fi\n"
+        "STEP1X3D_PREFLIGHT_COMMAND=\"$STEP1X3D_PYTHON -m backend.benchmark.run_image_to_mesh_provider --provider step1x3d --provider-dir $STEP1X3D_DIR --step1x3d-model-path $STEP1X3D_MODEL_ID --step1x3d-model-revision $STEP1X3D_MODEL_REVISION --step1x3d-subfolder $STEP1X3D_SUBFOLDER --input-image '{input_image}' --output-mesh '{output_mesh}' --provider-device cuda\"\n"
+        "\"$STEP1X3D_PYTHON\" -m backend.benchmark.preflight_image_to_mesh_providers --command \"$STEP1X3D_PREFLIGHT_COMMAND\" --output \"${STEP1X3D_PREFLIGHT_PATH:-/tmp/step1x3d_provider_preflight.json}\" --require-runnable\n"
+        "echo \"Step1X-3D setup checkpoint: pinned geometry provider ready\"\n"
+    )
+
+
 def build_hunyuan3d_2mv_setup_prelude() -> str:
     return (
         "HUNYUAN3D_2MV_DIR=\"${HUNYUAN3D_2MV_DIR:-/content/Hunyuan3D-2}\"\n"
@@ -1178,6 +1256,7 @@ def build_colab_run_script(
     include_triposg_setup: bool = False,
     include_pixal3d_setup: bool = False,
     include_trellis2_setup: bool = False,
+    include_step1x3d_setup: bool = False,
     include_hunyuan3d_2mv_setup: bool = False,
     include_hunyuan3d_setup: bool = False,
 ) -> str:
@@ -1263,6 +1342,8 @@ def build_colab_run_script(
         provider_setup += build_pixal3d_setup_prelude()
     if include_trellis2_setup:
         provider_setup += build_trellis2_setup_prelude()
+    if include_step1x3d_setup:
+        provider_setup += build_step1x3d_setup_prelude()
     if include_hunyuan3d_2mv_setup:
         provider_setup += build_hunyuan3d_2mv_setup_prelude()
     if include_hunyuan3d_setup:
@@ -1274,6 +1355,9 @@ def build_colab_run_script(
     preflight_path = colab_path(extract_root, Path("launch_preflight.json"))
     trellis2_preflight_path = colab_path(
         extract_root, Path("trellis2_provider_preflight.json")
+    )
+    step1x3d_preflight_path = colab_path(
+        extract_root, Path("step1x3d_provider_preflight.json")
     )
     hunyuan3d_2mv_preflight_path = colab_path(
         extract_root, Path("hunyuan3d_2mv_provider_preflight.json")
@@ -1311,6 +1395,7 @@ def build_colab_run_script(
         f"GPU_PREFLIGHT_PATH={shell_join([gpu_preflight_path])}\n"
         f"PREFLIGHT_PATH={shell_join([preflight_path])}\n"
         f"TRELLIS2_PREFLIGHT_PATH={shell_join([trellis2_preflight_path])}\n"
+        f"STEP1X3D_PREFLIGHT_PATH={shell_join([step1x3d_preflight_path])}\n"
         f"HUNYUAN3D_2MV_PREFLIGHT_PATH={shell_join([hunyuan3d_2mv_preflight_path])}\n"
         "COLAB_REQUIRE_GPU_NAME_REGEX=\"${COLAB_REQUIRE_GPU_NAME_REGEX:-}\"\n"
         "if [[ -z \"$COLAB_REQUIRE_GPU_NAME_REGEX\" ]]; then\n"
@@ -1320,7 +1405,7 @@ def build_colab_run_script(
         "if [[ -z \"$COLAB_MIN_GPU_MEMORY_GB\" ]]; then\n"
         f"  COLAB_MIN_GPU_MEMORY_GB={shell_join([gpu_memory_default])}\n"
         "fi\n"
-        "export ARCHIVE_PATH EXTRACT_ROOT REPO_DIR REPO_REMOTE REPO_REF RUN_NAME RUN_LOG OUTPUT_ROOT RESULTS_SUMMARY RESULTS_ARCHIVE RESULTS_COMPACT_ARCHIVE STL_INGEST_DIR STL_INGEST_JSON STL_INGEST_MD MANIFEST_PATH LORA_PATH LORA_ADAPTER_PATH LORA_REPORT_PATH GPU_PREFLIGHT_PATH PREFLIGHT_PATH TRELLIS2_PREFLIGHT_PATH HUNYUAN3D_2MV_PREFLIGHT_PATH COLAB_REQUIRE_GPU_NAME_REGEX COLAB_MIN_GPU_MEMORY_GB\n"
+        "export ARCHIVE_PATH EXTRACT_ROOT REPO_DIR REPO_REMOTE REPO_REF RUN_NAME RUN_LOG OUTPUT_ROOT RESULTS_SUMMARY RESULTS_ARCHIVE RESULTS_COMPACT_ARCHIVE STL_INGEST_DIR STL_INGEST_JSON STL_INGEST_MD MANIFEST_PATH LORA_PATH LORA_ADAPTER_PATH LORA_REPORT_PATH GPU_PREFLIGHT_PATH PREFLIGHT_PATH TRELLIS2_PREFLIGHT_PATH STEP1X3D_PREFLIGHT_PATH HUNYUAN3D_2MV_PREFLIGHT_PATH COLAB_REQUIRE_GPU_NAME_REGEX COLAB_MIN_GPU_MEMORY_GB\n"
         "mkdir -p \"$EXTRACT_ROOT\" \"$(dirname \"$RUN_LOG\")\" \"$(dirname \"$RESULTS_SUMMARY\")\" \"$(dirname \"$RESULTS_ARCHIVE\")\" \"$(dirname \"$RESULTS_COMPACT_ARCHIVE\")\" \"$STL_INGEST_DIR\"\n"
         "set +e\n"
         "(\n"
@@ -1386,6 +1471,7 @@ def build_colab_run_script(
         "    'extract_root': os.environ['EXTRACT_ROOT'],\n"
         "    'gpu_preflight': os.environ['GPU_PREFLIGHT_PATH'],\n"
         "    'trellis2_provider_preflight': os.environ['TRELLIS2_PREFLIGHT_PATH'],\n"
+        "    'step1x3d_provider_preflight': os.environ['STEP1X3D_PREFLIGHT_PATH'],\n"
         "    'hunyuan3d_2mv_provider_preflight': os.environ['HUNYUAN3D_2MV_PREFLIGHT_PATH'],\n"
         "    'manifest': str(manifest),\n"
         "    'manifest_rows': sum(1 for line in manifest.read_text().splitlines() if line.strip()),\n"
@@ -1395,7 +1481,7 @@ def build_colab_run_script(
         "    payload['lora_adapter'] = os.environ['LORA_ADAPTER_PATH']\n"
         "print(json.dumps(payload, indent=2, sort_keys=True))\n"
         "PY\n"
-        "if [[ \"${COLAB_PROVIDER_SETUP_ONLY:-0}\" == \"1\" || \"${HUNYUAN3D_SETUP_ONLY:-0}\" == \"1\" || \"${HUNYUAN3D_2MV_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSR_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSG_SETUP_ONLY:-0}\" == \"1\" || \"${PIXAL3D_SETUP_ONLY:-0}\" == \"1\" || \"${TRELLIS2_SETUP_ONLY:-0}\" == \"1\" ]]; then\n"
+        "if [[ \"${COLAB_PROVIDER_SETUP_ONLY:-0}\" == \"1\" || \"${HUNYUAN3D_SETUP_ONLY:-0}\" == \"1\" || \"${HUNYUAN3D_2MV_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSR_SETUP_ONLY:-0}\" == \"1\" || \"${TRIPOSG_SETUP_ONLY:-0}\" == \"1\" || \"${PIXAL3D_SETUP_ONLY:-0}\" == \"1\" || \"${TRELLIS2_SETUP_ONLY:-0}\" == \"1\" || \"${STEP1X3D_SETUP_ONLY:-0}\" == \"1\" ]]; then\n"
         "  echo \"Provider setup only requested; skipping benchmark stages\"\n"
         "  exit 0\n"
         "fi\n"
@@ -1568,7 +1654,7 @@ def build_colab_run_script(
         "        'markdown': str(md_path),\n"
         "        'log': str(log_path),\n"
         "    }\n"
-        "    if os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_2MV_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1' or os.environ.get('PIXAL3D_SETUP_ONLY') == '1' or os.environ.get('TRELLIS2_SETUP_ONLY') == '1':\n"
+        "    if os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_2MV_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1' or os.environ.get('PIXAL3D_SETUP_ONLY') == '1' or os.environ.get('TRELLIS2_SETUP_ONLY') == '1' or os.environ.get('STEP1X3D_SETUP_ONLY') == '1':\n"
         "        result['reason'] = 'provider_setup_only'\n"
         "        return result\n"
         "    if not output_root.exists():\n"
@@ -1626,6 +1712,7 @@ def build_colab_run_script(
         "gpu_preflight = pathlib.Path(os.environ['GPU_PREFLIGHT_PATH'])\n"
         "preflight = pathlib.Path(os.environ['PREFLIGHT_PATH'])\n"
         "trellis2_preflight = pathlib.Path(os.environ['TRELLIS2_PREFLIGHT_PATH'])\n"
+        "step1x3d_preflight = pathlib.Path(os.environ['STEP1X3D_PREFLIGHT_PATH'])\n"
         "hunyuan3d_2mv_preflight = pathlib.Path(os.environ['HUNYUAN3D_2MV_PREFLIGHT_PATH'])\n"
         "summary_path = pathlib.Path(os.environ['RESULTS_SUMMARY'])\n"
         "archive_path = pathlib.Path(os.environ['RESULTS_ARCHIVE'])\n"
@@ -1637,6 +1724,10 @@ def build_colab_run_script(
         "gpu_preflight_summary = summarize_gpu_preflight(gpu_preflight)\n"
         "trellis2_preflight_summary = read_json_object(trellis2_preflight)\n"
         "trellis2_preflight_failed = any(not row.get('runnable') for row in trellis2_preflight_summary.get('rows', []))\n"
+        f"step1x3d_preflight_expected = {include_step1x3d_setup!r}\n"
+        "step1x3d_preflight_summary = read_json_object(step1x3d_preflight)\n"
+        "step1x3d_preflight_rows = step1x3d_preflight_summary.get('rows', [])\n"
+        "step1x3d_preflight_failed = step1x3d_preflight_expected and (not step1x3d_preflight_rows or any(not row.get('runnable') for row in step1x3d_preflight_rows))\n"
         f"hunyuan3d_2mv_preflight_expected = {include_hunyuan3d_2mv_setup!r}\n"
         "hunyuan3d_2mv_preflight_summary = read_json_object(hunyuan3d_2mv_preflight)\n"
         "hunyuan3d_2mv_preflight_rows = hunyuan3d_2mv_preflight_summary.get('rows', [])\n"
@@ -1650,8 +1741,8 @@ def build_colab_run_script(
         "    'generated_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),\n"
         "    'run_name': os.environ['RUN_NAME'],\n"
         "    'run_status': run_status,\n"
-        "    'failure_stage': 'gpu_preflight' if run_status and gpu_preflight_summary.get('ok') is False else ('hunyuan3d_2mv_preflight' if run_status and hunyuan3d_2mv_preflight_failed else ('trellis2_preflight' if run_status and trellis2_preflight_failed else '')),\n"
-        "    'provider_setup_only': os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_2MV_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1' or os.environ.get('PIXAL3D_SETUP_ONLY') == '1' or os.environ.get('TRELLIS2_SETUP_ONLY') == '1',\n"
+        "    'failure_stage': 'gpu_preflight' if run_status and gpu_preflight_summary.get('ok') is False else ('step1x3d_preflight' if run_status and step1x3d_preflight_failed else ('hunyuan3d_2mv_preflight' if run_status and hunyuan3d_2mv_preflight_failed else ('trellis2_preflight' if run_status and trellis2_preflight_failed else ''))),\n"
+        "    'provider_setup_only': os.environ.get('COLAB_PROVIDER_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_SETUP_ONLY') == '1' or os.environ.get('HUNYUAN3D_2MV_SETUP_ONLY') == '1' or os.environ.get('TRIPOSR_SETUP_ONLY') == '1' or os.environ.get('TRIPOSG_SETUP_ONLY') == '1' or os.environ.get('PIXAL3D_SETUP_ONLY') == '1' or os.environ.get('TRELLIS2_SETUP_ONLY') == '1' or os.environ.get('STEP1X3D_SETUP_ONLY') == '1',\n"
         "    'output_root': str(output_root),\n"
         "    'output_root_exists': output_root.exists(),\n"
         "    'run_log': str(run_log),\n"
@@ -1660,6 +1751,9 @@ def build_colab_run_script(
         "    'preflight': str(preflight),\n"
         "    'trellis2_provider_preflight': str(trellis2_preflight),\n"
         "    'trellis2_provider_preflight_summary': trellis2_preflight_summary,\n"
+        "    'step1x3d_provider_preflight': str(step1x3d_preflight),\n"
+        "    'step1x3d_provider_preflight_expected': step1x3d_preflight_expected,\n"
+        "    'step1x3d_provider_preflight_summary': step1x3d_preflight_summary,\n"
         "    'hunyuan3d_2mv_provider_preflight': str(hunyuan3d_2mv_preflight),\n"
         "    'hunyuan3d_2mv_provider_preflight_expected': hunyuan3d_2mv_preflight_expected,\n"
         "    'hunyuan3d_2mv_provider_preflight_summary': hunyuan3d_2mv_preflight_summary,\n"
@@ -1679,6 +1773,7 @@ def build_colab_run_script(
         "        (gpu_preflight, 'gpu_preflight.json'),\n"
         "        (preflight, 'launch_preflight.json'),\n"
         "        (trellis2_preflight, 'trellis2_provider_preflight.json'),\n"
+        "        (step1x3d_preflight, 'step1x3d_provider_preflight.json'),\n"
         "        (hunyuan3d_2mv_preflight, 'hunyuan3d_2mv_provider_preflight.json'),\n"
         "        (run_log, 'run_colab_eval.log'),\n"
         "        (summary_path, 'results_summary.json'),\n"
@@ -1692,6 +1787,7 @@ def build_colab_run_script(
         "    add_if_exists(tar, gpu_preflight, 'gpu_preflight.json')\n"
         "    add_if_exists(tar, preflight, 'launch_preflight.json')\n"
         "    add_if_exists(tar, trellis2_preflight, 'trellis2_provider_preflight.json')\n"
+        "    add_if_exists(tar, step1x3d_preflight, 'step1x3d_provider_preflight.json')\n"
         "    add_if_exists(tar, hunyuan3d_2mv_preflight, 'hunyuan3d_2mv_provider_preflight.json')\n"
         "    add_if_exists(tar, run_log, 'run_colab_eval.log')\n"
         "    add_if_exists(tar, summary_path, 'results_summary.json')\n"
@@ -1995,6 +2091,7 @@ def package_inputs(
     include_triposg_setup: bool = False,
     include_pixal3d_setup: bool = False,
     include_trellis2_setup: bool = False,
+    include_step1x3d_setup: bool = False,
     include_hunyuan3d_2mv_setup: bool = False,
     include_hunyuan3d_setup: bool = False,
     colab_env: dict[str, str] | None = None,
@@ -2088,6 +2185,7 @@ def package_inputs(
                 include_triposg_setup=include_triposg_setup,
                 include_pixal3d_setup=include_pixal3d_setup,
                 include_trellis2_setup=include_trellis2_setup,
+                include_step1x3d_setup=include_step1x3d_setup,
                 include_hunyuan3d_2mv_setup=include_hunyuan3d_2mv_setup,
                 include_hunyuan3d_setup=include_hunyuan3d_setup,
             )
@@ -2168,6 +2266,22 @@ def package_inputs(
                 for name, spec in trellis2_model_specs().items()
             }
             if include_trellis2_setup
+            else {}
+        ),
+        "include_step1x3d_setup": include_step1x3d_setup,
+        "step1x3d_source_revision": (
+            DEFAULT_STEP1X3D_SOURCE_REVISION if include_step1x3d_setup else ""
+        ),
+        "step1x3d_python": (
+            DEFAULT_STEP1X3D_COLAB_PYTHON if include_step1x3d_setup else ""
+        ),
+        "step1x3d_model_snapshot": (
+            {
+                "repo_id": DEFAULT_STEP1X3D_MODEL,
+                "revision": DEFAULT_STEP1X3D_MODEL_REVISION,
+                "subfolder": DEFAULT_STEP1X3D_SUBFOLDER,
+            }
+            if include_step1x3d_setup
             else {}
         ),
         "include_hunyuan3d_2mv_setup": include_hunyuan3d_2mv_setup,
@@ -2318,6 +2432,11 @@ def parse_args() -> argparse.Namespace:
         help="Embed a pinned Colab setup and preflight for /content/TRELLIS.2 and /content/trellis2-venv before running eval.",
     )
     parser.add_argument(
+        "--include-step1x3d-setup",
+        action="store_true",
+        help="Embed a pinned geometry-only Colab setup and preflight for /content/Step1X-3D.",
+    )
+    parser.add_argument(
         "--include-hunyuan3d-setup",
         action="store_true",
         help="Embed a Colab setup prelude for /content/Hunyuan3D-2.1 and /content/hunyuan3d-venv before running eval.",
@@ -2413,6 +2532,7 @@ def main() -> None:
         include_triposg_setup=args.include_triposg_setup,
         include_pixal3d_setup=args.include_pixal3d_setup,
         include_trellis2_setup=args.include_trellis2_setup,
+        include_step1x3d_setup=args.include_step1x3d_setup,
         include_hunyuan3d_2mv_setup=args.include_hunyuan3d_2mv_setup,
         include_hunyuan3d_setup=args.include_hunyuan3d_setup,
         colab_env=parse_colab_env(args.colab_env),

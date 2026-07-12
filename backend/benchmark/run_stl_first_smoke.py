@@ -34,6 +34,15 @@ from backend.benchmark.triposg_models import (
     DEFAULT_TRIPOSG_MODEL_REVISION,
     DEFAULT_TRIPOSG_REMBG_REVISION,
 )
+from backend.benchmark.step1x3d_models import (
+    DEFAULT_STEP1X3D_GUIDANCE,
+    DEFAULT_STEP1X3D_MODEL,
+    DEFAULT_STEP1X3D_MODEL_REVISION,
+    DEFAULT_STEP1X3D_OCTREE_RESOLUTION,
+    DEFAULT_STEP1X3D_SEED,
+    DEFAULT_STEP1X3D_STEPS,
+    DEFAULT_STEP1X3D_SUBFOLDER,
+)
 
 
 DEFAULT_DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Small-hf"
@@ -44,6 +53,9 @@ DEFAULT_TRIPOSG_DIR = "/content/TripoSG"
 DEFAULT_PIXAL3D_PYTHON = "/content/pixal3d-venv/bin/python"
 DEFAULT_PIXAL3D_DIR = "/content/Pixal3D"
 DEFAULT_PIXAL3D_PROVIDER_CACHE_DIR = "/content/pixal3d-provider-cache"
+DEFAULT_STEP1X3D_PYTHON = "/content/step1x3d-venv/bin/python"
+DEFAULT_STEP1X3D_DIR = "/content/Step1X-3D"
+DEFAULT_STEP1X3D_PROVIDER_CACHE_DIR = "/content/step1x3d-provider-cache"
 SOURCE_MULTIVIEW_ORACLE_NAME = "source_mesh_bundle_multiview_oracle"
 VISUAL_HULL_MULTIVIEW_NAME = "visual_hull_multiview_repaired_mesh"
 MESH_TARGET_BBOX_PLACEHOLDERS = {
@@ -304,6 +316,60 @@ def pixal3d_command(args: argparse.Namespace, repaired: bool) -> str:
     )
 
 
+def step1x3d_command(args: argparse.Namespace, repaired: bool) -> str:
+    step1x3d_extra = [
+        "--step1x3d-model-path",
+        args.step1x3d_model_path,
+        "--step1x3d-model-revision",
+        args.step1x3d_model_revision,
+        "--step1x3d-subfolder",
+        args.step1x3d_subfolder,
+        "--step1x3d-max-faces",
+        str(args.step1x3d_max_faces),
+        "--num-inference-steps",
+        str(args.step1x3d_num_inference_steps),
+        "--guidance-scale",
+        str(args.step1x3d_guidance_scale),
+        "--octree-resolution",
+        str(args.step1x3d_octree_resolution),
+        "--seed",
+        str(args.step1x3d_seed),
+        "--provider-mesh-cache-dir",
+        args.step1x3d_provider_cache_dir,
+    ]
+    return image_to_mesh_command(
+        python=args.step1x3d_python,
+        provider="step1x3d",
+        provider_dir=args.step1x3d_dir,
+        provider_device=args.provider_device,
+        timeout=args.direct_mesh_timeout,
+        output_mesh_repair=args.mesh_repair if repaired else "none",
+        output_mesh_raw=repaired,
+        raw_output_ext="glb",
+        mesh_target_max_dimension=(
+            getattr(args, "mesh_target_max_dimension", 0.0) if repaired else 0.0
+        ),
+        mesh_min_bbox_dimension=(
+            getattr(args, "mesh_min_bbox_dimension", 0.0) if repaired else 0.0
+        ),
+        mesh_max_bbox_aspect_ratio=(
+            getattr(args, "mesh_max_bbox_aspect_ratio", 0.0) if repaired else 0.0
+        ),
+        mesh_target_bbox_source=(
+            getattr(args, "mesh_target_bbox_source", "none") if repaired else "none"
+        ),
+        mesh_target_faces=(
+            getattr(args, "mesh_target_faces", 0) if repaired else 0
+        ),
+        mesh_max_normalized_face_density_log1p=(
+            getattr(args, "mesh_max_normalized_face_density_log1p", 0.0)
+            if repaired
+            else 0.0
+        ),
+        output_extra=step1x3d_extra,
+    )
+
+
 def source_multiview_oracle_command(args: argparse.Namespace) -> str:
     return image_to_mesh_command(
         python=args.provider_python,
@@ -476,6 +542,37 @@ def build_experiments(args: argparse.Namespace) -> list[dict]:
                     "direct_mesh_output_ext": "glb",
                     "direct_mesh_timeout": args.direct_mesh_timeout,
                     "direct_mesh_command": pixal3d_command(args, repaired=True),
+                    **reference_fields,
+                }
+            )
+    if getattr(args, "include_step1x3d", False):
+        for direct_input in args.step1x3d_direct_inputs:
+            input_suffix = "masked" if direct_input == "masked" else f"{direct_input}_prefill"
+            if args.step1x3d_include_raw:
+                experiments.append(
+                    {
+                        "name": f"step1x3d_{input_suffix}_raw_direct_mesh",
+                        "method": "external-image-to-mesh",
+                        "stl_mode": STL_MODE_SINGLE_IMAGE_MESH,
+                        "skip_depth": True,
+                        "emit_stl": True,
+                        "direct_mesh_input": direct_input,
+                        "direct_mesh_output_ext": "glb",
+                        "direct_mesh_timeout": args.direct_mesh_timeout,
+                        "direct_mesh_command": step1x3d_command(args, repaired=False),
+                    }
+                )
+            experiments.append(
+                {
+                    "name": f"step1x3d_{input_suffix}_repaired{direct_suffix}",
+                    "method": "external-image-to-mesh",
+                    "stl_mode": STL_MODE_SINGLE_IMAGE_MESH,
+                    "skip_depth": True,
+                    "emit_stl": True,
+                    "direct_mesh_input": direct_input,
+                    "direct_mesh_output_ext": "glb",
+                    "direct_mesh_timeout": args.direct_mesh_timeout,
+                    "direct_mesh_command": step1x3d_command(args, repaired=True),
                     **reference_fields,
                 }
             )
@@ -924,6 +1021,46 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pixal3d-provider-cache-dir", default=DEFAULT_PIXAL3D_PROVIDER_CACHE_DIR)
     parser.add_argument("--pixal3d-low-vram", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--pixal3d-include-raw", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--include-step1x3d", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--step1x3d-direct-input",
+        action="append",
+        choices=("masked", "full", "mirror", "biharmonic"),
+        dest="step1x3d_direct_inputs",
+        default=None,
+        help="Direct image input mode for raw and repaired Step1X-3D geometry candidates.",
+    )
+    parser.add_argument("--step1x3d-python", default=DEFAULT_STEP1X3D_PYTHON)
+    parser.add_argument("--step1x3d-dir", default=DEFAULT_STEP1X3D_DIR)
+    parser.add_argument("--step1x3d-model-path", default=DEFAULT_STEP1X3D_MODEL)
+    parser.add_argument("--step1x3d-model-revision", default=DEFAULT_STEP1X3D_MODEL_REVISION)
+    parser.add_argument("--step1x3d-subfolder", default=DEFAULT_STEP1X3D_SUBFOLDER)
+    parser.add_argument(
+        "--step1x3d-num-inference-steps",
+        type=int,
+        default=DEFAULT_STEP1X3D_STEPS,
+    )
+    parser.add_argument(
+        "--step1x3d-guidance-scale",
+        type=float,
+        default=DEFAULT_STEP1X3D_GUIDANCE,
+    )
+    parser.add_argument(
+        "--step1x3d-octree-resolution",
+        type=int,
+        default=DEFAULT_STEP1X3D_OCTREE_RESOLUTION,
+    )
+    parser.add_argument("--step1x3d-max-faces", type=int, default=0)
+    parser.add_argument("--step1x3d-seed", type=int, default=DEFAULT_STEP1X3D_SEED)
+    parser.add_argument(
+        "--step1x3d-provider-cache-dir",
+        default=DEFAULT_STEP1X3D_PROVIDER_CACHE_DIR,
+    )
+    parser.add_argument(
+        "--step1x3d-include-raw",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     parser.add_argument("--chunk-size", type=int, default=8192)
     parser.add_argument("--mc-resolution", type=int, default=256)
     parser.add_argument("--mesh-repair", choices=("basic", "convex-hull", "printable"), default="printable")
@@ -1022,6 +1159,7 @@ def parse_args() -> argparse.Namespace:
     args.triposr_direct_inputs = args.triposr_direct_inputs or ["masked"]
     args.triposg_direct_inputs = args.triposg_direct_inputs or ["masked"]
     args.pixal3d_direct_inputs = args.pixal3d_direct_inputs or ["biharmonic"]
+    args.step1x3d_direct_inputs = args.step1x3d_direct_inputs or ["biharmonic"]
     return args
 
 

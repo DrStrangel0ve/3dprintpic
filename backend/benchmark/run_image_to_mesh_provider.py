@@ -53,6 +53,16 @@ from backend.benchmark.pixal3d_models import (
     pixal3d_model_specs,
 )
 from backend.benchmark.triposg_models import triposg_model_specs
+from backend.benchmark.step1x3d_models import (
+    DEFAULT_STEP1X3D_MODEL,
+    DEFAULT_STEP1X3D_MODEL_REVISION,
+    DEFAULT_STEP1X3D_OCTREE_RESOLUTION,
+    DEFAULT_STEP1X3D_SEED,
+    DEFAULT_STEP1X3D_SOURCE_REVISION,
+    DEFAULT_STEP1X3D_SUBFOLDER,
+    step1x3d_model_specs,
+    verify_step1x3d_source_integrity,
+)
 from backend.benchmark.trellis2_models import (
     DEFAULT_TRELLIS2_EMPTY_STRUCTURE_RETRIES,
     DEFAULT_TRELLIS2_MODEL,
@@ -74,6 +84,7 @@ SOURCE_MESH_BUNDLE_ORACLE_PROVIDER = "source-mesh-bundle-oracle"
 MULTIVIEW_VISUAL_HULL_PROVIDER = "multiview-visual-hull"
 PIXAL3D_PROVIDER = "pixal3d"
 TRELLIS2_PROVIDER = "trellis2"
+STEP1X3D_PROVIDER = "step1x3d"
 DEFAULT_TRIPOSR_MODEL = "stabilityai/TripoSR"
 DEFAULT_HUNYUAN3D_MODEL = "tencent/Hunyuan3D-2.1"
 PROVIDER_METRICS_FILENAME = "provider_metrics.json"
@@ -99,6 +110,15 @@ CLI_PROVIDERS = {
         "runner": "trellis2-wrapper",
         "supports_low_vram": False,
         "supports_device": False,
+        "supports_remesh": False,
+        "supports_texture_resolution": False,
+    },
+    STEP1X3D_PROVIDER: {
+        "env": "STEP1X3D_DIR",
+        "default_dirs": ("/content/Step1X-3D",),
+        "runner": "step1x3d-wrapper",
+        "supports_low_vram": False,
+        "supports_device": True,
         "supports_remesh": False,
         "supports_texture_resolution": False,
     },
@@ -359,6 +379,65 @@ def trellis2_provider_models(args: argparse.Namespace) -> dict[str, dict[str, st
     }
 
 
+def step1x3d_provider_models(args: argparse.Namespace) -> dict[str, dict[str, str]]:
+    specs = step1x3d_model_specs(
+        model_repo=(
+            getattr(args, "step1x3d_model_path", None)
+            or DEFAULT_STEP1X3D_MODEL
+        ),
+        model_revision=(
+            getattr(args, "step1x3d_model_revision", None)
+            or DEFAULT_STEP1X3D_MODEL_REVISION
+        ),
+        subfolder=(
+            getattr(args, "step1x3d_subfolder", None)
+            or DEFAULT_STEP1X3D_SUBFOLDER
+        ),
+    )
+    return {
+        name: {
+            "repo_id": str(spec["repo_id"]),
+            "revision": str(spec["revision"]),
+            "subfolder": str(spec["subfolder"]),
+        }
+        for name, spec in specs.items()
+    }
+
+
+def require_step1x3d_pins(args: argparse.Namespace, provider_dir: Path) -> str:
+    model = (
+        getattr(args, "step1x3d_model_path", None)
+        or DEFAULT_STEP1X3D_MODEL
+    )
+    revision = (
+        getattr(args, "step1x3d_model_revision", None)
+        or DEFAULT_STEP1X3D_MODEL_REVISION
+    )
+    subfolder = (
+        getattr(args, "step1x3d_subfolder", None)
+        or DEFAULT_STEP1X3D_SUBFOLDER
+    )
+    if (
+        model != DEFAULT_STEP1X3D_MODEL
+        or revision != DEFAULT_STEP1X3D_MODEL_REVISION
+        or subfolder != DEFAULT_STEP1X3D_SUBFOLDER
+    ):
+        raise ValueError(
+            "Step1X-3D requires model "
+            f"{DEFAULT_STEP1X3D_MODEL}@{DEFAULT_STEP1X3D_MODEL_REVISION} "
+            f"subfolder {DEFAULT_STEP1X3D_SUBFOLDER}"
+        )
+    source_revision = provider_git_revision(provider_dir)
+    if source_revision != DEFAULT_STEP1X3D_SOURCE_REVISION:
+        actual = source_revision or "<unknown>"
+        raise ValueError(
+            "Step1X-3D provider source must be checked out at "
+            f"{DEFAULT_STEP1X3D_SOURCE_REVISION}; found {actual}"
+        )
+    verify_step1x3d_source_integrity(provider_dir)
+    return source_revision
+
+
 def trellis2_model_revision_pinned(args: argparse.Namespace) -> bool:
     model = (
         getattr(args, "trellis2_model_path", None) or DEFAULT_TRELLIS2_MODEL
@@ -453,6 +532,10 @@ def trellis2_wrapper_path() -> Path:
 
 def hunyuan3d_2mv_wrapper_path() -> Path:
     return Path(__file__).with_name("hunyuan3d_2mv_models.py").resolve()
+
+
+def step1x3d_wrapper_path() -> Path:
+    return Path(__file__).with_name("step1x3d_models.py").resolve()
 
 
 def resolve_pixal3d_model_snapshots(args: argparse.Namespace) -> dict[str, Path]:
@@ -581,6 +664,8 @@ def cli_provider_cache_payload(
     source_files = [run_entry]
     if args.provider == PIXAL3D_PROVIDER:
         source_files.append(provider_dir / "pixal3d" / "pipelines" / "pixal3d_image_to_3d.py")
+    elif args.provider == STEP1X3D_PROVIDER:
+        source_files.append(provider_dir / "step1x3d_geometry" / "__init__.py")
     source_sha256 = {
         path.relative_to(provider_dir).as_posix(): sha256_file(path)
         for path in source_files
@@ -589,6 +674,11 @@ def cli_provider_cache_payload(
     if args.provider == TRELLIS2_PROVIDER:
         wrapper_path = trellis2_wrapper_path()
         source_sha256["backend/benchmark/trellis2_models.py"] = sha256_file(
+            wrapper_path
+        )
+    elif args.provider == STEP1X3D_PROVIDER:
+        wrapper_path = step1x3d_wrapper_path()
+        source_sha256["backend/benchmark/step1x3d_models.py"] = sha256_file(
             wrapper_path
         )
     elif args.provider == HUNYUAN3D_2MV_PROVIDER:
@@ -627,6 +717,9 @@ def cli_provider_cache_payload(
     elif args.provider == TRELLIS2_PROVIDER:
         payload["provider_models"] = trellis2_provider_models(args)
         payload["expected_provider_revision"] = DEFAULT_TRELLIS2_SOURCE_REVISION
+    elif args.provider == STEP1X3D_PROVIDER:
+        payload["provider_models"] = step1x3d_provider_models(args)
+        payload["expected_provider_revision"] = DEFAULT_STEP1X3D_SOURCE_REVISION
     elif args.provider == HUNYUAN3D_2MV_PROVIDER:
         payload["provider_models"] = hunyuan3d_2mv_provider_models(args)
         payload["expected_provider_revision"] = DEFAULT_HUNYUAN3D_2MV_SOURCE_REVISION
@@ -652,6 +745,58 @@ def export_mesh(source: Path, target: Path) -> Path:
 
 def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_output_dir: Path) -> list[str]:
     config = CLI_PROVIDERS[args.provider]
+    if config.get("runner") == "step1x3d-wrapper":
+        command = [
+            args.python,
+            str(step1x3d_wrapper_path()),
+            "--provider-dir",
+            str(provider_dir),
+            "--model-path",
+            (
+                getattr(args, "step1x3d_model_path", None)
+                or DEFAULT_STEP1X3D_MODEL
+            ),
+            "--model-revision",
+            (
+                getattr(args, "step1x3d_model_revision", None)
+                or DEFAULT_STEP1X3D_MODEL_REVISION
+            ),
+            "--subfolder",
+            (
+                getattr(args, "step1x3d_subfolder", None)
+                or DEFAULT_STEP1X3D_SUBFOLDER
+            ),
+            "--num-inference-steps",
+            str(max(1, int(args.num_inference_steps))),
+            "--guidance-scale",
+            str(float(args.guidance_scale)),
+            "--octree-resolution",
+            str(max(32, int(args.octree_resolution))),
+            "--max-faces",
+            str(max(0, int(getattr(args, "step1x3d_max_faces", 0)))),
+            "--seed",
+            str(
+                int(args.seed)
+                if getattr(args, "seed", None) is not None
+                else DEFAULT_STEP1X3D_SEED
+            ),
+            "--device",
+            str(args.provider_device or "cuda"),
+        ]
+        if getattr(args, "prefetch_only", False):
+            command.append("--prefetch-only")
+        else:
+            command.extend(
+                [
+                    "--input-image",
+                    str(args.input_image),
+                    "--output-mesh",
+                    str(raw_output_dir / "output.glb"),
+                ]
+            )
+        command.extend(args.provider_arg or [])
+        return command
+
     if config.get("runner") == "hunyuan3d-2mv-wrapper":
         command = [
             args.python,
@@ -845,12 +990,25 @@ def run_cli_provider(args: argparse.Namespace) -> Path:
     provider_dir = resolve_provider_dir(args.provider, args.provider_dir)
     if args.provider == TRELLIS2_PROVIDER:
         require_trellis2_pins(args, provider_dir)
+    elif args.provider == STEP1X3D_PROVIDER:
+        require_step1x3d_pins(args, provider_dir)
     elif args.provider == HUNYUAN3D_2MV_PROVIDER:
         require_hunyuan3d_2mv_pins(args, provider_dir)
     pixal3d_pinned = args.provider == PIXAL3D_PROVIDER and pixal3d_model_revisions_pinned(args)
     triposg_pinned = args.provider == "triposg" and triposg_model_revisions_pinned(args)
     runner = CLI_PROVIDERS[args.provider].get("runner")
-    if runner == "hunyuan3d-2mv-wrapper":
+    if runner == "step1x3d-wrapper":
+        run_entry = (
+            provider_dir
+            / "step1x3d_geometry"
+            / "models"
+            / "pipelines"
+            / "pipeline.py"
+        )
+        missing_message = (
+            f"{args.provider} provider repo has no geometry pipeline: {run_entry}"
+        )
+    elif runner == "hunyuan3d-2mv-wrapper":
         run_entry = provider_dir / "hy3dgen" / "shapegen" / "pipelines.py"
         missing_message = (
             f"{args.provider} provider repo has no hy3dgen/shapegen/pipelines.py: "
@@ -1018,6 +1176,25 @@ def prefetch_trellis2(args: argparse.Namespace) -> None:
             f"{run_entry}"
         )
     command = cli_provider_command(args, provider_dir, Path("__trellis2_prefetch__"))
+    subprocess.run(command, cwd=provider_dir, check=True, timeout=args.timeout)
+
+
+def prefetch_step1x3d(args: argparse.Namespace) -> None:
+    provider_dir = resolve_provider_dir(STEP1X3D_PROVIDER, args.provider_dir)
+    require_step1x3d_pins(args, provider_dir)
+    run_entry = (
+        provider_dir
+        / "step1x3d_geometry"
+        / "models"
+        / "pipelines"
+        / "pipeline.py"
+    )
+    if not run_entry.is_file():
+        raise FileNotFoundError(
+            "step1x3d provider repo has no geometry pipeline: "
+            f"{run_entry}"
+        )
+    command = cli_provider_command(args, provider_dir, Path("__step1x3d_prefetch__"))
     subprocess.run(command, cwd=provider_dir, check=True, timeout=args.timeout)
 
 
@@ -1728,6 +1905,27 @@ def main() -> None:
     parser.add_argument("--triposg-model-revision", default=None)
     parser.add_argument("--triposg-rembg-revision", default=None)
     parser.add_argument(
+        "--step1x3d-model-path",
+        default=DEFAULT_STEP1X3D_MODEL,
+        help="Pinned official Step1X-3D Hugging Face repository.",
+    )
+    parser.add_argument(
+        "--step1x3d-model-revision",
+        default=DEFAULT_STEP1X3D_MODEL_REVISION,
+        help="Exact Step1X-3D Hugging Face snapshot revision.",
+    )
+    parser.add_argument(
+        "--step1x3d-subfolder",
+        default=DEFAULT_STEP1X3D_SUBFOLDER,
+        help="Pinned Step1X-3D geometry checkpoint subfolder.",
+    )
+    parser.add_argument(
+        "--step1x3d-max-faces",
+        type=int,
+        default=0,
+        help="Optional upstream Step1X-3D face reduction. Zero preserves diagnostic raw geometry.",
+    )
+    parser.add_argument(
         "--trellis2-model-path",
         default=DEFAULT_TRELLIS2_MODEL,
         help="Pinned TRELLIS.2 Hugging Face repository used by the isolated provider environment.",
@@ -1932,12 +2130,15 @@ def main() -> None:
         if args.provider == TRELLIS2_PROVIDER:
             prefetch_trellis2(args)
             return
+        if args.provider == STEP1X3D_PROVIDER:
+            prefetch_step1x3d(args)
+            return
         if args.provider == HUNYUAN3D_2MV_PROVIDER:
             prefetch_hunyuan3d_2mv(args)
             return
         raise ValueError(
             "--prefetch-only is currently supported only for hunyuan3d-shape, "
-            "hunyuan3d-2mv, and trellis2"
+            "hunyuan3d-2mv, step1x3d, and trellis2"
         )
     if not args.input_image or not args.output_mesh:
         raise ValueError("--input-image and --output-mesh are required unless --prefetch-only is set")
