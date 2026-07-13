@@ -32,6 +32,25 @@ from backend.benchmark.step1x3d_models import (
 
 
 class Step1X3DProviderTest(unittest.TestCase):
+    def test_cpu_request_does_not_report_vram_when_cuda_is_available(self):
+        class FakeCuda:
+            @staticmethod
+            def is_available():
+                return True
+
+            @staticmethod
+            def max_memory_allocated(_device):
+                raise AssertionError("CPU telemetry must not query CUDA")
+
+            @staticmethod
+            def max_memory_reserved(_device):
+                raise AssertionError("CPU telemetry must not query CUDA")
+
+        metrics = step1x3d_models._cuda_metrics(SimpleNamespace(cuda=FakeCuda()), None)
+
+        self.assertFalse(metrics["provider_peak_cuda_vram_supported"])
+        self.assertIsNone(metrics["provider_peak_cuda_vram_gib"])
+
     def _write_snapshot(self, root: Path, *, omit: str | None = None) -> Path:
         spec = step1x3d_models.step1x3d_model_specs()["step1x3d"]
         for relative_path in spec["required_files"]:

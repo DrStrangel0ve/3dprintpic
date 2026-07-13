@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
+import sys
 import tarfile
 import zipfile
 from datetime import datetime, timezone
@@ -41,6 +43,21 @@ REPAIR_CONVEX_HULL_RATE_MEAN = "repair_convex_hull_used_mean"
 REPAIR_CONVEX_HULL_SAMPLE = "repair_convex_hull_used"
 REPAIR_FILL_DRIFT_MEDIAN = "repair_fill_ratio_relative_change_abs_median"
 REPAIR_FILL_DRIFT_SAMPLE = "repair_fill_ratio_relative_change_abs"
+REPAIR_FILL_SCHEMA_V2_METRICS = {
+    "signed-volume": (
+        "raw_mesh_volume_fill_ratio",
+        "stl_volume_fill_ratio",
+    ),
+    "surface-component-unsigned-tetrahedra": (
+        "raw_mesh_surface_fill_ratio_comparison",
+        "stl_surface_fill_ratio_comparison",
+    ),
+}
+REPAIR_FILL_SCHEMA_V2_FINITE_FIELDS = (
+    "repair_fill_ratio_change",
+    "repair_fill_ratio_relative_change",
+    REPAIR_FILL_DRIFT_SAMPLE,
+)
 PROVIDER_METRICS_FILENAME = "provider_metrics.json"
 FAILED_PROVIDER_DIAGNOSTIC_PREFIXES = (
     "repair_component_filter_",
@@ -319,6 +336,51 @@ def load_failed_provider_diagnostics(run_dir: Path) -> list[dict]:
                 row[key] = value
         rows.append(row)
     return rows
+
+
+def schema_v2_repair_telemetry_result(per_sample_rows: list[dict], method: str) -> dict:
+    method_rows = [row for row in per_sample_rows if row.get("method") == method]
+    failed_samples = []
+    failure_reasons: dict[str, int] = {}
+    for index, row in enumerate(method_rows):
+        reasons = []
+        metric = str(row.get("repair_fill_ratio_metric") or "").strip()
+        canonical_fields = REPAIR_FILL_SCHEMA_V2_METRICS.get(metric)
+        if canonical_fields is None:
+            reasons.append("missing_or_noncanonical_metric")
+        proxy_flag = str(row.get("repair_fill_ratio_surface_proxy_used") or "").strip().lower()
+        expected_proxy_flag = metric == "surface-component-unsigned-tetrahedra"
+        if proxy_flag not in {"0", "1", "false", "true", "no", "yes", "n", "y"} or bool_value(
+            proxy_flag
+        ) != expected_proxy_flag:
+            reasons.append("inconsistent_surface_proxy_provenance")
+        if not bool_value(row.get("repair_fill_ratio_supported")):
+            reasons.append("unsupported")
+        required_finite_fields = list(REPAIR_FILL_SCHEMA_V2_FINITE_FIELDS)
+        if canonical_fields:
+            required_finite_fields.extend(canonical_fields)
+        for field in required_finite_fields:
+            value = parse_float(row.get(field))
+            if not math.isfinite(value):
+                reasons.append(f"nonfinite_{field}")
+        if reasons:
+            sample_id = _sample_label(row, index)
+            failed_samples.append({"sample_id": sample_id, "reasons": reasons})
+            for reason in reasons:
+                failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
+
+    if not method_rows:
+        failure_reasons["missing_method_rows"] = 1
+    passed = bool(method_rows) and not failed_samples
+    return {
+        "method": method,
+        "passed": passed,
+        "sample_count": len(method_rows),
+        "failed_sample_count": len(failed_samples),
+        "failed_samples": failed_samples,
+        "failure_reasons": failure_reasons,
+        "allowed_metrics": sorted(REPAIR_FILL_SCHEMA_V2_METRICS),
+    }
 
 
 def method_stl_mode(row: dict) -> str:
@@ -821,6 +883,7 @@ def summarize_run(
     score_mode: str,
     baseline_method: str,
     top: int,
+    required_schema_v2_repair_methods: tuple[str, ...] = (),
 ) -> dict:
     summary_rows, summary_path = load_summary_rows(run_dir)
     per_sample_rows = load_per_sample_rows(run_dir)
@@ -833,6 +896,10 @@ def summarize_run(
     )
     gate_failures = gate_failure_rows(ranked_rows[:top], per_sample_rows)
     failed_provider_diagnostics = load_failed_provider_diagnostics(run_dir)
+    schema_v2_repair_telemetry = [
+        schema_v2_repair_telemetry_result(per_sample_rows, method)
+        for method in required_schema_v2_repair_methods
+    ]
     return {
         "label": label,
         "run_dir": str(run_dir),
@@ -852,6 +919,10 @@ def summarize_run(
         "failed_provider_diagnostics": failed_provider_diagnostics,
         "gate_failures": gate_failures,
         "sample_failure_hotspots": sample_failure_hotspot_rows(gate_failures),
+        "required_schema_v2_repair_telemetry": schema_v2_repair_telemetry,
+        "required_schema_v2_repair_telemetry_passed": all(
+            result["passed"] for result in schema_v2_repair_telemetry
+        ),
     }
 
 
@@ -863,6 +934,7 @@ def summarize_inputs(
     score_mode: str = "baseline-delta",
     baseline_method: str = "masked",
     top: int = 20,
+    required_schema_v2_repair_methods: tuple[str, ...] = (),
 ) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     inputs = [materialize_input(*parse_input_spec(spec), output_dir=output_dir) for spec in input_specs]
@@ -881,6 +953,7 @@ def summarize_inputs(
                     score_mode=score_mode,
                     baseline_method=baseline_method,
                     top=top,
+                    required_schema_v2_repair_methods=required_schema_v2_repair_methods,
                 )
             )
     if not runs:
@@ -894,8 +967,34 @@ def summarize_inputs(
         "score_mode": score_mode,
         "baseline_method": baseline_method,
         "deployable_stl_modes": list(DEPLOYABLE_STL_MODES),
+        "required_schema_v2_repair_methods": list(required_schema_v2_repair_methods),
+        "required_schema_v2_repair_telemetry_passed": all(
+            run["required_schema_v2_repair_telemetry_passed"] for run in runs
+        ),
         "runs": runs,
     }
+
+
+def schema_v2_repair_telemetry_table_rows(rows: list[dict]) -> list[list[str]]:
+    table = []
+    for row in rows:
+        failures = []
+        for failure in row.get("failed_samples", []):
+            failures.append(
+                f"{failure.get('sample_id', '')}:" + ",".join(failure.get("reasons", []))
+            )
+        if not row.get("sample_count"):
+            failures.append("missing_method_rows")
+        table.append(
+            [
+                row.get("method", ""),
+                "yes" if row.get("passed") else "no",
+                format_number(row.get("sample_count")),
+                format_number(row.get("failed_sample_count")),
+                "; ".join(failures[:10]),
+            ]
+        )
+    return table
 
 
 def mode_table_rows(rows: list[dict]) -> list[list[str]]:
@@ -1012,6 +1111,7 @@ def render_markdown(report: dict) -> str:
         f"- Score mode: `{report.get('score_mode', '')}`",
         f"- Baseline: `{report.get('baseline_method', '')}`",
         f"- Result directories: `{report.get('run_count', 0)}`",
+        f"- Required schema-v2 repair telemetry: `{'pass' if report.get('required_schema_v2_repair_telemetry_passed') else 'fail'}`",
         "",
         "## Inputs",
         "",
@@ -1042,6 +1142,15 @@ def render_markdown(report: dict) -> str:
             )
         lines.extend(
             [
+                "",
+                "### Required Schema-V2 Repair Telemetry",
+                "",
+                markdown_table(
+                    ["Method", "Pass", "Samples", "Failed Samples", "Failure Detail"],
+                    schema_v2_repair_telemetry_table_rows(
+                        run.get("required_schema_v2_repair_telemetry", [])
+                    ),
+                ),
                 "",
                 "### Architecture Decision",
                 "",
@@ -1163,6 +1272,15 @@ def parse_args() -> argparse.Namespace:
         help="Ranking mode used for the ingest report.",
     )
     parser.add_argument("--baseline-method", default="masked")
+    parser.add_argument(
+        "--require-schema-v2-repair-method",
+        action="append",
+        default=[],
+        help=(
+            "Require complete canonical schema-v2 repair telemetry for every sample of this method. "
+            "Repeat for candidate and incumbent methods."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -1176,6 +1294,9 @@ def main() -> None:
         score_mode=args.score_mode,
         baseline_method=args.baseline_method,
         top=max(args.top, 1),
+        required_schema_v2_repair_methods=tuple(
+            dict.fromkeys(args.require_schema_v2_repair_method)
+        ),
     )
     output_json = Path(args.output_json) if args.output_json else output_dir / "stl_first_ingest_report.json"
     output_md = Path(args.output_md) if args.output_md else output_dir / "stl_first_ingest_report.md"
@@ -1185,6 +1306,9 @@ def main() -> None:
     output_md.write_text(render_markdown(report), encoding="utf-8")
     print(output_json)
     print(output_md)
+    if not report["required_schema_v2_repair_telemetry_passed"]:
+        print("Required schema-v2 repair telemetry validation failed.", file=sys.stderr)
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":

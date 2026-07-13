@@ -1440,6 +1440,13 @@ After downloading an older Colab results archive, or when the in-run ingest repo
 
 This writes `stl_first_ingest_report.json` and `stl_first_ingest_report.md`. The report picks the best deployable method among `depth-relief`, `single-image-mesh`, and `multiview-mesh`, while keeping `source-mesh-oracle` as a calibration row so ground-truth diagnostics do not accidentally become the product winner.
 
+For fresh schema-v2 incumbent challenges, repeat
+`--require-schema-v2-repair-method <method>` for the challenger and current
+method. The ingest report then validates every matching per-sample row and
+exits with status `2` when a method is missing, canonical repair values are
+non-finite, support is false, provenance is inconsistent, or the metric is a
+legacy fallback. Aggregate means cannot satisfy this contract.
+
 Next large-provider G4 slice, using the same packaged ModelNet10 manifest after the archive has been extracted:
 
 ```bash

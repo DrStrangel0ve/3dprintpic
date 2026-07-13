@@ -133,6 +133,20 @@ and compares Step1X raw/repaired output on held-out row 40. Step1X remains
 unmeasured until that G4 smoke completes; no expansion is authorized by this
 integration alone.
 
+After the compact archive is checksum-verified locally, ingest it with both
+repaired methods named explicitly:
+
+```powershell
+.\backend\.venv\Scripts\python -m backend.benchmark.ingest_stl_results step1x=C:\path\to\g4_stl_first_step1x3d_schema_v2_results_compact.tar.gz --output-dir backend\output\completion-benchmark\ingested\g4_stl_first_step1x3d_schema_v2 --require-schema-v2-repair-method triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh --require-schema-v2-repair-method step1x3d_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh
+```
+
+The optional strict ingest contract reads per-sample CSV telemetry rather than
+aggregate means. It exits with status `2` if either named method is absent, if
+canonical values are non-finite, if `repair_fill_ratio_supported` is false, if
+surface-proxy provenance disagrees with the metric, or if a legacy fallback
+label appears. This local acceptance step does not change the immutable Colab
+payload.
+
 The benchmark should rank candidates with STL-facing metrics:
 
 - **Watertightness:** whether the exported STL encloses a valid solid.

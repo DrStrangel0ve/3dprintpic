@@ -177,7 +177,7 @@ def verify_step1x3d_source_integrity(provider_dir: Path) -> dict[str, object]:
 
 
 def _cuda_metrics(torch_module, device) -> dict[str, object]:
-    if not torch_module.cuda.is_available():
+    if device is None or not torch_module.cuda.is_available():
         return {
             "provider_peak_cuda_vram_gib": None,
             "provider_peak_cuda_vram_supported": False,
