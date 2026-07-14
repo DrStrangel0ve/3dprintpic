@@ -35,6 +35,8 @@ RELIEF_VALUE_TRANSFORMS = {
     RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
 }
 HIGH_RELIEF_FACE_SCREENING_WEIGHT = 0.05
+HIGH_RELIEF_SELECTION_SCREENING_WEIGHT = 1.0
+HIGH_RELIEF_SELECTION_DETAIL_GRADIENT_RETENTION = 0.9
 METRIC_FAR_HIGH_DEPTH_MODELS = frozenset(
     {
         DEPTHPRO_MODEL_ID,
@@ -4615,9 +4617,10 @@ def _compress_selected_relief_surface(
         max_slope_mm_per_mm=max_slope_mm_per_mm,
         structural_region_mask=selected,
         detail_region_mask=detail_region,
+        screening_weight=HIGH_RELIEF_SELECTION_SCREENING_WEIGHT,
         minimum_detail_correlation=0.65,
         minimum_detail_rms_retention=0.15,
-        detail_gradient_retention=0.5,
+        detail_gradient_retention=HIGH_RELIEF_SELECTION_DETAIL_GRADIENT_RETENTION,
         maximum_detail_gradient_ratio=8.0,
     )
     stats["sample_pitch_source"] = sample_pitch_source
@@ -5396,6 +5399,24 @@ def depth_data_to_3d_model(
         boundary_exclusion_mm=0.8,
         component_metrics=True,
     )
+    if selected_region is not None:
+        selection_appearance_region = _resize_binary_mask(selected_region, z.shape)
+        if region_mask is not None:
+            selection_appearance_region &= ~_resize_binary_mask(region_mask, z.shape)
+        selection_appearance_stats = _surface_lighting_agreement_metrics(
+            unstabilized_scene,
+            z,
+            selection_appearance_region,
+            sample_pitch_mm=gradient_sample_pitch_mm,
+            boundary_exclusion_mm=0.8,
+            component_metrics=True,
+        )
+    else:
+        selection_appearance_stats = {
+            "available": False,
+            "reason": "no_selection_region",
+            "samples": 0,
+        }
     if background_context_enforced:
         background_appearance_region = (
             np.isfinite(background_reference_surface)
@@ -5407,6 +5428,7 @@ def depth_data_to_3d_model(
             background_appearance_region,
             sample_pitch_mm=gradient_sample_pitch_mm,
             boundary_exclusion_mm=1.5,
+            component_metrics=True,
         )
     else:
         background_appearance_stats = {
@@ -5417,6 +5439,7 @@ def depth_data_to_3d_model(
     surface_appearance_stats = {
         "method": "physical_heightfield_normals_lambertian_v1",
         "face": face_appearance_stats,
+        "selection_nonface": selection_appearance_stats,
         "background": background_appearance_stats,
     }
 

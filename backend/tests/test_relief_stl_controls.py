@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
-from scipy.ndimage import laplace
+from scipy.ndimage import laplace, zoom
 from stl import mesh
 from PIL import Image
 
@@ -1498,14 +1498,140 @@ class ReliefStlControlsTest(unittest.TestCase):
             stl_exists = stl_path.is_file()
 
         selection_compression = postprocess["selection_gradient_compression"]
+        selection_appearance = postprocess["surface_appearance_agreement"][
+            "selection_nonface"
+        ]
         self.assertTrue(selection_compression["enabled"])
         self.assertTrue(selection_compression["face_protection_passed"])
+        self.assertAlmostEqual(selection_compression["screening_weight"], 1.0)
+        self.assertAlmostEqual(
+            selection_compression["detail_gradient_retention"],
+            0.9,
+        )
         self.assertGreater(selection_compression["retained_detail_gradient_pairs"], 0)
         self.assertEqual(
             selection_compression["protected_region_blend"]["protected_correction_max_mm"],
             0.0,
         )
+        self.assertTrue(selection_appearance["available"])
+        self.assertEqual(selection_appearance["candidate_coverage_ratio"], 1.0)
+        self.assertEqual(selection_appearance["component_count"], 1)
+        self.assertEqual(len(selection_appearance["components"]), 1)
+        self.assertTrue(selection_appearance["components"][0]["available"])
         self.assertTrue(stl_exists)
+
+    def test_selected_surface_appearance_holds_across_physical_sample_pitches(self):
+        from backend.benchmark.run_relief_visual_sweep import (
+            _sweep_specs,
+            _topology_scene,
+        )
+
+        source, face, selection = _topology_scene(_sweep_specs()[2])
+        observed_correlations = []
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            for factor in (1, 2):
+                with self.subTest(factor=factor):
+                    if factor == 1:
+                        sampled_source = source
+                        sampled_face = face
+                        sampled_selection = selection
+                    else:
+                        sampled_source = zoom(source, factor, order=1)[:-1, :-1]
+                        sampled_face = zoom(
+                            face.astype(np.uint8), factor, order=0
+                        )[:-1, :-1].astype(bool)
+                        sampled_selection = zoom(
+                            selection.astype(np.uint8), factor, order=0
+                        )[:-1, :-1].astype(bool)
+                    sample_pitch_mm = 48.0 / float(sampled_source.shape[0] - 1)
+                    composed, _ = compose_selection_depth_with_context(
+                        sampled_source,
+                        sampled_selection,
+                        relief_height_mm=40.0,
+                        sample_pitch_mm=sample_pitch_mm,
+                        max_slope_mm_per_mm=2.0,
+                        background_depth_ratio=0.45,
+                        background_feather_mm=1.5,
+                        background_smoothing_mm=0.6,
+                    )
+                    depth_path = root / f"depth-{factor}.npy"
+                    stl_path = root / f"relief-{factor}.stl"
+                    np.save(depth_path, composed.astype(np.float32))
+                    postprocess = depth_data_to_3d_model(
+                        depth_path,
+                        output_stl_path=str(stl_path),
+                        target_dimension=-1,
+                        z_scale=40.0,
+                        max_xy_size=48.0,
+                        sigma=0.0,
+                        relief_gamma=1.0,
+                        detail_boost=0.0,
+                        low_percentile=0.0,
+                        high_percentile=100.0,
+                        base_border_px=1,
+                        value_transform="linear",
+                        minimum_feature_mm=2.0 * sample_pitch_mm,
+                        max_relief_slope=2.0,
+                        face_region_mask=sampled_face,
+                        selection_region_mask=sampled_selection,
+                        selection_background_depth_ratio=0.45,
+                    )
+
+                    compression = postprocess["selection_gradient_compression"]
+                    appearance = postprocess["surface_appearance_agreement"]
+                    selected = appearance["selection_nonface"]
+                    self.assertTrue(compression["face_protection_passed"])
+                    if not compression["enabled"]:
+                        self.assertEqual(compression["reason"], "quality_gate")
+                        self.assertFalse(compression["quality_gates"]["passed"])
+                        self.assertTrue(compression["quality_gates"]["failures"])
+                    self.assertAlmostEqual(compression["screening_weight"], 1.0)
+                    self.assertAlmostEqual(
+                        compression["detail_gradient_retention"],
+                        0.9,
+                    )
+                    self.assertAlmostEqual(
+                        compression["max_neighbor_step_mm"],
+                        2.0 * sample_pitch_mm,
+                        places=5,
+                    )
+                    self.assertTrue(selected["available"])
+                    self.assertGreaterEqual(selected["normal_mean_cosine"], 0.95)
+                    self.assertGreaterEqual(selected["normal_p05_cosine"], 0.85)
+                    self.assertLessEqual(selected["normal_angle_p95_deg"], 30.0)
+                    self.assertGreaterEqual(
+                        selected["minimum_lighting_correlation"],
+                        0.8,
+                    )
+                    self.assertLessEqual(selected["maximum_lighting_mae"], 0.08)
+                    self.assertGreaterEqual(
+                        selected["minimum_lighting_rms_retention"],
+                        0.75,
+                    )
+                    self.assertLessEqual(
+                        selected["maximum_lighting_rms_retention"],
+                        1.4,
+                    )
+                    self.assertGreaterEqual(
+                        appearance["face"]["minimum_lighting_correlation"],
+                        0.8,
+                    )
+                    self.assertGreaterEqual(
+                        appearance["background"]["minimum_lighting_correlation"],
+                        0.95,
+                    )
+                    self.assertTrue(
+                        postprocess["selection_background_physical_cap"][
+                            "emission_passed"
+                        ]
+                    )
+                    self.assertTrue(stl_path.is_file())
+                    observed_correlations.append(
+                        selected["minimum_lighting_correlation"]
+                    )
+
+        self.assertLessEqual(max(observed_correlations) - min(observed_correlations), 0.1)
 
     def test_slope_limiter_preserves_large_structural_silhouettes(self):
         values = np.zeros((81, 81), dtype=np.float32)

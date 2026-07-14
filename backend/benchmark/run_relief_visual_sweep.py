@@ -65,6 +65,7 @@ BACKGROUND_APPEARANCE_GATES = {
     "minimum_lighting_rms_retention": 0.75,
     "maximum_lighting_rms_retention": 1.25,
 }
+SELECTION_APPEARANCE_GATES = dict(FACE_APPEARANCE_GATES)
 CROSS_HEIGHT_FACE_GATES = {
     "minimum_shape_correlation": 0.98,
     "maximum_normalized_shape_rmse": 0.08,
@@ -81,6 +82,7 @@ class SweepSpec:
     topology_mode: str = "base"
     expected_components: int = 1
     expected_holes: int = 0
+    expected_background_components: int = 1
 
 
 def _sweep_specs() -> tuple[SweepSpec, ...]:
@@ -122,6 +124,7 @@ def _sweep_specs() -> tuple[SweepSpec, ...]:
             topology_mode="disconnected_hole",
             expected_components=2,
             expected_holes=1,
+            expected_background_components=2,
         ),
     )
 
@@ -130,8 +133,8 @@ def _topology_scene(spec: SweepSpec) -> tuple[np.ndarray, np.ndarray, np.ndarray
     source, face, subject = _synthetic_scene(spec.scene)
     if spec.topology_mode == "disconnected_hole":
         rows, cols = np.indices(source.shape, dtype=np.float32)
-        island = (rows - 18.0) ** 2 + (cols - 103.0) ** 2 <= 7.0**2
-        hole = (rows - 86.0) ** 2 + (cols - 60.0) ** 2 <= 5.0**2
+        island = (rows - 18.0) ** 2 + (cols - 103.0) ** 2 <= 9.0**2
+        hole = (rows - 95.0) ** 2 + (cols - 60.0) ** 2 <= 12.0**2
         subject = (subject | island) & ~hole
         source = source.copy()
         source[island] = (
@@ -314,17 +317,18 @@ def _appearance_record(metrics: dict) -> dict:
     }
 
 
-def _stl_heightfield_agreement(
+def _stl_top_surface_agreement(
     stl_path: str | Path,
     surface_path: str | Path,
     *,
     maximum_error_mm=1e-5,
     maximum_rms_error_mm=1e-6,
 ) -> dict:
-    """Verify that the reopened STL top surface matches the pre-export grid."""
+    """Verify reopened STL samples, top triangles, and oriented facet normals."""
     expected = np.load(surface_path).astype(np.float64)
-    mesh = trimesh.load_mesh(stl_path, process=True)
+    mesh = trimesh.load_mesh(stl_path, process=False)
     vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    triangles = np.asarray(mesh.triangles, dtype=np.float64)
     stats = {
         "available": False,
         "passed": False,
@@ -332,7 +336,13 @@ def _stl_heightfield_agreement(
         "maximum_error_mm": float(maximum_error_mm),
         "maximum_rms_error_mm": float(maximum_rms_error_mm),
     }
-    if expected.ndim != 2 or not len(vertices):
+    if (
+        expected.ndim != 2
+        or not len(vertices)
+        or not len(triangles)
+        or not np.all(np.isfinite(vertices))
+        or not np.all(np.isfinite(triangles))
+    ):
         stats["reason"] = "invalid_surface_or_mesh"
         return stats
     unique_x = np.unique(vertices[:, 0])
@@ -368,17 +378,474 @@ def _stl_heightfield_agreement(
     errors = np.abs(reconstructed[measured] - expected[measured])
     max_error = float(np.max(errors))
     rms_error = float(np.sqrt(np.mean(np.square(errors))))
+
+    cell_valid = (
+        expected_valid[:-1, :-1]
+        & expected_valid[1:, :-1]
+        & expected_valid[:-1, 1:]
+        & expected_valid[1:, 1:]
+    )
+    cell_rows, cell_cols = np.where(cell_valid)
+    if not len(cell_rows):
+        stats["reason"] = "no_emittable_cells"
+        return stats
+    v0 = np.column_stack(
+        (unique_x[cell_cols], unique_y[cell_rows], expected[cell_rows, cell_cols])
+    )
+    v1 = np.column_stack(
+        (
+            unique_x[cell_cols],
+            unique_y[cell_rows + 1],
+            expected[cell_rows + 1, cell_cols],
+        )
+    )
+    v2 = np.column_stack(
+        (
+            unique_x[cell_cols + 1],
+            unique_y[cell_rows],
+            expected[cell_rows, cell_cols + 1],
+        )
+    )
+    v3 = np.column_stack(
+        (
+            unique_x[cell_cols + 1],
+            unique_y[cell_rows + 1],
+            expected[cell_rows + 1, cell_cols + 1],
+        )
+    )
+    expected_triangles = np.concatenate(
+        (
+            np.stack((v0, v2, v1), axis=1),
+            np.stack((v1, v2, v3), axis=1),
+        ),
+        axis=0,
+    )
+
+    base_z = float(np.min(vertices[:, 2]))
+    surface_candidates = triangles[
+        np.all(triangles[:, :, 2] > base_z + float(maximum_error_mm), axis=1)
+    ]
+    candidate_x = np.searchsorted(unique_x, surface_candidates[:, :, 0])
+    candidate_y = np.searchsorted(unique_y, surface_candidates[:, :, 1])
+    candidate_indices_valid = (
+        (candidate_x >= 0)
+        & (candidate_x < len(unique_x))
+        & (candidate_y >= 0)
+        & (candidate_y < len(unique_y))
+    )
+    candidate_expected_z = np.full(candidate_x.shape, np.nan, dtype=np.float64)
+    valid_candidate_vertices = candidate_indices_valid
+    candidate_expected_z[valid_candidate_vertices] = expected[
+        candidate_y[valid_candidate_vertices],
+        candidate_x[valid_candidate_vertices],
+    ]
+    candidate_matches_surface = np.all(
+        candidate_indices_valid
+        & np.isfinite(candidate_expected_z)
+        & (
+            np.abs(surface_candidates[:, :, 2] - candidate_expected_z)
+            <= float(maximum_error_mm)
+        ),
+        axis=1,
+    )
+    actual_top_triangles = surface_candidates[candidate_matches_surface]
+    unexpected_top_triangle_count = int(
+        len(surface_candidates) - len(actual_top_triangles)
+    )
+
+    def canonicalize(values):
+        values = np.asarray(values, dtype=np.float64)
+        quantized = np.rint(values / float(maximum_error_mm)).astype(np.int64)
+        vertex_order = np.broadcast_to(
+            np.arange(3, dtype=np.int64),
+            quantized.shape[:2],
+        ).copy()
+        for axis in (2, 1, 0):
+            current = np.take_along_axis(
+                quantized[:, :, axis],
+                vertex_order,
+                axis=1,
+            )
+            local_order = np.argsort(current, axis=1, kind="stable")
+            vertex_order = np.take_along_axis(vertex_order, local_order, axis=1)
+        canonical_quantized = np.take_along_axis(
+            quantized,
+            vertex_order[:, :, None],
+            axis=1,
+        )
+        canonical_values = np.take_along_axis(
+            values,
+            vertex_order[:, :, None],
+            axis=1,
+        )
+        flattened = canonical_quantized.reshape((len(values), 9))
+        row_order = np.arange(len(values), dtype=np.int64)
+        for column in range(flattened.shape[1] - 1, -1, -1):
+            local_order = np.argsort(
+                flattened[row_order, column],
+                kind="stable",
+            )
+            row_order = row_order[local_order]
+        return (
+            canonical_quantized[row_order],
+            canonical_values[row_order],
+            row_order,
+        )
+
+    expected_key, expected_canonical, expected_order = canonicalize(
+        expected_triangles
+    )
+    actual_key, actual_canonical, actual_order = canonicalize(actual_top_triangles)
+    triangle_count_match = len(expected_triangles) == len(actual_top_triangles)
+    triangle_set_match = bool(
+        triangle_count_match
+        and unexpected_top_triangle_count == 0
+        and np.array_equal(expected_key, actual_key)
+    )
+    triangle_coordinate_error = None
+    minimum_normal_cosine = None
+    mean_normal_cosine = None
+    if triangle_set_match:
+        triangle_coordinate_error = float(
+            np.max(np.abs(expected_canonical - actual_canonical))
+        )
+
+        def oriented_normals(values):
+            normals = np.cross(
+                values[:, 1] - values[:, 0],
+                values[:, 2] - values[:, 0],
+            )
+            lengths = np.linalg.norm(normals, axis=1)
+            return normals / np.maximum(lengths[:, None], 1e-12)
+
+        expected_normals = oriented_normals(expected_triangles)[expected_order]
+        actual_normals = oriented_normals(actual_top_triangles)[actual_order]
+        normal_cosines = np.einsum("ij,ij->i", expected_normals, actual_normals)
+        minimum_normal_cosine = float(np.min(normal_cosines))
+        mean_normal_cosine = float(np.mean(normal_cosines))
+
+    sample_passed = bool(
+        coverage_ratio >= 1.0
+        and max_error <= float(maximum_error_mm)
+        and rms_error <= float(maximum_rms_error_mm)
+    )
+    facet_passed = bool(
+        triangle_set_match
+        and triangle_coordinate_error is not None
+        and triangle_coordinate_error <= float(maximum_error_mm)
+        and minimum_normal_cosine is not None
+        and minimum_normal_cosine >= 1.0 - 1e-6
+    )
     stats.update(
         {
             "max_abs_error_mm": max_error,
             "rms_error_mm": rms_error,
-            "passed": bool(
-                coverage_ratio >= 1.0
-                and max_error <= float(maximum_error_mm)
-                and rms_error <= float(maximum_rms_error_mm)
+            "sample_grid_passed": sample_passed,
+            "expected_top_triangle_count": int(len(expected_triangles)),
+            "actual_top_triangle_count": int(len(actual_top_triangles)),
+            "unexpected_top_triangle_count": unexpected_top_triangle_count,
+            "triangle_count_match": triangle_count_match,
+            "triangle_set_match": triangle_set_match,
+            "max_triangle_coordinate_error_mm": triangle_coordinate_error,
+            "minimum_facet_normal_cosine": minimum_normal_cosine,
+            "mean_facet_normal_cosine": mean_normal_cosine,
+            "facet_geometry_passed": facet_passed,
+            "passed": bool(sample_passed and facet_passed),
+        }
+    )
+    return stats
+
+
+def _stl_heightfield_agreement(
+    stl_path: str | Path,
+    surface_path: str | Path,
+    *,
+    maximum_error_mm=1e-5,
+    maximum_rms_error_mm=1e-6,
+    expected_max_xy_size_mm=48.0,
+) -> dict:
+    """Verify samples and the complete exporter shell, including facet winding."""
+    top_stats = _stl_top_surface_agreement(
+        stl_path,
+        surface_path,
+        maximum_error_mm=maximum_error_mm,
+        maximum_rms_error_mm=maximum_rms_error_mm,
+    )
+    stats = dict(top_stats)
+    stats["top_facet_geometry_passed"] = bool(
+        top_stats.get("facet_geometry_passed", False)
+    )
+    stats["complete_shell_verified"] = False
+    stats["facet_geometry_passed"] = False
+    stats["passed"] = False
+    try:
+        tolerance = float(maximum_error_mm)
+        max_xy_size = float(expected_max_xy_size_mm)
+    except (TypeError, ValueError):
+        stats["reason"] = "invalid_shell_configuration"
+        return stats
+    stats["expected_max_xy_size_mm"] = max_xy_size
+    if (
+        not np.isfinite(tolerance)
+        or tolerance <= 0
+        or not np.isfinite(max_xy_size)
+        or max_xy_size <= 0
+    ):
+        stats["reason"] = "invalid_shell_configuration"
+        return stats
+    if not top_stats.get("available", False):
+        return stats
+
+    expected = np.load(surface_path).astype(np.float64)
+    mesh = trimesh.load_mesh(stl_path, process=False)
+    triangles = np.asarray(mesh.triangles, dtype=np.float64)
+    if (
+        expected.ndim != 2
+        or min(expected.shape, default=0) < 2
+        or not len(triangles)
+        or not np.all(np.isfinite(triangles))
+    ):
+        stats["reason"] = "invalid_shell_geometry"
+        return stats
+    row_count, column_count = expected.shape
+    coordinate_max = max(row_count - 1, column_count - 1)
+    sample_pitch = max_xy_size / float(coordinate_max)
+    stats["sample_pitch_mm"] = float(sample_pitch)
+    if sample_pitch <= 2.0 * tolerance:
+        stats["reason"] = "shell_grid_spacing_within_tolerance"
+        return stats
+
+    expected_valid = np.isfinite(expected)
+    cell_valid = (
+        expected_valid[:-1, :-1]
+        & expected_valid[1:, :-1]
+        & expected_valid[:-1, 1:]
+        & expected_valid[1:, 1:]
+    )
+    cell_rows, cell_cols = np.where(cell_valid)
+    if not len(cell_rows):
+        stats["reason"] = "no_emittable_cells"
+        return stats
+    emittable = np.zeros(expected.shape, dtype=bool)
+    emittable[cell_rows, cell_cols] = True
+    emittable[cell_rows + 1, cell_cols] = True
+    emittable[cell_rows, cell_cols + 1] = True
+    emittable[cell_rows + 1, cell_cols + 1] = True
+    stats["finite_reference_samples"] = int(np.count_nonzero(expected_valid))
+    stats["unemittable_reference_samples"] = int(
+        np.count_nonzero(expected_valid & ~emittable)
+    )
+    if np.any(np.abs(expected[emittable]) <= 2.0 * tolerance):
+        stats["reason"] = "ambiguous_top_bottom_surface"
+        return stats
+
+    x_axis = np.arange(column_count, dtype=np.float64) * sample_pitch
+    y_axis = np.arange(row_count, dtype=np.float64) * sample_pitch
+    expected_triangles = []
+    expected_keys = []
+
+    def vertex(row, col, top):
+        layer = int(bool(top))
+        return (
+            np.asarray(
+                (
+                    x_axis[col],
+                    y_axis[row],
+                    expected[row, col] if layer else 0.0,
+                ),
+                dtype=np.float64,
+            ),
+            int(((row * column_count + col) * 2) + layer),
+        )
+
+    def add_triangle(first, second, third):
+        coordinates, keys = zip(first, second, third)
+        expected_triangles.append(np.stack(coordinates, axis=0))
+        expected_keys.append(keys)
+
+    for row, col in zip(cell_rows.tolist(), cell_cols.tolist()):
+        v0 = vertex(row, col, True)
+        v1 = vertex(row + 1, col, True)
+        v2 = vertex(row, col + 1, True)
+        v3 = vertex(row + 1, col + 1, True)
+        b0 = vertex(row, col, False)
+        b1 = vertex(row + 1, col, False)
+        b2 = vertex(row, col + 1, False)
+        b3 = vertex(row + 1, col + 1, False)
+        add_triangle(v0, v2, v1)
+        add_triangle(v1, v2, v3)
+        add_triangle(b2, b0, b1)
+        add_triangle(b2, b1, b3)
+        if row == 0 or not cell_valid[row - 1, col]:
+            add_triangle(v0, b0, v2)
+            add_triangle(v2, b0, b2)
+        if row == cell_valid.shape[0] - 1 or not cell_valid[row + 1, col]:
+            add_triangle(v1, v3, b1)
+            add_triangle(v3, b3, b1)
+        if col == 0 or not cell_valid[row, col - 1]:
+            add_triangle(v0, v1, b0)
+            add_triangle(v1, b1, b0)
+        if col == cell_valid.shape[1] - 1 or not cell_valid[row, col + 1]:
+            add_triangle(v2, b2, v3)
+            add_triangle(v3, b2, b3)
+
+    expected_triangles = np.asarray(expected_triangles, dtype=np.float64)
+    expected_keys = np.asarray(expected_keys, dtype=np.int64)
+    signed_volume = float(
+        np.einsum(
+            "ij,ij->i",
+            expected_triangles[:, 0],
+            np.cross(expected_triangles[:, 1], expected_triangles[:, 2]),
+        ).sum()
+        / 6.0
+    )
+    if signed_volume < 0:
+        expected_triangles = expected_triangles[:, [0, 2, 1], :]
+        expected_keys = expected_keys[:, [0, 2, 1]]
+
+    actual_vertices = triangles.reshape(-1, 3)
+    actual_cols = np.rint(actual_vertices[:, 0] / sample_pitch).astype(np.int64)
+    actual_rows = np.rint(actual_vertices[:, 1] / sample_pitch).astype(np.int64)
+    grid_valid = (
+        (actual_cols >= 0)
+        & (actual_cols < column_count)
+        & (actual_rows >= 0)
+        & (actual_rows < row_count)
+    )
+    clipped_cols = np.clip(actual_cols, 0, column_count - 1)
+    clipped_rows = np.clip(actual_rows, 0, row_count - 1)
+    x_error = np.abs(actual_vertices[:, 0] - x_axis[clipped_cols])
+    y_error = np.abs(actual_vertices[:, 1] - y_axis[clipped_rows])
+    grid_valid &= x_error <= tolerance
+    grid_valid &= y_error <= tolerance
+    top_z = expected[clipped_rows, clipped_cols]
+    top_match = (
+        grid_valid
+        & np.isfinite(top_z)
+        & (np.abs(actual_vertices[:, 2] - top_z) <= tolerance)
+    )
+    bottom_match = grid_valid & (np.abs(actual_vertices[:, 2]) <= tolerance)
+    ambiguous_layer = top_match & bottom_match
+    vertex_valid = (top_match | bottom_match) & ~ambiguous_layer
+    layers = top_match.astype(np.int64)
+    actual_vertex_keys = np.full(len(actual_vertices), -1, dtype=np.int64)
+    actual_vertex_keys[vertex_valid] = (
+        (actual_rows[vertex_valid] * column_count + actual_cols[vertex_valid]) * 2
+        + layers[vertex_valid]
+    )
+    actual_keys = actual_vertex_keys.reshape(-1, 3)
+    actual_triangle_valid = np.all(actual_keys >= 0, axis=1)
+    mapped_coordinates = np.column_stack(
+        (
+            x_axis[clipped_cols],
+            y_axis[clipped_rows],
+            np.where(layers > 0, top_z, 0.0),
+        )
+    )
+    coordinate_errors = np.abs(
+        actual_vertices[vertex_valid] - mapped_coordinates[vertex_valid]
+    )
+    maximum_coordinate_error = (
+        float(np.max(coordinate_errors)) if coordinate_errors.size else None
+    )
+
+    def canonical_keys(keys):
+        keys = np.sort(np.asarray(keys, dtype=np.int64), axis=1)
+        if not len(keys):
+            return keys, np.empty(0, dtype=np.int64)
+        order = np.lexsort((keys[:, 2], keys[:, 1], keys[:, 0]))
+        return keys[order], order
+
+    canonical_expected, expected_order = canonical_keys(expected_keys)
+    canonical_actual, actual_order = canonical_keys(actual_keys)
+    shell_count_match = len(expected_triangles) == len(triangles)
+    shell_connectivity_match = bool(
+        shell_count_match
+        and np.all(actual_triangle_valid)
+        and np.array_equal(canonical_expected, canonical_actual)
+    )
+    minimum_shell_normal_cosine = None
+    mean_shell_normal_cosine = None
+    if shell_connectivity_match:
+
+        def oriented_normals(values):
+            normals = np.cross(
+                values[:, 1] - values[:, 0],
+                values[:, 2] - values[:, 0],
+            )
+            lengths = np.linalg.norm(normals, axis=1)
+            valid_lengths = lengths > 1e-12
+            normalized = np.zeros_like(normals)
+            normalized[valid_lengths] = (
+                normals[valid_lengths] / lengths[valid_lengths, None]
+            )
+            return normalized, valid_lengths
+
+        expected_normals, expected_normals_valid = oriented_normals(
+            expected_triangles
+        )
+        actual_normals, actual_normals_valid = oriented_normals(triangles)
+        expected_normals = expected_normals[expected_order]
+        actual_normals = actual_normals[actual_order]
+        normals_valid = (
+            expected_normals_valid[expected_order]
+            & actual_normals_valid[actual_order]
+        )
+        normal_cosines = np.einsum(
+            "ij,ij->i",
+            expected_normals,
+            actual_normals,
+        )
+        normal_cosines[~normals_valid] = -1.0
+        minimum_shell_normal_cosine = float(np.min(normal_cosines))
+        mean_shell_normal_cosine = float(np.mean(normal_cosines))
+
+    complete_shell_verified = bool(
+        shell_connectivity_match
+        and maximum_coordinate_error is not None
+        and maximum_coordinate_error <= tolerance
+        and minimum_shell_normal_cosine is not None
+        and minimum_shell_normal_cosine >= 1.0 - 1e-6
+    )
+    top_coordinate_error = top_stats.get("max_triangle_coordinate_error_mm")
+    combined_coordinate_error = (
+        max(float(top_coordinate_error), maximum_coordinate_error)
+        if top_coordinate_error is not None and maximum_coordinate_error is not None
+        else maximum_coordinate_error
+    )
+    top_normal_cosine = top_stats.get("minimum_facet_normal_cosine")
+    combined_normal_cosine = (
+        min(float(top_normal_cosine), minimum_shell_normal_cosine)
+        if top_normal_cosine is not None and minimum_shell_normal_cosine is not None
+        else minimum_shell_normal_cosine
+    )
+    stats.update(
+        {
+            "expected_shell_triangle_count": int(len(expected_triangles)),
+            "actual_shell_triangle_count": int(len(triangles)),
+            "invalid_shell_triangle_count": int(
+                len(triangles) - np.count_nonzero(actual_triangle_valid)
+            ),
+            "shell_triangle_count_match": shell_count_match,
+            "shell_connectivity_match": shell_connectivity_match,
+            "max_shell_coordinate_error_mm": maximum_coordinate_error,
+            "minimum_shell_normal_cosine": minimum_shell_normal_cosine,
+            "mean_shell_normal_cosine": mean_shell_normal_cosine,
+            "max_triangle_coordinate_error_mm": combined_coordinate_error,
+            "minimum_facet_normal_cosine": combined_normal_cosine,
+            "complete_shell_verified": complete_shell_verified,
+            "facet_geometry_passed": bool(
+                top_stats.get("facet_geometry_passed", False)
+                and complete_shell_verified
             ),
         }
     )
+    stats["passed"] = bool(
+        stats.get("sample_grid_passed", False)
+        and stats["facet_geometry_passed"]
+    )
+    if not stats["passed"] and stats.get("reason") is None:
+        stats["reason"] = "shell_geometry_mismatch"
     return stats
 
 
@@ -817,8 +1284,13 @@ def run(
         base_checks = _scene_checks(compose_stats, postprocess, topology)
         appearance = postprocess["surface_appearance_agreement"]
         face_appearance = appearance["face"]
+        selection_appearance = appearance["selection_nonface"]
         background_appearance = appearance["background"]
         face_checks = _appearance_checks(face_appearance, FACE_APPEARANCE_GATES)
+        selection_checks = _appearance_checks(
+            selection_appearance,
+            SELECTION_APPEARANCE_GATES,
+        )
         background_checks = _appearance_checks(
             background_appearance,
             BACKGROUND_APPEARANCE_GATES,
@@ -826,11 +1298,18 @@ def run(
         row_checks = {
             **base_checks,
             "face_appearance": face_checks["passed"],
+            "selection_appearance": selection_checks["passed"],
             "background_appearance": background_checks["passed"],
             "emitted_surface": emitted_surface["passed"],
             "mask_topology": bool(
                 mask_topology["component_count"] == spec.expected_components
                 and mask_topology["hole_count"] == spec.expected_holes
+            ),
+            "appearance_component_coverage": bool(
+                selection_appearance.get("component_count")
+                == spec.expected_components
+                and background_appearance.get("component_count")
+                == spec.expected_background_components
             ),
         }
         rows.append(
@@ -844,6 +1323,7 @@ def run(
                 "runtime_seconds": float(time.perf_counter() - row_started),
                 "checks": {**row_checks, "passed": all(row_checks.values())},
                 "face_appearance_checks": face_checks,
+                "selection_appearance_checks": selection_checks,
                 "background_appearance_checks": background_checks,
                 "compose": {
                     "normalized_context_correlation": _finite_metric(
@@ -878,6 +1358,7 @@ def run(
                     ),
                 },
                 "face_appearance": _appearance_record(face_appearance),
+                "selection_appearance": _appearance_record(selection_appearance),
                 "background_appearance": _appearance_record(background_appearance),
                 "emitted_surface": emitted_surface,
                 "background": {
@@ -957,6 +1438,8 @@ def run(
         and all(row["checks"]["passed"] for row in rows),
         "all_face_appearance_gates_passed": bool(rows)
         and all(row["checks"]["face_appearance"] for row in rows),
+        "all_selection_appearance_gates_passed": bool(rows)
+        and all(row["checks"]["selection_appearance"] for row in rows),
         "all_background_appearance_gates_passed": bool(rows)
         and all(row["checks"]["background_appearance"] for row in rows),
         "all_emitted_surfaces_match": bool(rows)
@@ -986,6 +1469,7 @@ def run(
             "trimesh": trimesh.__version__,
         },
         "face_appearance_gates": FACE_APPEARANCE_GATES,
+        "selection_appearance_gates": SELECTION_APPEARANCE_GATES,
         "background_appearance_gates": BACKGROUND_APPEARANCE_GATES,
         "cross_height_face_gates": CROSS_HEIGHT_FACE_GATES,
         "runtime_seconds": float(time.perf_counter() - started),
@@ -1019,6 +1503,18 @@ def run(
                 rows,
                 "background_appearance",
                 "normal_mean_cosine",
+                min,
+            ),
+            "minimum_selection_normal_mean_cosine": _extreme(
+                rows,
+                "selection_appearance",
+                "normal_mean_cosine",
+                min,
+            ),
+            "minimum_selection_lighting_correlation": _extreme(
+                rows,
+                "selection_appearance",
+                "minimum_lighting_correlation",
                 min,
             ),
             "minimum_background_lighting_correlation": _extreme(
