@@ -1503,7 +1503,7 @@ class ReliefStlControlsTest(unittest.TestCase):
         ]
         self.assertTrue(selection_compression["enabled"])
         self.assertTrue(selection_compression["face_protection_passed"])
-        self.assertAlmostEqual(selection_compression["screening_weight"], 1.0)
+        self.assertAlmostEqual(selection_compression["screening_weight"], 2.0)
         self.assertAlmostEqual(
             selection_compression["detail_gradient_retention"],
             0.9,
@@ -1586,7 +1586,7 @@ class ReliefStlControlsTest(unittest.TestCase):
                         self.assertEqual(compression["reason"], "quality_gate")
                         self.assertFalse(compression["quality_gates"]["passed"])
                         self.assertTrue(compression["quality_gates"]["failures"])
-                    self.assertAlmostEqual(compression["screening_weight"], 1.0)
+                    self.assertAlmostEqual(compression["screening_weight"], 2.0)
                     self.assertAlmostEqual(
                         compression["detail_gradient_retention"],
                         0.9,
