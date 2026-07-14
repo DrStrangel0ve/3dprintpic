@@ -1,11 +1,11 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "run_kind": "deterministic_privacy_safe_relief_visual_sweep",
   "privacy": "all inputs are analytic arrays; no private artifacts are used",
   "implementation_provenance": {
     "available": true,
     "clean": true,
-    "revision": "b2c82eb99e2a5b18afd7573823ad9f0f47e200c6",
+    "revision": "9467322e59f681f449e4b86358105d2b51bb5e80",
     "paths": [
       "backend/pic_to_3d.py",
       "backend/face_relief_geometry.py",
@@ -54,6 +54,22 @@
     "minimum_lighting_rms_retention": 0.75,
     "maximum_lighting_rms_retention": 1.4
   },
+  "selection_appearance_gates": {
+    "minimum_normal_mean_cosine": 0.95,
+    "minimum_normal_p05_cosine": 0.85,
+    "maximum_normal_angle_p95_deg": 30.0,
+    "minimum_lighting_correlation": 0.8,
+    "maximum_lighting_mae": 0.08,
+    "minimum_lighting_rms_retention": 0.75,
+    "maximum_lighting_rms_retention": 1.4
+  },
+  "selection_solver_gates": {
+    "expected_screening_weight": 2.0,
+    "expected_detail_gradient_retention": 0.9,
+    "maximum_output_edge_p99_ratio": 12.0,
+    "maximum_output_edge_ratio": 24.0,
+    "maximum_diagonal_edge_ratio": 24.0
+  },
   "background_appearance_gates": {
     "minimum_normal_mean_cosine": 0.98,
     "minimum_normal_p05_cosine": 0.9,
@@ -68,7 +84,7 @@
     "maximum_normalized_shape_rmse": 0.08,
     "minimum_gradient_correlation": 0.97
   },
-  "runtime_seconds": 10.705873800001427,
+  "runtime_seconds": 14.772701699999743,
   "checks": {
     "full_matrix_complete": true,
     "matrix_rows_unique": true,
@@ -81,7 +97,9 @@
     "cross_height_face_quality_passed": true,
     "all_row_gates_passed": true,
     "all_face_appearance_gates_passed": true,
+    "all_selection_appearance_gates_passed": true,
     "all_background_appearance_gates_passed": true,
+    "all_selection_solver_gates_passed": true,
     "all_emitted_surfaces_match": true,
     "all_meshes_printable": true,
     "passed": true
@@ -91,11 +109,16 @@
     "maximum_face_normal_angle_p95_deg": 15.313938588680676,
     "minimum_face_lighting_correlation": 0.9710951620767037,
     "maximum_face_lighting_mae": 0.03120145480788421,
-    "minimum_background_normal_mean_cosine": 0.9999999892853701,
-    "minimum_background_lighting_correlation": 0.999999957469186,
-    "maximum_background_lighting_mae": 1.273574701163951e-06,
+    "minimum_background_normal_mean_cosine": 0.9999999897176041,
+    "minimum_selection_normal_mean_cosine": 0.9809354619518134,
+    "minimum_selection_lighting_correlation": 0.8950482826945494,
+    "minimum_background_lighting_correlation": 0.9999999589148953,
+    "maximum_background_lighting_mae": 1.25044019673219e-06,
     "minimum_face_detail_correlation": 0.9348338446532509,
-    "minimum_background_depth_correlation": 0.9997736789862088,
+    "minimum_background_depth_correlation": 0.9997741393082487,
+    "maximum_selection_solver_edge_p99_ratio": 10.355856060981754,
+    "maximum_selection_solver_edge_ratio": 17.101759910583496,
+    "maximum_selection_solver_diagonal_edge_ratio": 12.092867340749407,
     "maximum_far_background_mm": 18.010000228881836
   },
   "negative_controls": {
@@ -738,17 +761,17 @@
         "samples": 1841,
         "reference_samples": 1841,
         "candidate_coverage_ratio": 1.0,
-        "shape_correlation": 0.9992852144697891,
-        "normalized_shape_rmse": 0.012717857900505712,
-        "minimum_gradient_correlation": 0.9985489009713063,
+        "shape_correlation": 0.9994786908773677,
+        "normalized_shape_rmse": 0.01087462391808462,
+        "minimum_gradient_correlation": 0.9988012772149946,
         "missing_candidate_samples": 0,
         "boundary_exclusion_px": 2,
         "minimum_samples": 64,
-        "reference_p05_p95_span_mm": 3.604823112487793,
-        "candidate_p05_p95_span_mm": 5.479728698730469,
+        "reference_p05_p95_span_mm": 3.6155481338500977,
+        "candidate_p05_p95_span_mm": 5.485721588134766,
         "gradient_correlations": [
-          0.9985489009713063,
-          0.9999132559966402
+          0.9988012772149946,
+          0.9998549581765322
         ],
         "checks": {
           "coverage": true,
@@ -767,17 +790,17 @@
         "samples": 1841,
         "reference_samples": 1841,
         "candidate_coverage_ratio": 1.0,
-        "shape_correlation": 0.9984099798161321,
-        "normalized_shape_rmse": 0.019572012198954058,
-        "minimum_gradient_correlation": 0.995940464566438,
+        "shape_correlation": 0.9987113103022334,
+        "normalized_shape_rmse": 0.017853915365903597,
+        "minimum_gradient_correlation": 0.9964324104033194,
         "missing_candidate_samples": 0,
         "boundary_exclusion_px": 2,
         "minimum_samples": 64,
-        "reference_p05_p95_span_mm": 3.604823112487793,
-        "candidate_p05_p95_span_mm": 7.374818801879883,
+        "reference_p05_p95_span_mm": 3.6155481338500977,
+        "candidate_p05_p95_span_mm": 7.404521942138672,
         "gradient_correlations": [
-          0.995940464566438,
-          0.9997856148880641
+          0.9964324104033194,
+          0.9996954741498502
         ],
         "checks": {
           "coverage": true,
@@ -796,17 +819,17 @@
         "samples": 1841,
         "reference_samples": 1841,
         "candidate_coverage_ratio": 1.0,
-        "shape_correlation": 0.9997727049348337,
-        "normalized_shape_rmse": 0.007797449864249405,
-        "minimum_gradient_correlation": 0.9991961567227088,
+        "shape_correlation": 0.9997530610088609,
+        "normalized_shape_rmse": 0.008207640684755562,
+        "minimum_gradient_correlation": 0.9991552631056366,
         "missing_candidate_samples": 0,
         "boundary_exclusion_px": 2,
         "minimum_samples": 64,
-        "reference_p05_p95_span_mm": 5.479728698730469,
-        "candidate_p05_p95_span_mm": 7.374818801879883,
+        "reference_p05_p95_span_mm": 5.485721588134766,
+        "candidate_p05_p95_span_mm": 7.404521942138672,
         "gradient_correlations": [
-          0.9991961567227088,
-          0.9999206339212021
+          0.9991552631056366,
+          0.9999173739581371
         ],
         "checks": {
           "coverage": true,
@@ -837,7 +860,7 @@
         },
         "coverage_ratio": 0.3964893108394235
       },
-      "runtime_seconds": 0.7754433000009158,
+      "runtime_seconds": 1.1558521000006294,
       "checks": {
         "context_composed": true,
         "source_context_signal": true,
@@ -850,12 +873,24 @@
         "feasible_attachment": true,
         "printable_mesh": true,
         "face_appearance": true,
+        "selection_appearance": true,
         "background_appearance": true,
+        "selection_solver": true,
         "emitted_surface": true,
         "mask_topology": true,
+        "appearance_component_coverage": true,
         "passed": true
       },
       "face_appearance_checks": {
+        "telemetry": true,
+        "coverage": true,
+        "normal_field": true,
+        "lighting": true,
+        "lighting_energy": true,
+        "components": true,
+        "passed": true
+      },
+      "selection_appearance_checks": {
         "telemetry": true,
         "coverage": true,
         "normal_field": true,
@@ -975,6 +1010,97 @@
           }
         ]
       },
+      "selection_appearance": {
+        "component": null,
+        "available": true,
+        "samples": 2990,
+        "reference_samples": 2990,
+        "missing_candidate_samples": 0,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9995489022782287,
+        "normal_p05_cosine": 0.998838019181983,
+        "normal_angle_median_deg": 0.041561907034347034,
+        "normal_angle_p95_deg": 2.7623529732523475,
+        "minimum_lighting_correlation": 0.9956494435769828,
+        "maximum_lighting_mae": 0.0028479407324315128,
+        "minimum_lighting_rms_retention": 1.0004887628731334,
+        "maximum_lighting_rms_retention": 1.0030929850970038,
+        "lights": [
+          {
+            "name": "frontal",
+            "correlation": 0.999707901167733,
+            "mean_absolute_error": 0.0005805629784709603,
+            "rms_retention": 1.0004887628731334
+          },
+          {
+            "name": "upper_left",
+            "correlation": 0.9956494435769828,
+            "mean_absolute_error": 0.0028479407324315128,
+            "rms_retention": 1.001722109240287
+          },
+          {
+            "name": "upper_right",
+            "correlation": 0.9977312572336918,
+            "mean_absolute_error": 0.0024612588260101383,
+            "rms_retention": 1.0030929850970038
+          },
+          {
+            "name": "grazing_right",
+            "correlation": 0.9992853494417757,
+            "mean_absolute_error": 0.0008756624555415189,
+            "rms_retention": 1.0013305364190703
+          }
+        ],
+        "reason": null,
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 2990,
+            "reference_samples": 2990,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9995489022782287,
+            "normal_p05_cosine": 0.998838019181983,
+            "normal_angle_median_deg": 0.041561907034347034,
+            "normal_angle_p95_deg": 2.7623529732523475,
+            "minimum_lighting_correlation": 0.9956494435769828,
+            "maximum_lighting_mae": 0.0028479407324315128,
+            "minimum_lighting_rms_retention": 1.0004887628731334,
+            "maximum_lighting_rms_retention": 1.0030929850970038,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.999707901167733,
+                "mean_absolute_error": 0.0005805629784709603,
+                "rms_retention": 1.0004887628731334
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9956494435769828,
+                "mean_absolute_error": 0.0028479407324315128,
+                "rms_retention": 1.001722109240287
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9977312572336918,
+                "mean_absolute_error": 0.0024612588260101383,
+                "rms_retention": 1.0030929850970038
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9992853494417757,
+                "mean_absolute_error": 0.0008756624555415189,
+                "rms_retention": 1.0013305364190703
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
       "background_appearance": {
         "component": null,
         "available": true,
@@ -986,39 +1112,109 @@
         "normal_p05_cosine": 0.9999999999999998,
         "normal_angle_median_deg": 0.0,
         "normal_angle_p95_deg": 1.2074182697257333e-06,
-        "minimum_lighting_correlation": 0.9999999893979626,
+        "minimum_lighting_correlation": 0.9999999893931034,
         "maximum_lighting_mae": 3.4530256838944246e-07,
-        "minimum_lighting_rms_retention": 0.9999966000727852,
-        "maximum_lighting_rms_retention": 1.0000042805515774,
+        "minimum_lighting_rms_retention": 0.9999966002826945,
+        "maximum_lighting_rms_retention": 1.000004285006474,
         "lights": [
           {
             "name": "frontal",
-            "correlation": 0.9999999987500854,
+            "correlation": 0.999999998750405,
             "mean_absolute_error": 1.0253210007084961e-07,
-            "rms_retention": 0.9999966000727852
+            "rms_retention": 0.9999966002826945
           },
           {
             "name": "upper_left",
-            "correlation": 0.9999999893979626,
+            "correlation": 0.9999999893931034,
             "mean_absolute_error": 3.4530256838944246e-07,
-            "rms_retention": 1.0000042805515774
+            "rms_retention": 1.000004285006474
           },
           {
             "name": "upper_right",
-            "correlation": 0.9999999988706838,
+            "correlation": 0.9999999988700758,
             "mean_absolute_error": 7.975915024585038e-08,
-            "rms_retention": 0.9999975980615917
+            "rms_retention": 0.999997597052083
           },
           {
             "name": "grazing_right",
-            "correlation": 0.999999995686586,
+            "correlation": 0.9999999956822723,
             "mean_absolute_error": 2.493056872131795e-07,
-            "rms_retention": 1.0000020471272206
+            "rms_retention": 1.0000020485640755
           }
         ],
         "reason": null,
-        "component_count": 0,
-        "components": []
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 5878,
+            "reference_samples": 5878,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9999999967076479,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9999999893931034,
+            "maximum_lighting_mae": 3.4530256838944246e-07,
+            "minimum_lighting_rms_retention": 0.9999966002826945,
+            "maximum_lighting_rms_retention": 1.000004285006474,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.999999998750405,
+                "mean_absolute_error": 1.0253210007084961e-07,
+                "rms_retention": 0.9999966002826945
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9999999893931034,
+                "mean_absolute_error": 3.4530256838944246e-07,
+                "rms_retention": 1.000004285006474
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9999999988700758,
+                "mean_absolute_error": 7.975915024585038e-08,
+                "rms_retention": 0.999997597052083
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9999999956822723,
+                "mean_absolute_error": 2.493056872131795e-07,
+                "rms_retention": 1.0000020485640755
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_solver": {
+        "enabled": true,
+        "reason": null,
+        "screening_weight": 2.0,
+        "detail_gradient_retention": 0.9,
+        "output_edge_ratio_p99": 4.490091654658323,
+        "output_edge_ratio_max": 7.945051789283752,
+        "diagonal_edge_ratio_max": 5.78823153968484,
+        "dropped_detail_components": 0,
+        "dropped_detail_pixels": 0,
+        "quality_gate_failures": [],
+        "checks": {
+          "telemetry": true,
+          "enabled": true,
+          "reason_clear": true,
+          "quality_gate": true,
+          "face_protection": true,
+          "calibration": true,
+          "cardinal_edge_p99": true,
+          "cardinal_edge_max": true,
+          "diagonal_edge_max": true,
+          "passed": true
+        }
       },
       "emitted_surface": {
         "available": true,
@@ -1038,11 +1234,35 @@
         "missing_samples": 0,
         "coverage_ratio": 1.0,
         "max_abs_error_mm": 0.0,
-        "rms_error_mm": 0.0
+        "rms_error_mm": 0.0,
+        "sample_grid_passed": true,
+        "expected_top_triangle_count": 28800,
+        "actual_top_triangle_count": 28800,
+        "unexpected_top_triangle_count": 0,
+        "triangle_count_match": true,
+        "triangle_set_match": true,
+        "max_triangle_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_facet_normal_cosine": 0.9999999999900322,
+        "mean_facet_normal_cosine": 1.0,
+        "facet_geometry_passed": true,
+        "top_facet_geometry_passed": true,
+        "complete_shell_verified": true,
+        "expected_max_xy_size_mm": 48.0,
+        "sample_pitch_mm": 0.4,
+        "finite_reference_samples": 14641,
+        "unemittable_reference_samples": 0,
+        "expected_shell_triangle_count": 58560,
+        "actual_shell_triangle_count": 58560,
+        "invalid_shell_triangle_count": 0,
+        "shell_triangle_count_match": true,
+        "shell_connectivity_match": true,
+        "max_shell_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_shell_normal_cosine": 0.9999999999900322,
+        "mean_shell_normal_cosine": 0.9999999999997823
       },
       "background": {
-        "correlation": 0.9999963387302829,
-        "gradient_correlation": 0.9997456586816664
+        "correlation": 0.9999963399849212,
+        "gradient_correlation": 0.9997439114906944
       },
       "physical_cap": {
         "far_background_max_mm": 9.010000228881836,
@@ -1071,12 +1291,12 @@
         "surface": {
           "name": "emitted_surface.npy",
           "size_bytes": 58692,
-          "sha256": "19e461daa815c1eb452c20288c9b8b29a3268540a6b136d80cade8a2a1b63bf6"
+          "sha256": "168e83725859d2d49a308cb3664e5813112ecee21229ba601b3961ce8725edd9"
         },
         "stl": {
           "name": "relief.stl",
           "size_bytes": 2928084,
-          "sha256": "13e0587fbcb94c3a557a068fb007cd526156e79e423e04cacd247e2995178507"
+          "sha256": "e744ced10df742a49f10c7b7b49be54431fa0b64d5d59aef3ae1ac60a396b5e4"
         }
       }
     },
@@ -1098,7 +1318,7 @@
         },
         "coverage_ratio": 0.3964893108394235
       },
-      "runtime_seconds": 0.7725267999994685,
+      "runtime_seconds": 1.1716252000005625,
       "checks": {
         "context_composed": true,
         "source_context_signal": true,
@@ -1111,12 +1331,24 @@
         "feasible_attachment": true,
         "printable_mesh": true,
         "face_appearance": true,
+        "selection_appearance": true,
         "background_appearance": true,
+        "selection_solver": true,
         "emitted_surface": true,
         "mask_topology": true,
+        "appearance_component_coverage": true,
         "passed": true
       },
       "face_appearance_checks": {
+        "telemetry": true,
+        "coverage": true,
+        "normal_field": true,
+        "lighting": true,
+        "lighting_energy": true,
+        "components": true,
+        "passed": true
+      },
+      "selection_appearance_checks": {
         "telemetry": true,
         "coverage": true,
         "normal_field": true,
@@ -1236,6 +1468,97 @@
           }
         ]
       },
+      "selection_appearance": {
+        "component": null,
+        "available": true,
+        "samples": 2990,
+        "reference_samples": 2990,
+        "missing_candidate_samples": 0,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9966943417889866,
+        "normal_p05_cosine": 0.9912289856985262,
+        "normal_angle_median_deg": 0.31344827363847416,
+        "normal_angle_p95_deg": 7.594166068900939,
+        "minimum_lighting_correlation": 0.9609870252276226,
+        "maximum_lighting_mae": 0.009243258184723607,
+        "minimum_lighting_rms_retention": 1.0279799337406779,
+        "maximum_lighting_rms_retention": 1.0708762328641535,
+        "lights": [
+          {
+            "name": "frontal",
+            "correlation": 0.9880972423329238,
+            "mean_absolute_error": 0.0052796060077082525,
+            "rms_retention": 1.0448464236152732
+          },
+          {
+            "name": "upper_left",
+            "correlation": 0.9609870252276226,
+            "mean_absolute_error": 0.009243258184723607,
+            "rms_retention": 1.0695252824037729
+          },
+          {
+            "name": "upper_right",
+            "correlation": 0.9801026376152864,
+            "mean_absolute_error": 0.008388239504523854,
+            "rms_retention": 1.0708762328641535
+          },
+          {
+            "name": "grazing_right",
+            "correlation": 0.9839519485449685,
+            "mean_absolute_error": 0.005111166209032382,
+            "rms_retention": 1.0279799337406779
+          }
+        ],
+        "reason": null,
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 2990,
+            "reference_samples": 2990,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9966943417889866,
+            "normal_p05_cosine": 0.9912289856985262,
+            "normal_angle_median_deg": 0.31344827363847416,
+            "normal_angle_p95_deg": 7.594166068900939,
+            "minimum_lighting_correlation": 0.9609870252276226,
+            "maximum_lighting_mae": 0.009243258184723607,
+            "minimum_lighting_rms_retention": 1.0279799337406779,
+            "maximum_lighting_rms_retention": 1.0708762328641535,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9880972423329238,
+                "mean_absolute_error": 0.0052796060077082525,
+                "rms_retention": 1.0448464236152732
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9609870252276226,
+                "mean_absolute_error": 0.009243258184723607,
+                "rms_retention": 1.0695252824037729
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9801026376152864,
+                "mean_absolute_error": 0.008388239504523854,
+                "rms_retention": 1.0708762328641535
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9839519485449685,
+                "mean_absolute_error": 0.005111166209032382,
+                "rms_retention": 1.0279799337406779
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
       "background_appearance": {
         "component": null,
         "available": true,
@@ -1247,39 +1570,109 @@
         "normal_p05_cosine": 0.9999999999999998,
         "normal_angle_median_deg": 0.0,
         "normal_angle_p95_deg": 1.2074182697257333e-06,
-        "minimum_lighting_correlation": 0.9999999999999999,
+        "minimum_lighting_correlation": 0.9999999999999998,
         "maximum_lighting_mae": 0.0,
         "minimum_lighting_rms_retention": 1.0,
         "maximum_lighting_rms_retention": 1.0,
         "lights": [
           {
             "name": "frontal",
-            "correlation": 1.0000000000000002,
+            "correlation": 1.0,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           },
           {
             "name": "upper_left",
-            "correlation": 1.0,
+            "correlation": 0.9999999999999998,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           },
           {
             "name": "upper_right",
-            "correlation": 1.0,
+            "correlation": 0.9999999999999999,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           },
           {
             "name": "grazing_right",
-            "correlation": 0.9999999999999999,
+            "correlation": 1.0,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           }
         ],
         "reason": null,
-        "component_count": 0,
-        "components": []
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 5878,
+            "reference_samples": 5878,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 1.0,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9999999999999998,
+            "maximum_lighting_mae": 0.0,
+            "minimum_lighting_rms_retention": 1.0,
+            "maximum_lighting_rms_retention": 1.0,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9999999999999998,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9999999999999999,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_solver": {
+        "enabled": true,
+        "reason": null,
+        "screening_weight": 2.0,
+        "detail_gradient_retention": 0.9,
+        "output_edge_ratio_p99": 6.658471161127095,
+        "output_edge_ratio_max": 10.586992502212524,
+        "diagonal_edge_ratio_max": 7.747462353129527,
+        "dropped_detail_components": 0,
+        "dropped_detail_pixels": 0,
+        "quality_gate_failures": [],
+        "checks": {
+          "telemetry": true,
+          "enabled": true,
+          "reason_clear": true,
+          "quality_gate": true,
+          "face_protection": true,
+          "calibration": true,
+          "cardinal_edge_p99": true,
+          "cardinal_edge_max": true,
+          "diagonal_edge_max": true,
+          "passed": true
+        }
       },
       "emitted_surface": {
         "available": true,
@@ -1299,11 +1692,35 @@
         "missing_samples": 0,
         "coverage_ratio": 1.0,
         "max_abs_error_mm": 0.0,
-        "rms_error_mm": 0.0
+        "rms_error_mm": 0.0,
+        "sample_grid_passed": true,
+        "expected_top_triangle_count": 28800,
+        "actual_top_triangle_count": 28800,
+        "unexpected_top_triangle_count": 0,
+        "triangle_count_match": true,
+        "triangle_set_match": true,
+        "max_triangle_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_facet_normal_cosine": 0.9999999999888863,
+        "mean_facet_normal_cosine": 1.0,
+        "facet_geometry_passed": true,
+        "top_facet_geometry_passed": true,
+        "complete_shell_verified": true,
+        "expected_max_xy_size_mm": 48.0,
+        "sample_pitch_mm": 0.4,
+        "finite_reference_samples": 14641,
+        "unemittable_reference_samples": 0,
+        "expected_shell_triangle_count": 58560,
+        "actual_shell_triangle_count": 58560,
+        "invalid_shell_triangle_count": 0,
+        "shell_triangle_count_match": true,
+        "shell_connectivity_match": true,
+        "max_shell_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_shell_normal_cosine": 0.9999999999888863,
+        "mean_shell_normal_cosine": 0.9999999999996954
       },
       "background": {
-        "correlation": 0.999993361366232,
-        "gradient_correlation": 0.9996584388860122
+        "correlation": 0.9999933770988975,
+        "gradient_correlation": 0.9996541014793126
       },
       "physical_cap": {
         "far_background_max_mm": 13.510000228881836,
@@ -1332,12 +1749,12 @@
         "surface": {
           "name": "emitted_surface.npy",
           "size_bytes": 58692,
-          "sha256": "332c94a9d92de0c16f6927a623a2b21027d7e78e67996829501699cd48535f12"
+          "sha256": "1e2db90fb8aa510998a4352e1dc9b577a0db1ae91c08c529fa18fa799bff97d2"
         },
         "stl": {
           "name": "relief.stl",
           "size_bytes": 2928084,
-          "sha256": "55bf1415caa5ac876a717b7c11bd29755f1792c5326127dc3b26b5cc6a33bdd8"
+          "sha256": "ceb2421b30ca57697c88db7a8ecae5cc28d7a80c704687ef841c10eb4063b728"
         }
       }
     },
@@ -1359,7 +1776,7 @@
         },
         "coverage_ratio": 0.3964893108394235
       },
-      "runtime_seconds": 0.9361927000027208,
+      "runtime_seconds": 1.1951703000013367,
       "checks": {
         "context_composed": true,
         "source_context_signal": true,
@@ -1372,12 +1789,24 @@
         "feasible_attachment": true,
         "printable_mesh": true,
         "face_appearance": true,
+        "selection_appearance": true,
         "background_appearance": true,
+        "selection_solver": true,
         "emitted_surface": true,
         "mask_topology": true,
+        "appearance_component_coverage": true,
         "passed": true
       },
       "face_appearance_checks": {
+        "telemetry": true,
+        "coverage": true,
+        "normal_field": true,
+        "lighting": true,
+        "lighting_energy": true,
+        "components": true,
+        "passed": true
+      },
+      "selection_appearance_checks": {
         "telemetry": true,
         "coverage": true,
         "normal_field": true,
@@ -1497,6 +1926,97 @@
           }
         ]
       },
+      "selection_appearance": {
+        "component": null,
+        "available": true,
+        "samples": 2990,
+        "reference_samples": 2990,
+        "missing_candidate_samples": 0,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9941145371257935,
+        "normal_p05_cosine": 0.9873785835723269,
+        "normal_angle_median_deg": 0.47869080662129787,
+        "normal_angle_p95_deg": 9.11262565343149,
+        "minimum_lighting_correlation": 0.9364682713413763,
+        "maximum_lighting_mae": 0.012042132922175307,
+        "minimum_lighting_rms_retention": 1.0524753853047137,
+        "maximum_lighting_rms_retention": 1.0812441203919068,
+        "lights": [
+          {
+            "name": "frontal",
+            "correlation": 0.9786373082767374,
+            "mean_absolute_error": 0.007902283327388286,
+            "rms_retention": 1.0669282758620582
+          },
+          {
+            "name": "upper_left",
+            "correlation": 0.9364682713413763,
+            "mean_absolute_error": 0.012042132922175307,
+            "rms_retention": 1.0638742012113147
+          },
+          {
+            "name": "upper_right",
+            "correlation": 0.9664079909711712,
+            "mean_absolute_error": 0.011379424091692165,
+            "rms_retention": 1.0812441203919068
+          },
+          {
+            "name": "grazing_right",
+            "correlation": 0.9681851518961018,
+            "mean_absolute_error": 0.007218156522875521,
+            "rms_retention": 1.0524753853047137
+          }
+        ],
+        "reason": null,
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 2990,
+            "reference_samples": 2990,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9941145371257935,
+            "normal_p05_cosine": 0.9873785835723269,
+            "normal_angle_median_deg": 0.47869080662129787,
+            "normal_angle_p95_deg": 9.11262565343149,
+            "minimum_lighting_correlation": 0.9364682713413763,
+            "maximum_lighting_mae": 0.012042132922175307,
+            "minimum_lighting_rms_retention": 1.0524753853047137,
+            "maximum_lighting_rms_retention": 1.0812441203919068,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9786373082767374,
+                "mean_absolute_error": 0.007902283327388286,
+                "rms_retention": 1.0669282758620582
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9364682713413763,
+                "mean_absolute_error": 0.012042132922175307,
+                "rms_retention": 1.0638742012113147
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9664079909711712,
+                "mean_absolute_error": 0.011379424091692165,
+                "rms_retention": 1.0812441203919068
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9681851518961018,
+                "mean_absolute_error": 0.007218156522875521,
+                "rms_retention": 1.0524753853047137
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
       "background_appearance": {
         "component": null,
         "available": true,
@@ -1508,14 +2028,14 @@
         "normal_p05_cosine": 0.9999999999999998,
         "normal_angle_median_deg": 0.0,
         "normal_angle_p95_deg": 1.2074182697257333e-06,
-        "minimum_lighting_correlation": 0.9999999999999999,
+        "minimum_lighting_correlation": 0.9999999999999998,
         "maximum_lighting_mae": 0.0,
         "minimum_lighting_rms_retention": 1.0,
         "maximum_lighting_rms_retention": 1.0,
         "lights": [
           {
             "name": "frontal",
-            "correlation": 1.0000000000000002,
+            "correlation": 1.0,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           },
@@ -1533,14 +2053,84 @@
           },
           {
             "name": "grazing_right",
-            "correlation": 1.0,
+            "correlation": 0.9999999999999998,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           }
         ],
         "reason": null,
-        "component_count": 0,
-        "components": []
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 5878,
+            "reference_samples": 5878,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 1.0,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9999999999999998,
+            "maximum_lighting_mae": 0.0,
+            "minimum_lighting_rms_retention": 1.0,
+            "maximum_lighting_rms_retention": 1.0,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_left",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9999999999999999,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9999999999999998,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_solver": {
+        "enabled": true,
+        "reason": null,
+        "screening_weight": 2.0,
+        "detail_gradient_retention": 0.9,
+        "output_edge_ratio_p99": 8.774860829114917,
+        "output_edge_ratio_max": 16.10795021057129,
+        "diagonal_edge_ratio_max": 11.390270946703103,
+        "dropped_detail_components": 0,
+        "dropped_detail_pixels": 0,
+        "quality_gate_failures": [],
+        "checks": {
+          "telemetry": true,
+          "enabled": true,
+          "reason_clear": true,
+          "quality_gate": true,
+          "face_protection": true,
+          "calibration": true,
+          "cardinal_edge_p99": true,
+          "cardinal_edge_max": true,
+          "diagonal_edge_max": true,
+          "passed": true
+        }
       },
       "emitted_surface": {
         "available": true,
@@ -1560,11 +2150,35 @@
         "missing_samples": 0,
         "coverage_ratio": 1.0,
         "max_abs_error_mm": 0.0,
-        "rms_error_mm": 0.0
+        "rms_error_mm": 0.0,
+        "sample_grid_passed": true,
+        "expected_top_triangle_count": 28800,
+        "actual_top_triangle_count": 28800,
+        "unexpected_top_triangle_count": 0,
+        "triangle_count_match": true,
+        "triangle_set_match": true,
+        "max_triangle_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_facet_normal_cosine": 0.9999999999886899,
+        "mean_facet_normal_cosine": 1.0,
+        "facet_geometry_passed": true,
+        "top_facet_geometry_passed": true,
+        "complete_shell_verified": true,
+        "expected_max_xy_size_mm": 48.0,
+        "sample_pitch_mm": 0.4,
+        "finite_reference_samples": 14641,
+        "unemittable_reference_samples": 0,
+        "expected_shell_triangle_count": 58560,
+        "actual_shell_triangle_count": 58560,
+        "invalid_shell_triangle_count": 0,
+        "shell_triangle_count_match": true,
+        "shell_connectivity_match": true,
+        "max_shell_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_shell_normal_cosine": 0.9999999999886899,
+        "mean_shell_normal_cosine": 0.9999999999996503
       },
       "background": {
-        "correlation": 0.9999909092979024,
-        "gradient_correlation": 0.9996362348094696
+        "correlation": 0.9999922524958165,
+        "gradient_correlation": 0.9996649107124127
       },
       "physical_cap": {
         "far_background_max_mm": 18.010000228881836,
@@ -1593,12 +2207,12 @@
         "surface": {
           "name": "emitted_surface.npy",
           "size_bytes": 58692,
-          "sha256": "91d3fec96f382dd3a35f93fa8c97123b0c5583e456ef8bd24c68966c715d9d9c"
+          "sha256": "709489d21b8261a3466f10d4471c5aa9e364e2b5c630c840b0ae699bbc97a6d2"
         },
         "stl": {
           "name": "relief.stl",
           "size_bytes": 2928084,
-          "sha256": "3196d22d284e9b55b0bb3441628d84657c4a50ae2577c589689929382e8f2fb7"
+          "sha256": "3e9aed30a1d21a4924b5bfb02de290d3005a7a503db9d3862e5c91f8d5eca1a4"
         }
       }
     },
@@ -1620,7 +2234,7 @@
         },
         "coverage_ratio": 0.38583430093572846
       },
-      "runtime_seconds": 0.8420081000003847,
+      "runtime_seconds": 1.2759724999996251,
       "checks": {
         "context_composed": true,
         "source_context_signal": true,
@@ -1633,12 +2247,24 @@
         "feasible_attachment": true,
         "printable_mesh": true,
         "face_appearance": true,
+        "selection_appearance": true,
         "background_appearance": true,
+        "selection_solver": true,
         "emitted_surface": true,
         "mask_topology": true,
+        "appearance_component_coverage": true,
         "passed": true
       },
       "face_appearance_checks": {
+        "telemetry": true,
+        "coverage": true,
+        "normal_field": true,
+        "lighting": true,
+        "lighting_energy": true,
+        "components": true,
+        "passed": true
+      },
+      "selection_appearance_checks": {
         "telemetry": true,
         "coverage": true,
         "normal_field": true,
@@ -1758,6 +2384,97 @@
           }
         ]
       },
+      "selection_appearance": {
+        "component": null,
+        "available": true,
+        "samples": 2863,
+        "reference_samples": 2863,
+        "missing_candidate_samples": 0,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9993281779813185,
+        "normal_p05_cosine": 0.998931795641123,
+        "normal_angle_median_deg": 0.03999135027950985,
+        "normal_angle_p95_deg": 2.6485213020803986,
+        "minimum_lighting_correlation": 0.9932665742621846,
+        "maximum_lighting_mae": 0.003202391047209014,
+        "minimum_lighting_rms_retention": 1.000131985317117,
+        "maximum_lighting_rms_retention": 1.0038064769523596,
+        "lights": [
+          {
+            "name": "frontal",
+            "correlation": 0.9995308894773458,
+            "mean_absolute_error": 0.0007223838427696845,
+            "rms_retention": 1.000131985317117
+          },
+          {
+            "name": "upper_left",
+            "correlation": 0.9932665742621846,
+            "mean_absolute_error": 0.003202391047209014,
+            "rms_retention": 1.0021848643268785
+          },
+          {
+            "name": "upper_right",
+            "correlation": 0.9963619000968742,
+            "mean_absolute_error": 0.002755172579176799,
+            "rms_retention": 1.0038064769523596
+          },
+          {
+            "name": "grazing_right",
+            "correlation": 0.9991574404374856,
+            "mean_absolute_error": 0.0009164444242879534,
+            "rms_retention": 1.0015307391431234
+          }
+        ],
+        "reason": null,
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 2863,
+            "reference_samples": 2863,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9993281779813185,
+            "normal_p05_cosine": 0.998931795641123,
+            "normal_angle_median_deg": 0.03999135027950985,
+            "normal_angle_p95_deg": 2.6485213020803986,
+            "minimum_lighting_correlation": 0.9932665742621846,
+            "maximum_lighting_mae": 0.003202391047209014,
+            "minimum_lighting_rms_retention": 1.000131985317117,
+            "maximum_lighting_rms_retention": 1.0038064769523596,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9995308894773458,
+                "mean_absolute_error": 0.0007223838427696845,
+                "rms_retention": 1.000131985317117
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9932665742621846,
+                "mean_absolute_error": 0.003202391047209014,
+                "rms_retention": 1.0021848643268785
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9963619000968742,
+                "mean_absolute_error": 0.002755172579176799,
+                "rms_retention": 1.0038064769523596
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9991574404374856,
+                "mean_absolute_error": 0.0009164444242879534,
+                "rms_retention": 1.0015307391431234
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
       "background_appearance": {
         "component": null,
         "available": true,
@@ -1800,8 +2517,78 @@
           }
         ],
         "reason": null,
-        "component_count": 0,
-        "components": []
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 6300,
+            "reference_samples": 6300,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9999999997286015,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9999999992879574,
+            "maximum_lighting_mae": 1.0218310232715288e-07,
+            "minimum_lighting_rms_retention": 0.9999995329199093,
+            "maximum_lighting_rms_retention": 1.0000008965348879,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9999999999528801,
+                "mean_absolute_error": 1.6379861364102847e-08,
+                "rms_retention": 0.9999995329199093
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9999999999999998,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9999999992879574,
+                "mean_absolute_error": 1.0218310232715288e-07,
+                "rms_retention": 1.0000008965348879
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9999999996097698,
+                "mean_absolute_error": 9.511982413855699e-08,
+                "rms_retention": 1.0000000262831727
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_solver": {
+        "enabled": true,
+        "reason": null,
+        "screening_weight": 2.0,
+        "detail_gradient_retention": 0.9,
+        "output_edge_ratio_p99": 3.0742467045784068,
+        "output_edge_ratio_max": 7.725131511688232,
+        "diagonal_edge_ratio_max": 5.829955233836684,
+        "dropped_detail_components": 0,
+        "dropped_detail_pixels": 0,
+        "quality_gate_failures": [],
+        "checks": {
+          "telemetry": true,
+          "enabled": true,
+          "reason_clear": true,
+          "quality_gate": true,
+          "face_protection": true,
+          "calibration": true,
+          "cardinal_edge_p99": true,
+          "cardinal_edge_max": true,
+          "diagonal_edge_max": true,
+          "passed": true
+        }
       },
       "emitted_surface": {
         "available": true,
@@ -1821,11 +2608,35 @@
         "missing_samples": 0,
         "coverage_ratio": 1.0,
         "max_abs_error_mm": 0.0,
-        "rms_error_mm": 0.0
+        "rms_error_mm": 0.0,
+        "sample_grid_passed": true,
+        "expected_top_triangle_count": 28800,
+        "actual_top_triangle_count": 28800,
+        "unexpected_top_triangle_count": 0,
+        "triangle_count_match": true,
+        "triangle_set_match": true,
+        "max_triangle_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_facet_normal_cosine": 0.9999999999888791,
+        "mean_facet_normal_cosine": 1.0,
+        "facet_geometry_passed": true,
+        "top_facet_geometry_passed": true,
+        "complete_shell_verified": true,
+        "expected_max_xy_size_mm": 48.0,
+        "sample_pitch_mm": 0.4,
+        "finite_reference_samples": 14641,
+        "unemittable_reference_samples": 0,
+        "expected_shell_triangle_count": 58560,
+        "actual_shell_triangle_count": 58560,
+        "invalid_shell_triangle_count": 0,
+        "shell_triangle_count_match": true,
+        "shell_connectivity_match": true,
+        "max_shell_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_shell_normal_cosine": 0.9999999999888791,
+        "mean_shell_normal_cosine": 0.999999999999765
       },
       "background": {
-        "correlation": 0.999991799588129,
-        "gradient_correlation": 0.9997784404838909
+        "correlation": 0.9999917993242746,
+        "gradient_correlation": 0.9997779434692095
       },
       "physical_cap": {
         "far_background_max_mm": 9.010000228881836,
@@ -1854,12 +2665,12 @@
         "surface": {
           "name": "emitted_surface.npy",
           "size_bytes": 58692,
-          "sha256": "5c94be10fe7fff2e6306701dcde1edbfe6c4df67719255066def6f77c54e7d11"
+          "sha256": "389869e7cdcc952e07916fb2fc55305013339388b5361b56659af69914304559"
         },
         "stl": {
           "name": "relief.stl",
           "size_bytes": 2928084,
-          "sha256": "38af7c05c65e8db60de50fc7da2c167afb93918f09f184e8bfd8b55f3b872e92"
+          "sha256": "acd4ecda968ebe3c31cfa3507437c35d8f875658751960460fccea8844976568"
         }
       }
     },
@@ -1881,7 +2692,7 @@
         },
         "coverage_ratio": 0.38583430093572846
       },
-      "runtime_seconds": 0.811844400002883,
+      "runtime_seconds": 1.2051296999998158,
       "checks": {
         "context_composed": true,
         "source_context_signal": true,
@@ -1894,12 +2705,24 @@
         "feasible_attachment": true,
         "printable_mesh": true,
         "face_appearance": true,
+        "selection_appearance": true,
         "background_appearance": true,
+        "selection_solver": true,
         "emitted_surface": true,
         "mask_topology": true,
+        "appearance_component_coverage": true,
         "passed": true
       },
       "face_appearance_checks": {
+        "telemetry": true,
+        "coverage": true,
+        "normal_field": true,
+        "lighting": true,
+        "lighting_energy": true,
+        "components": true,
+        "passed": true
+      },
+      "selection_appearance_checks": {
         "telemetry": true,
         "coverage": true,
         "normal_field": true,
@@ -2019,6 +2842,97 @@
           }
         ]
       },
+      "selection_appearance": {
+        "component": null,
+        "available": true,
+        "samples": 2863,
+        "reference_samples": 2863,
+        "missing_candidate_samples": 0,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9961681673311655,
+        "normal_p05_cosine": 0.9911091067862897,
+        "normal_angle_median_deg": 0.31939263374086196,
+        "normal_angle_p95_deg": 7.64597057006957,
+        "minimum_lighting_correlation": 0.9538526622954516,
+        "maximum_lighting_mae": 0.009799529490862128,
+        "minimum_lighting_rms_retention": 1.0284183021267068,
+        "maximum_lighting_rms_retention": 1.0751713448973592,
+        "lights": [
+          {
+            "name": "frontal",
+            "correlation": 0.9862162803551443,
+            "mean_absolute_error": 0.005759270886136539,
+            "rms_retention": 1.0461188378662705
+          },
+          {
+            "name": "upper_left",
+            "correlation": 0.9538526622954516,
+            "mean_absolute_error": 0.009799529490862128,
+            "rms_retention": 1.0743793626588196
+          },
+          {
+            "name": "upper_right",
+            "correlation": 0.9755982332149822,
+            "mean_absolute_error": 0.0088980813221019,
+            "rms_retention": 1.0751713448973592
+          },
+          {
+            "name": "grazing_right",
+            "correlation": 0.9822509511378464,
+            "mean_absolute_error": 0.005378058312501664,
+            "rms_retention": 1.0284183021267068
+          }
+        ],
+        "reason": null,
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 2863,
+            "reference_samples": 2863,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9961681673311655,
+            "normal_p05_cosine": 0.9911091067862897,
+            "normal_angle_median_deg": 0.31939263374086196,
+            "normal_angle_p95_deg": 7.64597057006957,
+            "minimum_lighting_correlation": 0.9538526622954516,
+            "maximum_lighting_mae": 0.009799529490862128,
+            "minimum_lighting_rms_retention": 1.0284183021267068,
+            "maximum_lighting_rms_retention": 1.0751713448973592,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9862162803551443,
+                "mean_absolute_error": 0.005759270886136539,
+                "rms_retention": 1.0461188378662705
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9538526622954516,
+                "mean_absolute_error": 0.009799529490862128,
+                "rms_retention": 1.0743793626588196
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9755982332149822,
+                "mean_absolute_error": 0.0088980813221019,
+                "rms_retention": 1.0751713448973592
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9822509511378464,
+                "mean_absolute_error": 0.005378058312501664,
+                "rms_retention": 1.0284183021267068
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
       "background_appearance": {
         "component": null,
         "available": true,
@@ -2061,8 +2975,78 @@
           }
         ],
         "reason": null,
-        "component_count": 0,
-        "components": []
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 6300,
+            "reference_samples": 6300,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 1.0,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 1.0,
+            "maximum_lighting_mae": 0.0,
+            "minimum_lighting_rms_retention": 1.0,
+            "maximum_lighting_rms_retention": 1.0,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_left",
+                "correlation": 1.0000000000000002,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_right",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_solver": {
+        "enabled": true,
+        "reason": null,
+        "screening_weight": 2.0,
+        "detail_gradient_retention": 0.9,
+        "output_edge_ratio_p99": 6.0551850497722635,
+        "output_edge_ratio_max": 10.656147003173828,
+        "diagonal_edge_ratio_max": 8.054755025622455,
+        "dropped_detail_components": 0,
+        "dropped_detail_pixels": 0,
+        "quality_gate_failures": [],
+        "checks": {
+          "telemetry": true,
+          "enabled": true,
+          "reason_clear": true,
+          "quality_gate": true,
+          "face_protection": true,
+          "calibration": true,
+          "cardinal_edge_p99": true,
+          "cardinal_edge_max": true,
+          "diagonal_edge_max": true,
+          "passed": true
+        }
       },
       "emitted_surface": {
         "available": true,
@@ -2082,11 +3066,35 @@
         "missing_samples": 0,
         "coverage_ratio": 1.0,
         "max_abs_error_mm": 0.0,
-        "rms_error_mm": 0.0
+        "rms_error_mm": 0.0,
+        "sample_grid_passed": true,
+        "expected_top_triangle_count": 28800,
+        "actual_top_triangle_count": 28800,
+        "unexpected_top_triangle_count": 0,
+        "triangle_count_match": true,
+        "triangle_set_match": true,
+        "max_triangle_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_facet_normal_cosine": 0.9999999999893111,
+        "mean_facet_normal_cosine": 1.0,
+        "facet_geometry_passed": true,
+        "top_facet_geometry_passed": true,
+        "complete_shell_verified": true,
+        "expected_max_xy_size_mm": 48.0,
+        "sample_pitch_mm": 0.4,
+        "finite_reference_samples": 14641,
+        "unemittable_reference_samples": 0,
+        "expected_shell_triangle_count": 58560,
+        "actual_shell_triangle_count": 58560,
+        "invalid_shell_triangle_count": 0,
+        "shell_triangle_count_match": true,
+        "shell_connectivity_match": true,
+        "max_shell_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_shell_normal_cosine": 0.9999999999893111,
+        "mean_shell_normal_cosine": 0.9999999999997233
       },
       "background": {
-        "correlation": 0.9999881460206267,
-        "gradient_correlation": 0.9996659076994311
+        "correlation": 0.9999881458083714,
+        "gradient_correlation": 0.9996646861578462
       },
       "physical_cap": {
         "far_background_max_mm": 13.510000228881836,
@@ -2115,12 +3123,12 @@
         "surface": {
           "name": "emitted_surface.npy",
           "size_bytes": 58692,
-          "sha256": "002e1f8f74bcd28b1ff54dc25b1a9dc72a19d77a15f936e84d1699ce3232655f"
+          "sha256": "dadbdb67a6217935fbb19f214c4753521cfb859fef0633612931c96313b0e97b"
         },
         "stl": {
           "name": "relief.stl",
           "size_bytes": 2928084,
-          "sha256": "a77e32dbdb1e3187e271ee8fba2bd23a4fb1ff274bc274b4fd64b33784987492"
+          "sha256": "cd32e7d687737702a93487fe3b36801915ce8744602869a400fe24c92b16084a"
         }
       }
     },
@@ -2142,7 +3150,7 @@
         },
         "coverage_ratio": 0.38583430093572846
       },
-      "runtime_seconds": 0.8948486000008415,
+      "runtime_seconds": 1.2238207000009425,
       "checks": {
         "context_composed": true,
         "source_context_signal": true,
@@ -2155,12 +3163,24 @@
         "feasible_attachment": true,
         "printable_mesh": true,
         "face_appearance": true,
+        "selection_appearance": true,
         "background_appearance": true,
+        "selection_solver": true,
         "emitted_surface": true,
         "mask_topology": true,
+        "appearance_component_coverage": true,
         "passed": true
       },
       "face_appearance_checks": {
+        "telemetry": true,
+        "coverage": true,
+        "normal_field": true,
+        "lighting": true,
+        "lighting_energy": true,
+        "components": true,
+        "passed": true
+      },
+      "selection_appearance_checks": {
         "telemetry": true,
         "coverage": true,
         "normal_field": true,
@@ -2280,6 +3300,97 @@
           }
         ]
       },
+      "selection_appearance": {
+        "component": null,
+        "available": true,
+        "samples": 2863,
+        "reference_samples": 2863,
+        "missing_candidate_samples": 0,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9932842891094722,
+        "normal_p05_cosine": 0.9875780447200552,
+        "normal_angle_median_deg": 0.4427165371586463,
+        "normal_angle_p95_deg": 9.040253019790532,
+        "minimum_lighting_correlation": 0.9235501231311222,
+        "maximum_lighting_mae": 0.012239629031436635,
+        "minimum_lighting_rms_retention": 1.0540648979290228,
+        "maximum_lighting_rms_retention": 1.0837844979438132,
+        "lights": [
+          {
+            "name": "frontal",
+            "correlation": 0.9746131188893306,
+            "mean_absolute_error": 0.008429601311431126,
+            "rms_retention": 1.0675141340816108
+          },
+          {
+            "name": "upper_left",
+            "correlation": 0.9235501231311222,
+            "mean_absolute_error": 0.012239629031436635,
+            "rms_retention": 1.066344092670942
+          },
+          {
+            "name": "upper_right",
+            "correlation": 0.9575266463718302,
+            "mean_absolute_error": 0.011694382051059037,
+            "rms_retention": 1.0837844979438132
+          },
+          {
+            "name": "grazing_right",
+            "correlation": 0.9636962672528498,
+            "mean_absolute_error": 0.007566296696940389,
+            "rms_retention": 1.0540648979290228
+          }
+        ],
+        "reason": null,
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 2863,
+            "reference_samples": 2863,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9932842891094722,
+            "normal_p05_cosine": 0.9875780447200552,
+            "normal_angle_median_deg": 0.4427165371586463,
+            "normal_angle_p95_deg": 9.040253019790532,
+            "minimum_lighting_correlation": 0.9235501231311222,
+            "maximum_lighting_mae": 0.012239629031436635,
+            "minimum_lighting_rms_retention": 1.0540648979290228,
+            "maximum_lighting_rms_retention": 1.0837844979438132,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9746131188893306,
+                "mean_absolute_error": 0.008429601311431126,
+                "rms_retention": 1.0675141340816108
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9235501231311222,
+                "mean_absolute_error": 0.012239629031436635,
+                "rms_retention": 1.066344092670942
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9575266463718302,
+                "mean_absolute_error": 0.011694382051059037,
+                "rms_retention": 1.0837844979438132
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9636962672528498,
+                "mean_absolute_error": 0.007566296696940389,
+                "rms_retention": 1.0540648979290228
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
       "background_appearance": {
         "component": null,
         "available": true,
@@ -2291,26 +3402,26 @@
         "normal_p05_cosine": 0.9999999999999998,
         "normal_angle_median_deg": 0.0,
         "normal_angle_p95_deg": 1.2074182697257333e-06,
-        "minimum_lighting_correlation": 0.9999999999999999,
+        "minimum_lighting_correlation": 1.0,
         "maximum_lighting_mae": 0.0,
         "minimum_lighting_rms_retention": 1.0,
         "maximum_lighting_rms_retention": 1.0,
         "lights": [
           {
             "name": "frontal",
-            "correlation": 1.0,
-            "mean_absolute_error": 0.0,
-            "rms_retention": 1.0
-          },
-          {
-            "name": "upper_left",
             "correlation": 1.0000000000000002,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           },
           {
+            "name": "upper_left",
+            "correlation": 1.0,
+            "mean_absolute_error": 0.0,
+            "rms_retention": 1.0
+          },
+          {
             "name": "upper_right",
-            "correlation": 0.9999999999999999,
+            "correlation": 1.0,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           },
@@ -2322,8 +3433,78 @@
           }
         ],
         "reason": null,
-        "component_count": 0,
-        "components": []
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 6300,
+            "reference_samples": 6300,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 1.0,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 1.0,
+            "maximum_lighting_mae": 0.0,
+            "minimum_lighting_rms_retention": 1.0,
+            "maximum_lighting_rms_retention": 1.0,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 1.0000000000000002,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_left",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_right",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_solver": {
+        "enabled": true,
+        "reason": null,
+        "screening_weight": 2.0,
+        "detail_gradient_retention": 0.9,
+        "output_edge_ratio_p99": 7.43357027769089,
+        "output_edge_ratio_max": 16.307798624038696,
+        "diagonal_edge_ratio_max": 11.531589329760129,
+        "dropped_detail_components": 0,
+        "dropped_detail_pixels": 0,
+        "quality_gate_failures": [],
+        "checks": {
+          "telemetry": true,
+          "enabled": true,
+          "reason_clear": true,
+          "quality_gate": true,
+          "face_protection": true,
+          "calibration": true,
+          "cardinal_edge_p99": true,
+          "cardinal_edge_max": true,
+          "diagonal_edge_max": true,
+          "passed": true
+        }
       },
       "emitted_surface": {
         "available": true,
@@ -2343,11 +3524,35 @@
         "missing_samples": 0,
         "coverage_ratio": 1.0,
         "max_abs_error_mm": 0.0,
-        "rms_error_mm": 0.0
+        "rms_error_mm": 0.0,
+        "sample_grid_passed": true,
+        "expected_top_triangle_count": 28800,
+        "actual_top_triangle_count": 28800,
+        "unexpected_top_triangle_count": 0,
+        "triangle_count_match": true,
+        "triangle_set_match": true,
+        "max_triangle_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_facet_normal_cosine": 0.9999999999890039,
+        "mean_facet_normal_cosine": 1.0,
+        "facet_geometry_passed": true,
+        "top_facet_geometry_passed": true,
+        "complete_shell_verified": true,
+        "expected_max_xy_size_mm": 48.0,
+        "sample_pitch_mm": 0.4,
+        "finite_reference_samples": 14641,
+        "unemittable_reference_samples": 0,
+        "expected_shell_triangle_count": 58560,
+        "actual_shell_triangle_count": 58560,
+        "invalid_shell_triangle_count": 0,
+        "shell_triangle_count_match": true,
+        "shell_connectivity_match": true,
+        "max_shell_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_shell_normal_cosine": 0.9999999999890039,
+        "mean_shell_normal_cosine": 0.9999999999996885
       },
       "background": {
-        "correlation": 0.9999844090191814,
-        "gradient_correlation": 0.9995826810354845
+        "correlation": 0.999984408347777,
+        "gradient_correlation": 0.9995809390281394
       },
       "physical_cap": {
         "far_background_max_mm": 18.010000228881836,
@@ -2376,12 +3581,12 @@
         "surface": {
           "name": "emitted_surface.npy",
           "size_bytes": 58692,
-          "sha256": "2371290857d08902fb5b4791f291efcc426e945a2a94b2d0c3aba7655764f04d"
+          "sha256": "9eed3f90c44c012c58d97b825633eaf463a1cc69b79267513f9aaecc00099ca3"
         },
         "stl": {
           "name": "relief.stl",
           "size_bytes": 2928084,
-          "sha256": "a8997820de0929a44c5416780672e6f8ac27fdb1360aa77ece3791cf3b3440d7"
+          "sha256": "d4bae789a6c76b740e42d49f0d046176269e3cc79f3a0e85a9955233ed8107ae"
         }
       }
     },
@@ -2403,7 +3608,7 @@
         },
         "coverage_ratio": 0.6384126767297316
       },
-      "runtime_seconds": 0.8878125000010186,
+      "runtime_seconds": 1.1642136000009486,
       "checks": {
         "context_composed": true,
         "source_context_signal": true,
@@ -2416,12 +3621,24 @@
         "feasible_attachment": true,
         "printable_mesh": true,
         "face_appearance": true,
+        "selection_appearance": true,
         "background_appearance": true,
+        "selection_solver": true,
         "emitted_surface": true,
         "mask_topology": true,
+        "appearance_component_coverage": true,
         "passed": true
       },
       "face_appearance_checks": {
+        "telemetry": true,
+        "coverage": true,
+        "normal_field": true,
+        "lighting": true,
+        "lighting_energy": true,
+        "components": true,
+        "passed": true
+      },
+      "selection_appearance_checks": {
         "telemetry": true,
         "coverage": true,
         "normal_field": true,
@@ -2541,6 +3758,97 @@
           }
         ]
       },
+      "selection_appearance": {
+        "component": null,
+        "available": true,
+        "samples": 5786,
+        "reference_samples": 5786,
+        "missing_candidate_samples": 0,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9974836216147627,
+        "normal_p05_cosine": 0.9889946151651001,
+        "normal_angle_median_deg": 0.06411376088276376,
+        "normal_angle_p95_deg": 8.5082324949135,
+        "minimum_lighting_correlation": 0.9795362111476074,
+        "maximum_lighting_mae": 0.007535435980187033,
+        "minimum_lighting_rms_retention": 1.007510338407516,
+        "maximum_lighting_rms_retention": 1.0353789340287363,
+        "lights": [
+          {
+            "name": "frontal",
+            "correlation": 0.9948248884444844,
+            "mean_absolute_error": 0.002695448935040411,
+            "rms_retention": 1.007510338407516
+          },
+          {
+            "name": "upper_left",
+            "correlation": 0.9795362111476074,
+            "mean_absolute_error": 0.007535435980187033,
+            "rms_retention": 1.0353789340287363
+          },
+          {
+            "name": "upper_right",
+            "correlation": 0.9876358591301931,
+            "mean_absolute_error": 0.00687303604267158,
+            "rms_retention": 1.0267475533168124
+          },
+          {
+            "name": "grazing_right",
+            "correlation": 0.9836643740642683,
+            "mean_absolute_error": 0.007155838694106809,
+            "rms_retention": 1.017252789505728
+          }
+        ],
+        "reason": null,
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 5786,
+            "reference_samples": 5786,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9974836216147627,
+            "normal_p05_cosine": 0.9889946151651001,
+            "normal_angle_median_deg": 0.06411376088276376,
+            "normal_angle_p95_deg": 8.5082324949135,
+            "minimum_lighting_correlation": 0.9795362111476074,
+            "maximum_lighting_mae": 0.007535435980187033,
+            "minimum_lighting_rms_retention": 1.007510338407516,
+            "maximum_lighting_rms_retention": 1.0353789340287363,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9948248884444844,
+                "mean_absolute_error": 0.002695448935040411,
+                "rms_retention": 1.007510338407516
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9795362111476074,
+                "mean_absolute_error": 0.007535435980187033,
+                "rms_retention": 1.0353789340287363
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9876358591301931,
+                "mean_absolute_error": 0.00687303604267158,
+                "rms_retention": 1.0267475533168124
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9836643740642683,
+                "mean_absolute_error": 0.007155838694106809,
+                "rms_retention": 1.017252789505728
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
       "background_appearance": {
         "component": null,
         "available": true,
@@ -2583,8 +3891,78 @@
           }
         ],
         "reason": null,
-        "component_count": 0,
-        "components": []
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 1617,
+            "reference_samples": 1617,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 1.0,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9999999999999998,
+            "maximum_lighting_mae": 0.0,
+            "minimum_lighting_rms_retention": 1.0,
+            "maximum_lighting_rms_retention": 1.0,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 1.0000000000000002,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9999999999999998,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_right",
+                "correlation": 1.0000000000000002,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_solver": {
+        "enabled": true,
+        "reason": null,
+        "screening_weight": 2.0,
+        "detail_gradient_retention": 0.9,
+        "output_edge_ratio_p99": 6.461948060989381,
+        "output_edge_ratio_max": 7.9931557178497314,
+        "diagonal_edge_ratio_max": 6.275145229693011,
+        "dropped_detail_components": 0,
+        "dropped_detail_pixels": 0,
+        "quality_gate_failures": [],
+        "checks": {
+          "telemetry": true,
+          "enabled": true,
+          "reason_clear": true,
+          "quality_gate": true,
+          "face_protection": true,
+          "calibration": true,
+          "cardinal_edge_p99": true,
+          "cardinal_edge_max": true,
+          "diagonal_edge_max": true,
+          "passed": true
+        }
       },
       "emitted_surface": {
         "available": true,
@@ -2604,11 +3982,35 @@
         "missing_samples": 0,
         "coverage_ratio": 1.0,
         "max_abs_error_mm": 0.0,
-        "rms_error_mm": 0.0
+        "rms_error_mm": 0.0,
+        "sample_grid_passed": true,
+        "expected_top_triangle_count": 28800,
+        "actual_top_triangle_count": 28800,
+        "unexpected_top_triangle_count": 0,
+        "triangle_count_match": true,
+        "triangle_set_match": true,
+        "max_triangle_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_facet_normal_cosine": 0.9999999999886675,
+        "mean_facet_normal_cosine": 1.0,
+        "facet_geometry_passed": true,
+        "top_facet_geometry_passed": true,
+        "complete_shell_verified": true,
+        "expected_max_xy_size_mm": 48.0,
+        "sample_pitch_mm": 0.4,
+        "finite_reference_samples": 14641,
+        "unemittable_reference_samples": 0,
+        "expected_shell_triangle_count": 58560,
+        "actual_shell_triangle_count": 58560,
+        "invalid_shell_triangle_count": 0,
+        "shell_triangle_count_match": true,
+        "shell_connectivity_match": true,
+        "max_shell_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_shell_normal_cosine": 0.9999999999886675,
+        "mean_shell_normal_cosine": 0.9999999999997945
       },
       "background": {
-        "correlation": 0.9997736789862088,
-        "gradient_correlation": 0.9972037726563427
+        "correlation": 0.9997741393082487,
+        "gradient_correlation": 0.9971786413544015
       },
       "physical_cap": {
         "far_background_max_mm": 9.010000228881836,
@@ -2637,12 +4039,12 @@
         "surface": {
           "name": "emitted_surface.npy",
           "size_bytes": 58692,
-          "sha256": "0a9927a8e7ceb7b25d9bf31c5ce0a71da6656cc003f89e5486c1c76ed8ffa65c"
+          "sha256": "5bb3f31a784805f5306fbac1facf6cfeabf32916a41b13284f910d62fb79b8dc"
         },
         "stl": {
           "name": "relief.stl",
           "size_bytes": 2928084,
-          "sha256": "5ef7be8cf5078fd1122c56fdcef34ac028290d0390d71117fb97a6408c245cbe"
+          "sha256": "170950d5b149dbd41e433416d3abbaefc78aa46aeac03b7b823c0c6fa3cbd470"
         }
       }
     },
@@ -2664,7 +4066,7 @@
         },
         "coverage_ratio": 0.6384126767297316
       },
-      "runtime_seconds": 0.8787071000006108,
+      "runtime_seconds": 1.2552666000010504,
       "checks": {
         "context_composed": true,
         "source_context_signal": true,
@@ -2677,12 +4079,24 @@
         "feasible_attachment": true,
         "printable_mesh": true,
         "face_appearance": true,
+        "selection_appearance": true,
         "background_appearance": true,
+        "selection_solver": true,
         "emitted_surface": true,
         "mask_topology": true,
+        "appearance_component_coverage": true,
         "passed": true
       },
       "face_appearance_checks": {
+        "telemetry": true,
+        "coverage": true,
+        "normal_field": true,
+        "lighting": true,
+        "lighting_energy": true,
+        "components": true,
+        "passed": true
+      },
+      "selection_appearance_checks": {
         "telemetry": true,
         "coverage": true,
         "normal_field": true,
@@ -2802,6 +4216,97 @@
           }
         ]
       },
+      "selection_appearance": {
+        "component": null,
+        "available": true,
+        "samples": 5786,
+        "reference_samples": 5786,
+        "missing_candidate_samples": 0,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9896363610533468,
+        "normal_p05_cosine": 0.9428295816810336,
+        "normal_angle_median_deg": 0.27426331215448657,
+        "normal_angle_p95_deg": 19.467689212726498,
+        "minimum_lighting_correlation": 0.9303469670177643,
+        "maximum_lighting_mae": 0.018144254937076353,
+        "minimum_lighting_rms_retention": 1.0376827408404796,
+        "maximum_lighting_rms_retention": 1.1021560019837515,
+        "lights": [
+          {
+            "name": "frontal",
+            "correlation": 0.9793586147843473,
+            "mean_absolute_error": 0.009624781076033937,
+            "rms_retention": 1.0376827408404796
+          },
+          {
+            "name": "upper_left",
+            "correlation": 0.9303469670177643,
+            "mean_absolute_error": 0.018144254937076353,
+            "rms_retention": 1.1021560019837515
+          },
+          {
+            "name": "upper_right",
+            "correlation": 0.9612601483584268,
+            "mean_absolute_error": 0.016699368142679385,
+            "rms_retention": 1.0758760211893124
+          },
+          {
+            "name": "grazing_right",
+            "correlation": 0.9534808199604193,
+            "mean_absolute_error": 0.017651143590528814,
+            "rms_retention": 1.0612211718645868
+          }
+        ],
+        "reason": null,
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 5786,
+            "reference_samples": 5786,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9896363610533468,
+            "normal_p05_cosine": 0.9428295816810336,
+            "normal_angle_median_deg": 0.27426331215448657,
+            "normal_angle_p95_deg": 19.467689212726498,
+            "minimum_lighting_correlation": 0.9303469670177643,
+            "maximum_lighting_mae": 0.018144254937076353,
+            "minimum_lighting_rms_retention": 1.0376827408404796,
+            "maximum_lighting_rms_retention": 1.1021560019837515,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9793586147843473,
+                "mean_absolute_error": 0.009624781076033937,
+                "rms_retention": 1.0376827408404796
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9303469670177643,
+                "mean_absolute_error": 0.018144254937076353,
+                "rms_retention": 1.1021560019837515
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9612601483584268,
+                "mean_absolute_error": 0.016699368142679385,
+                "rms_retention": 1.0758760211893124
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9534808199604193,
+                "mean_absolute_error": 0.017651143590528814,
+                "rms_retention": 1.0612211718645868
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
       "background_appearance": {
         "component": null,
         "available": true,
@@ -2813,7 +4318,7 @@
         "normal_p05_cosine": 0.9999999999999998,
         "normal_angle_median_deg": 0.0,
         "normal_angle_p95_deg": 1.2074182697257333e-06,
-        "minimum_lighting_correlation": 0.9999999999999999,
+        "minimum_lighting_correlation": 0.9999999999999998,
         "maximum_lighting_mae": 0.0,
         "minimum_lighting_rms_retention": 1.0,
         "maximum_lighting_rms_retention": 1.0,
@@ -2826,26 +4331,96 @@
           },
           {
             "name": "upper_left",
-            "correlation": 1.0,
+            "correlation": 0.9999999999999998,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           },
           {
             "name": "upper_right",
-            "correlation": 0.9999999999999999,
+            "correlation": 1.0,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           },
           {
             "name": "grazing_right",
-            "correlation": 1.0000000000000002,
+            "correlation": 0.9999999999999998,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           }
         ],
         "reason": null,
-        "component_count": 0,
-        "components": []
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 1617,
+            "reference_samples": 1617,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 1.0,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9999999999999998,
+            "maximum_lighting_mae": 0.0,
+            "minimum_lighting_rms_retention": 1.0,
+            "maximum_lighting_rms_retention": 1.0,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9999999999999998,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_right",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9999999999999998,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_solver": {
+        "enabled": true,
+        "reason": null,
+        "screening_weight": 2.0,
+        "detail_gradient_retention": 0.9,
+        "output_edge_ratio_p99": 7.72102816104889,
+        "output_edge_ratio_max": 12.031314373016357,
+        "diagonal_edge_ratio_max": 8.507494786452538,
+        "dropped_detail_components": 0,
+        "dropped_detail_pixels": 0,
+        "quality_gate_failures": [],
+        "checks": {
+          "telemetry": true,
+          "enabled": true,
+          "reason_clear": true,
+          "quality_gate": true,
+          "face_protection": true,
+          "calibration": true,
+          "cardinal_edge_p99": true,
+          "cardinal_edge_max": true,
+          "diagonal_edge_max": true,
+          "passed": true
+        }
       },
       "emitted_surface": {
         "available": true,
@@ -2865,11 +4440,35 @@
         "missing_samples": 0,
         "coverage_ratio": 1.0,
         "max_abs_error_mm": 0.0,
-        "rms_error_mm": 0.0
+        "rms_error_mm": 0.0,
+        "sample_grid_passed": true,
+        "expected_top_triangle_count": 28800,
+        "actual_top_triangle_count": 28800,
+        "unexpected_top_triangle_count": 0,
+        "triangle_count_match": true,
+        "triangle_set_match": true,
+        "max_triangle_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_facet_normal_cosine": 0.999999999988658,
+        "mean_facet_normal_cosine": 1.0,
+        "facet_geometry_passed": true,
+        "top_facet_geometry_passed": true,
+        "complete_shell_verified": true,
+        "expected_max_xy_size_mm": 48.0,
+        "sample_pitch_mm": 0.4,
+        "finite_reference_samples": 14641,
+        "unemittable_reference_samples": 0,
+        "expected_shell_triangle_count": 58560,
+        "actual_shell_triangle_count": 58560,
+        "invalid_shell_triangle_count": 0,
+        "shell_triangle_count_match": true,
+        "shell_connectivity_match": true,
+        "max_shell_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_shell_normal_cosine": 0.999999999988658,
+        "mean_shell_normal_cosine": 0.9999999999997505
       },
       "background": {
-        "correlation": 0.999811891766302,
-        "gradient_correlation": 0.9965678101790931
+        "correlation": 0.999813023146014,
+        "gradient_correlation": 0.996547069669948
       },
       "physical_cap": {
         "far_background_max_mm": 13.510000228881836,
@@ -2898,12 +4497,12 @@
         "surface": {
           "name": "emitted_surface.npy",
           "size_bytes": 58692,
-          "sha256": "8d79a4c1778719708dfc443a63d8c496166550a661acb0fc23d39bbb6c50fca0"
+          "sha256": "2578020632c258e4d62d0ba31fdf405542a8e195fd8bf9dd87bb87acacff7aa9"
         },
         "stl": {
           "name": "relief.stl",
           "size_bytes": 2928084,
-          "sha256": "079c777fd8a7af959d8312d4145e76be3025be2e45030f821f9d15e24cfd8dc6"
+          "sha256": "5df15892bed6ec0514aabd447b04333e4c7648134ec89966311d9283e0072889"
         }
       }
     },
@@ -2925,7 +4524,7 @@
         },
         "coverage_ratio": 0.6384126767297316
       },
-      "runtime_seconds": 1.0565621000023384,
+      "runtime_seconds": 1.4702786999987438,
       "checks": {
         "context_composed": true,
         "source_context_signal": true,
@@ -2938,12 +4537,24 @@
         "feasible_attachment": true,
         "printable_mesh": true,
         "face_appearance": true,
+        "selection_appearance": true,
         "background_appearance": true,
+        "selection_solver": true,
         "emitted_surface": true,
         "mask_topology": true,
+        "appearance_component_coverage": true,
         "passed": true
       },
       "face_appearance_checks": {
+        "telemetry": true,
+        "coverage": true,
+        "normal_field": true,
+        "lighting": true,
+        "lighting_energy": true,
+        "components": true,
+        "passed": true
+      },
+      "selection_appearance_checks": {
         "telemetry": true,
         "coverage": true,
         "normal_field": true,
@@ -3063,6 +4674,97 @@
           }
         ]
       },
+      "selection_appearance": {
+        "component": null,
+        "available": true,
+        "samples": 5786,
+        "reference_samples": 5786,
+        "missing_candidate_samples": 0,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9809354619518134,
+        "normal_p05_cosine": 0.8885393938145447,
+        "normal_angle_median_deg": 0.4025203778200478,
+        "normal_angle_p95_deg": 27.309720988027333,
+        "minimum_lighting_correlation": 0.8950482826945494,
+        "maximum_lighting_mae": 0.025408187671971987,
+        "minimum_lighting_rms_retention": 1.0523961889934375,
+        "maximum_lighting_rms_retention": 1.103760930971782,
+        "lights": [
+          {
+            "name": "frontal",
+            "correlation": 0.962089392345982,
+            "mean_absolute_error": 0.015144305382387965,
+            "rms_retention": 1.0523961889934375
+          },
+          {
+            "name": "upper_left",
+            "correlation": 0.8950482826945494,
+            "mean_absolute_error": 0.023549942506506598,
+            "rms_retention": 1.1026686676359494
+          },
+          {
+            "name": "upper_right",
+            "correlation": 0.9381009864683058,
+            "mean_absolute_error": 0.022396987287910217,
+            "rms_retention": 1.0900892526717954
+          },
+          {
+            "name": "grazing_right",
+            "correlation": 0.9235251706095085,
+            "mean_absolute_error": 0.025408187671971987,
+            "rms_retention": 1.103760930971782
+          }
+        ],
+        "reason": null,
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 5786,
+            "reference_samples": 5786,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9809354619518134,
+            "normal_p05_cosine": 0.8885393938145447,
+            "normal_angle_median_deg": 0.4025203778200478,
+            "normal_angle_p95_deg": 27.309720988027333,
+            "minimum_lighting_correlation": 0.8950482826945494,
+            "maximum_lighting_mae": 0.025408187671971987,
+            "minimum_lighting_rms_retention": 1.0523961889934375,
+            "maximum_lighting_rms_retention": 1.103760930971782,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.962089392345982,
+                "mean_absolute_error": 0.015144305382387965,
+                "rms_retention": 1.0523961889934375
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.8950482826945494,
+                "mean_absolute_error": 0.023549942506506598,
+                "rms_retention": 1.1026686676359494
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9381009864683058,
+                "mean_absolute_error": 0.022396987287910217,
+                "rms_retention": 1.0900892526717954
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9235251706095085,
+                "mean_absolute_error": 0.025408187671971987,
+                "rms_retention": 1.103760930971782
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
       "background_appearance": {
         "component": null,
         "available": true,
@@ -3093,7 +4795,7 @@
           },
           {
             "name": "upper_right",
-            "correlation": 0.9999999999999999,
+            "correlation": 1.0000000000000002,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           },
@@ -3105,8 +4807,78 @@
           }
         ],
         "reason": null,
-        "component_count": 0,
-        "components": []
+        "component_count": 1,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 1617,
+            "reference_samples": 1617,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 1.0,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9999999999999998,
+            "maximum_lighting_mae": 0.0,
+            "minimum_lighting_rms_retention": 1.0,
+            "maximum_lighting_rms_retention": 1.0,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_left",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_right",
+                "correlation": 1.0000000000000002,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9999999999999998,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_solver": {
+        "enabled": true,
+        "reason": null,
+        "screening_weight": 2.0,
+        "detail_gradient_retention": 0.9,
+        "output_edge_ratio_p99": 10.355856060981754,
+        "output_edge_ratio_max": 17.101759910583496,
+        "diagonal_edge_ratio_max": 12.092867340749407,
+        "dropped_detail_components": 0,
+        "dropped_detail_pixels": 0,
+        "quality_gate_failures": [],
+        "checks": {
+          "telemetry": true,
+          "enabled": true,
+          "reason_clear": true,
+          "quality_gate": true,
+          "face_protection": true,
+          "calibration": true,
+          "cardinal_edge_p99": true,
+          "cardinal_edge_max": true,
+          "diagonal_edge_max": true,
+          "passed": true
+        }
       },
       "emitted_surface": {
         "available": true,
@@ -3126,11 +4898,35 @@
         "missing_samples": 0,
         "coverage_ratio": 1.0,
         "max_abs_error_mm": 0.0,
-        "rms_error_mm": 0.0
+        "rms_error_mm": 0.0,
+        "sample_grid_passed": true,
+        "expected_top_triangle_count": 28800,
+        "actual_top_triangle_count": 28800,
+        "unexpected_top_triangle_count": 0,
+        "triangle_count_match": true,
+        "triangle_set_match": true,
+        "max_triangle_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_facet_normal_cosine": 0.9999999999886467,
+        "mean_facet_normal_cosine": 1.0,
+        "facet_geometry_passed": true,
+        "top_facet_geometry_passed": true,
+        "complete_shell_verified": true,
+        "expected_max_xy_size_mm": 48.0,
+        "sample_pitch_mm": 0.4,
+        "finite_reference_samples": 14641,
+        "unemittable_reference_samples": 0,
+        "expected_shell_triangle_count": 58560,
+        "actual_shell_triangle_count": 58560,
+        "invalid_shell_triangle_count": 0,
+        "shell_triangle_count_match": true,
+        "shell_connectivity_match": true,
+        "max_shell_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_shell_normal_cosine": 0.9999999999886467,
+        "mean_shell_normal_cosine": 0.999999999999711
       },
       "background": {
-        "correlation": 0.9999877219496084,
-        "gradient_correlation": 0.99978637694896
+        "correlation": 0.9999879460065175,
+        "gradient_correlation": 0.9998041931124616
       },
       "physical_cap": {
         "far_background_max_mm": 18.010000228881836,
@@ -3159,12 +4955,12 @@
         "surface": {
           "name": "emitted_surface.npy",
           "size_bytes": 58692,
-          "sha256": "428f4c03ef89499478a8133daeb3869979a8b1f7b38a560588477fa4b84e4590"
+          "sha256": "c09bf9813d5c79ba4e06b4bf2d59d30629fe69b0dfb1acade04cc49e76aa8dfd"
         },
         "stl": {
           "name": "relief.stl",
           "size_bytes": 2928084,
-          "sha256": "0ed9a212b494a82e9b6c6d7ca264c662cc4f42d0055e8b7fa56e0a9e1a835a43"
+          "sha256": "0b21d3d3b85ee63165ea9e2d01c04684675f7b51e3989dd5a2f4cbd8f37be0d6"
         }
       }
     },
@@ -3173,7 +4969,7 @@
       "topology_id": "disconnected_subject_with_hole",
       "background_archetype": "shelving",
       "relief_height_mm": 20.0,
-      "subject_coverage_ratio": 0.401133802335906,
+      "subject_coverage_ratio": 0.38364865787856023,
       "mask_topology": {
         "component_count": 2,
         "hole_count": 1,
@@ -3184,9 +4980,9 @@
           "left": false,
           "right": false
         },
-        "coverage_ratio": 0.401133802335906
+        "coverage_ratio": 0.38364865787856023
       },
-      "runtime_seconds": 0.8191590999995242,
+      "runtime_seconds": 1.1539898999981233,
       "checks": {
         "context_composed": true,
         "source_context_signal": true,
@@ -3199,12 +4995,24 @@
         "feasible_attachment": true,
         "printable_mesh": true,
         "face_appearance": true,
+        "selection_appearance": true,
         "background_appearance": true,
+        "selection_solver": true,
         "emitted_surface": true,
         "mask_topology": true,
+        "appearance_component_coverage": true,
         "passed": true
       },
       "face_appearance_checks": {
+        "telemetry": true,
+        "coverage": true,
+        "normal_field": true,
+        "lighting": true,
+        "lighting_energy": true,
+        "components": true,
+        "passed": true
+      },
+      "selection_appearance_checks": {
         "telemetry": true,
         "coverage": true,
         "normal_field": true,
@@ -3223,15 +5031,15 @@
         "passed": true
       },
       "compose": {
-        "normalized_context_correlation": 1.0000000000000002,
-        "normalized_context_rms_retention": 0.9999999999999999,
-        "recoverable_context_coverage_ratio": 0.7755474452554745,
-        "measured_context_coverage_ratio": 0.8548129562043796,
-        "recoverable_measured_context_ratio": 0.9072715143428952
+        "normalized_context_correlation": 0.9999999999999998,
+        "normalized_context_rms_retention": 1.0,
+        "recoverable_context_coverage_ratio": 0.7606382978723404,
+        "measured_context_coverage_ratio": 0.8376551418439716,
+        "recoverable_measured_context_ratio": 0.9080566212461966
       },
       "face": {
-        "correlation": 0.9851861390334098,
-        "rms_retention": 1.0309819216284186
+        "correlation": 0.9851500181366398,
+        "rms_retention": 1.0326859587770267
       },
       "face_appearance": {
         "component": null,
@@ -3240,38 +5048,38 @@
         "reference_samples": 1841,
         "missing_candidate_samples": 0,
         "candidate_coverage_ratio": 1.0,
-        "normal_mean_cosine": 0.9995301911798955,
-        "normal_p05_cosine": 0.9981417005214325,
-        "normal_angle_median_deg": 0.707540596983689,
-        "normal_angle_p95_deg": 3.4935161862793502,
-        "minimum_lighting_correlation": 0.9974307692192216,
-        "maximum_lighting_mae": 0.00626842161757287,
-        "minimum_lighting_rms_retention": 0.9877369973995732,
-        "maximum_lighting_rms_retention": 1.0126435887021121,
+        "normal_mean_cosine": 0.9994531054210044,
+        "normal_p05_cosine": 0.9977446602011326,
+        "normal_angle_median_deg": 0.7318254509932737,
+        "normal_angle_p95_deg": 3.848799428069587,
+        "minimum_lighting_correlation": 0.9972299188163345,
+        "maximum_lighting_mae": 0.00682417877110852,
+        "minimum_lighting_rms_retention": 0.9866607417084408,
+        "maximum_lighting_rms_retention": 1.0132451708965071,
         "lights": [
           {
             "name": "frontal",
-            "correlation": 0.9991667845119095,
-            "mean_absolute_error": 0.0032325030442583898,
-            "rms_retention": 0.9877369973995732
+            "correlation": 0.999033550965254,
+            "mean_absolute_error": 0.0035280689047472204,
+            "rms_retention": 0.9866607417084408
           },
           {
             "name": "upper_left",
-            "correlation": 0.9974307692192216,
-            "mean_absolute_error": 0.00626842161757287,
-            "rms_retention": 1.0126435887021121
+            "correlation": 0.9972299188163345,
+            "mean_absolute_error": 0.00682417877110852,
+            "rms_retention": 1.0132451708965071
           },
           {
             "name": "upper_right",
-            "correlation": 0.9982312175802165,
-            "mean_absolute_error": 0.0053883929937917395,
-            "rms_retention": 1.0069254280512936
+            "correlation": 0.9978135640176486,
+            "mean_absolute_error": 0.006086247490947853,
+            "rms_retention": 1.0075281993603091
           },
           {
             "name": "grazing_right",
-            "correlation": 0.9994347629348501,
-            "mean_absolute_error": 0.0043393383666192635,
-            "rms_retention": 1.0101463122966725
+            "correlation": 0.9993475383868249,
+            "mean_absolute_error": 0.00477379227599494,
+            "rms_retention": 1.010373011835894
           }
         ],
         "reason": null,
@@ -3284,38 +5092,174 @@
             "reference_samples": 1841,
             "missing_candidate_samples": 0,
             "candidate_coverage_ratio": 1.0,
-            "normal_mean_cosine": 0.9995301911798955,
-            "normal_p05_cosine": 0.9981417005214325,
-            "normal_angle_median_deg": 0.707540596983689,
-            "normal_angle_p95_deg": 3.4935161862793502,
-            "minimum_lighting_correlation": 0.9974307692192216,
-            "maximum_lighting_mae": 0.00626842161757287,
-            "minimum_lighting_rms_retention": 0.9877369973995732,
-            "maximum_lighting_rms_retention": 1.0126435887021121,
+            "normal_mean_cosine": 0.9994531054210044,
+            "normal_p05_cosine": 0.9977446602011326,
+            "normal_angle_median_deg": 0.7318254509932737,
+            "normal_angle_p95_deg": 3.848799428069587,
+            "minimum_lighting_correlation": 0.9972299188163345,
+            "maximum_lighting_mae": 0.00682417877110852,
+            "minimum_lighting_rms_retention": 0.9866607417084408,
+            "maximum_lighting_rms_retention": 1.0132451708965071,
             "lights": [
               {
                 "name": "frontal",
-                "correlation": 0.9991667845119095,
-                "mean_absolute_error": 0.0032325030442583898,
-                "rms_retention": 0.9877369973995732
+                "correlation": 0.999033550965254,
+                "mean_absolute_error": 0.0035280689047472204,
+                "rms_retention": 0.9866607417084408
               },
               {
                 "name": "upper_left",
-                "correlation": 0.9974307692192216,
-                "mean_absolute_error": 0.00626842161757287,
-                "rms_retention": 1.0126435887021121
+                "correlation": 0.9972299188163345,
+                "mean_absolute_error": 0.00682417877110852,
+                "rms_retention": 1.0132451708965071
               },
               {
                 "name": "upper_right",
-                "correlation": 0.9982312175802165,
-                "mean_absolute_error": 0.0053883929937917395,
-                "rms_retention": 1.0069254280512936
+                "correlation": 0.9978135640176486,
+                "mean_absolute_error": 0.006086247490947853,
+                "rms_retention": 1.0075281993603091
               },
               {
                 "name": "grazing_right",
-                "correlation": 0.9994347629348501,
-                "mean_absolute_error": 0.0043393383666192635,
-                "rms_retention": 1.0101463122966725
+                "correlation": 0.9993475383868249,
+                "mean_absolute_error": 0.00477379227599494,
+                "rms_retention": 1.010373011835894
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_appearance": {
+        "component": null,
+        "available": true,
+        "samples": 2462,
+        "reference_samples": 2462,
+        "missing_candidate_samples": 0,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9990333525087813,
+        "normal_p05_cosine": 0.9983992607251504,
+        "normal_angle_median_deg": 0.03501755933539174,
+        "normal_angle_p95_deg": 3.2423197556285674,
+        "minimum_lighting_correlation": 0.9896455669798273,
+        "maximum_lighting_mae": 0.003981896310473789,
+        "minimum_lighting_rms_retention": 1.003140606845485,
+        "maximum_lighting_rms_retention": 1.019999430694555,
+        "lights": [
+          {
+            "name": "frontal",
+            "correlation": 0.9981307142026019,
+            "mean_absolute_error": 0.0010460410934265017,
+            "rms_retention": 1.003140606845485
+          },
+          {
+            "name": "upper_left",
+            "correlation": 0.9932671219523067,
+            "mean_absolute_error": 0.0033705473684469125,
+            "rms_retention": 1.0068352900152107
+          },
+          {
+            "name": "upper_right",
+            "correlation": 0.9896455669798273,
+            "mean_absolute_error": 0.003981896310473789,
+            "rms_retention": 1.0185834282955355
+          },
+          {
+            "name": "grazing_right",
+            "correlation": 0.9935583839265749,
+            "mean_absolute_error": 0.0023352571215654616,
+            "rms_retention": 1.019999430694555
+          }
+        ],
+        "reason": null,
+        "component_count": 2,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 129,
+            "reference_samples": 129,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9999999817852132,
+            "normal_p05_cosine": 0.9999999580799896,
+            "normal_angle_median_deg": 0.009825940291621134,
+            "normal_angle_p95_deg": 0.01658995624532125,
+            "minimum_lighting_correlation": 0.9999996401568665,
+            "maximum_lighting_mae": 0.00010250576892367143,
+            "minimum_lighting_rms_retention": 0.9993729651473544,
+            "maximum_lighting_rms_retention": 1.0000122305447718,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9999996401568665,
+                "mean_absolute_error": 0.00010250576892367143,
+                "rms_retention": 0.9993729651473544
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9999999439906619,
+                "mean_absolute_error": 7.503571241883129e-05,
+                "rms_retention": 1.0000027902397444
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9999999597353089,
+                "mean_absolute_error": 7.579921487045864e-05,
+                "rms_retention": 0.9999332057679923
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9999999774664171,
+                "mean_absolute_error": 5.2974190798825264e-05,
+                "rms_retention": 1.0000122305447718
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          },
+          {
+            "component": 2,
+            "available": true,
+            "samples": 2333,
+            "reference_samples": 2333,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9989799040832948,
+            "normal_p05_cosine": 0.9983308335170682,
+            "normal_angle_median_deg": 0.050806042879129126,
+            "normal_angle_p95_deg": 3.3109016697651232,
+            "minimum_lighting_correlation": 0.9702326284970694,
+            "maximum_lighting_mae": 0.004197878533076803,
+            "minimum_lighting_rms_retention": 1.0116617930108678,
+            "maximum_lighting_rms_retention": 1.07880585356454,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9955541244595925,
+                "mean_absolute_error": 0.0010982125708636494,
+                "rms_retention": 1.0116617930108678
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.981686629457548,
+                "mean_absolute_error": 0.0035527681158226613,
+                "rms_retention": 1.028006434445849
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9702326284970694,
+                "mean_absolute_error": 0.004197878533076803,
+                "rms_retention": 1.0765693012702966
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9797668191261075,
+                "mean_absolute_error": 0.002461452791547843,
+                "rms_retention": 1.07880585356454
               }
             ],
             "reason": null,
@@ -3327,47 +5271,162 @@
       "background_appearance": {
         "component": null,
         "available": true,
-        "samples": 5425,
-        "reference_samples": 5425,
+        "samples": 5390,
+        "reference_samples": 5390,
         "missing_candidate_samples": 0,
         "candidate_coverage_ratio": 1.0,
-        "normal_mean_cosine": 0.9999999892853701,
+        "normal_mean_cosine": 0.9999999897176041,
         "normal_p05_cosine": 0.9999999999999998,
         "normal_angle_median_deg": 0.0,
         "normal_angle_p95_deg": 1.2074182697257333e-06,
-        "minimum_lighting_correlation": 0.999999957469186,
-        "maximum_lighting_mae": 1.273574701163951e-06,
-        "minimum_lighting_rms_retention": 0.9999949705653935,
-        "maximum_lighting_rms_retention": 0.9999992769394086,
+        "minimum_lighting_correlation": 0.9999999589148953,
+        "maximum_lighting_mae": 1.25044019673219e-06,
+        "minimum_lighting_rms_retention": 0.9999949270271075,
+        "maximum_lighting_rms_retention": 0.999999743843417,
         "lights": [
           {
             "name": "frontal",
-            "correlation": 0.9999999968151231,
-            "mean_absolute_error": 2.0469094347896285e-07,
-            "rms_retention": 0.9999950744485632
+            "correlation": 0.9999999966709023,
+            "mean_absolute_error": 2.1364149303269922e-07,
+            "rms_retention": 0.9999951696995418
           },
           {
             "name": "upper_left",
-            "correlation": 0.9999999993613836,
-            "mean_absolute_error": 1.0985428923320535e-07,
-            "rms_retention": 0.9999991789677508
+            "correlation": 0.9999999999361834,
+            "mean_absolute_error": 3.4845073496712434e-08,
+            "rms_retention": 0.999999743843417
           },
           {
             "name": "upper_right",
-            "correlation": 0.9999999995568813,
-            "mean_absolute_error": 8.66639047559449e-08,
-            "rms_retention": 0.9999992769394086
+            "correlation": 0.9999999995534357,
+            "mean_absolute_error": 8.761684437019828e-08,
+            "rms_retention": 0.9999992708335151
           },
           {
             "name": "grazing_right",
-            "correlation": 0.999999957469186,
-            "mean_absolute_error": 1.273574701163951e-06,
-            "rms_retention": 0.9999949705653935
+            "correlation": 0.9999999589148953,
+            "mean_absolute_error": 1.25044019673219e-06,
+            "rms_retention": 0.9999949270271075
           }
         ],
         "reason": null,
-        "component_count": 0,
-        "components": []
+        "component_count": 2,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 5257,
+            "reference_samples": 5257,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9999999894574635,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9999999584167355,
+            "maximum_lighting_mae": 1.282075834199449e-06,
+            "minimum_lighting_rms_retention": 0.9999948894467502,
+            "maximum_lighting_rms_retention": 0.999999735326485,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9999999965022365,
+                "mean_absolute_error": 2.190465374636197e-07,
+                "rms_retention": 0.9999949324558619
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9999999999343945,
+                "mean_absolute_error": 3.572663993670915e-08,
+                "rms_retention": 0.999999735326485
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9999999995409798,
+                "mean_absolute_error": 8.983351553269331e-08,
+                "rms_retention": 0.999999249503016
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9999999584167355,
+                "mean_absolute_error": 1.282075834199449e-06,
+                "rms_retention": 0.9999948894467502
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          },
+          {
+            "component": 2,
+            "available": true,
+            "samples": 133,
+            "reference_samples": 133,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 1.0,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9999999999999999,
+            "maximum_lighting_mae": 0.0,
+            "minimum_lighting_rms_retention": 1.0,
+            "maximum_lighting_rms_retention": 1.0,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 1.0000000000000002,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9999999999999999,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_right",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 1.0000000000000002,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_solver": {
+        "enabled": true,
+        "reason": null,
+        "screening_weight": 2.0,
+        "detail_gradient_retention": 0.9,
+        "output_edge_ratio_p99": 3.197625130414963,
+        "output_edge_ratio_max": 7.775157690048218,
+        "diagonal_edge_ratio_max": 5.876116148199755,
+        "dropped_detail_components": 0,
+        "dropped_detail_pixels": 0,
+        "quality_gate_failures": [],
+        "checks": {
+          "telemetry": true,
+          "enabled": true,
+          "reason_clear": true,
+          "quality_gate": true,
+          "face_protection": true,
+          "calibration": true,
+          "cardinal_edge_p99": true,
+          "cardinal_edge_max": true,
+          "diagonal_edge_max": true,
+          "passed": true
+        }
       },
       "emitted_surface": {
         "available": true,
@@ -3387,11 +5446,35 @@
         "missing_samples": 0,
         "coverage_ratio": 1.0,
         "max_abs_error_mm": 0.0,
-        "rms_error_mm": 0.0
+        "rms_error_mm": 0.0,
+        "sample_grid_passed": true,
+        "expected_top_triangle_count": 28800,
+        "actual_top_triangle_count": 28800,
+        "unexpected_top_triangle_count": 0,
+        "triangle_count_match": true,
+        "triangle_set_match": true,
+        "max_triangle_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_facet_normal_cosine": 0.9999999999890343,
+        "mean_facet_normal_cosine": 1.0,
+        "facet_geometry_passed": true,
+        "top_facet_geometry_passed": true,
+        "complete_shell_verified": true,
+        "expected_max_xy_size_mm": 48.0,
+        "sample_pitch_mm": 0.4,
+        "finite_reference_samples": 14641,
+        "unemittable_reference_samples": 0,
+        "expected_shell_triangle_count": 58560,
+        "actual_shell_triangle_count": 58560,
+        "invalid_shell_triangle_count": 0,
+        "shell_triangle_count_match": true,
+        "shell_connectivity_match": true,
+        "max_shell_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_shell_normal_cosine": 0.9999999999890343,
+        "mean_shell_normal_cosine": 0.9999999999997056
       },
       "background": {
-        "correlation": 0.9999925282251922,
-        "gradient_correlation": 0.9998176648087508
+        "correlation": 0.9999925629654055,
+        "gradient_correlation": 0.9998088322114043
       },
       "physical_cap": {
         "far_background_max_mm": 9.010000228881836,
@@ -3415,17 +5498,17 @@
         "depth": {
           "name": "depth.npy",
           "size_bytes": 58692,
-          "sha256": "d0b6d209ff847aadf634a6baf219741b2c00c2360cbf1a6033703add16bdb3ac"
+          "sha256": "48f8256385fa7318a5a793d3271c80ae79128231f247cdafc90b22b30403ac93"
         },
         "surface": {
           "name": "emitted_surface.npy",
           "size_bytes": 58692,
-          "sha256": "38ffd4d6afb7b8ec2ac2032d364bab4cffe6cec7f362f9f31afe7acce9361fe9"
+          "sha256": "839e633c07b2e5e8cbdc5c9ce299618c79cbfe67fdc644e4ba47747cd9695861"
         },
         "stl": {
           "name": "relief.stl",
           "size_bytes": 2928084,
-          "sha256": "ff081822903b5b3e1a07199b1d9b6bf57271c0efd7c1be5a2928ecb3063378c3"
+          "sha256": "7f64972b34398778eb06f3abcd2b4366e9a96692f1371f4c48f14a60035d50af"
         }
       }
     },
@@ -3434,7 +5517,7 @@
       "topology_id": "disconnected_subject_with_hole",
       "background_archetype": "shelving",
       "relief_height_mm": 30.0,
-      "subject_coverage_ratio": 0.401133802335906,
+      "subject_coverage_ratio": 0.38364865787856023,
       "mask_topology": {
         "component_count": 2,
         "hole_count": 1,
@@ -3445,9 +5528,9 @@
           "left": false,
           "right": false
         },
-        "coverage_ratio": 0.401133802335906
+        "coverage_ratio": 0.38364865787856023
       },
-      "runtime_seconds": 0.8570209999998042,
+      "runtime_seconds": 1.1950611000029312,
       "checks": {
         "context_composed": true,
         "source_context_signal": true,
@@ -3460,12 +5543,24 @@
         "feasible_attachment": true,
         "printable_mesh": true,
         "face_appearance": true,
+        "selection_appearance": true,
         "background_appearance": true,
+        "selection_solver": true,
         "emitted_surface": true,
         "mask_topology": true,
+        "appearance_component_coverage": true,
         "passed": true
       },
       "face_appearance_checks": {
+        "telemetry": true,
+        "coverage": true,
+        "normal_field": true,
+        "lighting": true,
+        "lighting_energy": true,
+        "components": true,
+        "passed": true
+      },
+      "selection_appearance_checks": {
         "telemetry": true,
         "coverage": true,
         "normal_field": true,
@@ -3484,15 +5579,15 @@
         "passed": true
       },
       "compose": {
-        "normalized_context_correlation": 0.9999999999999999,
-        "normalized_context_rms_retention": 1.0000000000000004,
-        "recoverable_context_coverage_ratio": 0.7008439781021898,
-        "measured_context_coverage_ratio": 0.8548129562043796,
-        "recoverable_measured_context_ratio": 0.8198799199466311
+        "normalized_context_correlation": 1.0,
+        "normalized_context_rms_retention": 1.0000000000000009,
+        "recoverable_context_coverage_ratio": 0.6913785460992907,
+        "measured_context_coverage_ratio": 0.8376551418439716,
+        "recoverable_measured_context_ratio": 0.8253737266834237
       },
       "face": {
-        "correlation": 0.9743014689900846,
-        "rms_retention": 1.0351289511180226
+        "correlation": 0.9741605805991266,
+        "rms_retention": 1.034967126108937
       },
       "face_appearance": {
         "component": null,
@@ -3501,38 +5596,38 @@
         "reference_samples": 1841,
         "missing_candidate_samples": 0,
         "candidate_coverage_ratio": 1.0,
-        "normal_mean_cosine": 0.9978688761986204,
-        "normal_p05_cosine": 0.9906805197721216,
-        "normal_angle_median_deg": 1.0280114446716395,
-        "normal_angle_p95_deg": 7.828369872219277,
-        "minimum_lighting_correlation": 0.9885181596627265,
-        "maximum_lighting_mae": 0.01511486363728956,
-        "minimum_lighting_rms_retention": 0.9720408799104268,
-        "maximum_lighting_rms_retention": 1.0308463716987126,
+        "normal_mean_cosine": 0.9978250615611503,
+        "normal_p05_cosine": 0.9907868397133214,
+        "normal_angle_median_deg": 1.180749063705476,
+        "normal_angle_p95_deg": 7.783518172451454,
+        "minimum_lighting_correlation": 0.9884263682315075,
+        "maximum_lighting_mae": 0.01545217753681493,
+        "minimum_lighting_rms_retention": 0.9704607398975206,
+        "maximum_lighting_rms_retention": 1.0332326726512893,
         "lights": [
           {
             "name": "frontal",
-            "correlation": 0.9941744300948036,
-            "mean_absolute_error": 0.009315900596718609,
-            "rms_retention": 0.9720408799104268
+            "correlation": 0.9942693475753176,
+            "mean_absolute_error": 0.009718324154272331,
+            "rms_retention": 0.9704607398975206
           },
           {
             "name": "upper_left",
-            "correlation": 0.9885181596627265,
-            "mean_absolute_error": 0.01511486363728956,
-            "rms_retention": 1.0308463716987126
+            "correlation": 0.9884263682315075,
+            "mean_absolute_error": 0.01545217753681493,
+            "rms_retention": 1.0332326726512893
           },
           {
             "name": "upper_right",
-            "correlation": 0.9939481752788321,
-            "mean_absolute_error": 0.011139187524188165,
-            "rms_retention": 1.0059184369809606
+            "correlation": 0.9940208944944744,
+            "mean_absolute_error": 0.011797841588595941,
+            "rms_retention": 1.0060913589852976
           },
           {
             "name": "grazing_right",
-            "correlation": 0.9989104483655452,
-            "mean_absolute_error": 0.006759351054012259,
-            "rms_retention": 1.0101733089903586
+            "correlation": 0.9985354093360584,
+            "mean_absolute_error": 0.0079917959054792,
+            "rms_retention": 1.0137741600652683
           }
         ],
         "reason": null,
@@ -3545,38 +5640,174 @@
             "reference_samples": 1841,
             "missing_candidate_samples": 0,
             "candidate_coverage_ratio": 1.0,
-            "normal_mean_cosine": 0.9978688761986204,
-            "normal_p05_cosine": 0.9906805197721216,
-            "normal_angle_median_deg": 1.0280114446716395,
-            "normal_angle_p95_deg": 7.828369872219277,
-            "minimum_lighting_correlation": 0.9885181596627265,
-            "maximum_lighting_mae": 0.01511486363728956,
-            "minimum_lighting_rms_retention": 0.9720408799104268,
-            "maximum_lighting_rms_retention": 1.0308463716987126,
+            "normal_mean_cosine": 0.9978250615611503,
+            "normal_p05_cosine": 0.9907868397133214,
+            "normal_angle_median_deg": 1.180749063705476,
+            "normal_angle_p95_deg": 7.783518172451454,
+            "minimum_lighting_correlation": 0.9884263682315075,
+            "maximum_lighting_mae": 0.01545217753681493,
+            "minimum_lighting_rms_retention": 0.9704607398975206,
+            "maximum_lighting_rms_retention": 1.0332326726512893,
             "lights": [
               {
                 "name": "frontal",
-                "correlation": 0.9941744300948036,
-                "mean_absolute_error": 0.009315900596718609,
-                "rms_retention": 0.9720408799104268
+                "correlation": 0.9942693475753176,
+                "mean_absolute_error": 0.009718324154272331,
+                "rms_retention": 0.9704607398975206
               },
               {
                 "name": "upper_left",
-                "correlation": 0.9885181596627265,
-                "mean_absolute_error": 0.01511486363728956,
-                "rms_retention": 1.0308463716987126
+                "correlation": 0.9884263682315075,
+                "mean_absolute_error": 0.01545217753681493,
+                "rms_retention": 1.0332326726512893
               },
               {
                 "name": "upper_right",
-                "correlation": 0.9939481752788321,
-                "mean_absolute_error": 0.011139187524188165,
-                "rms_retention": 1.0059184369809606
+                "correlation": 0.9940208944944744,
+                "mean_absolute_error": 0.011797841588595941,
+                "rms_retention": 1.0060913589852976
               },
               {
                 "name": "grazing_right",
-                "correlation": 0.9989104483655452,
-                "mean_absolute_error": 0.006759351054012259,
-                "rms_retention": 1.0101733089903586
+                "correlation": 0.9985354093360584,
+                "mean_absolute_error": 0.0079917959054792,
+                "rms_retention": 1.0137741600652683
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_appearance": {
+        "component": null,
+        "available": true,
+        "samples": 2462,
+        "reference_samples": 2462,
+        "missing_candidate_samples": 0,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9964640269865238,
+        "normal_p05_cosine": 0.9940429489211532,
+        "normal_angle_median_deg": 0.0862827858836715,
+        "normal_angle_p95_deg": 6.2570357351824955,
+        "minimum_lighting_correlation": 0.9505857539828779,
+        "maximum_lighting_mae": 0.008443318653456865,
+        "minimum_lighting_rms_retention": 1.0145858706039292,
+        "maximum_lighting_rms_retention": 1.0436200651159018,
+        "lights": [
+          {
+            "name": "frontal",
+            "correlation": 0.9881463498726284,
+            "mean_absolute_error": 0.004034664266592836,
+            "rms_retention": 1.0224937618130914
+          },
+          {
+            "name": "upper_left",
+            "correlation": 0.9505857539828779,
+            "mean_absolute_error": 0.008443318653456865,
+            "rms_retention": 1.0436200651159018
+          },
+          {
+            "name": "upper_right",
+            "correlation": 0.9784826580345075,
+            "mean_absolute_error": 0.007458457901747796,
+            "rms_retention": 1.0381353543769887
+          },
+          {
+            "name": "grazing_right",
+            "correlation": 0.9862106149193554,
+            "mean_absolute_error": 0.004260586752971782,
+            "rms_retention": 1.0145858706039292
+          }
+        ],
+        "reason": null,
+        "component_count": 2,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 129,
+            "reference_samples": 129,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9999999694987683,
+            "normal_p05_cosine": 0.9999999436418672,
+            "normal_angle_median_deg": 0.01341671617589347,
+            "normal_angle_p95_deg": 0.019236016604628974,
+            "minimum_lighting_correlation": 0.9999993409909416,
+            "maximum_lighting_mae": 0.00015099938247501512,
+            "minimum_lighting_rms_retention": 0.9992188323738418,
+            "maximum_lighting_rms_retention": 1.0000755926475677,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9999993409909416,
+                "mean_absolute_error": 0.00015099938247501512,
+                "rms_retention": 0.9992188323738418
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9999999265911952,
+                "mean_absolute_error": 8.724877946236904e-05,
+                "rms_retention": 1.0000755926475677
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9999999349879557,
+                "mean_absolute_error": 8.693013960920418e-05,
+                "rms_retention": 1.0000490559612933
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9999999688327138,
+                "mean_absolute_error": 6.17809694291034e-05,
+                "rms_retention": 1.0000707486717193
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          },
+          {
+            "component": 2,
+            "available": true,
+            "samples": 2333,
+            "reference_samples": 2333,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9962685119483413,
+            "normal_p05_cosine": 0.9934738796198057,
+            "normal_angle_median_deg": 0.12828104181445713,
+            "normal_angle_p95_deg": 6.549389175126137,
+            "minimum_lighting_correlation": 0.8922049060792203,
+            "maximum_lighting_mae": 0.008905355950390121,
+            "minimum_lighting_rms_retention": 1.0541488257200495,
+            "maximum_lighting_rms_retention": 1.135534491456183,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9705775353336833,
+                "mean_absolute_error": 0.00424940613116686,
+                "rms_retention": 1.077275181700165
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.8922049060792203,
+                "mean_absolute_error": 0.008905355950390121,
+                "rms_retention": 1.1232408347565574
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9463503486494322,
+                "mean_absolute_error": 0.00786605630779832,
+                "rms_retention": 1.135534491456183
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9562495574134472,
+                "mean_absolute_error": 0.0044927538965967295,
+                "rms_retention": 1.0541488257200495
               }
             ],
             "reason": null,
@@ -3588,15 +5819,15 @@
       "background_appearance": {
         "component": null,
         "available": true,
-        "samples": 5425,
-        "reference_samples": 5425,
+        "samples": 5390,
+        "reference_samples": 5390,
         "missing_candidate_samples": 0,
         "candidate_coverage_ratio": 1.0,
         "normal_mean_cosine": 1.0,
         "normal_p05_cosine": 0.9999999999999998,
         "normal_angle_median_deg": 0.0,
         "normal_angle_p95_deg": 1.2074182697257333e-06,
-        "minimum_lighting_correlation": 0.9999999999999999,
+        "minimum_lighting_correlation": 0.9999999999999998,
         "maximum_lighting_mae": 0.0,
         "minimum_lighting_rms_retention": 1.0,
         "maximum_lighting_rms_retention": 1.0,
@@ -3609,26 +5840,141 @@
           },
           {
             "name": "upper_left",
-            "correlation": 1.0,
+            "correlation": 0.9999999999999998,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           },
           {
             "name": "upper_right",
-            "correlation": 1.0,
+            "correlation": 0.9999999999999998,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           },
           {
             "name": "grazing_right",
-            "correlation": 0.9999999999999999,
+            "correlation": 1.0,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           }
         ],
         "reason": null,
-        "component_count": 0,
-        "components": []
+        "component_count": 2,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 5257,
+            "reference_samples": 5257,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 1.0,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 1.0,
+            "maximum_lighting_mae": 0.0,
+            "minimum_lighting_rms_retention": 1.0,
+            "maximum_lighting_rms_retention": 1.0,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_left",
+                "correlation": 1.0000000000000002,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_right",
+                "correlation": 1.0000000000000002,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 1.0000000000000002,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          },
+          {
+            "component": 2,
+            "available": true,
+            "samples": 133,
+            "reference_samples": 133,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 1.0,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9999999999999999,
+            "maximum_lighting_mae": 0.0,
+            "minimum_lighting_rms_retention": 1.0,
+            "maximum_lighting_rms_retention": 1.0,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9999999999999999,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_left",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_right",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_solver": {
+        "enabled": true,
+        "reason": null,
+        "screening_weight": 2.0,
+        "detail_gradient_retention": 0.9,
+        "output_edge_ratio_p99": 6.1040718317031954,
+        "output_edge_ratio_max": 10.425573587417603,
+        "diagonal_edge_ratio_max": 7.824074365541719,
+        "dropped_detail_components": 0,
+        "dropped_detail_pixels": 0,
+        "quality_gate_failures": [],
+        "checks": {
+          "telemetry": true,
+          "enabled": true,
+          "reason_clear": true,
+          "quality_gate": true,
+          "face_protection": true,
+          "calibration": true,
+          "cardinal_edge_p99": true,
+          "cardinal_edge_max": true,
+          "diagonal_edge_max": true,
+          "passed": true
+        }
       },
       "emitted_surface": {
         "available": true,
@@ -3648,11 +5994,35 @@
         "missing_samples": 0,
         "coverage_ratio": 1.0,
         "max_abs_error_mm": 0.0,
-        "rms_error_mm": 0.0
+        "rms_error_mm": 0.0,
+        "sample_grid_passed": true,
+        "expected_top_triangle_count": 28800,
+        "actual_top_triangle_count": 28800,
+        "unexpected_top_triangle_count": 0,
+        "triangle_count_match": true,
+        "triangle_set_match": true,
+        "max_triangle_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_facet_normal_cosine": 0.9999999999888267,
+        "mean_facet_normal_cosine": 1.0,
+        "facet_geometry_passed": true,
+        "top_facet_geometry_passed": true,
+        "complete_shell_verified": true,
+        "expected_max_xy_size_mm": 48.0,
+        "sample_pitch_mm": 0.4,
+        "finite_reference_samples": 14641,
+        "unemittable_reference_samples": 0,
+        "expected_shell_triangle_count": 58560,
+        "actual_shell_triangle_count": 58560,
+        "invalid_shell_triangle_count": 0,
+        "shell_triangle_count_match": true,
+        "shell_connectivity_match": true,
+        "max_shell_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_shell_normal_cosine": 0.9999999999888267,
+        "mean_shell_normal_cosine": 0.9999999999996599
       },
       "background": {
-        "correlation": 0.9999909727518685,
-        "gradient_correlation": 0.9997740180504708
+        "correlation": 0.9999912081396322,
+        "gradient_correlation": 0.9997992831602821
       },
       "physical_cap": {
         "far_background_max_mm": 13.510000228881836,
@@ -3676,17 +6046,17 @@
         "depth": {
           "name": "depth.npy",
           "size_bytes": 58692,
-          "sha256": "c16002d40d2c7cd2db2959c7d5736ce2b3913d6784ac3c2b57ac3ecb496b5af5"
+          "sha256": "b7e83b0452867dbb113be11ba93d1498e990a517daa0c59bbc03875832dc10fb"
         },
         "surface": {
           "name": "emitted_surface.npy",
           "size_bytes": 58692,
-          "sha256": "eea77370045aed6ab6672320157306b27d55eb2299cac84c70b5881fd27dfb47"
+          "sha256": "0d5c43cb90e95266b1d68bdb79df8485561093b0094e70ba1f31379729da9bdc"
         },
         "stl": {
           "name": "relief.stl",
           "size_bytes": 2928084,
-          "sha256": "1a821af3e98d3ee5784f19fa1705779b8caeb456d972d6fda922fe617170c71f"
+          "sha256": "df80435a8896d771138d88839cb4a3b4e27ca7f736e28fa03ac063ab35135ab6"
         }
       }
     },
@@ -3695,7 +6065,7 @@
       "topology_id": "disconnected_subject_with_hole",
       "background_archetype": "shelving",
       "relief_height_mm": 40.0,
-      "subject_coverage_ratio": 0.401133802335906,
+      "subject_coverage_ratio": 0.38364865787856023,
       "mask_topology": {
         "component_count": 2,
         "hole_count": 1,
@@ -3706,9 +6076,9 @@
           "left": false,
           "right": false
         },
-        "coverage_ratio": 0.401133802335906
+        "coverage_ratio": 0.38364865787856023
       },
-      "runtime_seconds": 0.9902332999990904,
+      "runtime_seconds": 1.1358813000006194,
       "checks": {
         "context_composed": true,
         "source_context_signal": true,
@@ -3721,12 +6091,24 @@
         "feasible_attachment": true,
         "printable_mesh": true,
         "face_appearance": true,
+        "selection_appearance": true,
         "background_appearance": true,
+        "selection_solver": true,
         "emitted_surface": true,
         "mask_topology": true,
+        "appearance_component_coverage": true,
         "passed": true
       },
       "face_appearance_checks": {
+        "telemetry": true,
+        "coverage": true,
+        "normal_field": true,
+        "lighting": true,
+        "lighting_energy": true,
+        "components": true,
+        "passed": true
+      },
+      "selection_appearance_checks": {
         "telemetry": true,
         "coverage": true,
         "normal_field": true,
@@ -3746,14 +6128,14 @@
       },
       "compose": {
         "normalized_context_correlation": 1.0,
-        "normalized_context_rms_retention": 1.0,
-        "recoverable_context_coverage_ratio": 0.634808394160584,
-        "measured_context_coverage_ratio": 0.8548129562043796,
-        "recoverable_measured_context_ratio": 0.742628418945964
+        "normalized_context_rms_retention": 0.9999999999999999,
+        "recoverable_context_coverage_ratio": 0.6279920212765957,
+        "measured_context_coverage_ratio": 0.8376551418439716,
+        "recoverable_measured_context_ratio": 0.749702341579574
       },
       "face": {
-        "correlation": 0.9627602260824982,
-        "rms_retention": 1.0226160208534603
+        "correlation": 0.9627049110549729,
+        "rms_retention": 1.0228558466800475
       },
       "face_appearance": {
         "component": null,
@@ -3762,38 +6144,38 @@
         "reference_samples": 1841,
         "missing_candidate_samples": 0,
         "candidate_coverage_ratio": 1.0,
-        "normal_mean_cosine": 0.9952270670532708,
-        "normal_p05_cosine": 0.9775203876218578,
-        "normal_angle_median_deg": 1.6759032229045745,
-        "normal_angle_p95_deg": 12.171636602262778,
-        "minimum_lighting_correlation": 0.9778246807322178,
-        "maximum_lighting_mae": 0.023295486835154824,
-        "minimum_lighting_rms_retention": 0.9511477548276503,
-        "maximum_lighting_rms_retention": 1.0474335471671763,
+        "normal_mean_cosine": 0.9950511111749297,
+        "normal_p05_cosine": 0.9775905290569035,
+        "normal_angle_median_deg": 1.8177822745055352,
+        "normal_angle_p95_deg": 12.152561024332323,
+        "minimum_lighting_correlation": 0.9776082471663712,
+        "maximum_lighting_mae": 0.023655473274393688,
+        "minimum_lighting_rms_retention": 0.9480222026400702,
+        "maximum_lighting_rms_retention": 1.049541511358478,
         "lights": [
           {
             "name": "frontal",
-            "correlation": 0.982999633902146,
-            "mean_absolute_error": 0.018147344669774787,
-            "rms_retention": 0.9511477548276503
+            "correlation": 0.9829228896692803,
+            "mean_absolute_error": 0.019039563136931423,
+            "rms_retention": 0.9480222026400702
           },
           {
             "name": "upper_left",
-            "correlation": 0.9778246807322178,
-            "mean_absolute_error": 0.023295486835154824,
-            "rms_retention": 1.0474335471671763
+            "correlation": 0.9776082471663712,
+            "mean_absolute_error": 0.023655473274393688,
+            "rms_retention": 1.049541511358478
           },
           {
             "name": "upper_right",
-            "correlation": 0.9854631914910926,
-            "mean_absolute_error": 0.020824078619505783,
-            "rms_retention": 1.0131264709698946
+            "correlation": 0.9852941580754315,
+            "mean_absolute_error": 0.022184812938660585,
+            "rms_retention": 1.014216680091169
           },
           {
             "name": "grazing_right",
-            "correlation": 0.9967708568665378,
-            "mean_absolute_error": 0.013418440744165835,
-            "rms_retention": 1.013552675911705
+            "correlation": 0.9959908881020708,
+            "mean_absolute_error": 0.015301351497234003,
+            "rms_retention": 1.0194566408570438
           }
         ],
         "reason": null,
@@ -3806,38 +6188,174 @@
             "reference_samples": 1841,
             "missing_candidate_samples": 0,
             "candidate_coverage_ratio": 1.0,
-            "normal_mean_cosine": 0.9952270670532708,
-            "normal_p05_cosine": 0.9775203876218578,
-            "normal_angle_median_deg": 1.6759032229045745,
-            "normal_angle_p95_deg": 12.171636602262778,
-            "minimum_lighting_correlation": 0.9778246807322178,
-            "maximum_lighting_mae": 0.023295486835154824,
-            "minimum_lighting_rms_retention": 0.9511477548276503,
-            "maximum_lighting_rms_retention": 1.0474335471671763,
+            "normal_mean_cosine": 0.9950511111749297,
+            "normal_p05_cosine": 0.9775905290569035,
+            "normal_angle_median_deg": 1.8177822745055352,
+            "normal_angle_p95_deg": 12.152561024332323,
+            "minimum_lighting_correlation": 0.9776082471663712,
+            "maximum_lighting_mae": 0.023655473274393688,
+            "minimum_lighting_rms_retention": 0.9480222026400702,
+            "maximum_lighting_rms_retention": 1.049541511358478,
             "lights": [
               {
                 "name": "frontal",
-                "correlation": 0.982999633902146,
-                "mean_absolute_error": 0.018147344669774787,
-                "rms_retention": 0.9511477548276503
+                "correlation": 0.9829228896692803,
+                "mean_absolute_error": 0.019039563136931423,
+                "rms_retention": 0.9480222026400702
               },
               {
                 "name": "upper_left",
-                "correlation": 0.9778246807322178,
-                "mean_absolute_error": 0.023295486835154824,
-                "rms_retention": 1.0474335471671763
+                "correlation": 0.9776082471663712,
+                "mean_absolute_error": 0.023655473274393688,
+                "rms_retention": 1.049541511358478
               },
               {
                 "name": "upper_right",
-                "correlation": 0.9854631914910926,
-                "mean_absolute_error": 0.020824078619505783,
-                "rms_retention": 1.0131264709698946
+                "correlation": 0.9852941580754315,
+                "mean_absolute_error": 0.022184812938660585,
+                "rms_retention": 1.014216680091169
               },
               {
                 "name": "grazing_right",
-                "correlation": 0.9967708568665378,
-                "mean_absolute_error": 0.013418440744165835,
-                "rms_retention": 1.013552675911705
+                "correlation": 0.9959908881020708,
+                "mean_absolute_error": 0.015301351497234003,
+                "rms_retention": 1.0194566408570438
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_appearance": {
+        "component": null,
+        "available": true,
+        "samples": 2462,
+        "reference_samples": 2462,
+        "missing_candidate_samples": 0,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9935733353496135,
+        "normal_p05_cosine": 0.9882718167874376,
+        "normal_angle_median_deg": 0.14297640866685474,
+        "normal_angle_p95_deg": 8.783707016183133,
+        "minimum_lighting_correlation": 0.9197901239781541,
+        "maximum_lighting_mae": 0.01198748656537979,
+        "minimum_lighting_rms_retention": 1.0331154690888957,
+        "maximum_lighting_rms_retention": 1.0672239980450784,
+        "lights": [
+          {
+            "name": "frontal",
+            "correlation": 0.9774743140968656,
+            "mean_absolute_error": 0.006640991853229152,
+            "rms_retention": 1.0368378027251077
+          },
+          {
+            "name": "upper_left",
+            "correlation": 0.9197901239781541,
+            "mean_absolute_error": 0.01198748656537979,
+            "rms_retention": 1.0672239980450784
+          },
+          {
+            "name": "upper_right",
+            "correlation": 0.961130624840169,
+            "mean_absolute_error": 0.010965321568699823,
+            "rms_retention": 1.0530292040382578
+          },
+          {
+            "name": "grazing_right",
+            "correlation": 0.9722080536841937,
+            "mean_absolute_error": 0.0061729710507449674,
+            "rms_retention": 1.0331154690888957
+          }
+        ],
+        "reason": null,
+        "component_count": 2,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 129,
+            "reference_samples": 129,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.9999999582280703,
+            "normal_p05_cosine": 0.9999999236559703,
+            "normal_angle_median_deg": 0.01549663964032914,
+            "normal_angle_p95_deg": 0.02238847526792543,
+            "minimum_lighting_correlation": 0.9999989407892694,
+            "maximum_lighting_mae": 0.00017807413066504648,
+            "minimum_lighting_rms_retention": 0.9991651731227708,
+            "maximum_lighting_rms_retention": 1.0001281191204814,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9999989407892694,
+                "mean_absolute_error": 0.00017807413066504648,
+                "rms_retention": 0.9991651731227708
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.999999921532447,
+                "mean_absolute_error": 8.547568898156023e-05,
+                "rms_retention": 1.0001221851221112
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9999999173442045,
+                "mean_absolute_error": 8.981922907901719e-05,
+                "rms_retention": 1.0001281191204814
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9999999482883573,
+                "mean_absolute_error": 7.475881250518838e-05,
+                "rms_retention": 1.000109539384479
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          },
+          {
+            "component": 2,
+            "available": true,
+            "samples": 2333,
+            "reference_samples": 2333,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 0.993217984148876,
+            "normal_p05_cosine": 0.9871480933929018,
+            "normal_angle_median_deg": 0.2175533889032423,
+            "normal_angle_p95_deg": 9.195457784144756,
+            "minimum_lighting_correlation": 0.8477397167046143,
+            "maximum_lighting_mae": 0.012645591753144626,
+            "minimum_lighting_rms_retention": 1.122449276652716,
+            "maximum_lighting_rms_retention": 1.1670625869281332,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 0.9456354951737259,
+                "mean_absolute_error": 0.006998349927044313,
+                "rms_retention": 1.1254040508148686
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.8477397167046143,
+                "mean_absolute_error": 0.012645591753144626,
+                "rms_retention": 1.1627840940702547
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9135059330841356,
+                "mean_absolute_error": 0.011566667390307662,
+                "rms_retention": 1.1670625869281332
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9180061418673083,
+                "mean_absolute_error": 0.006510163240514763,
+                "rms_retention": 1.122449276652716
               }
             ],
             "reason": null,
@@ -3849,8 +6367,8 @@
       "background_appearance": {
         "component": null,
         "available": true,
-        "samples": 5425,
-        "reference_samples": 5425,
+        "samples": 5390,
+        "reference_samples": 5390,
         "missing_candidate_samples": 0,
         "candidate_coverage_ratio": 1.0,
         "normal_mean_cosine": 1.0,
@@ -3864,32 +6382,147 @@
         "lights": [
           {
             "name": "frontal",
-            "correlation": 0.9999999999999998,
-            "mean_absolute_error": 0.0,
-            "rms_retention": 1.0
-          },
-          {
-            "name": "upper_left",
             "correlation": 1.0,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           },
           {
+            "name": "upper_left",
+            "correlation": 0.9999999999999998,
+            "mean_absolute_error": 0.0,
+            "rms_retention": 1.0
+          },
+          {
             "name": "upper_right",
-            "correlation": 0.9999999999999999,
+            "correlation": 1.0,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           },
           {
             "name": "grazing_right",
-            "correlation": 0.9999999999999999,
+            "correlation": 1.0,
             "mean_absolute_error": 0.0,
             "rms_retention": 1.0
           }
         ],
         "reason": null,
-        "component_count": 0,
-        "components": []
+        "component_count": 2,
+        "components": [
+          {
+            "component": 1,
+            "available": true,
+            "samples": 5257,
+            "reference_samples": 5257,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 1.0,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9999999999999998,
+            "maximum_lighting_mae": 0.0,
+            "minimum_lighting_rms_retention": 1.0,
+            "maximum_lighting_rms_retention": 1.0,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_left",
+                "correlation": 0.9999999999999998,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9999999999999998,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 0.9999999999999999,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          },
+          {
+            "component": 2,
+            "available": true,
+            "samples": 133,
+            "reference_samples": 133,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "normal_mean_cosine": 1.0,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9999999999999998,
+            "maximum_lighting_mae": 0.0,
+            "minimum_lighting_rms_retention": 1.0,
+            "maximum_lighting_rms_retention": 1.0,
+            "lights": [
+              {
+                "name": "frontal",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_left",
+                "correlation": 1.0000000000000002,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "upper_right",
+                "correlation": 0.9999999999999998,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              },
+              {
+                "name": "grazing_right",
+                "correlation": 1.0,
+                "mean_absolute_error": 0.0,
+                "rms_retention": 1.0
+              }
+            ],
+            "reason": null,
+            "component_count": 0,
+            "components": []
+          }
+        ]
+      },
+      "selection_solver": {
+        "enabled": true,
+        "reason": null,
+        "screening_weight": 2.0,
+        "detail_gradient_retention": 0.9,
+        "output_edge_ratio_p99": 7.299294400215152,
+        "output_edge_ratio_max": 16.097694635391235,
+        "diagonal_edge_ratio_max": 11.383019159948317,
+        "dropped_detail_components": 0,
+        "dropped_detail_pixels": 0,
+        "quality_gate_failures": [],
+        "checks": {
+          "telemetry": true,
+          "enabled": true,
+          "reason_clear": true,
+          "quality_gate": true,
+          "face_protection": true,
+          "calibration": true,
+          "cardinal_edge_p99": true,
+          "cardinal_edge_max": true,
+          "diagonal_edge_max": true,
+          "passed": true
+        }
       },
       "emitted_surface": {
         "available": true,
@@ -3909,11 +6542,35 @@
         "missing_samples": 0,
         "coverage_ratio": 1.0,
         "max_abs_error_mm": 0.0,
-        "rms_error_mm": 0.0
+        "rms_error_mm": 0.0,
+        "sample_grid_passed": true,
+        "expected_top_triangle_count": 28800,
+        "actual_top_triangle_count": 28800,
+        "unexpected_top_triangle_count": 0,
+        "triangle_count_match": true,
+        "triangle_set_match": true,
+        "max_triangle_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_facet_normal_cosine": 0.9999999999886608,
+        "mean_facet_normal_cosine": 1.0,
+        "facet_geometry_passed": true,
+        "top_facet_geometry_passed": true,
+        "complete_shell_verified": true,
+        "expected_max_xy_size_mm": 48.0,
+        "sample_pitch_mm": 0.4,
+        "finite_reference_samples": 14641,
+        "unemittable_reference_samples": 0,
+        "expected_shell_triangle_count": 58560,
+        "actual_shell_triangle_count": 58560,
+        "invalid_shell_triangle_count": 0,
+        "shell_triangle_count_match": true,
+        "shell_connectivity_match": true,
+        "max_shell_coordinate_error_mm": 1.5258789076710855e-06,
+        "minimum_shell_normal_cosine": 0.9999999999886608,
+        "mean_shell_normal_cosine": 0.9999999999996205
       },
       "background": {
-        "correlation": 0.9999883944853574,
-        "gradient_correlation": 0.9997327189167501
+        "correlation": 0.9999888010050924,
+        "gradient_correlation": 0.9997657246647335
       },
       "physical_cap": {
         "far_background_max_mm": 18.010000228881836,
@@ -3937,17 +6594,17 @@
         "depth": {
           "name": "depth.npy",
           "size_bytes": 58692,
-          "sha256": "facde6d7463918f98cdd45ae0ad2667b94ca84d2ddd0d5fac4d53f6e1c4d4e41"
+          "sha256": "7858d5ed1a327552923f9098cc7e59df5bef14cb8baee94b4f9966127f3ada99"
         },
         "surface": {
           "name": "emitted_surface.npy",
           "size_bytes": 58692,
-          "sha256": "e157ee4845dfc3728bc36c787f283c69ee738afec57a62ff269bdfdb5e7f1e47"
+          "sha256": "e306b5e844838d39ada8e45685f7aa312e7359176597b37b2187f7e84562eeb7"
         },
         "stl": {
           "name": "relief.stl",
           "size_bytes": 2928084,
-          "sha256": "1d689f3ff7c2e08dedde27bf170f418301b5b26da2c16fa4cfbe8fb98d738a6b"
+          "sha256": "1457d47a4208169dfe1a0c505faa3d3221811a914cd883474efafa67a76f9f79"
         }
       }
     }

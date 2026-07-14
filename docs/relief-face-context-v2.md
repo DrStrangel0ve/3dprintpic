@@ -29,7 +29,7 @@ The implementation follows the useful common ground in current monocular geometr
 5. Farther from the subject, a low-noise copy of the original scene depth receives a bounded 45% depth budget. A 1.5 mm smoothstep transition and `max(support ramp, context)` composition keep the subject attached while allowing buildings, terrain, and other background layers to remain legible.
 6. The old flat-background result is replayable with `selection_background_depth_ratio=0`; historical evidence is therefore not silently reinterpreted.
 7. Context-selected reliefs use a rectangular base instead of skyline trimming, preventing disconnected vertical slabs.
-8. A selection-specific screened gradient solve compresses large internal terraces while retaining moderate selected-object gradients. Tiny nonmetric fragments are excluded from the selection metric, while every detected face still fails closed if it cannot be measured.
+8. A selection-specific screened gradient solve compresses large internal terraces while retaining moderate selected-object gradients. Its calibrated screened data weight is `2.0`, and recoverable local gradients retain 90% of their source amplitude. Tiny nonmetric fragments are excluded from the selection metric, while every detected face still fails closed if it cannot be measured.
 9. When faces and other selected subjects coexist, both solvers run. The object solve is feathered around the protected head region and is accepted only if every face still clears correlation and RMS-retention gates.
 10. Curvature telemetry uses finite values or `null` plus an explicit flat-reference violation, so a rejected candidate cannot turn a valid fallback STL into a JSON serialization failure.
 11. Final-surface background telemetry measures centred depth correlation, RMS and percentile-span retention, gradient correlation/RMS, absolute mean shift, and subject-boundary jumps outside the selected subject. Lower and upper bounds reject both flattening and artificial amplification.
@@ -37,6 +37,7 @@ The implementation follows the useful common ground in current monocular geometr
 13. The background comparison combines the final processed foreground with the original background before applying the same physical cap to reference and candidate. This holds required support-ramp changes constant without letting the candidate rewrite the scene context being scored.
 14. Nonpositive inverse-depth samples are excluded before selected-depth percentiles are computed, and large invalid patches fall back to the finite support surface. Candidate coverage is measured against the reference context so missing geometry cannot pass by omission.
 15. Face/head gradient updates are clipped to the selected subject before the physical attachment stage. Overlapping 6 mm windows reject localized background loss that can hide inside strong global scores, and unavailable preservation telemetry blocks STL emission.
+16. Final physical-normal and relighting telemetry scores faces, selected non-face surfaces, and background components independently. A disconnected island or an enclosed background hole cannot disappear into an aggregate score.
 
 ### Faces at high relief
 
@@ -64,7 +65,12 @@ The source photos and generated meshes remain local and ignored. Aggregate evide
 | Final STL topology | watertight/manifold | watertight/manifold |
 | Degenerate faces | 0 | 0 |
 
-The exact current-code RTX 3080 Ti replay completed in 21.6 seconds for the cold portrait run and 8.9 seconds for the warm llama/group run. The portrait also exercised the combined face-plus-selection path with face protection passing. Both emitted a single watertight, manifold, consistently wound positive volume with zero degenerates.
+The original exact RTX 3080 Ti replay completed in 21.6 seconds for the cold
+portrait run and 8.9 seconds for the warm llama/group run. The final cached-depth
+`2.0` confirmation took 5.50 seconds for the portrait and 2.37 seconds for the
+llama/group scene. The portrait exercised the combined face-plus-selection path
+with face protection passing. Both emitted a single watertight, manifold,
+consistently wound positive volume with zero degenerates.
 
 ## Background context follow-up
 
@@ -72,7 +78,7 @@ The first context-preserving implementation still replaced all pixels beyond the
 
 The exact hardened 30 mm portrait replay used a 45% background budget, 1.5 mm boundary feather, and 0.6 mm depth smoothing. It restored context to 325,370 pixels (16.95% of the source grid) with 0.971 source-depth correlation. On the final STL, the old background's 5th-to-95th percentile height span was 4.357 mm; the new span is 12.690 mm, a 2.913x gain. Centred background depth energy increased 2.569x. Against the original bounded reference, the final gate passed with 0.960 depth correlation, 0.878 RMS retention, 0.988 span retention, 0.751 gradient correlation, and 0.667 gradient RMS retention. Mean shift was -0.344 mm, coverage was 100%, and the boundary-jump p99/max were 1.244/2.396 mm.
 
-After the final feature guard, the two portrait face components remained above the face gates at 0.943/0.948 curvature correlation and 0.931/0.968 RMS retention. The llama/group replay passed at 0.979 correlation, 0.910 RMS retention, and 0.937 span retention while keeping a 17.169 mm robust background span and 6.330 mm centred depth RMS. Its four selected-object component correlations remain 0.753, 0.929, 0.818, and 0.938. In both runs, far context was held to 13.510 mm with zero cap violation, and every satisfiable attachment was held to the 0.800 mm neighbor-step limit. The strict audit separately reported 26 portrait and 100 llama pixels where neighboring selected heights make those one-step constraints mutually incompatible; those cases are not mislabeled as strict cap successes. Both outputs remain single-component watertight manifold positive volumes with consistent winding and zero degenerates.
+After the final feature guard, the two portrait face components remained above the face gates at 0.943/0.948 curvature correlation and 0.931/0.968 RMS retention. The llama/group replay passed at 0.979 correlation, 0.910 RMS retention, and 0.937 span retention while keeping a 17.169 mm robust background span and 6.330 mm centred depth RMS. With the final selected-surface solve, its four measurable physical-relighting correlations are 0.967, 0.951, 0.988, and 0.844. In both runs, far context was held to 13.510 mm with zero cap violation, and every satisfiable attachment was held to the 0.800 mm neighbor-step limit. The final strict audit separately reported 63 portrait and 138 llama pixels where neighboring selected heights make those one-step constraints mutually incompatible; those cases are not mislabeled as strict cap successes. Both outputs remain single-component watertight manifold positive volumes with consistent winding and zero degenerates.
 
 Aggregate follow-up evidence is in `docs/benchmark-evidence/relief_30mm_background_context_v2/`. Private source images, masks, renders, and meshes remain local and ignored.
 
@@ -104,9 +110,9 @@ The follow-up harness `backend/benchmark/run_relief_visual_sweep.py` expands the
 privacy-safe regression to 20, 30, and 40 mm. Four mask topologies cover a
 centered subject, an edge-clipped subject, a near-full-frame subject, and two
 disconnected components with an internal hole. It verifies physical normals,
-four deterministic light responses, candidate coverage, every face component,
-background appearance and depth, exact reopened-STL agreement, and pairwise
-cross-height face shape consistency.
+four deterministic light responses, candidate coverage, every face, selected
+non-face, and background component, background depth, exact complete-shell STL
+agreement, and pairwise cross-height face shape consistency.
 
 The first exact two-face replay found a real aggregate-metric blind spot: the
 larger face failed at `0.773947` worst-light correlation and `1.405562` maximum
@@ -117,13 +123,40 @@ face-aware term from `0.01` to `0.05` makes both exact face components pass at
 `0.999996` background depth correlation, the physical caps pass, and the mesh
 remains one watertight manifold component with zero degenerates.
 
-The clean 12-row matrix passes every gate on commit `b2c82eb`. Minimum face
+Independent selected-surface scoring then exposed six high-relief failures that
+the face/background checks did not see. The worst near-full-frame 40 mm row had
+only `0.493615` relighting correlation and `55.8160` degrees p95 normal error.
+A bounded synthetic ablation first cleared screening `1.0` with 90%
+recoverable-gradient retention, but an exact per-component llama/group replay
+then exposed a remaining component at only `0.745409` relighting correlation
+and `38.7870` degrees p95 normal error. Screening `1.5` still missed the `0.8`
+correlation gate. The selected `2.0 / 0.9` setting raises that component to
+`0.843994`, `0.957626` normal p05 cosine, and `16.7388` degrees p95 normal
+error. Screening `3.0` is rejected before emission because its cardinal edge
+ratio reaches `24.0606`, above the hard `24` limit.
+
+The clean schema-v2 12-row matrix passes every gate on commit `9467322`. Minimum face
 normal cosine and lighting correlation are `0.991248` and `0.971095`; minimum
-background depth correlation is `0.999774`. Across 20/30/40 mm pairs, minimum
-normalized face shape and gradient correlations are `0.997841` and `0.993255`,
-with maximum normalized shape RMSE `0.023164`. Every STL exactly reproduces the
-measured heightfield and passes topology checks. Full evidence is in
+aggregate selected-surface normal cosine and lighting correlation are `0.980935`
+and `0.895048`; the worst individual selected-component correlation is
+`0.847740`. Minimum background depth correlation is `0.999774`. Maximum
+selected-solver cardinal p99/cardinal max/diagonal max ratios are `10.3559`,
+`17.1018`, and `12.0929` against limits of `12`, `24`, and `24`. Across
+20/30/40 mm pairs, minimum normalized face shape and gradient correlations are
+`0.997841` and `0.993255`, with maximum normalized shape RMSE `0.023164`. Every
+STL exactly reproduces its measured heightfield plus all top, bottom, and wall
+facets, and passes topology checks. Full evidence is in
 `docs/benchmark-evidence/relief_visual_sweep_local_n12/`.
+
+The exact llama/group confirmation records full appearance, depth, cap, and
+topology telemetry. All four measurable selected components pass, while one
+isolated one-pixel selection fragment is explicitly unmeasurable. The principal
+background component and every global/local background-depth gate pass. A
+separate enclosed 144-pixel background region has no 64-sample interior after
+the strict 1.5 mm boundary exclusion and is reported as unmeasured, not silently
+certified. This exact-input caveat does not occur in the privacy-safe matrix,
+whose disconnected subject and enclosed background hole are both large enough
+to be measured component by component.
 
 ## Validation
 
@@ -137,7 +170,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 438 passed, 18 subtests passed.
+- Backend: 442 passed, 32 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
