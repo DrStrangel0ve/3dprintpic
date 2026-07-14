@@ -191,6 +191,56 @@ correlation is `0.999973`, and every complete STL shell and printability check
 passes. Evidence is in
 `docs/benchmark-evidence/relief_visual_sweep_face025_n12/`.
 
+## Named facial-part follow-up
+
+Whole-face correlations can conceal a collapsed nose, flattened mouth, or one
+damaged eye. This follow-up adopts the facial-part principle used by
+[3DDFA-V3](https://openaccess.thecvf.com/content/CVPR2024/papers/Wang_3D_Face_Reconstruction_with_the_Geometric_Guidance_of_Facial_Part_CVPR_2024_paper.pdf),
+but evaluates printable surface geometry rather than reproducing its training
+loss. The relief metrics follow the multiscale gradient and curvature motivation
+of [Digital Bas-Relief from 3D Scenes](https://gfx.cs.princeton.edu/pubs/Weyrich_2007_DBF/index.php)
+and [Estimating Curvatures and Their Derivatives on Triangle
+Meshes](https://gfx.cs.princeton.edu/pubs/Rusinkiewicz_2004_ECA/index.php).
+
+Face refinement now persists fixed full-depth-grid masks for left/right eyes,
+left/right eyebrows, mouth, nose, and the containing face. The mask loader
+requires all six parts, verifies the recorded input-depth dimensions, and
+replays the exact resize, horizontal flip, mesh resize, and crop transform used
+by the STL exporter. A single detection is reused across relief heights, so the
+metric never benefits from detector jitter. MediaPipe landmarks define only the
+2D regions; its relative landmark depth is not interpreted as metric millimeters.
+See the official [Face Landmarker Python
+guide](https://developers.google.com/edge/mediapipe/solutions/vision/face_landmarker/python).
+
+Each part is compared after one shared robust face normalization. Independent
+gates cover coverage, shape correlation, normalized RMSE, x/y gradient
+correlation, slope and curvature q95 retention, and Wasserstein distances at 0
+and 0.8 mm physical smoothing radii. Flat signals, missing pixels, incomplete
+parts, stale transforms, invalid scales, and nonfinite derivatives all fail
+closed. Synthetic mouth-flattening and nose-oversharpening controls must fail.
+
+The initial fixed two-face replay exposed failures hidden by the whole-face
+score. With the requested 0.8 mm RGB-derived emboss, the 20-to-40 mm comparison
+failed mouth slope/curvature, nose gradient/slope, and right-eye gradient gates;
+the nose gradient correlation was only `0.47284`. A bounded ablation showed the
+late emboss duplicated and distorted geometry already reconstructed by the
+screened face solver, while the attachment bridge remained beneficial. The
+accepted high-relief path now suppresses only that emboss and retains the 0.8 mm
+bridge. Lower-relief and rejected-screening paths are unchanged.
+
+After the change, all six exact face/height comparisons pass. Worst named-part
+shape and gradient correlations are `0.992224` and `0.958704`; worst normalized
+RMSE is `0.016113`. Minimum per-face relighting correlation is `0.929934`,
+`0.910359`, and `0.902234` at 20, 30, and 40 mm. Exact background depth
+correlation remains above `0.999997`, and all three 309,440-facet STLs pass the
+complete-shell and single-component printability checks.
+
+The clean analytic 12-row matrix passes every gate on revision `f2c6cb8`. Its
+worst named-part shape/gradient correlations are `0.999951`/`0.992325`, and no
+part fails. Evidence is in
+`docs/benchmark-evidence/relief_named_face_parts_n12/`; private artifacts remain
+local and ignored.
+
 ## Validation
 
 ```powershell
@@ -203,7 +253,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 443 passed, 32 subtests passed (2 existing warnings).
+- Backend: 451 passed, 32 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
