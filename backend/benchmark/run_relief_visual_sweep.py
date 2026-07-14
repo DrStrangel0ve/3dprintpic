@@ -1,0 +1,1110 @@
+"""Run privacy-safe relief-height and mask-topology appearance regressions."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import platform
+import time
+from dataclasses import dataclass
+from itertools import combinations
+from pathlib import Path
+
+import numpy as np
+import scipy
+import trimesh
+from scipy.ndimage import (
+    binary_dilation,
+    binary_erosion,
+    binary_fill_holes,
+    distance_transform_edt,
+    gaussian_filter,
+    label,
+)
+
+from backend.benchmark.run_relief_scene_regression import (
+    SceneSpec,
+    _finite_metric,
+    _background_surface,
+    _git_provenance,
+    _mesh_topology,
+    _scene_checks,
+    _synthetic_scene,
+)
+from backend.pic_to_3d import (
+    _surface_lighting_agreement_metrics,
+    compose_selection_depth_with_context,
+    depth_data_to_3d_model,
+)
+
+
+RELIEF_HEIGHTS_MM = (20.0, 30.0, 40.0)
+PROVENANCE_PATHS = (
+    "backend/pic_to_3d.py",
+    "backend/face_relief_geometry.py",
+    "backend/benchmark/run_relief_scene_regression.py",
+    "backend/benchmark/run_relief_visual_sweep.py",
+    "backend/benchmark/mesh_rendering.py",
+)
+FACE_APPEARANCE_GATES = {
+    "minimum_normal_mean_cosine": 0.95,
+    "minimum_normal_p05_cosine": 0.85,
+    "maximum_normal_angle_p95_deg": 30.0,
+    "minimum_lighting_correlation": 0.80,
+    "maximum_lighting_mae": 0.08,
+    "minimum_lighting_rms_retention": 0.75,
+    "maximum_lighting_rms_retention": 1.40,
+}
+BACKGROUND_APPEARANCE_GATES = {
+    "minimum_normal_mean_cosine": 0.98,
+    "minimum_normal_p05_cosine": 0.90,
+    "maximum_normal_angle_p95_deg": 25.0,
+    "minimum_lighting_correlation": 0.95,
+    "maximum_lighting_mae": 0.05,
+    "minimum_lighting_rms_retention": 0.75,
+    "maximum_lighting_rms_retention": 1.25,
+}
+CROSS_HEIGHT_FACE_GATES = {
+    "minimum_shape_correlation": 0.98,
+    "maximum_normalized_shape_rmse": 0.08,
+    "minimum_gradient_correlation": 0.97,
+}
+
+
+@dataclass(frozen=True)
+class SweepSpec:
+    topology_id: str
+    scene: SceneSpec
+    dilation_iterations: int = 0
+    frame_border_px: int = 0
+    topology_mode: str = "base"
+    expected_components: int = 1
+    expected_holes: int = 0
+
+
+def _sweep_specs() -> tuple[SweepSpec, ...]:
+    return (
+        SweepSpec(
+            "centered_subject",
+            SceneSpec("visual_centered", "planar_room"),
+        ),
+        SweepSpec(
+            "off_axis_clipped_subject",
+            SceneSpec(
+                "visual_off_axis",
+                "framed_wall",
+                center_col=39.0,
+                yaw=-0.35,
+                expression=0.2,
+            ),
+        ),
+        SweepSpec(
+            "near_full_frame_subject",
+            SceneSpec(
+                "visual_near_full_frame",
+                "low_contrast",
+                center_col=47.0,
+                center_row=41.0,
+                yaw=-0.18,
+                expression=-0.55,
+            ),
+            dilation_iterations=24,
+            frame_border_px=8,
+        ),
+        SweepSpec(
+            "disconnected_subject_with_hole",
+            SceneSpec(
+                "visual_disconnected_hole",
+                "shelving",
+                expression=0.1,
+            ),
+            topology_mode="disconnected_hole",
+            expected_components=2,
+            expected_holes=1,
+        ),
+    )
+
+
+def _topology_scene(spec: SweepSpec) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    source, face, subject = _synthetic_scene(spec.scene)
+    if spec.topology_mode == "disconnected_hole":
+        rows, cols = np.indices(source.shape, dtype=np.float32)
+        island = (rows - 18.0) ** 2 + (cols - 103.0) ** 2 <= 7.0**2
+        hole = (rows - 86.0) ** 2 + (cols - 60.0) ** 2 <= 5.0**2
+        subject = (subject | island) & ~hole
+        source = source.copy()
+        source[island] = (
+            0.44
+            + 0.08
+            * np.exp(-((rows[island] - 18.0) ** 2 + (cols[island] - 103.0) ** 2) / 20.0)
+        )
+        background = _background_surface(spec.scene.background, rows, cols)
+        source[hole] = background[hole]
+        return source.astype(np.float32, copy=False), face, subject
+    if spec.topology_mode != "base":
+        raise ValueError(f"Unsupported sweep topology mode: {spec.topology_mode}")
+    if spec.dilation_iterations <= 0:
+        return source, face, subject
+
+    expanded = binary_dilation(subject, iterations=spec.dilation_iterations)
+    border = max(0, int(spec.frame_border_px))
+    if border:
+        frame = np.ones(expanded.shape, dtype=bool)
+        frame[:border, :] = False
+        frame[-border:, :] = False
+        frame[:, :border] = False
+        frame[:, -border:] = False
+        expanded &= frame
+
+    _, nearest = distance_transform_edt(~subject, return_indices=True)
+    nearest_subject = source[tuple(nearest)]
+    added = expanded & ~subject
+    expanded_source = source.copy()
+    expanded_source[added] = (
+        0.85 * nearest_subject[added] + 0.15 * source[added]
+    )
+    return expanded_source.astype(np.float32, copy=False), face, expanded
+
+
+def _mask_topology(mask: np.ndarray) -> dict:
+    mask = np.asarray(mask, dtype=bool)
+    _, component_count = label(
+        mask,
+        structure=np.ones((3, 3), dtype=np.uint8),
+    )
+    holes = binary_fill_holes(mask) & ~mask
+    _, hole_count = label(
+        holes,
+        structure=np.ones((3, 3), dtype=np.uint8),
+    )
+    border_contacts = {
+        "top": bool(np.any(mask[0, :])),
+        "bottom": bool(np.any(mask[-1, :])),
+        "left": bool(np.any(mask[:, 0])),
+        "right": bool(np.any(mask[:, -1])),
+    }
+    return {
+        "component_count": int(component_count),
+        "hole_count": int(hole_count),
+        "euler_characteristic": int(component_count - hole_count),
+        "border_contacts": border_contacts,
+        "coverage_ratio": float(np.mean(mask)),
+    }
+
+
+def _finite(value) -> bool:
+    try:
+        return bool(np.isfinite(float(value)))
+    except (TypeError, ValueError):
+        return False
+
+
+def _appearance_checks(metrics: dict, gates: dict) -> dict[str, bool]:
+    required = (
+        "normal_mean_cosine",
+        "normal_p05_cosine",
+        "normal_angle_p95_deg",
+        "minimum_lighting_correlation",
+        "maximum_lighting_mae",
+        "minimum_lighting_rms_retention",
+        "maximum_lighting_rms_retention",
+    )
+    telemetry = bool(metrics.get("available", False)) and all(
+        _finite(metrics.get(key)) for key in required
+    )
+    if not telemetry:
+        return {
+            "telemetry": False,
+            "coverage": False,
+            "normal_field": False,
+            "lighting": False,
+            "lighting_energy": False,
+            "components": False,
+            "passed": False,
+        }
+    coverage = float(metrics.get("candidate_coverage_ratio", 0.0)) >= 1.0
+    normal_field = bool(
+        float(metrics["normal_mean_cosine"])
+        >= gates["minimum_normal_mean_cosine"]
+        and float(metrics["normal_p05_cosine"])
+        >= gates["minimum_normal_p05_cosine"]
+        and float(metrics["normal_angle_p95_deg"])
+        <= gates["maximum_normal_angle_p95_deg"]
+    )
+    lighting = bool(
+        float(metrics["minimum_lighting_correlation"])
+        >= gates["minimum_lighting_correlation"]
+        and float(metrics["maximum_lighting_mae"])
+        <= gates["maximum_lighting_mae"]
+    )
+    lighting_energy = bool(
+        gates["minimum_lighting_rms_retention"]
+        <= float(metrics["minimum_lighting_rms_retention"])
+        and float(metrics["maximum_lighting_rms_retention"])
+        <= gates["maximum_lighting_rms_retention"]
+    )
+    component_records = metrics.get("components")
+    components = True
+    if component_records is not None:
+        components = bool(
+            int(metrics.get("component_count", 0)) > 0
+            and len(component_records) == int(metrics.get("component_count", 0))
+            and all(
+                _appearance_checks(record, gates)["passed"]
+                for record in component_records
+            )
+        )
+    return {
+        "telemetry": telemetry,
+        "coverage": coverage,
+        "normal_field": normal_field,
+        "lighting": lighting,
+        "lighting_energy": lighting_energy,
+        "components": components,
+        "passed": bool(
+            telemetry
+            and coverage
+            and normal_field
+            and lighting
+            and lighting_energy
+            and components
+        ),
+    }
+
+
+def _appearance_record(metrics: dict) -> dict:
+    return {
+        "component": metrics.get("component"),
+        "available": bool(metrics.get("available", False)),
+        "samples": int(metrics.get("samples", 0)),
+        "reference_samples": int(metrics.get("reference_samples", 0)),
+        "missing_candidate_samples": int(metrics.get("missing_candidate_samples", 0)),
+        "candidate_coverage_ratio": _finite_metric(
+            metrics,
+            "candidate_coverage_ratio",
+        ),
+        "normal_mean_cosine": _finite_metric(metrics, "normal_mean_cosine"),
+        "normal_p05_cosine": _finite_metric(metrics, "normal_p05_cosine"),
+        "normal_angle_median_deg": _finite_metric(
+            metrics,
+            "normal_angle_median_deg",
+        ),
+        "normal_angle_p95_deg": _finite_metric(metrics, "normal_angle_p95_deg"),
+        "minimum_lighting_correlation": _finite_metric(
+            metrics,
+            "minimum_lighting_correlation",
+        ),
+        "maximum_lighting_mae": _finite_metric(metrics, "maximum_lighting_mae"),
+        "minimum_lighting_rms_retention": _finite_metric(
+            metrics,
+            "minimum_lighting_rms_retention",
+        ),
+        "maximum_lighting_rms_retention": _finite_metric(
+            metrics,
+            "maximum_lighting_rms_retention",
+        ),
+        "lights": metrics.get("lights", []),
+        "reason": metrics.get("reason"),
+        "component_count": int(metrics.get("component_count", 0)),
+        "components": [
+            _appearance_record(record)
+            for record in metrics.get("components", [])
+        ],
+    }
+
+
+def _stl_heightfield_agreement(
+    stl_path: str | Path,
+    surface_path: str | Path,
+    *,
+    maximum_error_mm=1e-5,
+    maximum_rms_error_mm=1e-6,
+) -> dict:
+    """Verify that the reopened STL top surface matches the pre-export grid."""
+    expected = np.load(surface_path).astype(np.float64)
+    mesh = trimesh.load_mesh(stl_path, process=True)
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    stats = {
+        "available": False,
+        "passed": False,
+        "expected_shape": [int(value) for value in expected.shape],
+        "maximum_error_mm": float(maximum_error_mm),
+        "maximum_rms_error_mm": float(maximum_rms_error_mm),
+    }
+    if expected.ndim != 2 or not len(vertices):
+        stats["reason"] = "invalid_surface_or_mesh"
+        return stats
+    unique_x = np.unique(vertices[:, 0])
+    unique_y = np.unique(vertices[:, 1])
+    reconstructed_shape = (len(unique_y), len(unique_x))
+    stats["reconstructed_shape"] = [int(value) for value in reconstructed_shape]
+    if reconstructed_shape != expected.shape:
+        stats["reason"] = "grid_shape_mismatch"
+        return stats
+
+    x_indices = np.searchsorted(unique_x, vertices[:, 0])
+    y_indices = np.searchsorted(unique_y, vertices[:, 1])
+    reconstructed = np.full(reconstructed_shape, -np.inf, dtype=np.float64)
+    np.maximum.at(reconstructed, (y_indices, x_indices), vertices[:, 2])
+    expected_valid = np.isfinite(expected)
+    reconstructed_valid = np.isfinite(reconstructed)
+    expected_samples = int(np.count_nonzero(expected_valid))
+    measured = expected_valid & reconstructed_valid
+    samples = int(np.count_nonzero(measured))
+    coverage_ratio = samples / max(expected_samples, 1)
+    stats.update(
+        {
+            "available": bool(expected_samples and samples),
+            "reference_samples": expected_samples,
+            "samples": samples,
+            "missing_samples": int(expected_samples - samples),
+            "coverage_ratio": float(coverage_ratio),
+        }
+    )
+    if not samples:
+        stats["reason"] = "no_shared_surface_samples"
+        return stats
+    errors = np.abs(reconstructed[measured] - expected[measured])
+    max_error = float(np.max(errors))
+    rms_error = float(np.sqrt(np.mean(np.square(errors))))
+    stats.update(
+        {
+            "max_abs_error_mm": max_error,
+            "rms_error_mm": rms_error,
+            "passed": bool(
+                coverage_ratio >= 1.0
+                and max_error <= float(maximum_error_mm)
+                and rms_error <= float(maximum_rms_error_mm)
+            ),
+        }
+    )
+    return stats
+
+
+def _sha256_file(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _artifact_record(path: str | Path) -> dict:
+    path = Path(path)
+    return {
+        "name": path.name,
+        "size_bytes": int(path.stat().st_size),
+        "sha256": _sha256_file(path),
+    }
+
+
+def _centered_correlation(reference: np.ndarray, candidate: np.ndarray) -> float:
+    reference_centered = reference - float(np.mean(reference))
+    candidate_centered = candidate - float(np.mean(candidate))
+    reference_norm = float(np.linalg.norm(reference_centered))
+    candidate_norm = float(np.linalg.norm(candidate_centered))
+    if reference_norm <= 1e-12:
+        return 1.0 if candidate_norm <= 1e-12 else 0.0
+    if candidate_norm <= 1e-12:
+        return 0.0
+    return float(
+        np.dot(reference_centered, candidate_centered)
+        / (reference_norm * candidate_norm)
+    )
+
+
+def _cross_height_face_shape_metrics(
+    reference_values: np.ndarray,
+    candidate_values: np.ndarray,
+    face_mask: np.ndarray,
+    *,
+    boundary_exclusion_px: int = 2,
+    minimum_samples: int = 64,
+) -> dict:
+    """Compare normalized face shape while allowing height scale and offset changes."""
+    reference = np.asarray(reference_values, dtype=np.float64)
+    candidate = np.asarray(candidate_values, dtype=np.float64)
+    region = np.asarray(face_mask, dtype=bool)
+    stats = {
+        "available": False,
+        "passed": False,
+        "samples": 0,
+        "reference_samples": 0,
+        "candidate_coverage_ratio": 0.0,
+        "shape_correlation": None,
+        "normalized_shape_rmse": None,
+        "minimum_gradient_correlation": None,
+    }
+    if reference.shape != candidate.shape or reference.shape != region.shape:
+        stats["reason"] = "shape_mismatch"
+        return stats
+
+    exclusion = max(1, int(boundary_exclusion_px))
+    interior = binary_erosion(
+        region,
+        structure=np.ones((3, 3), dtype=bool),
+        iterations=exclusion,
+        border_value=0,
+    )
+    reference_valid = binary_erosion(
+        np.isfinite(reference),
+        structure=np.ones((3, 3), dtype=bool),
+        border_value=0,
+    )
+    candidate_valid = binary_erosion(
+        np.isfinite(candidate),
+        structure=np.ones((3, 3), dtype=bool),
+        border_value=0,
+    )
+    expected = interior & reference_valid
+    measured = expected & candidate_valid
+    reference_samples = int(np.count_nonzero(expected))
+    samples = int(np.count_nonzero(measured))
+    coverage = samples / max(reference_samples, 1)
+    stats.update(
+        {
+            "samples": samples,
+            "reference_samples": reference_samples,
+            "missing_candidate_samples": int(reference_samples - samples),
+            "candidate_coverage_ratio": float(coverage),
+            "boundary_exclusion_px": exclusion,
+            "minimum_samples": int(minimum_samples),
+        }
+    )
+    if reference_samples < int(minimum_samples):
+        stats["reason"] = "insufficient_reference_samples"
+        return stats
+    if samples < int(minimum_samples):
+        stats["reason"] = "insufficient_candidate_samples"
+        return stats
+
+    reference_signal = reference[measured]
+    candidate_signal = candidate[measured]
+    reference_span = float(
+        np.percentile(reference_signal, 95.0)
+        - np.percentile(reference_signal, 5.0)
+    )
+    candidate_span = float(
+        np.percentile(candidate_signal, 95.0)
+        - np.percentile(candidate_signal, 5.0)
+    )
+    stats.update(
+        {
+            "reference_p05_p95_span_mm": reference_span,
+            "candidate_p05_p95_span_mm": candidate_span,
+        }
+    )
+    if reference_span <= 1e-8 or candidate_span <= 1e-8:
+        stats["reason"] = "flat_surface"
+        return stats
+
+    reference_normalized = (
+        reference_signal - float(np.median(reference_signal))
+    ) / reference_span
+    candidate_normalized = (
+        candidate_signal - float(np.median(candidate_signal))
+    ) / candidate_span
+    gradient_correlations = [
+        _centered_correlation(reference_gradient[measured], candidate_gradient[measured])
+        for reference_gradient, candidate_gradient in zip(
+            np.gradient(reference),
+            np.gradient(candidate),
+        )
+    ]
+    stats.update(
+        {
+            "available": True,
+            "shape_correlation": _centered_correlation(
+                reference_signal,
+                candidate_signal,
+            ),
+            "normalized_shape_rmse": float(
+                np.sqrt(
+                    np.mean(
+                        np.square(reference_normalized - candidate_normalized)
+                    )
+                )
+            ),
+            "gradient_correlations": [
+                float(value) for value in gradient_correlations
+            ],
+            "minimum_gradient_correlation": float(min(gradient_correlations)),
+        }
+    )
+    checks = {
+        "coverage": coverage >= 1.0,
+        "shape_correlation": stats["shape_correlation"]
+        >= CROSS_HEIGHT_FACE_GATES["minimum_shape_correlation"],
+        "normalized_shape_rmse": stats["normalized_shape_rmse"]
+        <= CROSS_HEIGHT_FACE_GATES["maximum_normalized_shape_rmse"],
+        "gradient_correlation": stats["minimum_gradient_correlation"]
+        >= CROSS_HEIGHT_FACE_GATES["minimum_gradient_correlation"],
+    }
+    stats["checks"] = {**checks, "passed": all(checks.values())}
+    stats["passed"] = bool(stats["checks"]["passed"])
+    return stats
+
+
+def _cross_height_face_consistency(
+    output_dir: str | Path,
+    specs: tuple[SweepSpec, ...],
+    completed_pairs: set[tuple[str, float]],
+) -> dict:
+    output_dir = Path(output_dir)
+    records = []
+    missing = []
+    for spec in specs:
+        _, face_mask, _ = _topology_scene(spec)
+        emitted_face_mask = np.flip(face_mask, axis=1)
+        available_heights = [
+            height_mm
+            for height_mm in RELIEF_HEIGHTS_MM
+            if (spec.topology_id, float(height_mm)) in completed_pairs
+        ]
+        missing.extend(
+            [spec.topology_id, float(height_mm)]
+            for height_mm in RELIEF_HEIGHTS_MM
+            if height_mm not in available_heights
+        )
+        surfaces = {
+            height_mm: np.load(
+                output_dir
+                / f"{spec.topology_id}_{int(height_mm)}mm"
+                / "emitted_surface.npy"
+            )
+            for height_mm in available_heights
+        }
+        for reference_height, candidate_height in combinations(available_heights, 2):
+            metrics = _cross_height_face_shape_metrics(
+                surfaces[reference_height],
+                surfaces[candidate_height],
+                emitted_face_mask,
+            )
+            records.append(
+                {
+                    "topology_id": spec.topology_id,
+                    "reference_height_mm": float(reference_height),
+                    "candidate_height_mm": float(candidate_height),
+                    **metrics,
+                }
+            )
+    expected_comparisons = len(specs) * len(tuple(combinations(RELIEF_HEIGHTS_MM, 2)))
+    coverage_complete = len(records) == expected_comparisons and not missing
+    quality_passed = all(record["passed"] for record in records)
+    finite_shape_correlations = [
+        record["shape_correlation"]
+        for record in records
+        if _finite(record.get("shape_correlation"))
+    ]
+    finite_shape_errors = [
+        record["normalized_shape_rmse"]
+        for record in records
+        if _finite(record.get("normalized_shape_rmse"))
+    ]
+    finite_gradient_correlations = [
+        record["minimum_gradient_correlation"]
+        for record in records
+        if _finite(record.get("minimum_gradient_correlation"))
+    ]
+    return {
+        "method": "robust_span_normalized_face_shape_v1",
+        "gates": CROSS_HEIGHT_FACE_GATES,
+        "expected_comparison_count": expected_comparisons,
+        "comparison_count": len(records),
+        "missing_rows": missing,
+        "coverage_complete": coverage_complete,
+        "quality_passed": quality_passed,
+        "minimum_shape_correlation": (
+            min(finite_shape_correlations) if finite_shape_correlations else None
+        ),
+        "maximum_normalized_shape_rmse": (
+            max(finite_shape_errors) if finite_shape_errors else None
+        ),
+        "minimum_gradient_correlation": (
+            min(finite_gradient_correlations)
+            if finite_gradient_correlations
+            else None
+        ),
+        "passed": bool(coverage_complete and quality_passed),
+        "records": records,
+    }
+
+
+def _appearance_negative_controls() -> dict:
+    rows, cols = np.indices((81, 101), dtype=np.float32)
+    region = np.ones((81, 101), dtype=bool)
+    reference = (
+        2.0
+        + 0.025 * cols
+        + 0.015 * rows
+        + 4.0 * np.exp(-((rows - 39.0) ** 2 + (cols - 51.0) ** 2) / 125.0)
+        + 0.7 * np.sin(cols / 7.0)
+    ).astype(np.float32)
+    shifted = _surface_lighting_agreement_metrics(
+        reference,
+        reference + 9.0,
+        region,
+        sample_pitch_mm=0.4,
+    )
+    flattened = _surface_lighting_agreement_metrics(
+        reference,
+        np.full(reference.shape, float(np.mean(reference)), dtype=np.float32),
+        region,
+        sample_pitch_mm=0.4,
+    )
+    smoothed = _surface_lighting_agreement_metrics(
+        reference,
+        gaussian_filter(reference, sigma=5.0),
+        region,
+        sample_pitch_mm=0.4,
+    )
+    missing_candidate = reference.copy()
+    missing_candidate[18:36, 22:82] = np.nan
+    missing = _surface_lighting_agreement_metrics(
+        reference,
+        missing_candidate,
+        region,
+        sample_pitch_mm=0.4,
+    )
+    first_component = (rows - 41.0) ** 2 + (cols - 28.0) ** 2 <= 15.0**2
+    second_component = (rows - 41.0) ** 2 + (cols - 75.0) ** 2 <= 13.0**2
+    component_region = first_component | second_component
+    component_reference = (
+        2.0
+        + 3.0 * np.exp(-((rows - 41.0) ** 2 + (cols - 28.0) ** 2) / 75.0)
+        + 2.6 * np.exp(-((rows - 41.0) ** 2 + (cols - 75.0) ** 2) / 60.0)
+    ).astype(np.float32)
+    component_candidate = component_reference.copy()
+    component_candidate[second_component] = float(
+        np.mean(component_reference[second_component])
+    )
+    component_damage = _surface_lighting_agreement_metrics(
+        component_reference,
+        component_candidate,
+        component_region,
+        sample_pitch_mm=0.4,
+        component_metrics=True,
+    )
+    height_damage = reference.copy()
+    height_damage[22:60, 34:70] = float(np.mean(height_damage[22:60, 34:70]))
+    cross_height_damage = _cross_height_face_shape_metrics(
+        reference,
+        height_damage,
+        region,
+    )
+    shifted_checks = _appearance_checks(shifted, FACE_APPEARANCE_GATES)
+    flattened_checks = _appearance_checks(flattened, FACE_APPEARANCE_GATES)
+    smoothed_checks = _appearance_checks(smoothed, FACE_APPEARANCE_GATES)
+    missing_checks = _appearance_checks(missing, FACE_APPEARANCE_GATES)
+    component_checks = _appearance_checks(component_damage, FACE_APPEARANCE_GATES)
+    checks = {
+        "constant_height_offset_passes": shifted_checks["passed"],
+        "flattened_surface_rejected": not flattened_checks["passed"],
+        "heavy_smoothing_rejected": not smoothed_checks["passed"],
+        "missing_candidate_pixels_rejected": not missing_checks["passed"],
+        "single_component_damage_rejected": not component_checks["passed"],
+        "cross_height_face_damage_rejected": not cross_height_damage["passed"],
+    }
+    return {
+        "checks": {**checks, "passed": all(checks.values())},
+        "shifted": _appearance_record(shifted),
+        "flattened": _appearance_record(flattened),
+        "smoothed": _appearance_record(smoothed),
+        "missing": _appearance_record(missing),
+        "component_damage": _appearance_record(component_damage),
+        "cross_height_damage": cross_height_damage,
+    }
+
+
+def _extreme(rows: list[dict], section: str, key: str, function) -> float | None:
+    values = [
+        row[section].get(key)
+        for row in rows
+        if _finite(row.get(section, {}).get(key))
+    ]
+    return float(function(values)) if values else None
+
+
+def _matrix_coverage(rows: list[dict], expected_pairs: set[tuple[str, float]]) -> dict:
+    actual_pairs = [
+        (str(row["topology_id"]), float(row["relief_height_mm"]))
+        for row in rows
+    ]
+    actual_pair_set = set(actual_pairs)
+    return {
+        "exact": actual_pair_set == expected_pairs and len(actual_pairs) == len(expected_pairs),
+        "unique": len(actual_pairs) == len(actual_pair_set),
+        "missing": [
+            [topology_id, height_mm]
+            for topology_id, height_mm in sorted(expected_pairs - actual_pair_set)
+        ],
+        "unexpected": [
+            [topology_id, height_mm]
+            for topology_id, height_mm in sorted(actual_pair_set - expected_pairs)
+        ],
+    }
+
+
+def run(
+    output_dir: str | Path,
+    summary_path: str | Path | None = None,
+    limit: int | None = None,
+    allow_dirty: bool = False,
+    smoke: bool = False,
+) -> dict:
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    matrix = [
+        (spec, height_mm)
+        for spec in _sweep_specs()
+        for height_mm in RELIEF_HEIGHTS_MM
+    ]
+    selected_matrix = (
+        matrix
+        if limit is None
+        else matrix[: max(0, int(limit))]
+    )
+    if not selected_matrix:
+        raise ValueError("Relief visual sweep requires at least one matrix row")
+
+    rows = []
+    started = time.perf_counter()
+    for spec, height_mm in selected_matrix:
+        row_started = time.perf_counter()
+        row_id = f"{spec.topology_id}_{int(height_mm)}mm"
+        row_dir = output_dir / row_id
+        row_dir.mkdir(parents=True, exist_ok=True)
+        source, face_mask, subject_mask = _topology_scene(spec)
+        mask_topology = _mask_topology(subject_mask)
+        composed, compose_stats = compose_selection_depth_with_context(
+            source,
+            subject_mask,
+            relief_height_mm=height_mm,
+            sample_pitch_mm=0.4,
+            max_slope_mm_per_mm=2.0,
+            background_depth_ratio=0.45,
+            background_feather_mm=1.5,
+            background_smoothing_mm=0.6,
+        )
+        depth_path = row_dir / "depth.npy"
+        stl_path = row_dir / "relief.stl"
+        surface_path = row_dir / "emitted_surface.npy"
+        np.save(depth_path, composed.astype(np.float32, copy=False))
+        postprocess = depth_data_to_3d_model(
+            depth_path,
+            output_stl_path=str(stl_path),
+            target_dimension=-1,
+            z_scale=height_mm,
+            max_xy_size=48.0,
+            sigma=0.0,
+            relief_gamma=1.0,
+            detail_boost=0.0,
+            low_percentile=0.0,
+            high_percentile=100.0,
+            base_border_px=1,
+            value_transform="linear",
+            minimum_feature_mm=0.8,
+            max_relief_slope=2.0,
+            face_region_mask=face_mask,
+            selection_region_mask=subject_mask,
+            selection_background_depth_ratio=0.45,
+            surface_output_path=surface_path,
+        )
+        mesh = trimesh.load_mesh(stl_path, process=True)
+        topology = _mesh_topology(mesh)
+        emitted_surface = _stl_heightfield_agreement(stl_path, surface_path)
+        base_checks = _scene_checks(compose_stats, postprocess, topology)
+        appearance = postprocess["surface_appearance_agreement"]
+        face_appearance = appearance["face"]
+        background_appearance = appearance["background"]
+        face_checks = _appearance_checks(face_appearance, FACE_APPEARANCE_GATES)
+        background_checks = _appearance_checks(
+            background_appearance,
+            BACKGROUND_APPEARANCE_GATES,
+        )
+        row_checks = {
+            **base_checks,
+            "face_appearance": face_checks["passed"],
+            "background_appearance": background_checks["passed"],
+            "emitted_surface": emitted_surface["passed"],
+            "mask_topology": bool(
+                mask_topology["component_count"] == spec.expected_components
+                and mask_topology["hole_count"] == spec.expected_holes
+            ),
+        }
+        rows.append(
+            {
+                "row_id": row_id,
+                "topology_id": spec.topology_id,
+                "background_archetype": spec.scene.background,
+                "relief_height_mm": float(height_mm),
+                "subject_coverage_ratio": float(np.mean(subject_mask)),
+                "mask_topology": mask_topology,
+                "runtime_seconds": float(time.perf_counter() - row_started),
+                "checks": {**row_checks, "passed": all(row_checks.values())},
+                "face_appearance_checks": face_checks,
+                "background_appearance_checks": background_checks,
+                "compose": {
+                    "normalized_context_correlation": _finite_metric(
+                        compose_stats,
+                        "background_context_normalized_correlation",
+                    ),
+                    "normalized_context_rms_retention": _finite_metric(
+                        compose_stats,
+                        "background_context_normalized_rms_retention",
+                    ),
+                    "recoverable_context_coverage_ratio": _finite_metric(
+                        compose_stats,
+                        "background_context_recoverable_coverage_ratio",
+                    ),
+                    "measured_context_coverage_ratio": _finite_metric(
+                        compose_stats,
+                        "background_context_measured_coverage_ratio",
+                    ),
+                    "recoverable_measured_context_ratio": _finite_metric(
+                        compose_stats,
+                        "background_context_recoverable_measured_ratio",
+                    ),
+                },
+                "face": {
+                    "correlation": _finite_metric(
+                        postprocess["face_detail_guard"].get("final", {}),
+                        "correlation",
+                    ),
+                    "rms_retention": _finite_metric(
+                        postprocess["face_detail_guard"].get("final", {}),
+                        "rms_retention",
+                    ),
+                },
+                "face_appearance": _appearance_record(face_appearance),
+                "background_appearance": _appearance_record(background_appearance),
+                "emitted_surface": emitted_surface,
+                "background": {
+                    "correlation": _finite_metric(
+                        postprocess["background_depth_preservation"],
+                        "correlation",
+                    ),
+                    "gradient_correlation": _finite_metric(
+                        postprocess["background_depth_preservation"],
+                        "gradient_correlation",
+                    ),
+                },
+                "physical_cap": {
+                    "far_background_max_mm": _finite_metric(
+                        postprocess["selection_background_physical_cap"],
+                        "far_background_max_mm",
+                    ),
+                    "feasible_attachment_jump_max_mm": _finite_metric(
+                        postprocess["selection_background_physical_cap"],
+                        "feasible_attachment_jump_max_mm",
+                    ),
+                    "emission_passed": bool(
+                        postprocess["selection_background_physical_cap"].get(
+                            "emission_passed",
+                            False,
+                        )
+                    ),
+                },
+                "topology": topology,
+                "artifacts": {
+                    "depth": _artifact_record(depth_path),
+                    "surface": _artifact_record(surface_path),
+                    "stl": _artifact_record(stl_path),
+                },
+            }
+        )
+
+    provenance = _git_provenance(PROVENANCE_PATHS)
+    negative_controls = _appearance_negative_controls()
+    expected_rows = len(matrix)
+    expected_pairs = {
+        (spec.topology_id, float(height_mm))
+        for spec, height_mm in matrix
+    }
+    matrix_coverage = _matrix_coverage(rows, expected_pairs)
+    completed_pairs = {
+        (str(row["topology_id"]), float(row["relief_height_mm"]))
+        for row in rows
+    }
+    cross_height_face = _cross_height_face_consistency(
+        output_dir,
+        _sweep_specs(),
+        completed_pairs,
+    )
+    topologies = {row["topology_id"] for row in rows}
+    heights = {row["relief_height_mm"] for row in rows}
+    checks = {
+        "full_matrix_complete": matrix_coverage["exact"],
+        "matrix_rows_unique": matrix_coverage["unique"],
+        "expected_row_count": len(rows) == len(selected_matrix),
+        "topology_coverage_complete": topologies
+        == {spec.topology_id for spec in _sweep_specs()},
+        "height_coverage_complete": heights == set(RELIEF_HEIGHTS_MM),
+        "implementation_provenance_clean": bool(
+            provenance.get("available", False) and provenance.get("clean", False)
+        ),
+        "negative_controls_passed": bool(
+            negative_controls.get("checks", {}).get("passed", False)
+        ),
+        "cross_height_face_coverage_complete": bool(
+            cross_height_face.get("coverage_complete", False)
+        ),
+        "cross_height_face_quality_passed": bool(
+            cross_height_face.get("quality_passed", False)
+        ),
+        "all_row_gates_passed": bool(rows)
+        and all(row["checks"]["passed"] for row in rows),
+        "all_face_appearance_gates_passed": bool(rows)
+        and all(row["checks"]["face_appearance"] for row in rows),
+        "all_background_appearance_gates_passed": bool(rows)
+        and all(row["checks"]["background_appearance"] for row in rows),
+        "all_emitted_surfaces_match": bool(rows)
+        and all(row["checks"]["emitted_surface"] for row in rows),
+        "all_meshes_printable": bool(rows)
+        and all(row["topology"]["printable"] for row in rows),
+    }
+    summary = {
+        "schema_version": 1,
+        "run_kind": "deterministic_privacy_safe_relief_visual_sweep",
+        "privacy": "all inputs are analytic arrays; no private artifacts are used",
+        "implementation_provenance": provenance,
+        "allow_dirty": bool(allow_dirty),
+        "smoke": bool(smoke),
+        "matrix": {
+            "relief_heights_mm": list(RELIEF_HEIGHTS_MM),
+            "topology_ids": [spec.topology_id for spec in _sweep_specs()],
+            "expected_rows": expected_rows,
+            "completed_rows": len(rows),
+            "coverage": matrix_coverage,
+        },
+        "appearance_method": "physical_heightfield_normals_lambertian_v1",
+        "runtime": {
+            "python": platform.python_version(),
+            "numpy": np.__version__,
+            "scipy": scipy.__version__,
+            "trimesh": trimesh.__version__,
+        },
+        "face_appearance_gates": FACE_APPEARANCE_GATES,
+        "background_appearance_gates": BACKGROUND_APPEARANCE_GATES,
+        "cross_height_face_gates": CROSS_HEIGHT_FACE_GATES,
+        "runtime_seconds": float(time.perf_counter() - started),
+        "checks": {**checks, "passed": all(checks.values())},
+        "aggregate": {
+            "minimum_face_normal_mean_cosine": _extreme(
+                rows,
+                "face_appearance",
+                "normal_mean_cosine",
+                min,
+            ),
+            "maximum_face_normal_angle_p95_deg": _extreme(
+                rows,
+                "face_appearance",
+                "normal_angle_p95_deg",
+                max,
+            ),
+            "minimum_face_lighting_correlation": _extreme(
+                rows,
+                "face_appearance",
+                "minimum_lighting_correlation",
+                min,
+            ),
+            "maximum_face_lighting_mae": _extreme(
+                rows,
+                "face_appearance",
+                "maximum_lighting_mae",
+                max,
+            ),
+            "minimum_background_normal_mean_cosine": _extreme(
+                rows,
+                "background_appearance",
+                "normal_mean_cosine",
+                min,
+            ),
+            "minimum_background_lighting_correlation": _extreme(
+                rows,
+                "background_appearance",
+                "minimum_lighting_correlation",
+                min,
+            ),
+            "maximum_background_lighting_mae": _extreme(
+                rows,
+                "background_appearance",
+                "maximum_lighting_mae",
+                max,
+            ),
+            "minimum_face_detail_correlation": _extreme(
+                rows,
+                "face",
+                "correlation",
+                min,
+            ),
+            "minimum_background_depth_correlation": _extreme(
+                rows,
+                "background",
+                "correlation",
+                min,
+            ),
+            "maximum_far_background_mm": _extreme(
+                rows,
+                "physical_cap",
+                "far_background_max_mm",
+                max,
+            ),
+        },
+        "negative_controls": negative_controls,
+        "cross_height_face_consistency": cross_height_face,
+        "rows": rows,
+    }
+    summary_path = Path(summary_path) if summary_path is not None else output_dir / "summary.json"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_summary_path = summary_path.with_suffix(summary_path.suffix + ".tmp")
+    temporary_summary_path.write_text(
+        json.dumps(summary, indent=2, allow_nan=False),
+        encoding="utf-8",
+    )
+    temporary_summary_path.replace(summary_path)
+    print(json.dumps(summary, indent=2, allow_nan=False))
+    failed = {name for name, passed in checks.items() if not passed}
+    permitted_failures = set()
+    if allow_dirty:
+        permitted_failures.add("implementation_provenance_clean")
+    if smoke:
+        permitted_failures.update(
+            {
+                "full_matrix_complete",
+                "topology_coverage_complete",
+                "height_coverage_complete",
+                "cross_height_face_coverage_complete",
+            }
+        )
+    blocking_failures = sorted(failed - permitted_failures)
+    if blocking_failures:
+        raise RuntimeError(
+            f"Relief visual sweep failed: {', '.join(blocking_failures)}"
+        )
+    return summary
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--output-dir",
+        default="backend/output/relief-visual-sweep-local-n12",
+    )
+    parser.add_argument("--summary-path")
+    parser.add_argument("--limit", type=int)
+    parser.add_argument("--allow-dirty", action="store_true")
+    parser.add_argument("--smoke", action="store_true")
+    args = parser.parse_args()
+    run(
+        args.output_dir,
+        summary_path=args.summary_path,
+        limit=args.limit,
+        allow_dirty=args.allow_dirty,
+        smoke=args.smoke,
+    )
+
+
+if __name__ == "__main__":
+    main()

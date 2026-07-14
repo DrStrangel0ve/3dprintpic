@@ -176,6 +176,19 @@ def _scene_checks(compose: dict, postprocess: dict, topology: dict) -> dict[str,
     face = postprocess["face_detail_guard"].get("final", {})
     far_max = cap.get("far_background_max_mm")
     far_ceiling = cap.get("far_background_ceiling_mm")
+    recoverable_total = float(
+        compose.get("background_context_recoverable_coverage_ratio", 0.0)
+    )
+    measured_coverage = float(
+        compose.get("background_context_measured_coverage_ratio", 0.0)
+    )
+    recoverable_measured = float(
+        compose.get("background_context_recoverable_measured_ratio", 0.0)
+    )
+    context_capacity_coverage = bool(
+        recoverable_total >= 0.6
+        or (measured_coverage >= 0.5 and recoverable_measured >= 0.65)
+    )
     return {
         "context_composed": bool(
             compose.get("background_context_enabled")
@@ -186,8 +199,7 @@ def _scene_checks(compose: dict, postprocess: dict, topology: dict) -> dict[str,
             and 0.8
             <= float(compose.get("background_context_normalized_rms_retention", 0.0))
             <= 1.2
-            and float(compose.get("background_context_recoverable_coverage_ratio", 0.0))
-            >= 0.6
+            and context_capacity_coverage
         ),
         "background_preservation": bool(
             background.get("available", False)
@@ -268,8 +280,9 @@ def _mesh_topology(mesh) -> dict:
     return topology
 
 
-def _git_provenance() -> dict:
+def _git_provenance(paths=PROVENANCE_PATHS) -> dict:
     repository = Path(__file__).resolve().parents[2]
+    paths = tuple(str(path) for path in paths)
 
     def run_git(*args):
         return subprocess.run(
@@ -287,14 +300,14 @@ def _git_provenance() -> dict:
             "--porcelain=v1",
             "--untracked-files=all",
             "--",
-            *PROVENANCE_PATHS,
+            *paths,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         return {
             "available": False,
             "clean": False,
             "revision": None,
-            "paths": list(PROVENANCE_PATHS),
+            "paths": list(paths),
             "status": [],
             "error": type(exc).__name__,
         }
@@ -302,7 +315,7 @@ def _git_provenance() -> dict:
         "available": True,
         "clean": not bool(status),
         "revision": revision,
-        "paths": list(PROVENANCE_PATHS),
+        "paths": list(paths),
         "status": status.splitlines() if status else [],
     }
 

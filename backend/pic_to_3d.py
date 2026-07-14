@@ -34,6 +34,7 @@ RELIEF_VALUE_TRANSFORMS = {
     RELIEF_VALUE_TRANSFORM_LINEAR,
     RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
 }
+HIGH_RELIEF_FACE_SCREENING_WEIGHT = 0.05
 METRIC_FAR_HIGH_DEPTH_MODELS = frozenset(
     {
         DEPTHPRO_MODEL_ID,
@@ -1166,6 +1167,9 @@ def compose_selection_depth_with_context(
     background_context_normalized_correlation = None
     background_context_normalized_rms_retention = None
     background_context_recoverable_coverage_ratio = 0.0
+    background_context_measured_pixels = 0
+    background_context_measured_coverage_ratio = 0.0
+    background_context_recoverable_measured_ratio = 0.0
     background_input_low = None
     background_input_high = None
     background_output_low = None
@@ -1229,6 +1233,11 @@ def compose_selection_depth_with_context(
             background_context_enabled = background_context_pixels > 0
 
             measured_background = background & (outside_distance >= feather_distance_px)
+            background_context_measured_pixels = int(np.count_nonzero(measured_background))
+            background_context_measured_coverage_ratio = float(
+                background_context_measured_pixels
+                / max(np.count_nonzero(background), 1)
+            )
             if np.count_nonzero(measured_background) >= 4:
                 source_measure = context_source[measured_background].astype(np.float64)
                 output_measure = composed_background[measured_background].astype(np.float64)
@@ -1274,6 +1283,10 @@ def compose_selection_depth_with_context(
                 background_context_recoverable_coverage_ratio = float(
                     np.count_nonzero(recoverable_background)
                     / max(np.count_nonzero(background), 1)
+                )
+                background_context_recoverable_measured_ratio = float(
+                    np.count_nonzero(recoverable_background)
+                    / max(background_context_measured_pixels, 1)
                 )
                 if np.count_nonzero(recoverable_background) >= 4:
                     normalized_source = context_unit[recoverable_background].astype(
@@ -1385,6 +1398,13 @@ def compose_selection_depth_with_context(
         ),
         "background_context_recoverable_coverage_ratio": (
             background_context_recoverable_coverage_ratio
+        ),
+        "background_context_measured_pixels": background_context_measured_pixels,
+        "background_context_measured_coverage_ratio": (
+            background_context_measured_coverage_ratio
+        ),
+        "background_context_recoverable_measured_ratio": (
+            background_context_recoverable_measured_ratio
         ),
         "background_context_slope_guard": background_context_slope_guard,
         "background_input_canonical_p02": background_input_low,
@@ -3455,6 +3475,253 @@ def _localized_background_structure_metrics(
     }
 
 
+def _surface_lighting_agreement_metrics(
+    reference_values,
+    candidate_values,
+    region_mask,
+    *,
+    sample_pitch_mm,
+    boundary_exclusion_mm=0.8,
+    minimum_samples=64,
+    component_metrics=False,
+):
+    """Compare physical surface normals and deterministic Lambertian renders."""
+    stats = {
+        "available": False,
+        "samples": 0,
+        "normal_mean_cosine": None,
+        "normal_p05_cosine": None,
+        "normal_angle_median_deg": None,
+        "normal_angle_p95_deg": None,
+        "minimum_lighting_correlation": None,
+        "maximum_lighting_mae": None,
+        "minimum_lighting_rms_retention": None,
+        "maximum_lighting_rms_retention": None,
+        "lights": [],
+    }
+    if region_mask is None:
+        stats["reason"] = "no_region_mask"
+        return stats
+
+    reference = np.asarray(reference_values, dtype=np.float32)
+    candidate = np.asarray(candidate_values, dtype=np.float32)
+    if reference.shape != candidate.shape:
+        raise ValueError("Surface lighting agreement requires identical shapes")
+    try:
+        pitch_mm = float(sample_pitch_mm)
+        exclusion_mm = float(boundary_exclusion_mm)
+    except (TypeError, ValueError):
+        stats["reason"] = "invalid_physical_scale"
+        return stats
+    if (
+        not np.isfinite(pitch_mm)
+        or pitch_mm <= 0
+        or not np.isfinite(exclusion_mm)
+        or exclusion_mm < 0
+    ):
+        stats["reason"] = "invalid_physical_scale"
+        return stats
+
+    region = _resize_binary_mask(region_mask, reference.shape)
+    reference_valid = np.isfinite(reference)
+    candidate_valid = np.isfinite(candidate)
+    reference_neighbor_valid = binary_erosion(
+        reference_valid,
+        structure=np.ones((3, 3), dtype=bool),
+        border_value=0,
+    )
+    candidate_neighbor_valid = binary_erosion(
+        candidate_valid,
+        structure=np.ones((3, 3), dtype=bool),
+        border_value=0,
+    )
+    exclusion_px = max(1, int(np.ceil(exclusion_mm / pitch_mm)))
+    interior = binary_erosion(
+        region,
+        structure=np.ones((3, 3), dtype=bool),
+        iterations=exclusion_px,
+        border_value=0,
+    )
+    expected = interior & reference_neighbor_valid
+    measured = expected & candidate_neighbor_valid
+    reference_samples = int(np.count_nonzero(expected))
+    samples = int(np.count_nonzero(measured))
+    coverage_ratio = samples / max(reference_samples, 1)
+    stats.update(
+        {
+            "samples": samples,
+            "reference_samples": reference_samples,
+            "missing_candidate_samples": int(reference_samples - samples),
+            "candidate_coverage_ratio": float(coverage_ratio),
+            "minimum_coverage_ratio": 1.0,
+            "region_pixels": int(np.count_nonzero(region)),
+            "boundary_exclusion_mm": exclusion_mm,
+            "boundary_exclusion_px": exclusion_px,
+            "minimum_samples": int(minimum_samples),
+        }
+    )
+    if reference_samples < int(minimum_samples):
+        stats["reason"] = "insufficient_reference_surface_samples"
+        return stats
+    if samples < int(minimum_samples):
+        stats["reason"] = "insufficient_candidate_surface_samples"
+        return stats
+
+    def gradients(values):
+        dx = np.zeros(values.shape, dtype=np.float64)
+        dy = np.zeros(values.shape, dtype=np.float64)
+        dx[:, 1:-1] = (
+            values[:, 2:].astype(np.float64) - values[:, :-2].astype(np.float64)
+        ) / (2.0 * pitch_mm)
+        dy[1:-1, :] = (
+            values[2:, :].astype(np.float64) - values[:-2, :].astype(np.float64)
+        ) / (2.0 * pitch_mm)
+        return dx, dy
+
+    reference_dx, reference_dy = gradients(reference)
+    candidate_dx, candidate_dy = gradients(candidate)
+
+    def normals(dx, dy):
+        vectors = np.column_stack(
+            (
+                -dx[measured],
+                -dy[measured],
+                np.ones(samples, dtype=np.float64),
+            )
+        )
+        lengths = np.linalg.norm(vectors, axis=1)
+        return vectors / np.maximum(lengths[:, None], 1e-12)
+
+    reference_normals = normals(reference_dx, reference_dy)
+    candidate_normals = normals(candidate_dx, candidate_dy)
+    normal_cosines = np.clip(
+        np.einsum("ij,ij->i", reference_normals, candidate_normals),
+        -1.0,
+        1.0,
+    )
+    normal_angles = np.degrees(np.arccos(normal_cosines))
+
+    def centered_correlation(reference_signal, candidate_signal):
+        reference_centered = reference_signal - float(np.mean(reference_signal))
+        candidate_centered = candidate_signal - float(np.mean(candidate_signal))
+        reference_norm = float(np.linalg.norm(reference_centered))
+        candidate_norm = float(np.linalg.norm(candidate_centered))
+        if reference_norm <= 1e-12:
+            return 1.0 if candidate_norm <= 1e-12 else 0.0
+        if candidate_norm <= 1e-12:
+            return 0.0
+        return float(
+            np.dot(reference_centered, candidate_centered)
+            / (reference_norm * candidate_norm)
+        )
+
+    light_specs = (
+        ("frontal", (0.0, 0.0, 1.0)),
+        ("upper_left", (-0.45, -0.35, 0.82)),
+        ("upper_right", (0.45, -0.25, 0.82)),
+        ("grazing_right", (0.67, 0.10, 0.74)),
+    )
+    light_records = []
+    for name, direction in light_specs:
+        light = np.asarray(direction, dtype=np.float64)
+        light /= max(float(np.linalg.norm(light)), 1e-12)
+        reference_lighting = 0.25 + 0.75 * np.clip(
+            reference_normals @ light,
+            0.0,
+            1.0,
+        )
+        candidate_lighting = 0.25 + 0.75 * np.clip(
+            candidate_normals @ light,
+            0.0,
+            1.0,
+        )
+        reference_centered = reference_lighting - float(np.mean(reference_lighting))
+        candidate_centered = candidate_lighting - float(np.mean(candidate_lighting))
+        reference_rms = float(np.sqrt(np.mean(np.square(reference_centered))))
+        candidate_rms = float(np.sqrt(np.mean(np.square(candidate_centered))))
+        rms_retention = (
+            candidate_rms / reference_rms
+            if reference_rms > 1e-12
+            else (1.0 if candidate_rms <= 1e-12 else None)
+        )
+        light_records.append(
+            {
+                "name": name,
+                "correlation": centered_correlation(
+                    reference_lighting,
+                    candidate_lighting,
+                ),
+                "mean_absolute_error": float(
+                    np.mean(np.abs(candidate_lighting - reference_lighting))
+                ),
+                "rms_retention": rms_retention,
+            }
+        )
+
+    correlations = [record["correlation"] for record in light_records]
+    errors = [record["mean_absolute_error"] for record in light_records]
+    retentions = [
+        record["rms_retention"]
+        for record in light_records
+        if record["rms_retention"] is not None
+        and np.isfinite(record["rms_retention"])
+    ]
+    stats.update(
+        {
+            "available": True,
+            "normal_mean_cosine": float(np.mean(normal_cosines)),
+            "normal_p05_cosine": float(np.percentile(normal_cosines, 5.0)),
+            "normal_angle_median_deg": float(np.median(normal_angles)),
+            "normal_angle_p95_deg": float(np.percentile(normal_angles, 95.0)),
+            "minimum_lighting_correlation": float(min(correlations)),
+            "maximum_lighting_mae": float(max(errors)),
+            "minimum_lighting_rms_retention": (
+                float(min(retentions)) if retentions else None
+            ),
+            "maximum_lighting_rms_retention": (
+                float(max(retentions)) if retentions else None
+            ),
+            "lights": light_records,
+        }
+    )
+    if component_metrics:
+        component_labels, component_count = label(
+            region,
+            structure=np.ones((3, 3), dtype=np.uint8),
+        )
+        components = []
+        for component_index in range(1, component_count + 1):
+            component = component_labels == component_index
+            component_stats = _surface_lighting_agreement_metrics(
+                reference,
+                candidate,
+                component,
+                sample_pitch_mm=pitch_mm,
+                boundary_exclusion_mm=exclusion_mm,
+                minimum_samples=minimum_samples,
+                component_metrics=False,
+            )
+            components.append(
+                {
+                    "component": int(component_index),
+                    **component_stats,
+                }
+            )
+        stats.update(
+            {
+                "components": components,
+                "component_count": int(component_count),
+                "measured_component_count": int(
+                    sum(record.get("available", False) for record in components)
+                ),
+                "unavailable_component_count": int(
+                    sum(not record.get("available", False) for record in components)
+                ),
+            }
+        )
+    return stats
+
+
 def _background_relief_preservation_metrics(
     reference_values,
     candidate_values,
@@ -4492,6 +4759,7 @@ def depth_data_to_3d_model(
     printable_feature_depth_mm=0.0,
     feature_bridge_depth_mm=0.0,
     feature_exclusion_mask=None,
+    surface_output_path=None,
 ):
     # Load the .npy file
     data = np.load(npy_file).astype(np.float32)
@@ -4653,6 +4921,7 @@ def depth_data_to_3d_model(
             max_slope_mm_per_mm=max_relief_slope,
             structural_region_mask=head_region_mask,
             detail_region_mask=region_mask,
+            screening_weight=HIGH_RELIEF_FACE_SCREENING_WEIGHT,
         )
         face_height_stabilization_stats[
             "gradient_compression_attempt"
@@ -5119,6 +5388,38 @@ def depth_data_to_3d_model(
         z = restored_background
         background_preservation_stats = fallback_metrics
 
+    face_appearance_stats = _surface_lighting_agreement_metrics(
+        unstabilized_scene,
+        z,
+        region_mask,
+        sample_pitch_mm=gradient_sample_pitch_mm,
+        boundary_exclusion_mm=0.8,
+        component_metrics=True,
+    )
+    if background_context_enforced:
+        background_appearance_region = (
+            np.isfinite(background_reference_surface)
+            & ~_resize_binary_mask(selected_region, background_reference_surface.shape)
+        )
+        background_appearance_stats = _surface_lighting_agreement_metrics(
+            background_reference_surface,
+            z,
+            background_appearance_region,
+            sample_pitch_mm=gradient_sample_pitch_mm,
+            boundary_exclusion_mm=1.5,
+        )
+    else:
+        background_appearance_stats = {
+            "available": False,
+            "reason": "background_context_disabled",
+            "samples": 0,
+        }
+    surface_appearance_stats = {
+        "method": "physical_heightfield_normals_lambertian_v1",
+        "face": face_appearance_stats,
+        "background": background_appearance_stats,
+    }
+
     # Create a mask for non-NaN values
     mask = np.isfinite(z)
     if not np.any(mask):
@@ -5132,6 +5433,10 @@ def depth_data_to_3d_model(
     # Crop the data to the bounding box
     z = z[top:bottom, left:right]
     mask = mask[top:bottom, left:right]
+    if surface_output_path is not None:
+        surface_output_path = os.fspath(surface_output_path)
+        os.makedirs(os.path.dirname(surface_output_path) or ".", exist_ok=True)
+        np.save(surface_output_path, z.astype(np.float32, copy=False))
 
     # Adjust the X, Y grid to match the cropped data. target_dimension controls
     # sampling/detail; max_xy_size controls the final physical STL footprint.
@@ -5219,6 +5524,7 @@ def depth_data_to_3d_model(
         "selection_background_depth_ratio": float(selection_background_depth_ratio),
         "selection_background_physical_cap": selection_background_cap_stats,
         "background_depth_preservation": background_preservation_stats,
+        "surface_appearance_agreement": surface_appearance_stats,
         "top_silhouette": top_silhouette_stats,
         "printable_feature_depth_mm": float(printable_feature_depth_mm),
         "printable_feature_depth": printable_feature_stats,

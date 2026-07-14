@@ -34,6 +34,7 @@ from backend.pic_to_3d import (
     _resize_nan_aware,
     _shape_relief_values,
     _stabilize_face_relief_height,
+    _surface_lighting_agreement_metrics,
     _top_silhouette_mask,
     compose_selection_depth_with_context,
     depth_data_to_3d_model,
@@ -249,6 +250,71 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertFalse(metrics["available"])
         self.assertFalse(metrics["passed"])
         self.assertEqual(metrics["reason"], "insufficient_reference_background_samples")
+
+    def test_surface_lighting_agreement_is_offset_invariant_and_detects_flattening(self):
+        rows, cols = np.indices((61, 81), dtype=np.float32)
+        region = np.ones((61, 81), dtype=bool)
+        reference = (
+            2.0
+            + 0.03 * cols
+            + 0.02 * rows
+            + 3.5 * np.exp(-((rows - 29.0) ** 2 + (cols - 39.0) ** 2) / 95.0)
+            + 0.8 * np.sin(cols / 6.0)
+        ).astype(np.float32)
+
+        shifted = _surface_lighting_agreement_metrics(
+            reference,
+            reference + 7.0,
+            region,
+            sample_pitch_mm=0.4,
+        )
+        flattened = _surface_lighting_agreement_metrics(
+            reference,
+            np.full(reference.shape, float(np.mean(reference)), dtype=np.float32),
+            region,
+            sample_pitch_mm=0.4,
+        )
+
+        self.assertTrue(shifted["available"])
+        self.assertAlmostEqual(shifted["normal_mean_cosine"], 1.0, places=6)
+        self.assertLess(shifted["normal_angle_p95_deg"], 1e-3)
+        self.assertAlmostEqual(shifted["minimum_lighting_correlation"], 1.0, places=6)
+        self.assertAlmostEqual(shifted["maximum_lighting_mae"], 0.0, places=6)
+        self.assertTrue(flattened["available"])
+        self.assertLess(flattened["normal_mean_cosine"], 0.95)
+        self.assertGreater(flattened["normal_angle_p95_deg"], 20.0)
+        self.assertLess(flattened["minimum_lighting_correlation"], 0.2)
+        self.assertGreater(flattened["maximum_lighting_mae"], 0.1)
+
+    def test_surface_lighting_agreement_reports_missing_pixels_per_component(self):
+        rows, cols = np.indices((81, 101), dtype=np.float32)
+        first = (rows - 40.0) ** 2 + (cols - 29.0) ** 2 <= 15.0**2
+        second = (rows - 40.0) ** 2 + (cols - 73.0) ** 2 <= 12.0**2
+        region = first | second
+        reference = (
+            2.0
+            + 2.5 * np.exp(-((rows - 40.0) ** 2 + (cols - 29.0) ** 2) / 70.0)
+            + 2.0 * np.exp(-((rows - 40.0) ** 2 + (cols - 73.0) ** 2) / 55.0)
+        ).astype(np.float32)
+        candidate = reference.copy()
+        candidate[second] = np.nan
+
+        metrics = _surface_lighting_agreement_metrics(
+            reference,
+            candidate,
+            region,
+            sample_pitch_mm=0.4,
+            component_metrics=True,
+        )
+
+        self.assertTrue(metrics["available"])
+        self.assertLess(metrics["candidate_coverage_ratio"], 1.0)
+        self.assertGreater(metrics["missing_candidate_samples"], 0)
+        self.assertEqual(metrics["component_count"], 2)
+        self.assertEqual(metrics["measured_component_count"], 1)
+        self.assertEqual(metrics["unavailable_component_count"], 1)
+        self.assertTrue(metrics["components"][0]["available"])
+        self.assertFalse(metrics["components"][1]["available"])
 
     def test_background_preservation_unavailable_blocks_stl_emission(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1228,6 +1294,7 @@ class ReliefStlControlsTest(unittest.TestCase):
         )
         self.assertTrue(compression["enabled"])
         self.assertTrue(compression["quality_gates"]["passed"])
+        self.assertAlmostEqual(compression["screening_weight"], 0.05)
         self.assertGreaterEqual(
             compression["detail_preservation"]["correlation"],
             compression["quality_gates"]["minimum_detail_correlation"],
