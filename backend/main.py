@@ -1274,7 +1274,7 @@ async def process_image(
     detail_boost: float = Form(0.8),
     background_detail_boost: float = Form(2.4),
     background_photo_detail_mm: float = Form(0.12),
-    selection_background_depth_ratio: float = Form(0.45),
+    selection_background_depth_ratio: float = Form(0.50),
     selection_background_feather_mm: float = Form(1.5),
     selection_background_smoothing_mm: float = Form(0.6),
     trim_top_background: bool = Form(True),

@@ -19,13 +19,14 @@ from scipy.stats import wasserstein_distance
 from backend.face_depth_refinement import FACE_PART_NAMES
 
 
-FACE_PART_METRIC_SCHEMA_VERSION = 2
+FACE_PART_METRIC_SCHEMA_VERSION = 3
 FACE_PART_SMOOTHING_RADII_MM = (0.0, 0.8)
 FACE_PART_MINIMUM_ERODED_SUPPORT_RATIO = 0.35
 FACE_PART_GATES = {
     "minimum_coverage_ratio": 1.0,
     "minimum_shape_correlation": 0.90,
     "maximum_face_normalized_shape_rmse": 0.20,
+    "minimum_raw_gradient_correlation": 0.25,
     "minimum_gradient_correlation": 0.75,
     "minimum_slope_q95_retention": 0.45,
     "maximum_slope_q95_retention": 2.20,
@@ -424,8 +425,26 @@ def face_part_cross_height_metrics(
                     ),
                 }
             )
-        minimum_gradient_correlation = min(
+        minimum_all_scale_gradient_correlation = min(
             scale["minimum_gradient_correlation"] for scale in record["scales"]
+        )
+        raw_gradient_correlations = [
+            scale["minimum_gradient_correlation"]
+            for scale in record["scales"]
+            if float(scale["radius_mm"]) <= 0.0
+        ]
+        physical_gradient_correlations = [
+            scale["minimum_gradient_correlation"]
+            for scale in record["scales"]
+            if float(scale["radius_mm"]) > 0.0
+        ]
+        minimum_raw_gradient_correlation = min(
+            raw_gradient_correlations
+            or [minimum_all_scale_gradient_correlation]
+        )
+        minimum_gradient_correlation = min(
+            physical_gradient_correlations
+            or [minimum_all_scale_gradient_correlation]
         )
         slope_retentions = [
             scale["slope"].get("q95_retention") for scale in record["scales"]
@@ -448,6 +467,8 @@ def face_part_cross_height_metrics(
             <= effective_gates["maximum_face_normalized_shape_rmse"],
             "gradient_correlation": minimum_gradient_correlation
             >= effective_gates["minimum_gradient_correlation"],
+            "raw_gradient_correlation": minimum_raw_gradient_correlation
+            >= effective_gates["minimum_raw_gradient_correlation"],
             "slope_retention": all(
                 _all_finite(slope_retentions)
                 and value is not None
@@ -480,6 +501,12 @@ def face_part_cross_height_metrics(
         record.update(
             {
                 "minimum_gradient_correlation": float(minimum_gradient_correlation),
+                "minimum_raw_gradient_correlation": float(
+                    minimum_raw_gradient_correlation
+                ),
+                "minimum_all_scale_gradient_correlation": float(
+                    minimum_all_scale_gradient_correlation
+                ),
                 "minimum_slope_q95_retention": _complete_extreme(
                     slope_retentions, min
                 ),

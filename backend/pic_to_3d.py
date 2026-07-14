@@ -36,8 +36,10 @@ RELIEF_VALUE_TRANSFORMS = {
 }
 HIGH_RELIEF_FACE_SCREENING_WEIGHT = 0.25
 HIGH_RELIEF_FACE_CARDINAL_EDGE_RETRY_WEIGHT = 0.10
+HIGH_RELIEF_FACE_DETAIL_RETRY_WEIGHT = 8.0
 HIGH_RELIEF_SELECTION_SCREENING_WEIGHT = 2.0
 HIGH_RELIEF_SELECTION_DETAIL_GRADIENT_RETENTION = 0.9
+DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO = 0.50
 METRIC_FAR_HIGH_DEPTH_MODELS = frozenset(
     {
         DEPTHPRO_MODEL_ID,
@@ -1080,7 +1082,7 @@ def compose_selection_depth_with_context(
     sample_pitch_mm=1.0,
     max_slope_mm_per_mm=2.0,
     base_margin_ratio=0.03,
-    background_depth_ratio=0.45,
+    background_depth_ratio=DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
     background_feather_mm=1.5,
     background_smoothing_mm=0.6,
 ):
@@ -4072,6 +4074,7 @@ def _compress_relief_gradients(
     minimum_height_span_ratio=0.5,
     maximum_height_span_ratio=1.15,
     maximum_correction_span_ratio=0.9,
+    allow_edge_only_candidate=False,
 ):
     """Compress large relief gradients and reconstruct a coherent height field."""
     stats = {
@@ -4475,6 +4478,22 @@ def _compress_relief_gradients(
             **edge_stats,
         }
     )
+    edge_quality_failures = {
+        "cardinal_edge_p99",
+        "cardinal_edge_max",
+        "diagonal_edge_p99",
+        "diagonal_edge_max",
+    }
+    provisional_edge_only_candidate = bool(
+        allow_edge_only_candidate
+        and quality_failures
+        and set(quality_failures).issubset(edge_quality_failures)
+    )
+    stats["provisional_edge_only_candidate"] = provisional_edge_only_candidate
+    if provisional_edge_only_candidate:
+        stats["enabled"] = True
+        stats["reason"] = "pending_baseline_aware_post_blend_audit"
+        return compressed, stats
     if quality_failures:
         stats["reason"] = "quality_gate"
         return values, stats
@@ -4969,7 +4988,7 @@ def depth_data_to_3d_model(
     max_relief_slope=2.0,
     face_region_mask=None,
     selection_region_mask=None,
-    selection_background_depth_ratio=0.45,
+    selection_background_depth_ratio=DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
     background_detail_boost=1.0,
     source_image=None,
     background_photo_detail_mm=0.0,
@@ -5160,9 +5179,13 @@ def depth_data_to_3d_model(
             "retry_screening_weight": float(
                 HIGH_RELIEF_FACE_CARDINAL_EDGE_RETRY_WEIGHT
             ),
+            "detail_retry_screening_weight": float(
+                HIGH_RELIEF_FACE_DETAIL_RETRY_WEIGHT
+            ),
         }
         if not gradient_compression_stats.get("enabled", False):
             adaptive_screening_retry_stats["reason"] = "ineligible_quality_failure"
+            detail_retry_trigger_failures = set(primary_quality_failures)
             if primary_quality_failures == {"cardinal_edge_p99"}:
                 retry_surface, retry_stats = _compress_relief_gradients(
                     unstabilized_scene,
@@ -5191,6 +5214,71 @@ def depth_data_to_3d_model(
                         "retry_quality_failures": list(retry_failures),
                         "retry_output_edge_ratio_p99": retry_stats.get(
                             "output_edge_ratio_p99"
+                        ),
+                    }
+                )
+                if retry_stats.get("enabled", False):
+                    gradient_surface = retry_surface
+                    gradient_compression_stats = retry_stats
+                else:
+                    detail_retry_trigger_failures = set(retry_failures)
+            edge_failures = {
+                "cardinal_edge_p99",
+                "cardinal_edge_max",
+                "diagonal_edge_p99",
+                "diagonal_edge_max",
+            }
+            detail_failures = {
+                "detail_correlation",
+                "detail_rms_retention",
+                "detail_component_correlation",
+                "detail_component_rms_retention",
+            }
+            eligible_detail_retry = bool(
+                not gradient_compression_stats.get("enabled", False)
+                and detail_retry_trigger_failures & detail_failures
+                and detail_retry_trigger_failures
+                <= edge_failures | detail_failures
+            )
+            if eligible_detail_retry:
+                retry_surface, retry_stats = _compress_relief_gradients(
+                    unstabilized_scene,
+                    sample_pitch_mm=gradient_sample_pitch_mm,
+                    max_slope_mm_per_mm=max_relief_slope,
+                    structural_region_mask=head_region_mask,
+                    detail_region_mask=region_mask,
+                    screening_weight=HIGH_RELIEF_FACE_DETAIL_RETRY_WEIGHT,
+                    allow_edge_only_candidate=True,
+                )
+                retry_failures = retry_stats.get("quality_gates", {}).get(
+                    "failures", []
+                )
+                adaptive_screening_retry_stats.update(
+                    {
+                        "attempted": True,
+                        "kind": "high_detail_edge_audited",
+                        "detail_retry_trigger_failures": sorted(
+                            detail_retry_trigger_failures
+                        ),
+                        "reason": (
+                            "retry_candidate_pending_post_blend_audit"
+                            if retry_stats.get("enabled", False)
+                            else "retry_candidate_rejected"
+                        ),
+                        "retry_quality_failures": list(retry_failures),
+                        "retry_output_edge_ratio_p99": retry_stats.get(
+                            "output_edge_ratio_p99"
+                        ),
+                        "retry_detail_correlation": retry_stats.get(
+                            "detail_preservation", {}
+                        ).get("correlation"),
+                        "retry_detail_rms_retention": retry_stats.get(
+                            "detail_preservation", {}
+                        ).get("rms_retention"),
+                        "retry_provisional_edge_only_candidate": bool(
+                            retry_stats.get(
+                                "provisional_edge_only_candidate", False
+                            )
                         ),
                     }
                 )

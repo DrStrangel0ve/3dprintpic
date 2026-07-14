@@ -1268,6 +1268,35 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertIn("correction_span_ratio", stats["quality_gates"]["failures"])
         np.testing.assert_array_equal(compressed, values)
 
+    def test_gradient_compression_can_defer_only_edge_failures_to_post_blend_audit(self):
+        rows, cols = np.indices((40, 40), dtype=np.float32)
+        values = 0.02 * rows + 0.01 * cols
+        values[:, 30:] += 10.0
+
+        compressed, stats = _compress_relief_gradients(
+            values,
+            sample_pitch_mm=0.4,
+            max_slope_mm_per_mm=2.0,
+            maximum_output_edge_p99_ratio=0.1,
+            maximum_output_edge_ratio=0.1,
+            allow_edge_only_candidate=True,
+        )
+
+        self.assertTrue(stats["enabled"])
+        self.assertTrue(stats["provisional_edge_only_candidate"])
+        self.assertFalse(stats["quality_gates"]["passed"])
+        self.assertTrue(stats["quality_gates"]["failures"])
+        self.assertTrue(
+            set(stats["quality_gates"]["failures"])
+            <= {
+                "cardinal_edge_p99",
+                "cardinal_edge_max",
+                "diagonal_edge_p99",
+                "diagonal_edge_max",
+            }
+        )
+        self.assertFalse(np.array_equal(compressed, values))
+
     def test_gradient_compression_rejects_a_detail_destroying_solution(self):
         rows, cols = np.indices((32, 32), dtype=np.float32)
         values = 0.02 * rows + 0.01 * cols
@@ -1605,6 +1634,92 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertTrue(adaptive["attempted"])
         self.assertEqual(adaptive["reason"], "retry_candidate_rejected")
         self.assertEqual(adaptive["retry_quality_failures"], ["cardinal_edge_p99"])
+
+    def test_high_face_relief_retries_detail_loss_then_requires_post_blend_audit(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            depth_path = root / "depth.npy"
+            rows, cols = np.indices((32, 32), dtype=np.float32)
+            depth = 0.2 + 0.6 * np.exp(
+                -((rows - 16.0) ** 2 + (cols - 16.0) ** 2) / 100.0
+            )
+            face = ((rows - 16.0) ** 2 + (cols - 16.0) ** 2) <= 100.0
+            np.save(depth_path, depth)
+            primary = {
+                "enabled": False,
+                "method": "screened_gradient_domain_compression",
+                "quality_gates": {
+                    "passed": False,
+                    "failures": ["cardinal_edge_p99", "detail_correlation"],
+                },
+            }
+            retry = {
+                "enabled": True,
+                "method": "screened_gradient_domain_compression",
+                "screening_weight": pic_to_3d.HIGH_RELIEF_FACE_DETAIL_RETRY_WEIGHT,
+                "provisional_edge_only_candidate": True,
+                "output_edge_ratio_p99": 8.0,
+                "detail_preservation": {
+                    "available": True,
+                    "correlation": 0.97,
+                    "rms_retention": 0.82,
+                },
+                "quality_gates": {
+                    "passed": False,
+                    "failures": ["diagonal_edge_max"],
+                },
+            }
+            bounded_audit = {
+                "enabled": True,
+                "output_edge_ratio_p99": 1.1,
+                "output_edge_ratio_max": 1.2,
+                "quality_gates": {"passed": True, "failures": []},
+            }
+            with (
+                patch.object(
+                    pic_to_3d,
+                    "_compress_relief_gradients",
+                    side_effect=((depth, primary), (depth, retry)),
+                ) as compress_mock,
+                patch.object(
+                    pic_to_3d,
+                    "_audit_bounded_compression_surface",
+                    return_value=bounded_audit,
+                ),
+            ):
+                postprocess = depth_data_to_3d_model(
+                    depth_path,
+                    output_stl_path=str(root / "retry.stl"),
+                    target_dimension=-1,
+                    z_scale=40.0,
+                    sigma=0.0,
+                    relief_gamma=1.0,
+                    detail_boost=0.0,
+                    low_percentile=0.0,
+                    high_percentile=100.0,
+                    face_region_mask=face,
+                )
+
+        self.assertEqual(compress_mock.call_count, 2)
+        retry_call = compress_mock.call_args_list[1]
+        self.assertAlmostEqual(
+            retry_call.kwargs["screening_weight"],
+            pic_to_3d.HIGH_RELIEF_FACE_DETAIL_RETRY_WEIGHT,
+        )
+        self.assertTrue(retry_call.kwargs["allow_edge_only_candidate"])
+        adaptive = postprocess["face_height_stabilization"][
+            "gradient_compression"
+        ]["adaptive_screening_retry"]
+        self.assertEqual(adaptive["kind"], "high_detail_edge_audited")
+        self.assertEqual(
+            adaptive["reason"],
+            "retry_candidate_pending_post_blend_audit",
+        )
+        self.assertTrue(adaptive["retry_provisional_edge_only_candidate"])
+        self.assertEqual(
+            postprocess["face_boundary_alignment"]["method"],
+            "screened_gradient_domain_compression",
+        )
 
     def test_selected_object_relief_uses_gradient_domain_compression(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

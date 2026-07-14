@@ -314,7 +314,7 @@ def _run_row(
         relief_height_mm=float(relief_height_mm),
         sample_pitch_mm=input_pitch_mm,
         max_slope_mm_per_mm=2.0,
-        background_depth_ratio=0.45,
+        background_depth_ratio=0.50,
         background_feather_mm=1.5,
         background_smoothing_mm=0.6,
     )
@@ -345,7 +345,7 @@ def _run_row(
         max_relief_slope=2.0,
         face_region_mask=face_mask,
         selection_region_mask=face_mask,
-        selection_background_depth_ratio=0.45,
+        selection_background_depth_ratio=0.50,
         source_image=row_dir / "source.png",
         background_photo_detail_mm=0.0,
         feature_weight_mask=feature_weight,
@@ -455,6 +455,12 @@ def _run_row(
             ),
             "minimum_gradient_correlation": _finite(
                 record.get("minimum_gradient_correlation")
+            ),
+            "minimum_raw_gradient_correlation": _finite(
+                record.get("minimum_raw_gradient_correlation")
+            ),
+            "minimum_all_scale_gradient_correlation": _finite(
+                record.get("minimum_all_scale_gradient_correlation")
             ),
             "minimum_slope_q95_retention": _finite(
                 record.get("minimum_slope_q95_retention")

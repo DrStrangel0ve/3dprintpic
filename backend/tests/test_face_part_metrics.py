@@ -103,6 +103,51 @@ class FacePartMetricsTest(unittest.TestCase):
         self.assertTrue(metrics["passed"])
         self.assertTrue(all(record["passed"] for record in metrics["parts"]))
 
+    def test_physical_gradient_gate_tolerates_raw_raster_noise_but_keeps_floor(self):
+        reference, face, parts = self._surface_and_masks()
+        noise = np.random.default_rng(7).standard_normal(reference.shape)
+        distribution_overrides = {
+            "minimum_slope_q95_retention": 0.0,
+            "maximum_slope_q95_retention": 1000.0,
+            "minimum_curvature_q95_retention": 0.0,
+            "maximum_curvature_q95_retention": 1000.0,
+            "maximum_slope_wasserstein_ratio": 1000.0,
+            "maximum_curvature_wasserstein_ratio": 1000.0,
+        }
+        mild = face_part_cross_height_metrics(
+            reference,
+            reference + 0.03 * noise,
+            face,
+            parts,
+            sample_pitch_mm=0.4,
+            gates=distribution_overrides,
+        )
+        severe = face_part_cross_height_metrics(
+            reference,
+            reference + 0.20 * noise,
+            face,
+            parts,
+            sample_pitch_mm=0.4,
+            gates=distribution_overrides,
+        )
+
+        self.assertTrue(mild["passed"])
+        self.assertLess(
+            min(part["minimum_raw_gradient_correlation"] for part in mild["parts"]),
+            0.75,
+        )
+        self.assertGreater(
+            min(part["minimum_gradient_correlation"] for part in mild["parts"]),
+            0.99,
+        )
+        self.assertFalse(severe["passed"])
+        self.assertTrue(
+            any(
+                not part["checks"]["raw_gradient_correlation"]
+                for part in severe["parts"]
+            )
+        )
+
     def test_thin_visible_part_keeps_full_support_instead_of_biased_skeleton(self):
         reference, face, _parts = self._surface_and_masks()
         thin_nose = np.zeros_like(face)
