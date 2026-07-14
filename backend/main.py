@@ -1,5 +1,6 @@
 import os
 import json
+import hashlib
 from dotenv import load_dotenv
 import aiohttp
 import asyncio
@@ -22,6 +23,7 @@ try:
     from .pic_to_3d import (
         MODERN_INPAINT_MODELS,
         complete_image,
+        compose_selection_depth_with_context,
         depth_data_to_3d_model,
         process_image_get_depth_data,
         relief_value_transform_for_model,
@@ -38,6 +40,7 @@ except ImportError:  # pragma: no cover - supports running uvicorn from backend/
     from pic_to_3d import (
         MODERN_INPAINT_MODELS,
         complete_image,
+        compose_selection_depth_with_context,
         depth_data_to_3d_model,
         process_image_get_depth_data,
         relief_value_transform_for_model,
@@ -398,6 +401,66 @@ def resolve_output_file(file_path: str, allowed_suffixes: tuple[str, ...]) -> Pa
 def output_relative_path(file_path: Path | str) -> str:
     path = Path(file_path).resolve()
     return path.relative_to(OUTPUT_DIR).as_posix()
+
+
+def selection_source_fingerprint(image: Image.Image) -> str:
+    source = image.convert("RGB")
+    digest = hashlib.sha256()
+    digest.update(f"RGB:{source.width}x{source.height}:".encode("ascii"))
+    digest.update(source.tobytes())
+    return digest.hexdigest()
+
+
+def resolve_selection_compose_job(job_id: str) -> dict:
+    normalized_job_id = str(job_id or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{32}", normalized_job_id):
+        raise HTTPException(status_code=400, detail="Invalid selection compose job")
+
+    job_dir = (OUTPUT_DIR / "selection" / normalized_job_id).resolve()
+    if not is_relative_to(job_dir, OUTPUT_DIR / "selection"):
+        raise HTTPException(status_code=400, detail="Invalid selection compose job")
+
+    source_path = job_dir / "source.png"
+    selected_path = job_dir / "selected_image.png"
+    mask_path = job_dir / "selection_mask.png"
+    metadata_path = job_dir / "selection.json"
+    if not all(path.is_file() for path in (source_path, selected_path, mask_path, metadata_path)):
+        raise HTTPException(status_code=404, detail="Selection compose job is incomplete or expired")
+
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=409, detail="Selection compose metadata is invalid") from exc
+    if (
+        metadata.get("job_id") != normalized_job_id
+        or metadata.get("model_status") != "composed-clicked-masks"
+    ):
+        raise HTTPException(status_code=409, detail="Selection compose provenance does not match")
+
+    try:
+        with Image.open(source_path) as source_image:
+            source_size = source_image.size
+            source_fingerprint = selection_source_fingerprint(source_image)
+        with Image.open(selected_path) as selected_image:
+            selected_size = selected_image.size
+        with Image.open(mask_path) as mask_image:
+            mask_size = mask_image.size
+            mask_pixels = int(np.count_nonzero(np.asarray(mask_image.convert("L")) > 0))
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail="Selection compose artifacts are invalid") from exc
+    if source_size != selected_size or source_size != mask_size or mask_pixels < 4:
+        raise HTTPException(status_code=409, detail="Selection compose artifacts do not align")
+    if metadata.get("source_fingerprint") != source_fingerprint:
+        raise HTTPException(status_code=409, detail="Selection compose source provenance does not match")
+
+    return {
+        "job_id": normalized_job_id,
+        "job_dir": job_dir,
+        "source_path": source_path,
+        "selected_path": selected_path,
+        "mask_path": mask_path,
+        "metadata": metadata,
+    }
 
 
 def parse_selection_points(points_json: str) -> list[dict[str, float]]:
@@ -1152,6 +1215,7 @@ async def compose_selected_objects(
     metadata = {
         "job_id": job_id,
         "source_filename": file.filename,
+        "source_fingerprint": selection_source_fingerprint(image),
         "mask_count": len(mask_paths),
         "model_status": "composed-clicked-masks",
         "background_mode": background_mode,
@@ -1187,6 +1251,7 @@ async def compose_selected_objects(
 @app.post("/process_image")
 async def process_image(
     file: UploadFile = File(...),
+    selection_job_id: str | None = Form(None),
     depth_provider: str = Form(DEFAULT_DEPTH_PROVIDER),
     depth_model: str | None = Form(None),
     device: str = Form("auto"),
@@ -1244,12 +1309,36 @@ async def process_image(
     def record_timing(name: str, started: float) -> None:
         timings[name] = round(time.perf_counter() - started, 3)
 
-    upload_suffix = Path(file.filename or "").suffix or ".jpg"
-    with NamedTemporaryFile(delete=False, suffix=upload_suffix, dir=job_dir) as temp_file:
-        shutil.copyfileobj(file.file, temp_file)
-        temp_file_path = temp_file.name
-    
+    temp_file_path = None
+    normalized_input_path = None
     try:
+        selection_job = (
+            resolve_selection_compose_job(selection_job_id)
+            if str(selection_job_id or "").strip()
+            else None
+        )
+        if selection_job and completion_mode not in ("", "none"):
+            raise HTTPException(
+                status_code=400,
+                detail="Image completion and object-selection context cannot be combined in one relief run",
+            )
+        if selection_job is None:
+            upload_suffix = Path(file.filename or "").suffix or ".jpg"
+            with NamedTemporaryFile(delete=False, suffix=upload_suffix, dir=job_dir) as temp_file:
+                shutil.copyfileobj(file.file, temp_file)
+                temp_file_path = temp_file.name
+            normalized_input_path = job_dir / "input_oriented.png"
+            try:
+                with Image.open(temp_file_path) as uploaded_image:
+                    ImageOps.exif_transpose(uploaded_image).convert("RGB").save(normalized_input_path)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
+        image_input_path = (
+            str(selection_job["selected_path"])
+            if selection_job
+            else str(normalized_input_path)
+        )
+
         # Process the image and get depth data
         selected_model = depth_model or DEFAULT_DEPTH_MODEL
         logger.info(
@@ -1260,7 +1349,7 @@ async def process_image(
         )
         stage_started = time.perf_counter()
         completed_image_path, applied_completion_mode = complete_image(
-            temp_file_path,
+            image_input_path,
             output_dir=str(job_dir),
             mode=completion_mode,
             provider=completion_provider,
@@ -1276,10 +1365,11 @@ async def process_image(
         )
         record_timing("completion_seconds", stage_started)
         image_for_depth = completed_image_path
+        depth_inference_source = str(selection_job["source_path"]) if selection_job else image_for_depth
 
         stage_started = time.perf_counter()
         depth_data_path = process_image_get_depth_data(
-            image_for_depth,
+            depth_inference_source,
             output_dir=str(job_dir),
             provider=depth_provider,
             model_name=selected_model,
@@ -1316,6 +1406,59 @@ async def process_image(
         )
         record_timing("face_refinement_seconds", stage_started)
         depth_metadata["face_refinement"] = face_refinement
+        selection_depth_context = {"enabled": False, "reason": "not_requested"}
+        selection_region_mask_path = None
+        if selection_job is not None:
+            stage_started = time.perf_counter()
+            selection_region_mask_path = selection_job["mask_path"]
+            with Image.open(selection_region_mask_path) as selection_mask_image:
+                selection_mask = np.asarray(selection_mask_image.convert("L")) > 0
+            context_depth = np.load(depth_data_path).astype(np.float32)
+            context_sample_pitch_mm = (
+                float(max_xy_size) / max(max(context_depth.shape) - 1, 1)
+                if max_xy_size is not None and float(max_xy_size) > 0
+                else 1.0
+            )
+            try:
+                context_depth, selection_depth_context = compose_selection_depth_with_context(
+                    context_depth,
+                    selection_mask,
+                    value_transform=depth_metadata.get("relief_value_transform", "linear"),
+                    relief_height_mm=z_scale,
+                    sample_pitch_mm=context_sample_pitch_mm,
+                    max_slope_mm_per_mm=max_relief_slope,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            selected_context_depth_path = job_dir / "output_depth_data_selected_context.npy"
+            np.save(selected_context_depth_path, context_depth)
+            depth_data_path = str(selected_context_depth_path)
+
+            preview_values = context_depth.astype(np.float32, copy=True)
+            if depth_metadata.get("relief_value_transform") == "inverse-depth":
+                positive = np.isfinite(preview_values) & (preview_values > 0)
+                preview_values[positive] = 1.0 / preview_values[positive]
+                preview_values[np.isfinite(preview_values) & ~positive] = np.nan
+            finite_preview = preview_values[np.isfinite(preview_values)]
+            preview_low, preview_high = np.percentile(finite_preview, [1.0, 99.0])
+            preview_span = max(float(preview_high - preview_low), 1e-8)
+            preview = np.clip((preview_values - preview_low) / preview_span, 0.0, 1.0)
+            preview = np.where(np.isfinite(preview), preview, 0.0)
+            Image.fromarray((preview * 255.0).astype(np.uint8), mode="L").save(
+                job_dir / "output_depth_selected_context_preview.png"
+            )
+            selection_depth_context.update(
+                {
+                    "selection_job_id": selection_job["job_id"],
+                    "source_filename": selection_job["metadata"].get("source_filename"),
+                    "source_fingerprint": selection_job["metadata"].get("source_fingerprint"),
+                    "selection_mask": output_relative_path(selection_region_mask_path),
+                    "depth_file": selected_context_depth_path.name,
+                    "preview_file": "output_depth_selected_context_preview.png",
+                }
+            )
+            record_timing("selection_depth_context_seconds", stage_started)
+        depth_metadata["selection_depth_context"] = selection_depth_context
         if depth_metadata_path.exists():
             with open(depth_metadata_path, "w", encoding="utf-8") as depth_metadata_file:
                 json.dump(depth_metadata, depth_metadata_file, indent=2)
@@ -1342,6 +1485,9 @@ async def process_image(
         logger.info("Generating 3D model...")
         stl_path = job_dir / "output_model.stl"
         stage_started = time.perf_counter()
+        effective_trim_top_background = bool(trim_top_background) and not bool(
+            selection_depth_context.get("enabled", False)
+        )
         relief_postprocess = depth_data_to_3d_model(
             depth_data_path,
             output_stl_path=str(stl_path),
@@ -1355,7 +1501,7 @@ async def process_image(
             background_detail_boost=background_detail_boost,
             source_image=image_for_depth,
             background_photo_detail_mm=background_photo_detail_mm,
-            trim_top_background=trim_top_background,
+            trim_top_background=effective_trim_top_background,
             feature_weight_mask=(
                 job_dir / face_refinement["weight_file"]
                 if face_refinement.get("applied") and face_refinement.get("weight_file")
@@ -1381,6 +1527,7 @@ async def process_image(
                 if face_refinement.get("applied") and face_refinement.get("region_file")
                 else None
             ),
+            selection_region_mask=selection_region_mask_path,
         )
         record_timing("stl_seconds", stage_started)
         logger.info(f"3D model saved as: {stl_path}")
@@ -1450,6 +1597,7 @@ async def process_image(
             "background_detail_boost": background_detail_boost,
             "background_photo_detail_mm": background_photo_detail_mm,
             "trim_top_background": trim_top_background,
+            "effective_trim_top_background": effective_trim_top_background,
             "printable_feature_depth_mm": printable_feature_depth_mm,
             "feature_bridge_depth_mm": feature_bridge_depth_mm,
             "detail_radius": detail_radius,
@@ -1472,6 +1620,7 @@ async def process_image(
             "face_feather_ratio": face_feather_ratio,
             "face_max_correction_ratio": face_max_correction_ratio,
             "face_refinement": face_refinement,
+            "selection_depth_context": selection_depth_context,
             "runtime": runtime,
             "timings": timings,
             "created_at": datetime.utcnow().isoformat() + "Z",
@@ -1503,12 +1652,17 @@ async def process_image(
             response["completed_image"] = completed_image_relative_path
             response["completed_image_url"] = f"/depth_data/{completed_image_relative_path}"
         return response
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"An error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         # Clean up the temporary file
-        os.unlink(temp_file_path)
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.unlink(temp_file_path)
+        if normalized_input_path and normalized_input_path.exists():
+            normalized_input_path.unlink()
 
 @app.post("/upload_to_masv")
 async def upload_to_masv_endpoint(file_name: str = Form(...)):

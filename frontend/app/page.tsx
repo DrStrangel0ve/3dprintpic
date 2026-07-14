@@ -167,6 +167,7 @@ type SelectionPoint = {
 };
 
 type SelectionResult = {
+  job_id?: string;
   selected_image?: string;
   selected_image_url?: string;
   mask?: string;
@@ -207,6 +208,7 @@ type SelectionPrecomputeResult = {
 type SelectionApplyResult = {
   file: File;
   previewUrl: string;
+  selectionJobId: string;
 };
 
 type PrinterPresetId = 'bambulab-p1s' | 'custom';
@@ -818,6 +820,7 @@ export default function Home() {
   const hoverRequestIdRef = useRef(0);
   const lastHoverPointRef = useRef<{ x: number; y: number } | null>(null);
   const precomputeRequestIdRef = useRef(0);
+  const selectionSourceGenerationRef = useRef(0);
 
   const selectionModels = modelsFor(modelCatalog, 'selection');
   const frameSelectionModels = modelsFor(modelCatalog, 'frame_selection');
@@ -1012,6 +1015,8 @@ export default function Home() {
   }, [videoBackendUrl]);
 
   useEffect(() => {
+    selectionSourceGenerationRef.current += 1;
+    hoverRequestIdRef.current += 1;
     if (!file) {
       setPreviewUrl('');
       return;
@@ -1043,6 +1048,11 @@ export default function Home() {
     setError('');
     return () => URL.revokeObjectURL(nextUrl);
   }, [file]);
+
+  useEffect(() => {
+    selectionSourceGenerationRef.current += 1;
+    hoverRequestIdRef.current += 1;
+  }, [selectionModel]);
 
   const steps = useMemo(
     () =>
@@ -1363,6 +1373,7 @@ export default function Home() {
 
   const clearObjectSelection = () => {
     if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
+    selectionSourceGenerationRef.current += 1;
     hoverRequestIdRef.current += 1;
     setSelectionPoints([]);
     setSelectionResult(null);
@@ -1384,6 +1395,8 @@ export default function Home() {
   };
 
   const invalidateSelectionResult = () => {
+    selectionSourceGenerationRef.current += 1;
+    hoverRequestIdRef.current += 1;
     setSelectionResult(null);
     setSelectionPreviewUrl('');
     setSelectionAppliedFile(null);
@@ -1403,6 +1416,7 @@ export default function Home() {
       setHoverSelectionState('loading');
       return null;
     }
+    const sourceGeneration = selectionSourceGenerationRef.current;
     const requestId = ++hoverRequestIdRef.current;
     if (mode === 'hover') setHoverSelectionState('loading');
     try {
@@ -1428,6 +1442,10 @@ export default function Home() {
           method: 'POST',
           body: cachedFormData,
         });
+        if (
+          sourceGeneration !== selectionSourceGenerationRef.current
+          || requestId !== hoverRequestIdRef.current
+        ) return null;
         if (response.status === 404 || response.status === 410) {
           setSelectionPrecompute(null);
           setSelectionPrecomputeState('error');
@@ -1438,9 +1456,16 @@ export default function Home() {
         response = await liveMaskRequest();
       }
 
+      if (
+        sourceGeneration !== selectionSourceGenerationRef.current
+        || requestId !== hoverRequestIdRef.current
+      ) return null;
       if (!response.ok) throw new Error(`Selection preview ${response.status}`);
       const data = (await response.json()) as SelectionResult;
-      if (mode === 'hover' && requestId !== hoverRequestIdRef.current) return null;
+      if (
+        sourceGeneration !== selectionSourceGenerationRef.current
+        || requestId !== hoverRequestIdRef.current
+      ) return null;
       const mask = selectionMaskFromResponse(data, point);
       if (mode === 'hover') {
         setHoverSelection(mask);
@@ -1448,6 +1473,10 @@ export default function Home() {
       }
       return mask;
     } catch (maskError) {
+      if (
+        sourceGeneration !== selectionSourceGenerationRef.current
+        || requestId !== hoverRequestIdRef.current
+      ) return null;
       if (mode === 'hover') {
         setHoverSelection(null);
         setHoverSelectionState('error');
@@ -1505,8 +1534,19 @@ export default function Home() {
 
   const applyObjectSelection = async (): Promise<SelectionApplyResult | null> => {
     if (!file) return null;
+    const sourceGeneration = selectionSourceGenerationRef.current;
     if (selectionAppliedFile && selectionPreviewUrl && selectionState === 'ready') {
-      return { file: selectionAppliedFile, previewUrl: selectionPreviewUrl };
+      if (!selectionResult?.job_id || !selectionResult.mask || !selectionResult.selected_image) {
+        setSelectionState('error');
+        setStatusText('Selection expired');
+        setError('The composed selection is incomplete. Apply the object selection again.');
+        return null;
+      }
+      return {
+        file: selectionAppliedFile,
+        previewUrl: selectionPreviewUrl,
+        selectionJobId: selectionResult.job_id,
+      };
     }
     if (!selectedMasks.length) {
       setSelectionState('error');
@@ -1530,6 +1570,7 @@ export default function Home() {
         method: 'POST',
         body: formData,
       });
+      if (sourceGeneration !== selectionSourceGenerationRef.current) return null;
       if (!response.ok) {
         let message = `Object selection ${response.status}`;
         try {
@@ -1542,12 +1583,18 @@ export default function Home() {
       }
 
       const data = (await response.json()) as SelectionResult;
+      if (sourceGeneration !== selectionSourceGenerationRef.current) return null;
+      if (!data.job_id || !data.mask || !data.selected_image) {
+        throw new Error('Selection response did not include a complete, reusable compose job.');
+      }
       const editedUrl = backendAssetUrl(data.selected_image_url);
       if (!editedUrl) throw new Error('Selection response did not include an edited image.');
 
       const editedResponse = await fetch(editedUrl);
+      if (sourceGeneration !== selectionSourceGenerationRef.current) return null;
       if (!editedResponse.ok) throw new Error(`Could not load edited selection image ${editedResponse.status}`);
       const editedBlob = await editedResponse.blob();
+      if (sourceGeneration !== selectionSourceGenerationRef.current) return null;
       const baseName = file.name ? file.name.replace(/\.[^.]+$/, '') || 'photo' : 'photo';
       const editedFile = new File([editedBlob], `selected-${baseName}.png`, { type: editedBlob.type || 'image/png' });
 
@@ -1557,8 +1604,9 @@ export default function Home() {
       setSelectionState('ready');
       setCompletedPreview(editedUrl);
       setStatusText('Selection ready');
-      return { file: editedFile, previewUrl: editedUrl };
+      return { file: editedFile, previewUrl: editedUrl, selectionJobId: data.job_id };
     } catch (selectionError) {
+      if (sourceGeneration !== selectionSourceGenerationRef.current) return null;
       setSelectionState('error');
       setStatusText('Selection failed');
       setError(selectionError instanceof Error ? selectionError.message : String(selectionError));
@@ -1572,19 +1620,25 @@ export default function Home() {
     fileInputRef.current.click();
   };
 
+  const replaceSourceFile = (nextFile: File | null) => {
+    selectionSourceGenerationRef.current += 1;
+    hoverRequestIdRef.current += 1;
+    setFile(nextFile);
+  };
+
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     const droppedFile = event.dataTransfer.files?.[0];
-    if (droppedFile) setFile(droppedFile);
+    if (droppedFile) replaceSourceFile(droppedFile);
   };
 
   const handleFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0];
-    if (nextFile) setFile(nextFile);
+    if (nextFile) replaceSourceFile(nextFile);
   };
 
   const resetFile = () => {
-    setFile(null);
+    replaceSourceFile(null);
     setProcessedSTL('');
     setDiagnosticsUrl('');
     setStlDiagnostics(null);
@@ -1656,6 +1710,7 @@ export default function Home() {
       setStatusText('Import required');
       return;
     }
+    const runSourceGeneration = selectionSourceGenerationRef.current;
 
     setError('');
     setProcessedSTL('');
@@ -1692,14 +1747,17 @@ export default function Home() {
 
     let pipelineInputFile = file;
     let pipelinePreviewUrl = previewUrl;
+    let selectionJobId = '';
     if (mediaKind === 'photo' && photoScope === 'object-selection') {
       const selectedInput = await applyObjectSelection();
+      if (runSourceGeneration !== selectionSourceGenerationRef.current) return;
       if (!selectedInput) {
         setRunState('blocked');
         return;
       }
       pipelineInputFile = selectedInput.file;
       pipelinePreviewUrl = selectedInput.previewUrl;
+      selectionJobId = selectedInput.selectionJobId;
     }
 
     if (mediaKind === 'photo' && photoTarget === 'depth-relief') {
@@ -1714,6 +1772,7 @@ export default function Home() {
 
         const formData = new FormData();
         formData.append('file', pipelineInputFile, pipelineInputFile.name || file.name || 'photo.jpg');
+        if (selectionJobId) formData.append('selection_job_id', selectionJobId);
         formData.append('depth_provider', 'transformers');
         formData.append('depth_model', depthModel);
         formData.append('device', 'auto');

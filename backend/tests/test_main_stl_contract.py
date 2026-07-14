@@ -22,6 +22,17 @@ class MainStlContractTest(unittest.TestCase):
         image.save(buffer, format="PNG")
         return buffer.getvalue()
 
+    def exif_rotated_jpeg_bytes(self) -> bytes:
+        image = Image.new("RGB", (24, 12), (235, 235, 235))
+        for x in range(6, 18):
+            for y in range(3, 10):
+                image.putpixel((x, y), (180, 40, 70))
+        exif = image.getexif()
+        exif[274] = 6
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG", exif=exif)
+        return buffer.getvalue()
+
     def test_depth_anything_large_is_default_and_only_recommended_model(self):
         self.assertEqual(main_module.DEFAULT_DEPTH_MODEL, "depth-anything/Depth-Anything-V2-Large-hf")
         recommended = [model for model in main_module.DEPTH_MODELS if model.get("recommended")]
@@ -93,7 +104,8 @@ class MainStlContractTest(unittest.TestCase):
 
             def fake_depth_data(_image_path, output_dir, **_kwargs):
                 depth_path = Path(output_dir) / "output_depth_data.npy"
-                np.save(depth_path, np.array([[0.1, 0.3], [0.2, 0.6]], dtype=np.float32))
+                rows, cols = np.indices((24, 32), dtype=np.float32)
+                np.save(depth_path, 0.1 + 0.01 * rows + 0.02 * cols)
                 return str(depth_path)
 
             with (
@@ -104,7 +116,7 @@ class MainStlContractTest(unittest.TestCase):
                 client = TestClient(main_module.app)
                 response = client.post(
                     "/process_image",
-                    files={"file": ("relief.png", b"fake-image-bytes", "image/png")},
+                    files={"file": ("relief.png", self.png_bytes(), "image/png")},
                     data={
                         "target_dimension": "80",
                         "z_scale": "10",
@@ -151,6 +163,223 @@ class MainStlContractTest(unittest.TestCase):
                 self.assertEqual(metadata["requested_target_dimension"], payload["requested_target_dimension"])
                 self.assertEqual(metadata["relief_postprocess"], payload["relief_postprocess"])
 
+    def test_process_image_uses_original_context_then_masks_selected_depth(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "output"
+            mask_dir = output_root / "selection" / "fixture"
+            mask_dir.mkdir(parents=True)
+            mask = Image.new("L", (32, 24), 0)
+            for x in range(7, 25):
+                for y in range(5, 21):
+                    mask.putpixel((x, y), 255)
+            mask_path = mask_dir / "selection_mask.png"
+            mask.save(mask_path)
+            inferred_pixels = []
+            refined_pixels = []
+
+            def fake_complete_image(input_path, **_kwargs):
+                return input_path, None
+
+            def fake_depth_data(image_path, output_dir, **_kwargs):
+                with Image.open(image_path) as image:
+                    inferred_pixels.append(image.convert("RGB").getpixel((12, 10)))
+                rows, cols = np.indices((24, 32), dtype=np.float32)
+                depth = 0.15 + 0.7 * np.exp(
+                    -((rows - 13.0) ** 2 + (cols - 16.0) ** 2) / 95.0
+                )
+                output_path = Path(output_dir)
+                depth_path = output_path / "output_depth_data.npy"
+                np.save(depth_path, depth.astype(np.float32))
+                (output_path / "output_depth_metadata.json").write_text(
+                    json.dumps(
+                        {
+                            "provider": "transformers",
+                            "requested_model": "fixture",
+                            "effective_model": "fixture",
+                            "relief_value_transform": "linear",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                return str(depth_path)
+
+            no_faces = {
+                "mode": "auto",
+                "applied": False,
+                "detected_faces": 0,
+                "refined_faces": 0,
+                "faces": [],
+            }
+
+            def fake_face_refinement(image_path, depth, _output, **_kwargs):
+                with Image.open(image_path) as image:
+                    rgb = image.convert("RGB")
+                    refined_pixels.append((rgb.getpixel((1, 1)), rgb.getpixel((16, 13))))
+                return depth, no_faces
+
+            with (
+                patch.object(main_module, "OUTPUT_DIR", output_root),
+                patch.object(main_module, "complete_image", side_effect=fake_complete_image),
+                patch.object(main_module, "process_image_get_depth_data", side_effect=fake_depth_data),
+                patch.object(
+                    main_module,
+                    "refine_depth_for_faces",
+                    side_effect=fake_face_refinement,
+                ),
+            ):
+                client = TestClient(main_module.app)
+                compose_response = client.post(
+                    "/selection/compose",
+                    files={
+                        "file": (
+                            "original.png",
+                            self.png_bytes(accent=(200, 40, 20)),
+                            "image/png",
+                        )
+                    },
+                    data={"mask_paths_json": json.dumps(["selection/fixture/selection_mask.png"])},
+                )
+                self.assertEqual(compose_response.status_code, 200, compose_response.text)
+                selection_job_id = compose_response.json()["job_id"]
+
+                response = client.post(
+                    "/process_image",
+                    files={
+                        "file": (
+                            "untrusted-selected.png",
+                            self.png_bytes(accent=(20, 120, 220)),
+                            "image/png",
+                        )
+                    },
+                    data={
+                        "selection_job_id": selection_job_id,
+                        "target_dimension": "-1",
+                        "z_scale": "30",
+                        "max_xy_size": "40",
+                        "sigma": "0",
+                        "base_border_px": "1",
+                        "trim_top_background": "true",
+                        "minimum_feature_mm": "0.8",
+                        "max_relief_slope": "2.0",
+                    },
+                )
+
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(inferred_pixels, [(200, 40, 20)])
+            self.assertEqual(refined_pixels, [((245, 245, 245), (200, 40, 20))])
+            self.assertTrue(payload["selection_depth_context"]["enabled"])
+            self.assertEqual(payload["selection_depth_context"]["selection_job_id"], selection_job_id)
+            self.assertEqual(
+                payload["selection_depth_context"]["method"],
+                "full_scene_depth_then_slope_bounded_selection",
+            )
+            self.assertFalse(payload["effective_trim_top_background"])
+            self.assertTrue(payload["depth_data"].endswith("output_depth_data_selected_context.npy"))
+            self.assertTrue(payload["relief_postprocess"]["selection_gradient_compression"]["enabled"])
+            self.assertTrue(payload["stl_diagnostics"]["stl_is_watertight"])
+
+    def test_process_image_rejects_tampered_selection_compose_source(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "output"
+            mask_dir = output_root / "selection" / "fixture"
+            mask_dir.mkdir(parents=True)
+            Image.new("L", (32, 24), 255).save(mask_dir / "selection_mask.png")
+
+            with patch.object(main_module, "OUTPUT_DIR", output_root):
+                client = TestClient(main_module.app)
+                compose_response = client.post(
+                    "/selection/compose",
+                    files={"file": ("source.png", self.png_bytes(), "image/png")},
+                    data={"mask_paths_json": json.dumps(["selection/fixture/selection_mask.png"])},
+                )
+                self.assertEqual(compose_response.status_code, 200, compose_response.text)
+                selection_job_id = compose_response.json()["job_id"]
+                Image.new("RGB", (32, 24), (0, 0, 0)).save(
+                    output_root / "selection" / selection_job_id / "source.png"
+                )
+
+                response = client.post(
+                    "/process_image",
+                    files={"file": ("selected.png", self.png_bytes(), "image/png")},
+                    data={"selection_job_id": selection_job_id},
+                )
+
+            self.assertEqual(response.status_code, 409, response.text)
+            self.assertIn("provenance", response.json()["detail"])
+
+    def test_process_image_normalizes_exif_orientation_for_every_image_stage(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "output"
+            observed_sizes = {"completion": [], "depth": [], "face": [], "mesh": []}
+
+            def image_size(path):
+                with Image.open(path) as image:
+                    return image.size
+
+            def fake_complete_image(input_path, **_kwargs):
+                observed_sizes["completion"].append(image_size(input_path))
+                return input_path, None
+
+            def fake_depth_data(image_path, output_dir, **_kwargs):
+                width, height = image_size(image_path)
+                observed_sizes["depth"].append((width, height))
+                rows, cols = np.indices((height, width), dtype=np.float32)
+                depth_path = Path(output_dir) / "output_depth_data.npy"
+                np.save(depth_path, 0.1 + 0.01 * rows + 0.02 * cols)
+                return str(depth_path)
+
+            no_faces = {
+                "mode": "auto",
+                "applied": False,
+                "detected_faces": 0,
+                "refined_faces": 0,
+                "faces": [],
+            }
+
+            def fake_face_refinement(image_path, depth, _output, **_kwargs):
+                observed_sizes["face"].append(image_size(image_path))
+                return depth, no_faces
+
+            real_depth_to_model = main_module.depth_data_to_3d_model
+
+            def capture_mesh_source(*args, **kwargs):
+                observed_sizes["mesh"].append(image_size(kwargs["source_image"]))
+                return real_depth_to_model(*args, **kwargs)
+
+            with (
+                patch.object(main_module, "OUTPUT_DIR", output_root),
+                patch.object(main_module, "complete_image", side_effect=fake_complete_image),
+                patch.object(main_module, "process_image_get_depth_data", side_effect=fake_depth_data),
+                patch.object(main_module, "refine_depth_for_faces", side_effect=fake_face_refinement),
+                patch.object(main_module, "depth_data_to_3d_model", side_effect=capture_mesh_source),
+            ):
+                response = TestClient(main_module.app).post(
+                    "/process_image",
+                    files={
+                        "file": (
+                            "phone.jpg",
+                            self.exif_rotated_jpeg_bytes(),
+                            "image/jpeg",
+                        )
+                    },
+                    data={
+                        "target_dimension": "-1",
+                        "z_scale": "10",
+                        "max_xy_size": "24",
+                        "sigma": "0",
+                        "base_border_px": "1",
+                    },
+                )
+
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(observed_sizes, {
+                "completion": [(12, 24)],
+                "depth": [(12, 24)],
+                "face": [(12, 24)],
+                "mesh": [(12, 24)],
+            })
+
     def test_process_image_reports_depth_fallback_and_uses_effective_polarity(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_root = Path(temp_dir) / "output"
@@ -161,7 +390,8 @@ class MainStlContractTest(unittest.TestCase):
             def fake_depth_data(_image_path, output_dir, **_kwargs):
                 output_path = Path(output_dir)
                 depth_path = output_path / "output_depth_data.npy"
-                np.save(depth_path, np.array([[0.1, 0.3], [0.2, 0.6]], dtype=np.float32))
+                rows, cols = np.indices((24, 32), dtype=np.float32)
+                np.save(depth_path, 0.1 + 0.01 * rows + 0.02 * cols)
                 (output_path / "output_depth_metadata.json").write_text(
                     json.dumps(
                         {
@@ -184,7 +414,7 @@ class MainStlContractTest(unittest.TestCase):
                 client = TestClient(main_module.app)
                 response = client.post(
                     "/process_image",
-                    files={"file": ("relief.png", b"fake-image-bytes", "image/png")},
+                    files={"file": ("relief.png", self.png_bytes(), "image/png")},
                     data={
                         "depth_model": "apple/DepthPro-hf",
                         "relief_polarity": "raised-print",

@@ -8,10 +8,12 @@ from unittest.mock import patch
 import numpy as np
 from scipy.ndimage import laplace
 from stl import mesh
+from PIL import Image
 
 from backend import pic_to_3d
 from backend.pic_to_3d import (
     RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
+    _load_depth_input_image,
     _flatten_border,
     _enhance_weighted_relief_features,
     _guard_weighted_feature_updates,
@@ -20,6 +22,8 @@ from backend.pic_to_3d import (
     _bridge_weighted_face_features,
     _compress_relief_gradients,
     _expand_face_region_to_depth_connected_head,
+    _face_detail_preservation_metrics,
+    _guard_face_detail_updates,
     _inject_photo_relief_detail,
     _limit_positive_relief_slope,
     _prepare_relief_for_printing,
@@ -28,12 +32,151 @@ from backend.pic_to_3d import (
     _shape_relief_values,
     _stabilize_face_relief_height,
     _top_silhouette_mask,
+    compose_selection_depth_with_context,
     depth_data_to_3d_model,
     relief_value_transform_for_model,
 )
 
 
 class ReliefStlControlsTest(unittest.TestCase):
+    def test_depth_input_applies_exif_orientation_before_mask_alignment(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source_path = Path(tmp_dir) / "phone-photo.jpg"
+            source = Image.new("RGB", (8, 4), color=(30, 60, 90))
+            exif = source.getexif()
+            exif[274] = 6
+            source.save(source_path, exif=exif)
+
+            oriented = _load_depth_input_image(source_path)
+
+        self.assertEqual(oriented.size, (4, 8))
+
+    def test_context_selection_depth_preserves_subject_and_builds_support_ramp(self):
+        rows, cols = np.indices((61, 81), dtype=np.float32)
+        depth = 0.2 + 0.004 * cols + 0.08 * np.exp(
+            -((rows - 34.0) ** 2 + (cols - 42.0) ** 2) / 90.0
+        )
+        selected = ((rows - 34.0) ** 2 / 180.0 + (cols - 42.0) ** 2 / 260.0) <= 1.0
+
+        composed, stats = compose_selection_depth_with_context(
+            depth,
+            selected,
+            relief_height_mm=30.0,
+            sample_pitch_mm=0.4,
+            max_slope_mm_per_mm=2.0,
+        )
+
+        np.testing.assert_array_equal(composed[selected], depth[selected])
+        self.assertTrue(stats["enabled"])
+        self.assertGreater(stats["support_halo_pixels"], 0)
+        self.assertLess(stats["base_canonical_value"], stats["selected_canonical_p01"])
+        self.assertAlmostEqual(float(composed[0, 0]), stats["base_canonical_value"], places=6)
+        self.assertGreater(float(np.max(composed[~selected])), float(composed[0, 0]))
+
+    def test_context_selection_depth_supports_metric_far_high_values(self):
+        depth = np.full((31, 31), 8.0, dtype=np.float32)
+        selected = np.zeros(depth.shape, dtype=bool)
+        selected[9:22, 9:22] = True
+        depth[selected] = np.linspace(2.0, 4.0, np.count_nonzero(selected), dtype=np.float32)
+
+        composed, stats = compose_selection_depth_with_context(
+            depth,
+            selected,
+            value_transform=RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
+            relief_height_mm=20.0,
+            sample_pitch_mm=0.5,
+            max_slope_mm_per_mm=2.0,
+        )
+
+        np.testing.assert_allclose(composed[selected], depth[selected], rtol=1e-6)
+        self.assertTrue(np.all(np.isfinite(composed)))
+        self.assertGreater(float(composed[0, 0]), float(depth[9, 9]))
+        self.assertEqual(stats["value_transform"], RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH)
+
+    def test_context_selection_depth_rejects_misaligned_aspect_ratio(self):
+        depth = np.ones((40, 80), dtype=np.float32)
+        mismatched_mask = np.ones((80, 40), dtype=bool)
+
+        with self.assertRaisesRegex(ValueError, "aspect ratio"):
+            compose_selection_depth_with_context(depth, mismatched_mask)
+
+    def test_face_detail_metrics_catch_one_flattened_face(self):
+        rows, cols = np.indices((64, 96), dtype=np.float32)
+        reference = 0.01 * rows + 0.02 * cols
+        first = ((rows - 30.0) ** 2 + (cols - 25.0) ** 2) <= 13.0**2
+        second = ((rows - 30.0) ** 2 + (cols - 70.0) ** 2) <= 13.0**2
+        reference += first * (0.8 * np.sin(cols * 0.55))
+        reference += second * (0.8 * np.sin(cols * 0.55))
+        candidate = reference.copy()
+        candidate[first] = 0.01 * rows[first] + 0.02 * cols[first]
+
+        metrics = _face_detail_preservation_metrics(reference, candidate, first | second)
+
+        self.assertTrue(metrics["available"])
+        self.assertEqual(len(metrics["components"]), 2)
+        self.assertLess(metrics["minimum_component_rms_retention"], 0.1)
+        self.assertGreater(metrics["components"][1]["rms_retention"], 0.99)
+
+    def test_face_detail_guard_attenuates_a_component_regression(self):
+        rows, cols = np.indices((48, 80), dtype=np.float32)
+        face = np.zeros((48, 80), dtype=bool)
+        face[10:38, 10:34] = True
+        face[10:38, 46:70] = True
+        reference = 0.03 * rows + 0.02 * cols + face * (0.4 * np.sin(cols * 0.7))
+        baseline = reference.copy()
+        candidate = baseline.copy()
+        candidate[10:38, 10:34] += 1.2 * np.cos(cols[10:38, 10:34] * 1.9)
+
+        guarded, stats = _guard_face_detail_updates(
+            baseline,
+            candidate,
+            reference,
+            face,
+            minimum_correlation=0.8,
+            minimum_rms_retention=0.6,
+        )
+
+        self.assertTrue(stats["enabled"])
+        self.assertTrue(stats["attenuated"])
+        self.assertLess(stats["applied_scale"], 1.0)
+        self.assertGreaterEqual(stats["final"]["minimum_component_correlation"], 0.8)
+        np.testing.assert_array_equal(guarded[~face], baseline[~face])
+
+    def test_flat_face_detail_violation_is_json_safe_and_fails_closed(self):
+        reference = np.zeros((40, 40), dtype=np.float32)
+        face = np.zeros(reference.shape, dtype=bool)
+        face[8:32, 8:32] = True
+        candidate = reference.copy()
+        candidate[14:26, 14:26] = 0.4
+
+        metrics = _face_detail_preservation_metrics(reference, candidate, face)
+        guarded, guard_stats = _guard_face_detail_updates(
+            reference,
+            candidate,
+            reference,
+            face,
+        )
+
+        self.assertTrue(metrics["flat_reference_violation"])
+        self.assertIsNone(metrics["rms_retention"])
+        self.assertIsNone(metrics["components"][0]["rms_retention"])
+        json.dumps(metrics, allow_nan=False)
+        np.testing.assert_array_equal(guarded, reference)
+        self.assertEqual(guard_stats["applied_scale"], 0.0)
+
+    def test_face_detail_metrics_fail_closed_for_tiny_detected_component(self):
+        rows, cols = np.indices((48, 64), dtype=np.float32)
+        reference = 0.02 * rows + 0.03 * cols + 0.2 * np.sin(cols * 0.4)
+        face = np.zeros(reference.shape, dtype=bool)
+        face[8:36, 8:34] = True
+        face[42:44, 58:60] = True
+
+        metrics = _face_detail_preservation_metrics(reference, reference, face)
+
+        self.assertFalse(metrics["available"])
+        self.assertEqual(metrics["component_count"], 2)
+        self.assertEqual(metrics["unavailable_component_count"], 1)
+
     def test_save_depth_outputs_writes_normalized_depth_preview_and_metadata(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             output_dir = Path(tmp_dir)
@@ -740,6 +883,18 @@ class ReliefStlControlsTest(unittest.TestCase):
             compression["detail_preservation"]["rms_retention"],
             compression["quality_gates"]["minimum_detail_rms_retention"],
         )
+        self.assertGreaterEqual(
+            compression["detail_preservation"]["minimum_component_rms_retention"],
+            compression["quality_gates"]["minimum_detail_rms_retention"],
+        )
+        self.assertLessEqual(
+            compression["detail_preservation"]["maximum_component_rms_retention"],
+            compression["quality_gates"]["maximum_detail_rms_retention"],
+        )
+        restoration = compression["post_solve_detail_restoration"]
+        self.assertTrue(restoration["accepted"])
+        self.assertLessEqual(restoration["applied_correction_max_mm"], 0.6001)
+        self.assertLessEqual(restoration["boundary_correction_max_mm"], 1e-5)
         self.assertFalse(compression["hard_slope_limit_enforced"])
         self.assertEqual(compression["solver_info"], 0)
         self.assertEqual(compression["sample_pitch_source"], "implicit_stl_grid_unit")
@@ -788,6 +943,94 @@ class ReliefStlControlsTest(unittest.TestCase):
             postprocess["face_boundary_alignment"].get("method"),
             "screened_gradient_domain_compression",
         )
+
+    def test_selected_object_relief_uses_gradient_domain_compression(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            depth_path = root / "depth.npy"
+            stl_path = root / "selected.stl"
+            rows, cols = np.indices((64, 80), dtype=np.float32)
+            selected = ((rows - 36.0) ** 2 / 300.0 + (cols - 41.0) ** 2 / 520.0) <= 1.0
+            depth = 0.12 + selected * (
+                0.5
+                + 0.12 * np.sin(cols * 0.32)
+                + 0.08 * np.cos(rows * 0.27)
+            )
+            np.save(depth_path, depth.astype(np.float32))
+
+            postprocess = depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(stl_path),
+                target_dimension=-1,
+                z_scale=30.0,
+                max_xy_size=32.0,
+                sigma=0.0,
+                relief_gamma=1.0,
+                detail_boost=0.0,
+                low_percentile=0.0,
+                high_percentile=100.0,
+                base_border_px=1,
+                minimum_feature_mm=0.8,
+                selection_region_mask=selected,
+            )
+            stl_exists = stl_path.is_file()
+
+        compression = postprocess["selection_gradient_compression"]
+        self.assertTrue(compression["enabled"])
+        self.assertTrue(compression["quality_gates"]["passed"])
+        self.assertGreater(compression["retained_detail_gradient_pairs"], 0)
+        self.assertTrue(stl_exists)
+
+    def test_high_face_relief_also_preserves_nonface_selection_depth(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            depth_path = root / "depth.npy"
+            stl_path = root / "face-and-selection.stl"
+            rows, cols = np.indices((72, 96), dtype=np.float32)
+            face = ((rows - 31.0) ** 2 / 210.0 + (cols - 27.0) ** 2 / 150.0) <= 1.0
+            animal = ((rows - 41.0) ** 2 / 300.0 + (cols - 70.0) ** 2 / 210.0) <= 1.0
+            selected = face | animal
+            depth = 0.1 + 0.015 * cols / cols.max()
+            depth += face * (
+                0.58
+                + 0.05 * np.sin(cols * 0.38)
+                + 0.04 * np.cos(rows * 0.31)
+            )
+            depth += animal * (
+                0.44
+                + 0.12 * np.sin(cols * 0.29)
+                + 0.07 * np.cos(rows * 0.43)
+            )
+            np.save(depth_path, depth.astype(np.float32))
+
+            postprocess = depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(stl_path),
+                target_dimension=-1,
+                z_scale=30.0,
+                max_xy_size=48.0,
+                sigma=0.0,
+                relief_gamma=1.0,
+                detail_boost=0.0,
+                low_percentile=0.0,
+                high_percentile=100.0,
+                base_border_px=1,
+                minimum_feature_mm=0.8,
+                max_relief_slope=2.0,
+                face_region_mask=face,
+                selection_region_mask=selected,
+            )
+            stl_exists = stl_path.is_file()
+
+        selection_compression = postprocess["selection_gradient_compression"]
+        self.assertTrue(selection_compression["enabled"])
+        self.assertTrue(selection_compression["face_protection_passed"])
+        self.assertGreater(selection_compression["retained_detail_gradient_pairs"], 0)
+        self.assertEqual(
+            selection_compression["protected_region_blend"]["protected_correction_max_mm"],
+            0.0,
+        )
+        self.assertTrue(stl_exists)
 
     def test_slope_limiter_preserves_large_structural_silhouettes(self):
         values = np.zeros((81, 81), dtype=np.float32)

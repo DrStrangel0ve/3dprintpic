@@ -420,7 +420,8 @@ class FaceDepthRefinementTest(unittest.TestCase):
 
             def fake_depth(_image_path, output_dir, **_kwargs):
                 depth_path = Path(output_dir) / "output_depth_data.npy"
-                np.save(depth_path, np.array([[0.1, 0.3], [0.2, 0.6]], dtype=np.float32))
+                rows, cols = np.indices((8, 8), dtype=np.float32)
+                np.save(depth_path, 0.1 + 0.02 * rows + 0.03 * cols)
                 return str(depth_path)
 
             refinement_audit = {
@@ -440,14 +441,19 @@ class FaceDepthRefinementTest(unittest.TestCase):
                     side_effect=lambda _image, depth, _output, **_kwargs: (depth, refinement_audit),
                 ) as refine_mock,
             ):
+                portrait_bytes = cv2.imencode(
+                    ".png",
+                    np.full((32, 32, 3), 255, dtype=np.uint8),
+                )[1].tobytes()
                 response = TestClient(main_module.app).post(
                     "/process_image",
-                    files={"file": ("portrait.png", b"portrait", "image/png")},
+                    files={"file": ("portrait.png", portrait_bytes, "image/png")},
                     data={
                         "target_dimension": "8",
                         "z_scale": "2",
                         "sigma": "0",
                         "base_border_px": "0",
+                        "trim_top_background": "false",
                         "face_refinement_mode": "on",
                         "face_detail_strength": "1.4",
                         "face_feather_ratio": "0.25",

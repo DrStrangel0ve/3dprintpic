@@ -1,0 +1,116 @@
+{
+  "schema_version": 2,
+  "run_date": "2026-07-14",
+  "privacy": {
+    "source_assets_tracked": false,
+    "generated_meshes_tracked": false,
+    "aggregate_telemetry_only": true
+  },
+  "configuration": {
+    "relief_height_mm": 30.0,
+    "max_xy_size_mm": 128.0,
+    "target_dimension": 512,
+    "minimum_feature_mm": 0.8,
+    "maximum_relief_slope_mm_per_mm": 2.0,
+    "gpu": "NVIDIA GeForce RTX 3080 Ti"
+  },
+  "portrait": {
+    "baseline": {
+      "aggregate_curvature_correlation": 0.9165777365,
+      "aggregate_curvature_rms_retention": 0.4186739439,
+      "per_face_curvature_correlation": [
+        0.9128762397,
+        0.9339036304
+      ],
+      "per_face_curvature_rms_retention": [
+        0.3900607874,
+        0.4733113577
+      ]
+    },
+    "candidate_live": {
+      "http_status": 200,
+      "per_face_curvature_correlation": [
+        0.9542260423,
+        0.9663123474
+      ],
+      "per_face_curvature_rms_retention": [
+        0.9212680778,
+        0.9665666558
+      ],
+      "eyewear_residual_reduction_ratio": [
+        0.6331749951,
+        0.5847885326
+      ],
+      "restoration_correction_cap_mm": 0.6,
+      "restoration_boundary_correction_max_mm": 0.0,
+      "selection_gradient_compression_enabled": true,
+      "face_protection_after_selection_passed": true,
+      "dropped_nonmetric_selection_fragments": 4,
+      "selection_job_provenance": "verified",
+      "runtime_seconds": 21.553,
+      "stl": {
+        "watertight": true,
+        "manifold": true,
+        "volume": true,
+        "winding_consistent": true,
+        "positive_volume": true,
+        "component_count": 1,
+        "degenerate_face_count": 0,
+        "failed_checks": []
+      }
+    }
+  },
+  "selected_group_and_llamas": {
+    "mask_coverage_ratio": 0.18341775,
+    "full_context_over_cutout_gradient_rms_ratio": [
+      2.9554392247,
+      3.8069895118,
+      4.1096236607,
+      4.5456245645
+    ],
+    "full_context_over_cutout_laplacian_rms_ratio": [
+      2.4162190795,
+      4.3893548318,
+      3.5942503931,
+      3.9438461743
+    ],
+    "candidate_live": {
+      "http_status": 200,
+      "post_restore_component_correlation": [
+        0.7522259949,
+        0.9288887189,
+        0.8175247498,
+        0.9381102104
+      ],
+      "post_restore_component_rms_retention_vs_full_context": [
+        0.4421848113,
+        0.4164183109,
+        0.6211685483,
+        0.2378148536
+      ],
+      "selection_gradient_compression_enabled": true,
+      "dropped_nonmetric_selection_fragments": 1,
+      "selection_job_provenance": "verified",
+      "runtime_seconds": 8.875,
+      "baseline_stl_component_count": 4,
+      "stl": {
+        "watertight": true,
+        "manifold": true,
+        "volume": true,
+        "winding_consistent": true,
+        "positive_volume": true,
+        "component_count": 1,
+        "degenerate_face_count": 0,
+        "failed_checks": []
+      }
+    }
+  },
+  "validation": {
+    "backend_tests_passed": 415,
+    "backend_subtests_passed": 8,
+    "frontend_typecheck": "passed",
+    "frontend_lint": "passed_zero_warnings",
+    "playwright_passed": 9,
+    "playwright_skipped": 1
+  }
+}

@@ -48,6 +48,13 @@ def relief_value_transform_for_model(model_name):
         return RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH
     return RELIEF_VALUE_TRANSFORM_LINEAR
 
+
+def _load_depth_input_image(input_image_path):
+    from PIL import Image, ImageOps
+
+    with Image.open(input_image_path) as source_image:
+        return ImageOps.exif_transpose(source_image).convert("RGB")
+
 MODERN_INPAINT_MODELS = {
     "sdxl-inpaint": {
         "label": "SDXL Inpaint",
@@ -721,7 +728,6 @@ def process_image_get_depth_data_transformers(
 
     try:
         import torch
-        from PIL import Image
         import transformers
         from transformers import pipeline
     except ImportError as exc:
@@ -753,7 +759,7 @@ def process_image_get_depth_data_transformers(
         _DEPTH_PIPELINE_CACHE[cache_key] = pipeline("depth-estimation", **pipe_kwargs)
 
     depth_pipe = _DEPTH_PIPELINE_CACHE[cache_key]
-    image = Image.open(input_image_path).convert("RGB")
+    image = _load_depth_input_image(input_image_path)
     result = depth_pipe(image)
 
     predicted_depth = result.get("predicted_depth")
@@ -790,7 +796,6 @@ def process_image_get_depth_data_depthpro(
 ):
     try:
         import torch
-        from PIL import Image
         from transformers import DepthProForDepthEstimation, DepthProImageProcessor
     except ImportError as exc:
         return _run_depth_fallback(
@@ -834,7 +839,7 @@ def process_image_get_depth_data_depthpro(
             _DEPTH_PIPELINE_CACHE[cache_key] = (processor, model, resolved_device, dtype)
 
         processor, model, resolved_device, dtype = _DEPTH_PIPELINE_CACHE[cache_key]
-        image = Image.open(input_image_path).convert("RGB")
+        image = _load_depth_input_image(input_image_path)
         inputs = processor(images=image, return_tensors="pt")
         prepared_inputs = {}
         for key, value in inputs.items():
@@ -1060,6 +1065,115 @@ def _resize_binary_mask(values, target_shape):
             mode="edge",
         )
     return resized
+
+
+def compose_selection_depth_with_context(
+    depth_values,
+    selection_mask,
+    *,
+    value_transform=RELIEF_VALUE_TRANSFORM_LINEAR,
+    relief_height_mm=10.0,
+    sample_pitch_mm=1.0,
+    max_slope_mm_per_mm=2.0,
+    base_margin_ratio=0.03,
+):
+    """Keep full-scene depth inside a selection and add a printable support ramp."""
+    source = np.asarray(depth_values, dtype=np.float32)
+    if source.ndim != 2:
+        raise ValueError("Selection depth composition requires a 2D depth array")
+    raw_mask = np.asarray(selection_mask)
+    if raw_mask.ndim > 2:
+        raw_mask = raw_mask[..., 0]
+    if raw_mask.ndim != 2 or min(raw_mask.shape) < 2:
+        raise ValueError("Selection mask must be a non-empty 2D image")
+    depth_aspect = source.shape[1] / float(source.shape[0])
+    mask_aspect = raw_mask.shape[1] / float(raw_mask.shape[0])
+    if abs(depth_aspect - mask_aspect) / max(depth_aspect, mask_aspect, 1e-8) > 0.02:
+        raise ValueError("Selection mask aspect ratio does not match the depth source")
+    selected = _resize_binary_mask(selection_mask, source.shape)
+    valid = np.isfinite(source)
+    selected &= valid
+    if np.count_nonzero(selected) < 4:
+        raise ValueError("Selection mask does not overlap enough finite depth samples")
+
+    try:
+        height_mm = float(relief_height_mm)
+        pitch_mm = float(sample_pitch_mm)
+        max_slope = float(max_slope_mm_per_mm)
+        margin_ratio = float(base_margin_ratio)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Invalid selection depth composition controls") from exc
+    if (
+        not np.isfinite(height_mm)
+        or height_mm <= 0
+        or not np.isfinite(pitch_mm)
+        or pitch_mm <= 0
+        or not np.isfinite(max_slope)
+        or max_slope <= 0
+        or not np.isfinite(margin_ratio)
+        or margin_ratio < 0
+    ):
+        raise ValueError("Selection depth composition controls must be finite and positive")
+
+    canonical, reverses_order = _transform_relief_values(source, value_transform)
+    selected_values = canonical[selected]
+    low = float(np.percentile(selected_values, 1.0))
+    high = float(np.percentile(selected_values, 99.0))
+    span = max(high - low, float(np.finfo(np.float32).eps))
+    base_value = low - margin_ratio * span
+    if reverses_order:
+        base_value = max(base_value, low * 0.25, float(np.finfo(np.float32).tiny))
+
+    # A one-pixel canonical change corresponds to this much physical relief.
+    # Building the ramp before normalization keeps the selected surface intact
+    # and prevents the structural-edge detector from preserving a vertical wall.
+    canonical_step = span * max_slope * pitch_mm / height_mm
+    canonical_step = max(canonical_step, span / max(source.shape) * 0.25)
+    outside_distance, nearest = distance_transform_edt(
+        ~selected,
+        return_distances=True,
+        return_indices=True,
+    )
+    nearest_selected_values = canonical[tuple(nearest)]
+    ramp = np.maximum(
+        base_value,
+        nearest_selected_values - outside_distance * canonical_step,
+    )
+    composed_canonical = np.where(selected, canonical, ramp).astype(np.float32, copy=False)
+
+    if reverses_order:
+        composed = np.reciprocal(
+            np.maximum(composed_canonical, float(np.finfo(np.float32).tiny)),
+            dtype=np.float32,
+        )
+    else:
+        composed = composed_canonical
+    composed[selected] = source[selected]
+
+    halo = (~selected) & (ramp > base_value + span * 1e-6)
+    halo_distances = outside_distance[halo]
+    return composed.astype(np.float32, copy=False), {
+        "enabled": True,
+        "method": "full_scene_depth_then_slope_bounded_selection",
+        "value_transform": value_transform,
+        "mask_pixels": int(np.count_nonzero(selected)),
+        "mask_coverage_ratio": float(np.mean(selected)),
+        "support_halo_pixels": int(np.count_nonzero(halo)),
+        "support_halo_coverage_ratio": float(np.mean(halo)),
+        "support_distance_p95_px": (
+            float(np.percentile(halo_distances, 95.0)) if halo_distances.size else 0.0
+        ),
+        "support_distance_max_px": (
+            float(np.max(halo_distances)) if halo_distances.size else 0.0
+        ),
+        "sample_pitch_mm": pitch_mm,
+        "max_slope_mm_per_mm": max_slope,
+        "canonical_step_per_pixel": float(canonical_step),
+        "selected_canonical_p01": low,
+        "selected_canonical_p99": high,
+        "base_canonical_value": float(base_value),
+        "base_margin_ratio": margin_ratio,
+    }
 
 
 def _target_shape_for_max_dimension(shape, target_dimension):
@@ -1679,6 +1793,120 @@ def _guard_weighted_feature_updates(
     }
 
 
+def _detail_component_passes(
+    record,
+    minimum_correlation,
+    minimum_rms_retention,
+    maximum_rms_retention,
+):
+    if not record.get("available", True):
+        return False
+    try:
+        correlation = float(record["correlation"])
+        retention = float(record["rms_retention"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return bool(
+        np.isfinite(correlation)
+        and np.isfinite(retention)
+        and float(minimum_correlation) <= correlation
+        and float(minimum_rms_retention) <= retention <= float(maximum_rms_retention)
+    )
+
+
+def _guard_face_detail_updates(
+    baseline_values,
+    candidate_values,
+    reference_values,
+    face_region_mask,
+    *,
+    minimum_correlation=0.8,
+    minimum_rms_retention=0.6,
+    maximum_rms_retention=2.0,
+    iterations=12,
+):
+    """Retain as much feature enhancement as per-face curvature gates allow."""
+    baseline = np.asarray(baseline_values, dtype=np.float32)
+    candidate = np.asarray(candidate_values, dtype=np.float32)
+    reference = np.asarray(reference_values, dtype=np.float32)
+    if baseline.shape != candidate.shape or baseline.shape != reference.shape:
+        raise ValueError("Face detail guard surfaces must have identical shapes")
+
+    def measure(values):
+        return _face_detail_preservation_metrics(reference, values, face_region_mask)
+
+    def passes(metrics):
+        if not metrics.get("available", False):
+            return False
+        components = metrics.get("components", [])
+        return bool(components) and all(
+            _detail_component_passes(
+                record,
+                minimum_correlation,
+                minimum_rms_retention,
+                maximum_rms_retention,
+            )
+            for record in components
+        )
+
+    baseline_metrics = measure(baseline)
+    candidate_metrics = measure(candidate)
+    if passes(candidate_metrics):
+        return candidate_values, {
+            "enabled": True,
+            "attenuated": False,
+            "applied_scale": 1.0,
+            "baseline": baseline_metrics,
+            "candidate": candidate_metrics,
+            "final": candidate_metrics,
+        }
+    if not passes(baseline_metrics):
+        return baseline_values, {
+            "enabled": False,
+            "reason": "baseline_quality_gate",
+            "attenuated": True,
+            "applied_scale": 0.0,
+            "baseline": baseline_metrics,
+            "candidate": candidate_metrics,
+            "final": baseline_metrics,
+        }
+
+    delta = np.where(
+        np.isfinite(baseline) & np.isfinite(candidate),
+        candidate - baseline,
+        0.0,
+    )
+    low = 0.0
+    high = 1.0
+    best = baseline.copy()
+    best_metrics = baseline_metrics
+    for _ in range(max(1, int(iterations))):
+        scale = (low + high) * 0.5
+        trial = np.where(
+            np.isfinite(baseline),
+            baseline + scale * delta,
+            np.nan,
+        ).astype(np.float32, copy=False)
+        trial_metrics = measure(trial)
+        if passes(trial_metrics):
+            low = scale
+            best = trial
+            best_metrics = trial_metrics
+        else:
+            high = scale
+    return best.astype(candidate.dtype, copy=False), {
+        "enabled": True,
+        "attenuated": True,
+        "applied_scale": float(low),
+        "minimum_correlation": float(minimum_correlation),
+        "minimum_rms_retention": float(minimum_rms_retention),
+        "maximum_rms_retention": float(maximum_rms_retention),
+        "baseline": baseline_metrics,
+        "candidate": candidate_metrics,
+        "final": best_metrics,
+    }
+
+
 def _restore_face_laplacian_detail(
     processed_values,
     reference_values,
@@ -1751,14 +1979,24 @@ def _restore_face_laplacian_detail(
         max_neighbor_step_mm,
         max_ratio=1.25,
     )
-    applied = np.abs(np.asarray(guarded, dtype=np.float64) - processed)
-    weighted = total_weight > 1e-4
     boundary = valid & ~binary_erosion(
         valid,
         structure=np.ones((3, 3), dtype=bool),
         border_value=0,
     )
-    final_audit = guard_stats.get("final_audit", {})
+    guarded = np.asarray(guarded).copy()
+    guarded[boundary] = processed[boundary]
+    guarded, boundary_guard_stats = _guard_weighted_feature_updates(
+        processed,
+        guarded,
+        max_neighbor_step_mm,
+        max_ratio=1.25,
+    )
+    guarded = np.asarray(guarded).copy()
+    guarded[boundary] = processed[boundary]
+    applied = np.abs(np.asarray(guarded, dtype=np.float64) - processed)
+    weighted = total_weight > 1e-4
+    final_audit = _surface_edge_audit(guarded, processed, max_neighbor_step_mm)
     return guarded, {
         "enabled": True,
         "method": "laplacian_face_detail_restoration",
@@ -1770,6 +2008,7 @@ def _restore_face_laplacian_detail(
         "applied_correction_max_mm": float(np.max(applied[weighted], initial=0.0)),
         "boundary_correction_max_mm": float(np.max(applied[boundary], initial=0.0)),
         "detail_guard": guard_stats,
+        "boundary_guard": boundary_guard_stats,
         "attachment_slope_ratio_p99": final_audit.get("accepted_surface_ratio_p99"),
         "attachment_slope_ratio_max": final_audit.get("accepted_surface_ratio_max"),
     }
@@ -2421,6 +2660,158 @@ def _limit_positive_relief_slope(
     return work, stats
 
 
+def _face_detail_preservation_metrics(reference_values, candidate_values, face_region_mask):
+    """Measure curvature retention globally and per disconnected face."""
+    stats = {
+        "available": False,
+        "correlation": None,
+        "rms_retention": None,
+        "samples": 0,
+        "components": [],
+        "component_count": 0,
+        "measured_component_count": 0,
+        "unavailable_component_count": 0,
+        "flat_reference_violation": False,
+    }
+    if face_region_mask is None:
+        return stats
+
+    reference = np.asarray(reference_values, dtype=np.float32)
+    candidate = np.asarray(candidate_values, dtype=np.float32)
+    if reference.shape != candidate.shape:
+        raise ValueError("Face detail metric surfaces must have identical shapes")
+    valid = np.isfinite(reference) & np.isfinite(candidate)
+    region = _resize_binary_mask(face_region_mask, reference.shape) & valid
+    components, component_count = label(
+        region,
+        structure=np.ones((3, 3), dtype=np.uint8),
+    )
+    reference_curvature = laplace(np.where(valid, reference, 0.0)).astype(np.float64)
+    candidate_curvature = laplace(np.where(valid, candidate, 0.0)).astype(np.float64)
+
+    component_records = []
+    measured_records = []
+    aggregate_mask = np.zeros(reference.shape, dtype=bool)
+    for component_index in range(1, component_count + 1):
+        component = components == component_index
+        metric_region = binary_erosion(
+            component,
+            structure=np.ones((3, 3), dtype=bool),
+            border_value=0,
+        )
+        metric_region &= binary_erosion(
+            valid,
+            structure=np.ones((3, 3), dtype=bool),
+            border_value=0,
+        )
+        samples = int(np.count_nonzero(metric_region))
+        if samples < 16:
+            component_records.append(
+                {
+                    "component": int(component_index),
+                    "samples": samples,
+                    "available": False,
+                    "reason": "insufficient_interior_samples",
+                    "correlation": None,
+                    "rms_retention": None,
+                    "flat_reference_violation": False,
+                }
+            )
+            continue
+        aggregate_mask |= metric_region
+        source_samples = reference_curvature[metric_region].copy()
+        output_samples = candidate_curvature[metric_region].copy()
+        source_samples -= np.mean(source_samples)
+        output_samples -= np.mean(output_samples)
+        source_rms = float(np.sqrt(np.mean(np.square(source_samples))))
+        output_rms = float(np.sqrt(np.mean(np.square(output_samples))))
+        flat_reference_violation = False
+        if source_rms <= 1e-10:
+            correlation = 1.0 if output_rms <= 1e-8 else 0.0
+            retention = 1.0 if output_rms <= 1e-8 else None
+            flat_reference_violation = output_rms > 1e-8
+        else:
+            correlation = float(
+                np.dot(source_samples, output_samples)
+                / max(
+                    np.linalg.norm(source_samples) * np.linalg.norm(output_samples),
+                    1e-12,
+                )
+            )
+            retention = output_rms / source_rms
+        record = {
+            "component": int(component_index),
+            "samples": samples,
+            "available": True,
+            "correlation": correlation,
+            "rms_retention": float(retention) if retention is not None else None,
+            "flat_reference_violation": bool(flat_reference_violation),
+        }
+        component_records.append(record)
+        measured_records.append(record)
+
+    if not measured_records:
+        stats.update(
+            {
+                "components": component_records,
+                "component_count": int(component_count),
+                "unavailable_component_count": int(len(component_records)),
+            }
+        )
+        return stats
+
+    source_samples = reference_curvature[aggregate_mask].copy()
+    output_samples = candidate_curvature[aggregate_mask].copy()
+    source_samples -= np.mean(source_samples)
+    output_samples -= np.mean(output_samples)
+    source_rms = float(np.sqrt(np.mean(np.square(source_samples))))
+    output_rms = float(np.sqrt(np.mean(np.square(output_samples))))
+    aggregate_flat_reference_violation = False
+    if source_rms <= 1e-10:
+        correlation = 1.0 if output_rms <= 1e-8 else 0.0
+        retention = 1.0 if output_rms <= 1e-8 else None
+        aggregate_flat_reference_violation = output_rms > 1e-8
+    else:
+        correlation = float(
+            np.dot(source_samples, output_samples)
+            / max(
+                np.linalg.norm(source_samples) * np.linalg.norm(output_samples),
+                1e-12,
+            )
+        )
+        retention = output_rms / source_rms
+    finite_retentions = [
+        float(record["rms_retention"])
+        for record in measured_records
+        if record["rms_retention"] is not None
+        and np.isfinite(float(record["rms_retention"]))
+    ]
+    unavailable_count = len(component_records) - len(measured_records)
+    return {
+        "available": unavailable_count == 0,
+        "correlation": correlation,
+        "rms_retention": float(retention) if retention is not None else None,
+        "samples": int(np.count_nonzero(aggregate_mask)),
+        "components": component_records,
+        "component_count": int(component_count),
+        "measured_component_count": int(len(measured_records)),
+        "unavailable_component_count": int(unavailable_count),
+        "flat_reference_violation": bool(
+            aggregate_flat_reference_violation
+            or any(record["flat_reference_violation"] for record in measured_records)
+        ),
+        "minimum_component_correlation": float(
+            min(record["correlation"] for record in measured_records)
+        ),
+        "minimum_component_rms_retention": (
+            float(min(finite_retentions)) if finite_retentions else None
+        ),
+        "maximum_component_rms_retention": (
+            float(max(finite_retentions)) if finite_retentions else None
+        ),
+    }
+
+
 def _compress_relief_gradients(
     values,
     sample_pitch_mm,
@@ -2433,8 +2824,10 @@ def _compress_relief_gradients(
     solver_tolerance=1e-7,
     max_iterations=2400,
     minimum_detail_correlation=0.8,
-    minimum_detail_rms_retention=0.25,
+    minimum_detail_rms_retention=0.6,
     maximum_detail_rms_retention=2.0,
+    detail_gradient_retention=0.8,
+    maximum_detail_gradient_ratio=12.0,
     maximum_output_edge_p99_ratio=12.0,
     maximum_output_edge_ratio=24.0,
     minimum_height_span_ratio=0.5,
@@ -2458,6 +2851,8 @@ def _compress_relief_gradients(
         min_detail_correlation = float(minimum_detail_correlation)
         min_detail_retention = float(minimum_detail_rms_retention)
         max_detail_retention = float(maximum_detail_rms_retention)
+        detail_retention = float(detail_gradient_retention)
+        max_detail_gradient_ratio = float(maximum_detail_gradient_ratio)
         max_edge_p99_ratio = float(maximum_output_edge_p99_ratio)
         max_edge_ratio = float(maximum_output_edge_ratio)
         min_span_ratio = float(minimum_height_span_ratio)
@@ -2487,6 +2882,11 @@ def _compress_relief_gradients(
         or min_detail_retention < 0
         or not np.isfinite(max_detail_retention)
         or max_detail_retention < min_detail_retention
+        or not np.isfinite(detail_retention)
+        or detail_retention < 0
+        or detail_retention > 1
+        or not np.isfinite(max_detail_gradient_ratio)
+        or max_detail_gradient_ratio <= 0
         or not np.isfinite(max_edge_p99_ratio)
         or max_edge_p99_ratio <= 0
         or not np.isfinite(max_edge_ratio)
@@ -2525,8 +2925,26 @@ def _compress_relief_gradients(
     matrix_values = []
     input_edge_values = []
     target_edge_values = []
+    retained_detail_pairs = 0
+    detail_core = None
+    if detail_region_mask is not None:
+        detail_core = _resize_binary_mask(detail_region_mask, source.shape) & valid
+        detail_core = binary_erosion(
+            detail_core,
+            structure=np.ones((3, 3), dtype=bool),
+            border_value=0,
+        )
 
-    def add_edges(first_values, second_values, first_ids, second_ids, active, barriers):
+    def add_edges(
+        first_values,
+        second_values,
+        first_ids,
+        second_ids,
+        active,
+        barriers,
+        detail_pairs,
+    ):
+        nonlocal retained_detail_pairs
         first = first_ids[active]
         second = second_ids[active]
         raw_gradient = (second_values - first_values)[active].astype(np.float64)
@@ -2537,6 +2955,17 @@ def _compress_relief_gradients(
         )
         preserved = barriers[active]
         desired_gradient[preserved] = raw_gradient[preserved]
+        if detail_pairs is not None and detail_retention > 0:
+            detail_active = detail_pairs[active]
+            recoverable = (
+                detail_active
+                & ~preserved
+                & (np.abs(raw_gradient) <= max_step * max_detail_gradient_ratio)
+            )
+            desired_gradient[recoverable] += detail_retention * (
+                raw_gradient[recoverable] - desired_gradient[recoverable]
+            )
+            retained_detail_pairs += int(np.count_nonzero(recoverable))
 
         np.add.at(diagonal, first, 1.0)
         np.add.at(diagonal, second, 1.0)
@@ -2561,6 +2990,11 @@ def _compress_relief_gradients(
         sample_ids[:, 1:],
         horizontal_active,
         horizontal_barrier,
+        (
+            detail_core[:, :-1] & detail_core[:, 1:]
+            if detail_core is not None
+            else None
+        ),
     )
     vertical_active = valid[:-1, :] & valid[1:, :]
     add_edges(
@@ -2570,6 +3004,11 @@ def _compress_relief_gradients(
         sample_ids[1:, :],
         vertical_active,
         vertical_barrier,
+        (
+            detail_core[:-1, :] & detail_core[1:, :]
+            if detail_core is not None
+            else None
+        ),
     )
     if not input_edge_values or not any(values.size for values in input_edge_values):
         stats["reason"] = "no_connected_grid_edges"
@@ -2669,55 +3108,11 @@ def _compress_relief_gradients(
     height_span_ratio = output_height_span / max(input_height_span, 1e-12)
     correction_span_ratio = float(np.max(correction)) / max(input_height_span, 1e-12)
 
-    detail_stats = {
-        "available": False,
-        "correlation": None,
-        "rms_retention": None,
-        "samples": 0,
-    }
-    if detail_region_mask is not None:
-        detail_region = _resize_binary_mask(detail_region_mask, source.shape) & valid
-        detail_region = binary_erosion(
-            detail_region,
-            structure=np.ones((3, 3), dtype=bool),
-            border_value=0,
-        )
-        detail_region &= binary_erosion(
-            valid,
-            structure=np.ones((3, 3), dtype=bool),
-            border_value=0,
-        )
-        if np.count_nonzero(detail_region) >= 16:
-            source_curvature = laplace(np.where(valid, source, 0.0))[detail_region].astype(
-                np.float64
-            )
-            output_curvature = laplace(np.where(valid, compressed, 0.0))[detail_region].astype(
-                np.float64
-            )
-            source_curvature -= np.mean(source_curvature)
-            output_curvature -= np.mean(output_curvature)
-            source_rms = float(np.sqrt(np.mean(np.square(source_curvature))))
-            output_rms = float(np.sqrt(np.mean(np.square(output_curvature))))
-            if source_rms <= 1e-10:
-                detail_correlation = 1.0 if output_rms <= 1e-8 else 0.0
-                detail_retention = (
-                    1.0 if output_rms <= 1e-8 else max_detail_retention + 1.0
-                )
-            else:
-                detail_correlation = float(
-                    np.dot(source_curvature, output_curvature)
-                    / max(
-                        np.linalg.norm(source_curvature) * np.linalg.norm(output_curvature),
-                        1e-12,
-                    )
-                )
-                detail_retention = output_rms / source_rms
-            detail_stats = {
-                "available": True,
-                "correlation": detail_correlation,
-                "rms_retention": detail_retention,
-                "samples": int(np.count_nonzero(detail_region)),
-            }
+    detail_stats = _face_detail_preservation_metrics(
+        source,
+        compressed,
+        detail_region_mask,
+    )
 
     output_edge_ratio_p99 = float(np.percentile(output_ratio, 99.0))
     output_edge_ratio_max = float(np.max(output_ratio))
@@ -2754,11 +3149,42 @@ def _compress_relief_gradients(
         quality_failures.append("correction_span_ratio")
     if detail_region_mask is not None and not detail_stats["available"]:
         quality_failures.append("detail_metric_unavailable")
-    elif detail_stats["available"]:
-        if detail_stats["correlation"] < min_detail_correlation:
+    if detail_stats.get("measured_component_count", 0):
+        if detail_stats.get("flat_reference_violation", False):
+            quality_failures.append("detail_flat_reference_violation")
+        aggregate_correlation = detail_stats.get("correlation")
+        if (
+            aggregate_correlation is None
+            or not np.isfinite(float(aggregate_correlation))
+            or float(aggregate_correlation) < min_detail_correlation
+        ):
             quality_failures.append("detail_correlation")
-        if not min_detail_retention <= detail_stats["rms_retention"] <= max_detail_retention:
+        aggregate_retention = detail_stats.get("rms_retention")
+        if (
+            aggregate_retention is None
+            or not np.isfinite(float(aggregate_retention))
+            or not min_detail_retention <= float(aggregate_retention) <= max_detail_retention
+        ):
             quality_failures.append("detail_rms_retention")
+        component_records = detail_stats.get("components", [])
+        if any(
+            not record.get("available", False)
+            or record.get("correlation") is None
+            or not np.isfinite(float(record["correlation"]))
+            or float(record["correlation"]) < min_detail_correlation
+            for record in component_records
+        ):
+            quality_failures.append("detail_component_correlation")
+        if any(
+            not _detail_component_passes(
+                record,
+                min_detail_correlation,
+                min_detail_retention,
+                max_detail_retention,
+            )
+            for record in component_records
+        ):
+            quality_failures.append("detail_component_rms_retention")
     stats.update(
         {
             "enabled": not quality_failures,
@@ -2766,6 +3192,9 @@ def _compress_relief_gradients(
             "max_neighbor_step_mm": max_step,
             "gradient_soft_threshold_mm": soft_threshold,
             "gradient_threshold_ratio": threshold_ratio,
+            "detail_gradient_retention": detail_retention,
+            "maximum_detail_gradient_ratio": max_detail_gradient_ratio,
+            "retained_detail_gradient_pairs": int(retained_detail_pairs),
             "screening_weight": screening,
             "boundary_anchor_weight": anchor_weight,
             "anchor_pixels": int(np.count_nonzero(anchors)),
@@ -2811,6 +3240,165 @@ def _compress_relief_gradients(
         stats["reason"] = "quality_gate"
         return values, stats
     return compressed, stats
+
+
+def _blend_updates_outside_protected_region(
+    baseline_values,
+    candidate_values,
+    protected_region_mask,
+    feather_pixels=6.0,
+):
+    baseline = np.asarray(baseline_values, dtype=np.float32)
+    candidate = np.asarray(candidate_values, dtype=np.float32)
+    if baseline.shape != candidate.shape:
+        raise ValueError("Protected-region blend surfaces must have identical shapes")
+    if protected_region_mask is None:
+        return candidate_values, {"enabled": False, "reason": "no_protected_region"}
+
+    protected = _resize_binary_mask(protected_region_mask, baseline.shape)
+    if not np.any(protected):
+        return candidate_values, {"enabled": False, "reason": "empty_protected_region"}
+    feather = max(float(feather_pixels), 1.0)
+    candidate_weight = np.clip(distance_transform_edt(~protected) / feather, 0.0, 1.0)
+    candidate_weight[protected] = 0.0
+    finite = np.isfinite(baseline) & np.isfinite(candidate)
+    blended = baseline.copy()
+    blended[finite] = (
+        baseline[finite]
+        + candidate_weight[finite] * (candidate[finite] - baseline[finite])
+    )
+    correction = np.abs(blended - baseline)
+    return blended.astype(candidate.dtype, copy=False), {
+        "enabled": True,
+        "protected_pixels": int(np.count_nonzero(protected)),
+        "feather_pixels": feather,
+        "protected_correction_max_mm": float(np.max(correction[protected])),
+        "outside_correction_max_mm": float(np.max(correction[~protected & finite]))
+        if np.any(~protected & finite)
+        else 0.0,
+    }
+
+
+def _compress_selected_relief_surface(
+    values,
+    selected_region_mask,
+    *,
+    sample_pitch_mm,
+    max_slope_mm_per_mm,
+    sample_pitch_source,
+    protected_region_mask=None,
+):
+    selected = _resize_binary_mask(selected_region_mask, np.asarray(values).shape)
+    protected = (
+        _resize_binary_mask(protected_region_mask, selected.shape)
+        if protected_region_mask is not None
+        else np.zeros(selected.shape, dtype=bool)
+    )
+    raw_detail_region = selected & ~protected
+    detail_components, detail_component_count = label(
+        raw_detail_region,
+        structure=np.ones((3, 3), dtype=np.uint8),
+    )
+    detail_region = np.zeros(selected.shape, dtype=bool)
+    dropped_detail_components = 0
+    dropped_detail_pixels = 0
+    for component_index in range(1, detail_component_count + 1):
+        component = detail_components == component_index
+        interior = binary_erosion(
+            component,
+            structure=np.ones((3, 3), dtype=bool),
+            border_value=0,
+        )
+        if np.count_nonzero(interior) >= 16:
+            detail_region |= component
+        else:
+            dropped_detail_components += 1
+            dropped_detail_pixels += int(np.count_nonzero(component))
+    if np.count_nonzero(detail_region) < 16:
+        stats = {
+            "enabled": False,
+            "reason": "no_unprotected_selection_detail",
+            "selected_pixels": int(np.count_nonzero(selected)),
+            "protected_pixels": int(np.count_nonzero(protected)),
+            "dropped_detail_components": int(dropped_detail_components),
+            "dropped_detail_pixels": int(dropped_detail_pixels),
+            "sample_pitch_source": sample_pitch_source,
+        }
+        if np.any(protected):
+            return values, stats, None
+        limited, slope_stats = _limit_positive_relief_slope(
+            values,
+            sample_pitch_mm=sample_pitch_mm,
+            max_slope_mm_per_mm=max_slope_mm_per_mm,
+            structural_region_mask=selected,
+        )
+        return limited, stats, slope_stats
+
+    selection_surface, stats = _compress_relief_gradients(
+        values,
+        sample_pitch_mm=sample_pitch_mm,
+        max_slope_mm_per_mm=max_slope_mm_per_mm,
+        structural_region_mask=selected,
+        detail_region_mask=detail_region,
+        minimum_detail_correlation=0.65,
+        minimum_detail_rms_retention=0.15,
+        detail_gradient_retention=0.5,
+        maximum_detail_gradient_ratio=8.0,
+    )
+    stats["sample_pitch_source"] = sample_pitch_source
+    stats["selected_pixels"] = int(np.count_nonzero(selected))
+    stats["protected_pixels"] = int(np.count_nonzero(protected))
+    stats["dropped_detail_components"] = int(dropped_detail_components)
+    stats["dropped_detail_pixels"] = int(dropped_detail_pixels)
+    if stats.get("enabled", False):
+        pre_restoration_detail = stats.get("detail_preservation", {})
+        restored_surface, restoration_stats = _restore_face_laplacian_detail(
+            selection_surface,
+            values,
+            detail_region,
+            max_neighbor_step_mm=stats.get("max_neighbor_step_mm"),
+            max_correction_mm=1.0,
+        )
+        restored_detail = _face_detail_preservation_metrics(
+            values,
+            restored_surface,
+            detail_region,
+        )
+        components = restored_detail.get("components", [])
+        restoration_accepted = bool(
+            restoration_stats.get("enabled", False)
+            and components
+            and all(_detail_component_passes(record, 0.7, 0.2, 2.0) for record in components)
+            and float(restoration_stats.get("applied_correction_max_mm", float("inf")))
+            <= 1.0001
+            and float(restoration_stats.get("boundary_correction_max_mm", float("inf")))
+            <= 1e-5
+        )
+        restoration_stats["accepted"] = restoration_accepted
+        restoration_stats["detail_preservation"] = restored_detail
+        stats["pre_restoration_detail_preservation"] = pre_restoration_detail
+        stats["post_solve_detail_restoration"] = restoration_stats
+        if restoration_accepted:
+            selection_surface = restored_surface
+            stats["detail_preservation"] = restored_detail
+        if np.any(protected):
+            selection_surface, protection_stats = _blend_updates_outside_protected_region(
+                values,
+                selection_surface,
+                protected,
+            )
+            stats["protected_region_blend"] = protection_stats
+        return selection_surface, stats, stats
+
+    if np.any(protected):
+        return values, stats, None
+    limited, slope_stats = _limit_positive_relief_slope(
+        values,
+        sample_pitch_mm=sample_pitch_mm,
+        max_slope_mm_per_mm=max_slope_mm_per_mm,
+        structural_region_mask=selected,
+    )
+    return limited, stats, slope_stats
 
 
 def _add_triangle(faces, a, b, c):
@@ -2872,6 +3460,7 @@ def depth_data_to_3d_model(
     minimum_feature_mm=0.8,
     max_relief_slope=2.0,
     face_region_mask=None,
+    selection_region_mask=None,
     background_detail_boost=1.0,
     source_image=None,
     background_photo_detail_mm=0.0,
@@ -2892,6 +3481,15 @@ def depth_data_to_3d_model(
         else:
             region_mask = np.asarray(face_region_mask) > 0
         region_mask = _resize_binary_mask(region_mask, data.shape)
+    selected_region = None
+    if selection_region_mask is not None:
+        if isinstance(selection_region_mask, (str, os.PathLike)):
+            from PIL import Image
+
+            selected_region = np.asarray(Image.open(selection_region_mask).convert("L")) > 0
+        else:
+            selected_region = np.asarray(selection_region_mask) > 0
+        selected_region = _resize_binary_mask(selected_region, data.shape)
 
     # Skip downsampling if target_dimension is -1
     if target_dimension != -1:
@@ -2901,6 +3499,8 @@ def depth_data_to_3d_model(
             data = _resize_nan_aware(data, target_shape)
             if region_mask is not None:
                 region_mask = _resize_binary_mask(region_mask, target_shape)
+            if selected_region is not None:
+                selected_region = _resize_binary_mask(selected_region, target_shape)
         else:
             print(f"Keeping depth grid resolution: {data.shape}")
     else:
@@ -2910,11 +3510,21 @@ def depth_data_to_3d_model(
     data = np.flip(data, axis=1)
     if region_mask is not None:
         region_mask = np.flip(region_mask, axis=1)
+    if selected_region is not None:
+        selected_region = np.flip(selected_region, axis=1)
     if trim_top_background:
         top_silhouette_mask, top_silhouette_stats = _top_silhouette_mask(source_image, data.shape)
     else:
         top_silhouette_mask = np.ones(data.shape, dtype=bool)
         top_silhouette_stats = {"enabled": False, "reason": "disabled"}
+
+    detail_protection_mask = None
+    if region_mask is not None or selected_region is not None:
+        detail_protection_mask = np.zeros(data.shape, dtype=bool)
+        if region_mask is not None:
+            detail_protection_mask |= region_mask
+        if selected_region is not None:
+            detail_protection_mask |= selected_region
 
     resolved_value_transform = _resolve_relief_value_transform(npy_file, value_transform)
     relief = _shape_relief_values(
@@ -2927,7 +3537,7 @@ def depth_data_to_3d_model(
         low_percentile=low_percentile,
         high_percentile=high_percentile,
         value_transform=resolved_value_transform,
-        detail_protection_mask=region_mask,
+        detail_protection_mask=detail_protection_mask,
         background_detail_boost=background_detail_boost,
     )
     photo_detail_ratio = (
@@ -2939,7 +3549,7 @@ def depth_data_to_3d_model(
         relief,
         source_image,
         max_detail_ratio=photo_detail_ratio,
-        protection_mask=region_mask,
+        protection_mask=detail_protection_mask,
     )
     relief = np.where(top_silhouette_mask, relief, np.nan)
     relief = _flatten_border(relief, base_border_px)
@@ -2958,6 +3568,8 @@ def depth_data_to_3d_model(
         gradient_sample_pitch_source = "implicit_stl_grid_unit"
     if region_mask is not None:
         region_mask = _resize_binary_mask(region_mask, relief.shape)
+    if selected_region is not None:
+        selected_region = _resize_binary_mask(selected_region, relief.shape)
     top_silhouette_mask = _resize_binary_mask(top_silhouette_mask, relief.shape)
     relief = np.where(top_silhouette_mask, relief, np.nan)
     relief = _flatten_border(relief, base_border_px)
@@ -2991,6 +3603,10 @@ def depth_data_to_3d_model(
         "enabled": False,
         "reason": "no_feature_update",
     }
+    face_detail_guard_stats = {
+        "enabled": False,
+        "reason": "height_within_reference",
+    }
     unstabilized_scene = z.copy()
     z, face_height_stabilization_stats = _stabilize_face_relief_height(
         z,
@@ -2999,6 +3615,10 @@ def depth_data_to_3d_model(
         reference_face_height_mm=reference_face_height_mm,
     )
 
+    selection_gradient_compression_stats = {
+        "enabled": False,
+        "reason": "not_requested",
+    }
     if face_height_stabilization_stats.get("enabled", False):
         face_boundary_attachment_stats = {
             "enabled": False,
@@ -3015,6 +3635,60 @@ def depth_data_to_3d_model(
             "gradient_compression_attempt"
         ] = gradient_compression_stats
         if gradient_compression_stats.get("enabled", False):
+            pre_restoration_detail = gradient_compression_stats.get(
+                "detail_preservation",
+                {},
+            )
+            restored_gradient_surface, gradient_detail_restoration_stats = (
+                _restore_face_laplacian_detail(
+                    gradient_surface,
+                    unstabilized_scene,
+                    region_mask,
+                    max_neighbor_step_mm=gradient_compression_stats.get(
+                        "max_neighbor_step_mm"
+                    ),
+                    max_correction_mm=0.6,
+                )
+            )
+            restored_detail = _face_detail_preservation_metrics(
+                unstabilized_scene,
+                restored_gradient_surface,
+                region_mask,
+            )
+            restoration_components = restored_detail.get("components", [])
+            restoration_accepted = bool(
+                gradient_detail_restoration_stats.get("enabled", False)
+                and restoration_components
+                and all(
+                    _detail_component_passes(record, 0.8, 0.6, 2.0)
+                    for record in restoration_components
+                )
+                and float(
+                    gradient_detail_restoration_stats.get(
+                        "applied_correction_max_mm",
+                        float("inf"),
+                    )
+                )
+                <= 0.6001
+                and float(
+                    gradient_detail_restoration_stats.get(
+                        "boundary_correction_max_mm",
+                        float("inf"),
+                    )
+                )
+                <= 1e-5
+            )
+            gradient_detail_restoration_stats["accepted"] = restoration_accepted
+            gradient_detail_restoration_stats["detail_preservation"] = restored_detail
+            gradient_compression_stats[
+                "pre_restoration_detail_preservation"
+            ] = pre_restoration_detail
+            gradient_compression_stats[
+                "post_solve_detail_restoration"
+            ] = gradient_detail_restoration_stats
+            if restoration_accepted:
+                gradient_surface = restored_gradient_surface
+                gradient_compression_stats["detail_preservation"] = restored_detail
             gradient_compression_stats["sample_pitch_source"] = gradient_sample_pitch_source
             z = gradient_surface
             processed_scene = gradient_surface
@@ -3154,6 +3828,51 @@ def depth_data_to_3d_model(
             z,
             slope_limit_stats.get("max_neighbor_step_mm"),
         )
+        z, face_detail_guard_stats = _guard_face_detail_updates(
+            accepted_face_surface,
+            z,
+            unstabilized_scene,
+            region_mask,
+            minimum_correlation=0.8,
+            minimum_rms_retention=0.6,
+            maximum_rms_retention=2.0,
+        )
+    elif selected_region is not None:
+        face_boundary_alignment_stats = {
+            "enabled": False,
+            "reason": "no_face_region",
+        }
+        face_boundary_attachment_stats = {
+            "enabled": False,
+            "reason": "no_face_region",
+        }
+        face_surface_protection_stats = {
+            "enabled": False,
+            "reason": "selection_gradient_domain",
+        }
+        printable_feature_stats = {
+            "enabled": False,
+            "reason": "no_face_region",
+        }
+        feature_bridge_stats = {
+            "enabled": False,
+            "reason": "no_face_region",
+        }
+        z, selection_gradient_compression_stats, selection_slope_stats = (
+            _compress_selected_relief_surface(
+                z,
+                selected_region,
+                sample_pitch_mm=gradient_sample_pitch_mm,
+                max_slope_mm_per_mm=max_relief_slope,
+                sample_pitch_source=gradient_sample_pitch_source,
+            )
+        )
+        if selection_slope_stats is not None:
+            slope_limit_stats = selection_slope_stats
+        face_detail_guard_stats = {
+            "enabled": False,
+            "reason": "no_face_region",
+        }
     else:
         face_boundary_alignment_stats = {"enabled": False, "reason": "height_within_reference"}
         z, face_boundary_attachment_stats = _attach_face_boundary_to_local_surface(
@@ -3196,6 +3915,49 @@ def depth_data_to_3d_model(
             structural_region_mask=region_mask,
         )
         face_surface_protection_stats = {"enabled": False, "reason": "height_within_reference"}
+    if selected_region is not None and region_mask is not None:
+        face_protected_selection_baseline = z.copy()
+        protected_selection_region = (
+            head_region_mask
+            if head_region_mask is not None and np.any(head_region_mask)
+            else region_mask
+        )
+        selection_candidate, selection_gradient_compression_stats, selection_slope_stats = (
+            _compress_selected_relief_surface(
+                z,
+                selected_region,
+                sample_pitch_mm=gradient_sample_pitch_mm,
+                max_slope_mm_per_mm=max_relief_slope,
+                sample_pitch_source=gradient_sample_pitch_source,
+                protected_region_mask=protected_selection_region,
+            )
+        )
+        post_selection_face_detail = _face_detail_preservation_metrics(
+            unstabilized_scene,
+            selection_candidate,
+            region_mask,
+        )
+        post_selection_components = post_selection_face_detail.get("components", [])
+        face_protection_passed = bool(
+            post_selection_face_detail.get("available", False)
+            and post_selection_components
+            and all(
+                _detail_component_passes(record, 0.8, 0.6, 2.0)
+                for record in post_selection_components
+            )
+        )
+        selection_gradient_compression_stats["face_detail_after_selection"] = (
+            post_selection_face_detail
+        )
+        selection_gradient_compression_stats["face_protection_passed"] = face_protection_passed
+        if face_protection_passed:
+            z = selection_candidate
+            if selection_slope_stats is not None:
+                slope_limit_stats = selection_slope_stats
+        else:
+            z = face_protected_selection_baseline
+            selection_gradient_compression_stats["enabled"] = False
+            selection_gradient_compression_stats["reason"] = "face_protection_gate"
     z = np.where(top_silhouette_mask, z, np.nan)
     if base_border_px:
         z = _flatten_border(np.maximum(z - 0.01, 0.0), base_border_px) + 0.01
@@ -3305,6 +4067,8 @@ def depth_data_to_3d_model(
         "feature_bridge": feature_bridge_stats,
         "feature_exclusion_masked": feature_exclusion_mask is not None,
         "post_feature_slope_guard": post_feature_slope_guard_stats,
+        "face_detail_guard": face_detail_guard_stats,
+        "selection_gradient_compression": selection_gradient_compression_stats,
         "face_boundary_attachment": face_boundary_attachment_stats,
         "face_height_stabilization": face_height_stabilization_stats,
         "head_stabilization_region": head_region_stats,
