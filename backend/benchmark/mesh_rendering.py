@@ -36,6 +36,8 @@ class RenderResult:
     rgb: np.ndarray
     depth: np.ndarray
     silhouette: np.ndarray
+    surface_z: np.ndarray | None = None
+    part_masks: dict[str, np.ndarray] | None = None
 
 
 def scene_to_mesh(scene: trimesh.Scene, path: str | Path = "") -> trimesh.Trimesh:
@@ -219,10 +221,22 @@ def render_mesh(
     camera: CameraSpec,
     config: RenderConfig,
     base_color: tuple[int, int, int],
+    vertex_part_weights: dict[str, np.ndarray] | None = None,
 ) -> RenderResult:
     mesh = mesh_in_render_frame(mesh, camera)
-    rgb, depth, silhouette = _render_orthographic(mesh, config=config, base_color=base_color)
-    return RenderResult(rgb=rgb, depth=depth, silhouette=silhouette)
+    rgb, depth, silhouette, surface_z, part_masks = _render_orthographic(
+        mesh,
+        config=config,
+        base_color=base_color,
+        vertex_part_weights=vertex_part_weights,
+    )
+    return RenderResult(
+        rgb=rgb,
+        depth=depth,
+        silhouette=silhouette,
+        surface_z=surface_z,
+        part_masks=part_masks,
+    )
 
 
 def make_half_mask(size: int, side: str) -> np.ndarray:
@@ -246,7 +260,14 @@ def _render_orthographic(
     mesh: trimesh.Trimesh,
     config: RenderConfig,
     base_color: tuple[int, int, int],
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    vertex_part_weights: dict[str, np.ndarray] | None = None,
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    dict[str, np.ndarray],
+]:
     size = config.size
     vertices = np.asarray(mesh.vertices, dtype=np.float32)
     faces = np.asarray(mesh.faces)
@@ -254,6 +275,17 @@ def _render_orthographic(
     z_buffer = np.full((size, size), -np.inf, dtype=np.float32)
     rgb = np.ones((size, size, 3), dtype=np.float32)
     rgb[:] = np.asarray(config.background_rgb, dtype=np.float32)
+    part_weights = {}
+    part_buffers = {}
+    for name, values in (vertex_part_weights or {}).items():
+        weights = np.asarray(values, dtype=np.float32)
+        if weights.shape != (len(vertices),):
+            raise ValueError(
+                f"Vertex part {name!r} has shape {weights.shape}, "
+                f"expected {(len(vertices),)}"
+            )
+        part_weights[str(name)] = np.clip(weights, 0.0, 1.0)
+        part_buffers[str(name)] = np.zeros((size, size), dtype=np.float32)
 
     projected = np.empty((len(vertices), 3), dtype=np.float32)
     projected[:, 0] = (vertices[:, 0] / config.ortho_scale + 0.5) * (size - 1)
@@ -297,6 +329,14 @@ def _render_orthographic(
         current[update] = z[update]
         rgb_region = rgb[min_y : max_y + 1, min_x : max_x + 1]
         rgb_region[update] = face_color
+        for name, weights in part_weights.items():
+            interpolated = (
+                w0 * weights[face[0]]
+                + w1 * weights[face[1]]
+                + w2 * weights[face[2]]
+            )
+            part_region = part_buffers[name][min_y : max_y + 1, min_x : max_x + 1]
+            part_region[update] = interpolated[update]
 
     silhouette = np.isfinite(z_buffer)
     depth = np.ones((size, size), dtype=np.float32)
@@ -307,4 +347,9 @@ def _render_orthographic(
         denom = max(1e-6, z_near - z_far)
         depth[silhouette] = (z_near - z_buffer[silhouette]) / denom
 
-    return rgb, depth, silhouette
+    surface_z = np.where(silhouette, z_buffer, np.nan).astype(np.float32)
+    part_masks = {
+        name: (weights >= 0.5) & silhouette
+        for name, weights in part_buffers.items()
+    }
+    return rgb, depth, silhouette, surface_z, part_masks

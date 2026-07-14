@@ -19,6 +19,7 @@ from backend.pic_to_3d import (
     _guard_weighted_feature_updates,
     _align_stabilized_head_to_reference_boundary,
     _attach_face_boundary_to_local_surface,
+    _audit_bounded_compression_surface,
     _background_relief_preservation_metrics,
     _cap_selection_background_relief,
     _bridge_weighted_face_features,
@@ -589,6 +590,44 @@ class ReliefStlControlsTest(unittest.TestCase):
         json.dumps(metrics, allow_nan=False)
         np.testing.assert_array_equal(guarded, reference)
         self.assertEqual(guard_stats["applied_scale"], 0.0)
+
+    def test_post_blend_audit_fails_closed_for_flat_reference_detail(self):
+        reference = np.zeros((40, 40), dtype=np.float32)
+        face = np.zeros(reference.shape, dtype=bool)
+        face[8:32, 8:32] = True
+        candidate = reference.copy()
+        candidate[14:26, 14:26] = 0.4
+        gates = {
+            "minimum_detail_correlation": 0.8,
+            "minimum_detail_rms_retention": 0.6,
+            "maximum_detail_rms_retention": 2.0,
+            "maximum_output_edge_p99_ratio": 12.0,
+            "maximum_output_edge_ratio": 24.0,
+            "minimum_height_span_ratio": 0.5,
+            "maximum_height_span_ratio": 1.15,
+            "maximum_correction_span_ratio": 0.9,
+        }
+
+        audit = _audit_bounded_compression_surface(
+            reference,
+            candidate,
+            face,
+            sample_pitch_mm=0.4,
+            max_slope_mm_per_mm=2.0,
+            quality_gates=gates,
+        )
+
+        self.assertFalse(audit["enabled"])
+        self.assertFalse(audit["quality_gates"]["passed"])
+        self.assertIn(
+            "detail_flat_reference_violation",
+            audit["quality_gates"]["failures"],
+        )
+        self.assertIn(
+            "detail_rms_retention",
+            audit["quality_gates"]["failures"],
+        )
+        json.dumps(audit, allow_nan=False)
 
     def test_face_detail_metrics_fail_closed_for_tiny_detected_component(self):
         rows, cols = np.indices((48, 64), dtype=np.float32)
@@ -1288,6 +1327,8 @@ class ReliefStlControlsTest(unittest.TestCase):
             root = Path(tmp_dir)
             depth_path = root / "depth.npy"
             stl_path = root / "face.stl"
+            surface_path = root / "surface.npy"
+            reference_surface_path = root / "reference-surface.npy"
             rows, cols = np.indices((48, 48), dtype=np.float32)
             depth = 0.15 + 0.65 * np.exp(
                 -((rows - 24.0) ** 2 / 210.0 + (cols - 24.0) ** 2 / 150.0)
@@ -1312,8 +1353,12 @@ class ReliefStlControlsTest(unittest.TestCase):
                 max_relief_slope=2.0,
                 feature_weight_mask=np.ones(depth.shape, dtype=np.float32),
                 printable_feature_depth_mm=0.8,
+                surface_output_path=surface_path,
+                reference_surface_output_path=reference_surface_path,
             )
             stl_exists = stl_path.is_file()
+            surface = np.load(surface_path)
+            reference_surface = np.load(reference_surface_path)
 
         compression = postprocess["face_height_stabilization"]["gradient_compression"]
         self.assertEqual(
@@ -1362,6 +1407,14 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertTrue(transform["flip_x"])
         self.assertEqual(transform["emitted_shape"], postprocess["mesh_grid_shape"])
         self.assertEqual(transform["mask_interpolation"], "nearest")
+        self.assertEqual(surface.shape, reference_surface.shape)
+        self.assertEqual(list(reference_surface.shape), postprocess["mesh_grid_shape"])
+        self.assertTrue(np.all(np.isfinite(reference_surface)))
+        self.assertTrue(postprocess["reference_surface"]["emitted"])
+        self.assertEqual(
+            postprocess["reference_surface"]["kind"],
+            "pre_high_relief_post_shape_surface",
+        )
 
     def test_high_face_relief_records_rejected_gradient_candidate_before_fallback(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1405,6 +1458,153 @@ class ReliefStlControlsTest(unittest.TestCase):
             postprocess["face_boundary_alignment"].get("method"),
             "screened_gradient_domain_compression",
         )
+
+    def test_high_face_relief_retries_only_cardinal_edge_p99_rejection(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            depth_path = root / "depth.npy"
+            rows, cols = np.indices((32, 32), dtype=np.float32)
+            depth = 0.2 + 0.6 * np.exp(
+                -((rows - 16.0) ** 2 + (cols - 16.0) ** 2) / 100.0
+            )
+            face = ((rows - 16.0) ** 2 + (cols - 16.0) ** 2) <= 100.0
+            np.save(depth_path, depth)
+            rejected = {
+                "enabled": False,
+                "method": "screened_gradient_domain_compression",
+                "screening_weight": 0.25,
+                "output_edge_ratio_p99": 13.2,
+                "quality_gates": {
+                    "passed": False,
+                    "failures": ["cardinal_edge_p99"],
+                },
+            }
+            accepted = {
+                "enabled": True,
+                "method": "screened_gradient_domain_compression",
+                "screening_weight": 0.1,
+                "output_edge_ratio_p99": 10.9,
+                "detail_preservation": {"available": False},
+                "quality_gates": {"passed": True, "failures": []},
+            }
+            bounded_audit = {
+                "enabled": True,
+                "output_edge_ratio_p99": 1.1,
+                "output_edge_ratio_max": 1.2,
+                "quality_gates": {"passed": True, "failures": []},
+            }
+            with (
+                patch.object(
+                    pic_to_3d,
+                    "_compress_relief_gradients",
+                    side_effect=((depth, rejected), (depth, accepted)),
+                ) as compress_mock,
+                patch.object(
+                    pic_to_3d,
+                    "_audit_bounded_compression_surface",
+                    return_value=bounded_audit,
+                ),
+            ):
+                postprocess = depth_data_to_3d_model(
+                    depth_path,
+                    output_stl_path=str(root / "retry.stl"),
+                    target_dimension=-1,
+                    z_scale=30.0,
+                    sigma=0.0,
+                    relief_gamma=1.0,
+                    detail_boost=0.0,
+                    low_percentile=0.0,
+                    high_percentile=100.0,
+                    face_region_mask=face,
+                )
+
+        self.assertEqual(compress_mock.call_count, 2)
+        retry_call = compress_mock.call_args_list[1]
+        self.assertAlmostEqual(
+            retry_call.kwargs["screening_weight"],
+            pic_to_3d.HIGH_RELIEF_FACE_CARDINAL_EDGE_RETRY_WEIGHT,
+        )
+        self.assertEqual(
+            postprocess["face_boundary_alignment"].get("method"),
+            "screened_gradient_domain_compression",
+        )
+        retry = postprocess["face_height_stabilization"]["gradient_compression"][
+            "adaptive_screening_retry"
+        ]
+        self.assertTrue(retry["attempted"])
+        self.assertEqual(retry["reason"], "retry_candidate_accepted")
+        self.assertEqual(retry["trigger_failures"], ["cardinal_edge_p99"])
+        self.assertAlmostEqual(retry["primary_output_edge_ratio_p99"], 13.2)
+        self.assertAlmostEqual(retry["retry_output_edge_ratio_p99"], 10.9)
+        self.assertIs(
+            postprocess["face_height_stabilization"]["gradient_compression_attempt"],
+            rejected,
+        )
+        self.assertIs(
+            postprocess["face_height_stabilization"]["gradient_compression_selected"],
+            accepted,
+        )
+
+    def test_high_face_relief_records_rejected_cardinal_edge_retry(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            depth_path = root / "depth.npy"
+            rows, cols = np.indices((32, 32), dtype=np.float32)
+            depth = 0.2 + 0.6 * np.exp(
+                -((rows - 16.0) ** 2 + (cols - 16.0) ** 2) / 100.0
+            )
+            face = ((rows - 16.0) ** 2 + (cols - 16.0) ** 2) <= 100.0
+            np.save(depth_path, depth)
+            primary = {
+                "enabled": False,
+                "method": "screened_gradient_domain_compression",
+                "screening_weight": 0.25,
+                "output_edge_ratio_p99": 13.2,
+                "quality_gates": {
+                    "passed": False,
+                    "failures": ["cardinal_edge_p99"],
+                },
+            }
+            retry = {
+                "enabled": False,
+                "method": "screened_gradient_domain_compression",
+                "screening_weight": 0.1,
+                "output_edge_ratio_p99": 12.4,
+                "quality_gates": {
+                    "passed": False,
+                    "failures": ["cardinal_edge_p99"],
+                },
+            }
+            with patch.object(
+                pic_to_3d,
+                "_compress_relief_gradients",
+                side_effect=((depth, primary), (depth, retry)),
+            ) as compress_mock:
+                postprocess = depth_data_to_3d_model(
+                    depth_path,
+                    output_stl_path=str(root / "fallback.stl"),
+                    target_dimension=-1,
+                    z_scale=30.0,
+                    sigma=0.0,
+                    relief_gamma=1.0,
+                    detail_boost=0.0,
+                    low_percentile=0.0,
+                    high_percentile=100.0,
+                    face_region_mask=face,
+                )
+
+        self.assertEqual(compress_mock.call_count, 2)
+        self.assertNotEqual(
+            postprocess["face_boundary_alignment"].get("method"),
+            "screened_gradient_domain_compression",
+        )
+        attempt = postprocess["face_height_stabilization"][
+            "gradient_compression_attempt"
+        ]
+        adaptive = attempt["adaptive_screening_retry"]
+        self.assertTrue(adaptive["attempted"])
+        self.assertEqual(adaptive["reason"], "retry_candidate_rejected")
+        self.assertEqual(adaptive["retry_quality_failures"], ["cardinal_edge_p99"])
 
     def test_selected_object_relief_uses_gradient_domain_compression(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

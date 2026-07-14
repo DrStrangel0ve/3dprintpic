@@ -33,6 +33,16 @@ FACE_PART_GATES = {
     "maximum_slope_wasserstein_ratio": 0.75,
     "maximum_curvature_wasserstein_ratio": 0.90,
 }
+FACE_PART_AFFINE_MM_GATES = {
+    "minimum_coverage_ratio": 1.0,
+    "minimum_face_affine_scale": 0.10,
+    "maximum_face_affine_scale": 2.00,
+    "maximum_rmse_mm": 0.80,
+    "maximum_p95_absolute_error_mm": 1.50,
+    "maximum_absolute_bias_mm": 0.50,
+    "minimum_span_retention": 0.65,
+    "maximum_span_retention": 1.35,
+}
 
 
 def _centered_correlation(reference: np.ndarray, candidate: np.ndarray) -> float:
@@ -435,6 +445,173 @@ def face_part_cross_height_metrics(
     )
     stats["passed"] = bool(
         face_coverage >= effective_gates["minimum_coverage_ratio"]
+        and len(measured_parts) == len(stats["parts"])
+        and all(record["passed"] for record in stats["parts"])
+    )
+    return stats
+
+
+def face_part_affine_surface_error_metrics(
+    reference_values: np.ndarray,
+    candidate_values: np.ndarray,
+    face_mask: np.ndarray,
+    part_masks: dict[str, np.ndarray],
+    *,
+    minimum_face_samples: int = 64,
+    minimum_part_samples: int = 12,
+    boundary_exclusion_px: int = 1,
+    gates: dict | None = None,
+) -> dict:
+    """Measure local millimeter error after one shared face-wide affine fit."""
+    reference = np.asarray(reference_values, dtype=np.float64)
+    candidate = np.asarray(candidate_values, dtype=np.float64)
+    face = np.asarray(face_mask, dtype=bool)
+    effective_gates = dict(FACE_PART_AFFINE_MM_GATES)
+    if gates is not None:
+        effective_gates.update(gates)
+    stats = {
+        "schema_version": 1,
+        "method": "shared_face_affine_then_part_mm_error",
+        "available": False,
+        "passed": False,
+        "gates": effective_gates,
+        "parts": [],
+        "failed_parts": sorted(str(name) for name in part_masks),
+        "face_affine_fit": None,
+    }
+    if reference.shape != candidate.shape or reference.shape != face.shape:
+        stats["reason"] = "shape_mismatch"
+        return stats
+    if not part_masks:
+        stats["reason"] = "no_part_masks"
+        return stats
+    if any(np.asarray(mask).shape != face.shape for mask in part_masks.values()):
+        stats["reason"] = "part_shape_mismatch"
+        return stats
+
+    reference_valid = np.isfinite(reference)
+    candidate_valid = np.isfinite(candidate)
+    face_interior = _eroded_or_original(face, 2, minimum_face_samples)
+    expected_face = face_interior & reference_valid
+    measured_face = expected_face & candidate_valid
+    reference_face_samples = int(np.count_nonzero(expected_face))
+    face_samples = int(np.count_nonzero(measured_face))
+    face_coverage = face_samples / max(reference_face_samples, 1)
+    stats.update(
+        {
+            "reference_face_samples": reference_face_samples,
+            "face_samples": face_samples,
+            "face_coverage_ratio": float(face_coverage),
+        }
+    )
+    if reference_face_samples < int(minimum_face_samples):
+        stats["reason"] = "insufficient_reference_face_samples"
+        return stats
+    if face_samples < int(minimum_face_samples):
+        stats["reason"] = "insufficient_candidate_face_samples"
+        return stats
+
+    reference_face = reference[measured_face]
+    candidate_face = candidate[measured_face]
+    design = np.column_stack((reference_face, np.ones_like(reference_face)))
+    scale, offset = np.linalg.lstsq(design, candidate_face, rcond=None)[0]
+    if not np.isfinite(scale) or not np.isfinite(offset):
+        stats["reason"] = "invalid_face_affine_fit"
+        return stats
+    expected_candidate = scale * reference + offset
+    stats["face_affine_fit"] = {
+        "scale": float(scale),
+        "offset_mm": float(offset),
+    }
+
+    for name in sorted(part_masks):
+        part = np.asarray(part_masks[name], dtype=bool) & face
+        part = _eroded_or_original(part, boundary_exclusion_px, minimum_part_samples)
+        expected = part & reference_valid
+        measured = expected & candidate_valid
+        reference_samples = int(np.count_nonzero(expected))
+        samples = int(np.count_nonzero(measured))
+        coverage = samples / max(reference_samples, 1)
+        record = {
+            "name": str(name),
+            "available": False,
+            "passed": False,
+            "reference_samples": reference_samples,
+            "samples": samples,
+            "candidate_coverage_ratio": float(coverage),
+        }
+        if reference_samples < int(minimum_part_samples):
+            record["reason"] = "insufficient_reference_samples"
+            stats["parts"].append(record)
+            continue
+        if samples < int(minimum_part_samples):
+            record["reason"] = "insufficient_candidate_samples"
+            stats["parts"].append(record)
+            continue
+
+        errors = candidate[measured] - expected_candidate[measured]
+        expected_values = expected_candidate[measured]
+        candidate_values_part = candidate[measured]
+        expected_p05, expected_p95 = np.percentile(expected_values, (5.0, 95.0))
+        candidate_p05, candidate_p95 = np.percentile(
+            candidate_values_part,
+            (5.0, 95.0),
+        )
+        expected_span = float(expected_p95 - expected_p05)
+        candidate_span = float(candidate_p95 - candidate_p05)
+        span_retention = _retention(expected_span, candidate_span)
+        rmse_mm = float(np.sqrt(np.mean(np.square(errors))))
+        bias_mm = float(np.mean(errors))
+        p95_mm = float(np.percentile(np.abs(errors), 95.0))
+        checks = {
+            "coverage": coverage >= effective_gates["minimum_coverage_ratio"],
+            "rmse": rmse_mm <= effective_gates["maximum_rmse_mm"],
+            "p95_absolute_error": p95_mm
+            <= effective_gates["maximum_p95_absolute_error_mm"],
+            "bias": abs(bias_mm) <= effective_gates["maximum_absolute_bias_mm"],
+            "span_retention": bool(
+                span_retention is not None
+                and effective_gates["minimum_span_retention"]
+                <= span_retention
+                <= effective_gates["maximum_span_retention"]
+            ),
+        }
+        record.update(
+            {
+                "available": True,
+                "rmse_mm": rmse_mm,
+                "bias_mm": bias_mm,
+                "p95_absolute_error_mm": p95_mm,
+                "expected_span_p05_p95_mm": expected_span,
+                "candidate_span_p05_p95_mm": candidate_span,
+                "span_retention": span_retention,
+                "checks": {**checks, "passed": bool(all(checks.values()))},
+                "passed": bool(all(checks.values())),
+            }
+        )
+        stats["parts"].append(record)
+
+    measured_parts = [record for record in stats["parts"] if record["available"]]
+    fit_scale_passed = bool(
+        effective_gates["minimum_face_affine_scale"]
+        <= float(scale)
+        <= effective_gates["maximum_face_affine_scale"]
+    )
+    stats.update(
+        {
+            "available": bool(measured_parts),
+            "part_count": len(stats["parts"]),
+            "measured_part_count": len(measured_parts),
+            "unavailable_part_count": len(stats["parts"]) - len(measured_parts),
+            "failed_parts": [
+                record["name"] for record in stats["parts"] if not record["passed"]
+            ],
+            "face_affine_scale_passed": fit_scale_passed,
+        }
+    )
+    stats["passed"] = bool(
+        face_coverage >= effective_gates["minimum_coverage_ratio"]
+        and fit_scale_passed
         and len(measured_parts) == len(stats["parts"])
         and all(record["passed"] for record in stats["parts"])
     )

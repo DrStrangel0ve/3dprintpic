@@ -35,6 +35,7 @@ RELIEF_VALUE_TRANSFORMS = {
     RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
 }
 HIGH_RELIEF_FACE_SCREENING_WEIGHT = 0.25
+HIGH_RELIEF_FACE_CARDINAL_EDGE_RETRY_WEIGHT = 0.10
 HIGH_RELIEF_SELECTION_SCREENING_WEIGHT = 2.0
 HIGH_RELIEF_SELECTION_DETAIL_GRADIENT_RETENTION = 0.9
 METRIC_FAR_HIGH_DEPTH_MODELS = frozenset(
@@ -4480,6 +4481,212 @@ def _compress_relief_gradients(
     return compressed, stats
 
 
+def _audit_bounded_compression_surface(
+    source_values,
+    candidate_values,
+    detail_region_mask,
+    *,
+    sample_pitch_mm,
+    max_slope_mm_per_mm,
+    quality_gates,
+):
+    """Recheck the exact post-blend surface, exempting unchanged baseline edges."""
+    source = np.asarray(source_values, dtype=np.float32)
+    candidate = np.asarray(candidate_values, dtype=np.float32)
+    stats = {
+        "enabled": False,
+        "method": "post_blend_updated_edges_compression_audit",
+        "quality_gates": {
+            **dict(quality_gates or {}),
+            "passed": False,
+            "failures": ["audit_unavailable"],
+        },
+    }
+    if source.shape != candidate.shape:
+        stats["reason"] = "shape_mismatch"
+        return stats
+    valid = np.isfinite(source) & np.isfinite(candidate)
+    if np.count_nonzero(valid) < 4:
+        stats["reason"] = "insufficient_finite_samples"
+        return stats
+    max_step = float(sample_pitch_mm) * float(max_slope_mm_per_mm)
+    if not np.isfinite(max_step) or max_step <= 0:
+        stats["reason"] = "invalid_slope_configuration"
+        return stats
+
+    changed = valid & (np.abs(candidate - source) > 1e-6)
+    horizontal_all = valid[:, :-1] & valid[:, 1:]
+    vertical_all = valid[:-1, :] & valid[1:, :]
+    horizontal = horizontal_all & (changed[:, :-1] | changed[:, 1:])
+    vertical = vertical_all & (changed[:-1, :] | changed[1:, :])
+    output_edges = np.concatenate(
+        (
+            np.abs(candidate[:, 1:] - candidate[:, :-1])[horizontal],
+            np.abs(candidate[1:, :] - candidate[:-1, :])[vertical],
+        )
+    ).astype(np.float64)
+    source_edges = np.concatenate(
+        (
+            np.abs(source[:, 1:] - source[:, :-1])[horizontal],
+            np.abs(source[1:, :] - source[:-1, :])[vertical],
+        )
+    ).astype(np.float64)
+    diagonal_down_all = valid[1:, 1:] & valid[:-1, :-1]
+    diagonal_up_all = valid[1:, :-1] & valid[:-1, 1:]
+    diagonal_down = diagonal_down_all & (changed[1:, 1:] | changed[:-1, :-1])
+    diagonal_up = diagonal_up_all & (changed[1:, :-1] | changed[:-1, 1:])
+    diagonal_edges = np.concatenate(
+        (
+            np.abs(candidate[1:, 1:] - candidate[:-1, :-1])[diagonal_down],
+            np.abs(candidate[1:, :-1] - candidate[:-1, 1:])[diagonal_up],
+        )
+    ).astype(np.float64)
+    source_diagonal_edges = np.concatenate(
+        (
+            np.abs(source[1:, 1:] - source[:-1, :-1])[diagonal_down],
+            np.abs(source[1:, :-1] - source[:-1, 1:])[diagonal_up],
+        )
+    ).astype(np.float64)
+    if not output_edges.size:
+        stats["reason"] = "no_updated_cardinal_edges"
+        return stats
+
+    source_samples = source[valid].astype(np.float64)
+    candidate_samples = candidate[valid].astype(np.float64)
+    input_span = float(np.ptp(source_samples))
+    output_span = float(np.ptp(candidate_samples))
+    height_span_ratio = output_span / max(input_span, 1e-12)
+    correction = np.abs(candidate_samples - source_samples)
+    correction_span_ratio = float(np.max(correction)) / max(input_span, 1e-12)
+    physical_cardinal_ratio = output_edges / max(max_step, 1e-12)
+    cardinal_ratio = output_edges / np.maximum(source_edges, max_step)
+    diagonal_step = max_step * np.sqrt(2.0)
+    physical_diagonal_ratio = diagonal_edges / max(diagonal_step, 1e-12)
+    diagonal_ratio = diagonal_edges / np.maximum(
+        source_diagonal_edges,
+        diagonal_step,
+    )
+    detail_stats = _face_detail_preservation_metrics(
+        source,
+        candidate,
+        detail_region_mask,
+    )
+
+    minimum_detail_correlation = float(
+        quality_gates.get("minimum_detail_correlation", 0.8)
+    )
+    minimum_detail_rms = float(
+        quality_gates.get("minimum_detail_rms_retention", 0.6)
+    )
+    maximum_detail_rms = float(
+        quality_gates.get("maximum_detail_rms_retention", 2.0)
+    )
+    maximum_edge_p99 = float(
+        quality_gates.get("maximum_output_edge_p99_ratio", 12.0)
+    )
+    maximum_edge = float(quality_gates.get("maximum_output_edge_ratio", 24.0))
+    minimum_span = float(quality_gates.get("minimum_height_span_ratio", 0.5))
+    maximum_span = float(quality_gates.get("maximum_height_span_ratio", 1.15))
+    maximum_correction = float(
+        quality_gates.get("maximum_correction_span_ratio", 0.9)
+    )
+    cardinal_p99 = float(np.percentile(cardinal_ratio, 99.0))
+    cardinal_max = float(np.max(cardinal_ratio))
+    diagonal_p99 = (
+        float(np.percentile(diagonal_ratio, 99.0)) if diagonal_ratio.size else None
+    )
+    diagonal_max = float(np.max(diagonal_ratio)) if diagonal_ratio.size else None
+    failures = []
+    if cardinal_p99 > maximum_edge_p99:
+        failures.append("cardinal_edge_p99")
+    if cardinal_max > maximum_edge:
+        failures.append("cardinal_edge_max")
+    if diagonal_p99 is not None and diagonal_p99 > maximum_edge_p99:
+        failures.append("diagonal_edge_p99")
+    if diagonal_max is not None and diagonal_max > maximum_edge:
+        failures.append("diagonal_edge_max")
+    if not minimum_span <= height_span_ratio <= maximum_span:
+        failures.append("height_span_ratio")
+    if correction_span_ratio > maximum_correction:
+        failures.append("correction_span_ratio")
+    if detail_region_mask is not None and not detail_stats.get("available", False):
+        failures.append("detail_metric_unavailable")
+    component_records = detail_stats.get("components", [])
+    if detail_stats.get("measured_component_count", 0):
+        if detail_stats.get("flat_reference_violation", False):
+            failures.append("detail_flat_reference_violation")
+        aggregate_correlation = detail_stats.get("correlation")
+        if (
+            aggregate_correlation is None
+            or not np.isfinite(float(aggregate_correlation))
+            or float(aggregate_correlation) < minimum_detail_correlation
+        ):
+            failures.append("detail_correlation")
+        aggregate_rms = detail_stats.get("rms_retention")
+        if (
+            aggregate_rms is None
+            or not np.isfinite(float(aggregate_rms))
+            or not minimum_detail_rms
+            <= float(aggregate_rms)
+            <= maximum_detail_rms
+        ):
+            failures.append("detail_rms_retention")
+        if any(
+            not _detail_component_passes(
+                record,
+                minimum_detail_correlation,
+                minimum_detail_rms,
+                maximum_detail_rms,
+            )
+            for record in component_records
+        ):
+            failures.append("detail_component_quality")
+
+    stats.update(
+        {
+            "enabled": not failures,
+            "reason": None if not failures else "quality_gate",
+            "changed_pixels": int(np.count_nonzero(changed)),
+            "cardinal_edge_count": int(output_edges.size),
+            "baseline_exempt_cardinal_edge_count": int(
+                np.count_nonzero(horizontal_all)
+                + np.count_nonzero(vertical_all)
+                - output_edges.size
+            ),
+            "diagonal_edge_count": int(diagonal_edges.size),
+            "output_edge_ratio_p99": cardinal_p99,
+            "output_edge_ratio_max": cardinal_max,
+            "physical_output_edge_ratio_p99": float(
+                np.percentile(physical_cardinal_ratio, 99.0)
+            ),
+            "physical_output_edge_ratio_max": float(
+                np.max(physical_cardinal_ratio)
+            ),
+            "diagonal_edge_ratio_p99": diagonal_p99,
+            "diagonal_edge_ratio_max": diagonal_max,
+            "physical_diagonal_edge_ratio_p99": (
+                float(np.percentile(physical_diagonal_ratio, 99.0))
+                if physical_diagonal_ratio.size
+                else None
+            ),
+            "physical_diagonal_edge_ratio_max": (
+                float(np.max(physical_diagonal_ratio))
+                if physical_diagonal_ratio.size
+                else None
+            ),
+            "height_span_ratio": height_span_ratio,
+            "correction_span_ratio": correction_span_ratio,
+            "detail_preservation": detail_stats,
+            "quality_gates": {
+                **dict(quality_gates),
+                "passed": not failures,
+                "failures": failures,
+            },
+        }
+    )
+    return stats
+
+
 def _blend_updates_outside_protected_region(
     baseline_values,
     candidate_values,
@@ -4772,6 +4979,7 @@ def depth_data_to_3d_model(
     feature_bridge_depth_mm=0.0,
     feature_exclusion_mask=None,
     surface_output_path=None,
+    reference_surface_output_path=None,
 ):
     # Load the .npy file
     data = np.load(npy_file).astype(np.float32)
@@ -4938,8 +5146,65 @@ def depth_data_to_3d_model(
             detail_region_mask=region_mask,
             screening_weight=HIGH_RELIEF_FACE_SCREENING_WEIGHT,
         )
+        primary_gradient_compression_stats = gradient_compression_stats
+        primary_quality_failures = set(
+            primary_gradient_compression_stats.get("quality_gates", {}).get(
+                "failures", []
+            )
+        )
+        adaptive_screening_retry_stats = {
+            "attempted": False,
+            "reason": "primary_candidate_accepted",
+            "trigger_failures": sorted(primary_quality_failures),
+            "primary_screening_weight": float(HIGH_RELIEF_FACE_SCREENING_WEIGHT),
+            "retry_screening_weight": float(
+                HIGH_RELIEF_FACE_CARDINAL_EDGE_RETRY_WEIGHT
+            ),
+        }
+        if not gradient_compression_stats.get("enabled", False):
+            adaptive_screening_retry_stats["reason"] = "ineligible_quality_failure"
+            if primary_quality_failures == {"cardinal_edge_p99"}:
+                retry_surface, retry_stats = _compress_relief_gradients(
+                    unstabilized_scene,
+                    sample_pitch_mm=gradient_sample_pitch_mm,
+                    max_slope_mm_per_mm=max_relief_slope,
+                    structural_region_mask=head_region_mask,
+                    detail_region_mask=region_mask,
+                    screening_weight=HIGH_RELIEF_FACE_CARDINAL_EDGE_RETRY_WEIGHT,
+                )
+                retry_failures = retry_stats.get("quality_gates", {}).get(
+                    "failures", []
+                )
+                adaptive_screening_retry_stats.update(
+                    {
+                        "attempted": True,
+                        "reason": (
+                            "retry_candidate_accepted"
+                            if retry_stats.get("enabled", False)
+                            else "retry_candidate_rejected"
+                        ),
+                        "primary_output_edge_ratio_p99": (
+                            primary_gradient_compression_stats.get(
+                                "output_edge_ratio_p99"
+                            )
+                        ),
+                        "retry_quality_failures": list(retry_failures),
+                        "retry_output_edge_ratio_p99": retry_stats.get(
+                            "output_edge_ratio_p99"
+                        ),
+                    }
+                )
+                if retry_stats.get("enabled", False):
+                    gradient_surface = retry_surface
+                    gradient_compression_stats = retry_stats
+        gradient_compression_stats[
+            "adaptive_screening_retry"
+        ] = adaptive_screening_retry_stats
         face_height_stabilization_stats[
             "gradient_compression_attempt"
+        ] = primary_gradient_compression_stats
+        face_height_stabilization_stats[
+            "gradient_compression_selected"
         ] = gradient_compression_stats
         if gradient_compression_stats.get("enabled", False):
             pre_restoration_detail = gradient_compression_stats.get(
@@ -5010,39 +5275,111 @@ def depth_data_to_3d_model(
                 face_blend_region,
                 feather_pixels=6.0,
             )
-            face_region_blend_stats["selection_bounded"] = selected_region is not None
+            if selected_region is not None:
+                selection_bound = _resize_binary_mask(
+                    selected_region,
+                    gradient_surface.shape,
+                )
+                outside_selection = (
+                    ~selection_bound
+                    & np.isfinite(unstabilized_scene)
+                    & np.isfinite(gradient_surface)
+                )
+                outside_selection_correction = np.abs(
+                    gradient_surface - unstabilized_scene
+                )
+                face_region_blend_stats[
+                    "outside_selection_correction_before_clamp_max_mm"
+                ] = (
+                    float(np.max(outside_selection_correction[outside_selection]))
+                    if np.any(outside_selection)
+                    else 0.0
+                )
+                gradient_surface = np.where(
+                    selection_bound,
+                    gradient_surface,
+                    unstabilized_scene,
+                )
+                face_region_blend_stats[
+                    "outside_selection_correction_max_mm"
+                ] = 0.0
+                face_region_blend_stats["selection_bounded"] = True
+            else:
+                face_region_blend_stats["selection_bounded"] = False
             gradient_compression_stats["face_region_blend"] = face_region_blend_stats
             gradient_compression_stats["sample_pitch_source"] = gradient_sample_pitch_source
-            z = gradient_surface
-            processed_scene = gradient_surface
-            slope_limit_stats = gradient_compression_stats
-            face_boundary_attachment_stats = {
-                "enabled": False,
-                "reason": "global_gradient_reconstruction",
-            }
-            legacy_shape_scale = face_height_stabilization_stats.get("shape_scale")
-            face_height_stabilization_stats = {
-                "enabled": True,
-                "method": "screened_gradient_domain_compression",
-                "relief_height_mm": float(z_scale),
-                "reference_face_height_mm": float(reference_face_height_mm),
-                "legacy_shape_scale": legacy_shape_scale,
-                "gradient_compression": gradient_compression_stats,
-            }
-            rigid_face_surface = gradient_surface
-            rigid_alignment_stats = {
-                "enabled": True,
-                "method": "screened_gradient_domain_compression",
-                "selection_reason": ["face_aware_high_relief"],
-                "attachment_slope_ratio_p99": gradient_compression_stats.get(
-                    "output_edge_ratio_p99"
-                ),
-                "attachment_slope_ratio_max": gradient_compression_stats.get(
-                    "output_edge_ratio_max"
-                ),
-                "slope_projection": [],
-                "gradient_compression": gradient_compression_stats,
-            }
+            post_blend_audit = _audit_bounded_compression_surface(
+                unstabilized_scene,
+                gradient_surface,
+                region_mask,
+                sample_pitch_mm=gradient_sample_pitch_mm,
+                max_slope_mm_per_mm=max_relief_slope,
+                quality_gates=gradient_compression_stats["quality_gates"],
+            )
+            gradient_compression_stats[
+                "post_blend_quality_audit"
+            ] = post_blend_audit
+            if post_blend_audit.get("enabled", False):
+                z = gradient_surface
+                processed_scene = gradient_surface
+                slope_limit_stats = gradient_compression_stats
+                face_boundary_attachment_stats = {
+                    "enabled": False,
+                    "reason": "global_gradient_reconstruction",
+                }
+                legacy_shape_scale = face_height_stabilization_stats.get("shape_scale")
+                face_height_stabilization_stats = {
+                    "enabled": True,
+                    "method": "screened_gradient_domain_compression",
+                    "relief_height_mm": float(z_scale),
+                    "reference_face_height_mm": float(reference_face_height_mm),
+                    "legacy_shape_scale": legacy_shape_scale,
+                    "gradient_compression": gradient_compression_stats,
+                    "gradient_compression_attempt": (
+                        primary_gradient_compression_stats
+                    ),
+                    "gradient_compression_selected": gradient_compression_stats,
+                }
+                rigid_face_surface = gradient_surface
+                rigid_alignment_stats = {
+                    "enabled": True,
+                    "method": "screened_gradient_domain_compression",
+                    "selection_reason": ["face_aware_high_relief"],
+                    "attachment_slope_ratio_p99": post_blend_audit.get(
+                        "output_edge_ratio_p99"
+                    ),
+                    "attachment_slope_ratio_max": post_blend_audit.get(
+                        "output_edge_ratio_max"
+                    ),
+                    "slope_projection": [],
+                    "gradient_compression": gradient_compression_stats,
+                }
+            else:
+                gradient_compression_stats["enabled"] = False
+                gradient_compression_stats["reason"] = "post_blend_quality_gate"
+                z = np.where(top_silhouette_mask, z, np.nan)
+                processed_scene, slope_limit_stats = _limit_positive_relief_slope(
+                    z,
+                    sample_pitch_mm=gradient_sample_pitch_mm,
+                    max_slope_mm_per_mm=max_relief_slope,
+                    structural_region_mask=head_region_mask,
+                )
+                rigid_face_surface, rigid_alignment_stats = (
+                    _align_stabilized_head_to_reference_boundary(
+                        z,
+                        face_reference_surface,
+                        processed_scene,
+                        head_region_mask,
+                        protected_core_mask=face_translation_core_mask,
+                        protected_face_mask=region_mask,
+                        max_neighbor_step_mm=slope_limit_stats.get(
+                            "max_neighbor_step_mm"
+                        ),
+                    )
+                )
+                rigid_alignment_stats[
+                    "gradient_compression"
+                ] = gradient_compression_stats
         else:
             z = np.where(top_silhouette_mask, z, np.nan)
             processed_scene, slope_limit_stats = _limit_positive_relief_slope(
@@ -5485,6 +5822,7 @@ def depth_data_to_3d_model(
     # Crop the data to the bounding box
     z = z[top:bottom, left:right]
     mask = mask[top:bottom, left:right]
+    reference_surface = unstabilized_scene[top:bottom, left:right]
     surface_grid_transform = {
         "schema_version": 1,
         "input_depth_shape": input_depth_shape,
@@ -5499,6 +5837,16 @@ def depth_data_to_3d_model(
         surface_output_path = os.fspath(surface_output_path)
         os.makedirs(os.path.dirname(surface_output_path) or ".", exist_ok=True)
         np.save(surface_output_path, z.astype(np.float32, copy=False))
+    if reference_surface_output_path is not None:
+        reference_surface_output_path = os.fspath(reference_surface_output_path)
+        os.makedirs(
+            os.path.dirname(reference_surface_output_path) or ".",
+            exist_ok=True,
+        )
+        np.save(
+            reference_surface_output_path,
+            reference_surface.astype(np.float32, copy=False),
+        )
 
     # Adjust the X, Y grid to match the cropped data. target_dimension controls
     # sampling/detail; max_xy_size controls the final physical STL footprint.
@@ -5608,6 +5956,11 @@ def depth_data_to_3d_model(
         "face_boundary_alignment": face_boundary_alignment_stats,
         "face_surface_protection": face_surface_protection_stats,
         "surface_grid_transform": surface_grid_transform,
+        "reference_surface": {
+            "kind": "pre_high_relief_post_shape_surface",
+            "emitted": reference_surface_output_path is not None,
+            "shape": [int(reference_surface.shape[0]), int(reference_surface.shape[1])],
+        },
         "mesh_grid_shape": [int(z.shape[0]), int(z.shape[1])],
         "face_count": int(len(faces)),
     }

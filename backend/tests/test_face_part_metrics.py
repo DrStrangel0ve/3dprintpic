@@ -7,6 +7,7 @@ import numpy as np
 from PIL import Image
 
 from backend.benchmark.face_part_metrics import (
+    face_part_affine_surface_error_metrics,
     face_part_cross_height_metrics,
     load_persisted_face_part_masks,
 )
@@ -146,6 +147,52 @@ class FacePartMetricsTest(unittest.TestCase):
         self.assertFalse(metrics["available"])
         self.assertFalse(metrics["passed"])
         self.assertEqual(metrics["reason"], "invalid_smoothing_radii")
+
+    def test_shared_face_affine_metric_reports_local_mm_error(self):
+        reference, face, parts = self._surface_and_masks()
+        candidate = 0.55 * reference + 4.0
+        passing = face_part_affine_surface_error_metrics(
+            reference,
+            candidate,
+            face,
+            parts,
+        )
+        damaged = candidate.copy()
+        damaged[parts["nose"]] += 2.0
+        failing = face_part_affine_surface_error_metrics(
+            reference,
+            damaged,
+            face,
+            parts,
+        )
+
+        self.assertTrue(passing["passed"])
+        self.assertAlmostEqual(passing["face_affine_fit"]["scale"], 0.55, places=6)
+        self.assertLess(max(part["rmse_mm"] for part in passing["parts"]), 1e-5)
+        self.assertFalse(failing["passed"])
+        self.assertIn("nose", failing["failed_parts"])
+
+    def test_affine_metric_shape_mismatch_keeps_failed_part_provenance(self):
+        reference = np.zeros((16, 16), dtype=np.float64)
+        candidate = np.zeros((15, 16), dtype=np.float64)
+        face = np.ones((16, 16), dtype=bool)
+        parts = {
+            "nose": np.ones((16, 16), dtype=bool),
+            "mouth": np.ones((16, 16), dtype=bool),
+        }
+
+        metrics = face_part_affine_surface_error_metrics(
+            reference,
+            candidate,
+            face,
+            parts,
+        )
+
+        self.assertFalse(metrics["available"])
+        self.assertFalse(metrics["passed"])
+        self.assertEqual(metrics["reason"], "shape_mismatch")
+        self.assertEqual(metrics["failed_parts"], ["mouth", "nose"])
+        self.assertIsNone(metrics["face_affine_fit"])
 
     def test_loader_resizes_and_flips_the_persisted_masks_once(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
