@@ -73,7 +73,7 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertTrue(stats["enabled"])
         self.assertEqual(
             stats["method"],
-            "full_scene_depth_with_bounded_background_context_v2",
+            "full_scene_depth_with_bounded_background_context_v3",
         )
         self.assertGreater(stats["support_halo_pixels"], 0)
         self.assertLess(stats["base_canonical_value"], stats["selected_canonical_p01"])
@@ -81,7 +81,15 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertGreater(float(np.max(composed[~selected])), float(composed[0, 0]))
         self.assertTrue(stats["background_context_enabled"])
         self.assertGreater(stats["background_context_pixels"], 0)
-        self.assertGreater(stats["background_context_correlation"], 0.9)
+        self.assertGreater(stats["background_context_normalized_correlation"], 0.99)
+        self.assertGreater(stats["background_context_normalized_rms_retention"], 0.99)
+        self.assertGreater(stats["background_context_recoverable_coverage_ratio"], 0.5)
+        self.assertLessEqual(
+            stats["background_context_slope_guard"]["final_audit"][
+                "accepted_surface_ratio_max"
+            ],
+            2.500001,
+        )
         self.assertGreater(stats["background_output_span_ratio"], 0.2)
         self.assertGreater(float(composed[5, 75]), float(composed[5, 5]))
 
@@ -202,6 +210,80 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertFalse(missing_metrics["passed"])
         self.assertIn("coverage", missing_metrics["quality_failures"])
         self.assertLess(missing_metrics["candidate_coverage_ratio"], 1.0)
+
+        localized_reference = reference.copy()
+        localized_bump = 2.5 * np.exp(
+            -((rows - 24.0) ** 2 + (cols - 82.0) ** 2) / 28.0
+        )
+        localized_reference[background] += localized_bump[background]
+        localized_loss = localized_reference.copy()
+        localized_loss[background] -= localized_bump[background]
+        localized_metrics = _background_relief_preservation_metrics(
+            localized_reference,
+            localized_loss,
+            foreground,
+            sample_pitch_mm=0.4,
+        )
+        self.assertGreater(localized_metrics["correlation"], 0.8)
+        self.assertGreater(localized_metrics["gradient_correlation"], 0.58)
+        self.assertFalse(localized_metrics["passed"])
+        self.assertIn("localized_structure", localized_metrics["quality_failures"])
+        self.assertGreater(
+            localized_metrics["localized_structure"]["failed_window_count"],
+            0,
+        )
+
+    def test_background_preservation_metric_reports_insufficient_context_unavailable(self):
+        rows, cols = np.indices((40, 40), dtype=np.float32)
+        foreground = np.ones((40, 40), dtype=bool)
+        foreground[:3, :] = False
+        reference = (2.0 + 0.02 * rows + 0.01 * cols).astype(np.float32)
+
+        metrics = _background_relief_preservation_metrics(
+            reference,
+            reference.copy(),
+            foreground,
+            sample_pitch_mm=0.4,
+        )
+
+        self.assertFalse(metrics["available"])
+        self.assertFalse(metrics["passed"])
+        self.assertEqual(metrics["reason"], "insufficient_reference_background_samples")
+
+    def test_background_preservation_unavailable_blocks_stl_emission(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            rows, cols = np.indices((40, 40), dtype=np.float32)
+            selected = np.ones((40, 40), dtype=bool)
+            selected[:3, :] = False
+            depth = 0.2 + 0.006 * cols + 0.08 * np.exp(
+                -((rows - 21.0) ** 2 + (cols - 20.0) ** 2) / 70.0
+            )
+            depth_path = root / "depth.npy"
+            stl_path = root / "unavailable.stl"
+            np.save(depth_path, depth.astype(np.float32))
+
+            with self.assertRaisesRegex(ValueError, "telemetry is unavailable"):
+                depth_data_to_3d_model(
+                    depth_path,
+                    output_stl_path=str(stl_path),
+                    target_dimension=-1,
+                    z_scale=30.0,
+                    max_xy_size=15.6,
+                    sigma=0.0,
+                    relief_gamma=1.0,
+                    detail_boost=0.0,
+                    low_percentile=0.0,
+                    high_percentile=100.0,
+                    base_border_px=0,
+                    value_transform="linear",
+                    minimum_feature_mm=0.8,
+                    max_relief_slope=2.0,
+                    selection_region_mask=selected,
+                    selection_background_depth_ratio=0.45,
+                )
+
+            self.assertFalse(stl_path.exists())
 
     def test_selection_background_physical_cap_preserves_support_and_limits_far_context(self):
         values = np.full((61, 81), 20.0, dtype=np.float32)
@@ -1252,6 +1334,59 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertTrue(compression["quality_gates"]["passed"])
         self.assertGreater(compression["retained_detail_gradient_pairs"], 0)
         self.assertTrue(stl_exists)
+
+    def test_selected_object_context_uses_final_foreground_for_background_reference(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            depth_path = root / "depth.npy"
+            rows, cols = np.indices((96, 128), dtype=np.float32)
+            selected = (
+                (rows - 55.0) ** 2 / 560.0 + (cols - 64.0) ** 2 / 980.0
+            ) <= 1.0
+            background = (
+                0.08
+                + 0.16 * cols / cols.max()
+                + 0.05 * np.sin(cols / 8.0)
+                + 0.04 * np.cos(rows / 9.0)
+                + 0.12
+                * np.exp(-((rows - 22.0) ** 2 + (cols - 102.0) ** 2) / 90.0)
+            )
+            depth = background + selected * (
+                0.62
+                + 0.16 * np.sin(cols * 0.29)
+                + 0.09 * np.cos(rows * 0.37)
+            )
+            np.save(depth_path, depth.astype(np.float32))
+
+            postprocess = depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(root / "selected-context.stl"),
+                target_dimension=-1,
+                z_scale=30.0,
+                max_xy_size=51.2,
+                sigma=0.0,
+                relief_gamma=1.0,
+                detail_boost=0.0,
+                low_percentile=0.0,
+                high_percentile=100.0,
+                base_border_px=1,
+                minimum_feature_mm=0.8,
+                max_relief_slope=2.0,
+                selection_region_mask=selected,
+                selection_background_depth_ratio=0.45,
+            )
+
+        background_stats = postprocess["background_depth_preservation"]
+        physical_cap = postprocess["selection_background_physical_cap"]
+        self.assertTrue(background_stats["available"])
+        self.assertTrue(background_stats["passed"])
+        self.assertGreater(background_stats["correlation"], 0.98)
+        self.assertTrue(background_stats["localized_structure"]["passed"])
+        self.assertTrue(physical_cap["emission_passed"])
+        self.assertEqual(
+            physical_cap["reference_cap"]["foreground_geometry_source"],
+            "final_processed_selection",
+        )
 
     def test_high_face_relief_also_preserves_nonface_selection_depth(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

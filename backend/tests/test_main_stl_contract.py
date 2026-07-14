@@ -272,7 +272,7 @@ class MainStlContractTest(unittest.TestCase):
             self.assertEqual(payload["selection_depth_context"]["selection_job_id"], selection_job_id)
             self.assertEqual(
                 payload["selection_depth_context"]["method"],
-                "full_scene_depth_with_bounded_background_context_v2",
+                "full_scene_depth_with_bounded_background_context_v3",
             )
             self.assertEqual(payload["selection_depth_context"]["background_depth_ratio"], 0.45)
             self.assertFalse(payload["effective_trim_top_background"])

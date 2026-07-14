@@ -1161,11 +1161,20 @@ def compose_selection_depth_with_context(
     background_context_enabled = False
     background_context_pixels = 0
     background_context_correlation = None
+    background_context_residual_correlation = None
+    background_context_residual_rms_retention = None
+    background_context_normalized_correlation = None
+    background_context_normalized_rms_retention = None
+    background_context_recoverable_coverage_ratio = 0.0
     background_input_low = None
     background_input_high = None
     background_output_low = None
     background_output_high = None
     background_output_span_ratio = 0.0
+    background_context_slope_guard = {
+        "enabled": False,
+        "reason": "background_context_disabled",
+    }
     smoothing_sigma_px = 0.0
     feather_distance_px = 0.0
     if background_ratio > 0 and np.count_nonzero(background) >= 4:
@@ -1190,17 +1199,31 @@ def compose_selection_depth_with_context(
                 0.0,
                 1.0,
             )
-            context_surface = base_value + background_ratio * span * context_unit
             feather_distance_px = max(1.0, background_feather / pitch_mm)
             feather = np.clip(outside_distance / feather_distance_px, 0.0, 1.0)
             feather = feather * feather * (3.0 - 2.0 * feather)
-            feathered_context = base_value + feather * (context_surface - base_value)
-            feathered_context = np.where(
-                np.isfinite(feathered_context),
-                feathered_context,
+            support_upper = nearest_selected_values + outside_distance * canonical_step
+            context_ceiling = np.minimum(
+                support_upper,
+                np.maximum(base_value + background_ratio * span, ramp),
+            )
+            context_capacity = np.maximum(context_ceiling - ramp, 0.0)
+            desired_context_residual = feather * context_capacity * context_unit
+            context_candidate = ramp + desired_context_residual
+            context_candidate = np.where(
+                np.isfinite(context_candidate),
+                context_candidate,
                 ramp,
             )
-            composed_background = np.maximum(ramp, feathered_context)
+            guarded_candidate, background_context_slope_guard = (
+                _guard_weighted_feature_updates(
+                    np.where(selected, canonical, ramp),
+                    np.where(selected, canonical, context_candidate),
+                    max_neighbor_step_mm=canonical_step,
+                    max_ratio=2.5,
+                )
+            )
+            composed_background = np.where(selected, ramp, guarded_candidate)
             context_lift = background & (composed_background > ramp + span * 1e-6)
             background_context_pixels = int(np.count_nonzero(context_lift))
             background_context_enabled = background_context_pixels > 0
@@ -1217,6 +1240,83 @@ def compose_selection_depth_with_context(
                 if denominator > 1e-12:
                     background_context_correlation = float(
                         np.sum(source_measure * output_measure) / denominator
+                    )
+                desired_residual = desired_context_residual[measured_background].astype(
+                    np.float64
+                )
+                output_residual = (
+                    composed_background[measured_background]
+                    - ramp[measured_background]
+                ).astype(np.float64)
+                desired_residual -= float(np.mean(desired_residual))
+                output_residual -= float(np.mean(output_residual))
+                desired_norm = float(np.linalg.norm(desired_residual))
+                output_norm = float(np.linalg.norm(output_residual))
+                background_context_residual_correlation = (
+                    float(
+                        np.dot(desired_residual, output_residual)
+                        / (desired_norm * output_norm)
+                    )
+                    if desired_norm > 1e-12 and output_norm > 1e-12
+                    else (1.0 if desired_norm <= 1e-12 and output_norm <= 1e-8 else 0.0)
+                )
+                desired_rms = float(np.sqrt(np.mean(np.square(desired_residual))))
+                output_rms = float(np.sqrt(np.mean(np.square(output_residual))))
+                background_context_residual_rms_retention = (
+                    output_rms / desired_rms
+                    if desired_rms > 1e-12
+                    else (1.0 if output_rms <= 1e-8 else None)
+                )
+                recoverable_background = (
+                    measured_background
+                    & (context_capacity > span * 1e-4)
+                )
+                background_context_recoverable_coverage_ratio = float(
+                    np.count_nonzero(recoverable_background)
+                    / max(np.count_nonzero(background), 1)
+                )
+                if np.count_nonzero(recoverable_background) >= 4:
+                    normalized_source = context_unit[recoverable_background].astype(
+                        np.float64
+                    )
+                    normalized_output = np.divide(
+                        composed_background[recoverable_background]
+                        - ramp[recoverable_background],
+                        context_capacity[recoverable_background],
+                        out=np.zeros(
+                            np.count_nonzero(recoverable_background),
+                            dtype=np.float64,
+                        ),
+                        where=context_capacity[recoverable_background] > span * 1e-4,
+                    )
+                    normalized_source -= float(np.mean(normalized_source))
+                    normalized_output -= float(np.mean(normalized_output))
+                    normalized_source_norm = float(np.linalg.norm(normalized_source))
+                    normalized_output_norm = float(np.linalg.norm(normalized_output))
+                    background_context_normalized_correlation = (
+                        float(
+                            np.dot(normalized_source, normalized_output)
+                            / (normalized_source_norm * normalized_output_norm)
+                        )
+                        if normalized_source_norm > 1e-12
+                        and normalized_output_norm > 1e-12
+                        else (
+                            1.0
+                            if normalized_source_norm <= 1e-12
+                            and normalized_output_norm <= 1e-8
+                            else 0.0
+                        )
+                    )
+                    normalized_source_rms = float(
+                        np.sqrt(np.mean(np.square(normalized_source)))
+                    )
+                    normalized_output_rms = float(
+                        np.sqrt(np.mean(np.square(normalized_output)))
+                    )
+                    background_context_normalized_rms_retention = (
+                        normalized_output_rms / normalized_source_rms
+                        if normalized_source_rms > 1e-12
+                        else (1.0 if normalized_output_rms <= 1e-8 else None)
                     )
             background_output_low, background_output_high = (
                 float(value) for value in np.percentile(composed_background[background], [2.0, 98.0])
@@ -1243,7 +1343,7 @@ def compose_selection_depth_with_context(
     halo_distances = outside_distance[halo]
     return composed.astype(np.float32, copy=False), {
         "enabled": True,
-        "method": "full_scene_depth_with_bounded_background_context_v2",
+        "method": "full_scene_depth_with_bounded_background_context_v3",
         "value_transform": value_transform,
         "mask_pixels": int(np.count_nonzero(selected)),
         "mask_coverage_ratio": float(np.mean(selected)),
@@ -1271,6 +1371,22 @@ def compose_selection_depth_with_context(
         "background_context_pixels": background_context_pixels,
         "background_context_coverage_ratio": float(background_context_pixels / source.size),
         "background_context_correlation": background_context_correlation,
+        "background_context_residual_correlation": (
+            background_context_residual_correlation
+        ),
+        "background_context_residual_rms_retention": (
+            background_context_residual_rms_retention
+        ),
+        "background_context_normalized_correlation": (
+            background_context_normalized_correlation
+        ),
+        "background_context_normalized_rms_retention": (
+            background_context_normalized_rms_retention
+        ),
+        "background_context_recoverable_coverage_ratio": (
+            background_context_recoverable_coverage_ratio
+        ),
+        "background_context_slope_guard": background_context_slope_guard,
         "background_input_canonical_p02": background_input_low,
         "background_input_canonical_p98": background_input_high,
         "background_output_canonical_p02": background_output_low,
@@ -3209,6 +3325,136 @@ def _restore_background_from_reference(
     }
 
 
+def _localized_background_structure_metrics(
+    reference,
+    candidate,
+    context,
+    *,
+    sample_pitch_mm,
+    window_mm=6.0,
+    minimum_correlation=0.35,
+    maximum_shape_error_ratio=0.95,
+):
+    """Detect spatially localized context loss hidden by aggregate scores."""
+    reference = np.asarray(reference, dtype=np.float32)
+    candidate = np.asarray(candidate, dtype=np.float32)
+    context = np.asarray(context, dtype=bool)
+    try:
+        pitch_mm = float(sample_pitch_mm)
+    except (TypeError, ValueError):
+        pitch_mm = 0.0
+    window_px = (
+        int(np.clip(round(float(window_mm) / pitch_mm), 9, 31))
+        if np.isfinite(pitch_mm) and pitch_mm > 0
+        else 15
+    )
+    if window_px % 2 == 0:
+        window_px += 1
+    stride_px = max(4, window_px // 2)
+    border_exclusion_px = max(2, window_px // 2)
+    minimum_window_coverage_ratio = 0.5
+    minimum_samples = max(
+        16,
+        int(np.ceil(window_px * window_px * minimum_window_coverage_ratio)),
+    )
+    source_values = reference[context].astype(np.float64)
+    source_rms = (
+        float(np.std(source_values)) if source_values.size else 0.0
+    )
+    minimum_structure_rms = max(0.05, source_rms * 0.08)
+
+    def _starts(length):
+        first = min(border_exclusion_px, max(0, (int(length) - window_px) // 2))
+        last = max(first, int(length) - border_exclusion_px - window_px)
+        starts = list(range(first, last + 1, stride_px))
+        if not starts or starts[-1] != last:
+            starts.append(last)
+        return starts
+
+    records = []
+    measured_windows = 0
+    for row_start in _starts(reference.shape[0]):
+        row_slice = slice(row_start, min(row_start + window_px, reference.shape[0]))
+        for col_start in _starts(reference.shape[1]):
+            col_slice = slice(col_start, min(col_start + window_px, reference.shape[1]))
+            local_context = context[row_slice, col_slice]
+            samples = int(np.count_nonzero(local_context))
+            if samples < minimum_samples:
+                continue
+            measured_windows += 1
+            source = reference[row_slice, col_slice][local_context].astype(np.float64)
+            output = candidate[row_slice, col_slice][local_context].astype(np.float64)
+            source_centered = source - float(np.mean(source))
+            output_centered = output - float(np.mean(output))
+            local_source_rms = float(np.sqrt(np.mean(np.square(source_centered))))
+            if local_source_rms < minimum_structure_rms:
+                continue
+            source_norm = float(np.linalg.norm(source_centered))
+            output_norm = float(np.linalg.norm(output_centered))
+            correlation = (
+                float(
+                    np.dot(source_centered, output_centered)
+                    / (source_norm * output_norm)
+                )
+                if source_norm > 1e-10 and output_norm > 1e-10
+                else 0.0
+            )
+            shape_error_ratio = float(
+                np.sqrt(np.mean(np.square(output_centered - source_centered)))
+                / max(local_source_rms, 1e-10)
+            )
+            records.append(
+                {
+                    "row": int(row_start),
+                    "col": int(col_start),
+                    "samples": samples,
+                    "reference_rms_mm": local_source_rms,
+                    "correlation": correlation,
+                    "shape_error_ratio": shape_error_ratio,
+                }
+            )
+
+    failed = [
+        record
+        for record in records
+        if record["correlation"] < float(minimum_correlation)
+        or record["shape_error_ratio"] > float(maximum_shape_error_ratio)
+    ]
+    correlations = [record["correlation"] for record in records]
+    error_ratios = [record["shape_error_ratio"] for record in records]
+    worst = (
+        max(
+            records,
+            key=lambda record: max(
+                float(minimum_correlation) - record["correlation"],
+                record["shape_error_ratio"] - float(maximum_shape_error_ratio),
+            ),
+        )
+        if records
+        else None
+    )
+    return {
+        "available": True,
+        "passed": not failed,
+        "window_mm": float(window_mm),
+        "window_px": int(window_px),
+        "stride_px": int(stride_px),
+        "border_exclusion_px": int(border_exclusion_px),
+        "minimum_samples_per_window": int(minimum_samples),
+        "minimum_window_coverage_ratio": float(minimum_window_coverage_ratio),
+        "measured_window_count": int(measured_windows),
+        "structured_window_count": int(len(records)),
+        "failed_window_count": int(len(failed)),
+        "minimum_structure_rms_mm": float(minimum_structure_rms),
+        "minimum_correlation": float(minimum_correlation),
+        "maximum_shape_error_ratio": float(maximum_shape_error_ratio),
+        "minimum_window_correlation": min(correlations) if correlations else None,
+        "maximum_window_shape_error_ratio": max(error_ratios) if error_ratios else None,
+        "worst_window": worst,
+        "flat_or_smooth_reference": not records,
+    }
+
+
 def _background_relief_preservation_metrics(
     reference_values,
     candidate_values,
@@ -3227,6 +3473,9 @@ def _background_relief_preservation_metrics(
     maximum_mean_shift_mm=2.0,
     maximum_boundary_jump_mm=6.0,
     minimum_coverage_ratio=1.0,
+    local_window_mm=6.0,
+    minimum_local_correlation=0.35,
+    maximum_local_shape_error_ratio=0.95,
 ):
     """Measure broad scene structure outside a protected foreground subject."""
     stats = {
@@ -3291,6 +3540,11 @@ def _background_relief_preservation_metrics(
             "maximum_gradient_rms_retention": float(maximum_gradient_rms_retention),
             "maximum_mean_shift_mm": float(maximum_mean_shift_mm),
             "maximum_boundary_jump_mm": float(maximum_boundary_jump_mm),
+            "local_window_mm": float(local_window_mm),
+            "minimum_local_correlation": float(minimum_local_correlation),
+            "maximum_local_shape_error_ratio": float(
+                maximum_local_shape_error_ratio
+            ),
         }
     )
     if reference_samples < 64:
@@ -3386,6 +3640,15 @@ def _background_relief_preservation_metrics(
         if source_gradient_rms > 1e-10
         else (1.0 if output_gradient_rms <= 1e-8 else None)
     )
+    localized_structure = _localized_background_structure_metrics(
+        reference,
+        candidate,
+        context,
+        sample_pitch_mm=pitch_mm,
+        window_mm=local_window_mm,
+        minimum_correlation=minimum_local_correlation,
+        maximum_shape_error_ratio=maximum_local_shape_error_ratio,
+    )
 
     boundary_horizontal = (
         (foreground[:, :-1] ^ foreground[:, 1:])
@@ -3464,6 +3727,8 @@ def _background_relief_preservation_metrics(
         quality_failures.append("gradient_rms_retention")
     if abs(mean_shift_mm) > float(maximum_mean_shift_mm):
         quality_failures.append("mean_shift")
+    if not localized_structure["passed"]:
+        quality_failures.append("localized_structure")
     if (
         boundary_samples
         and (
@@ -3500,6 +3765,7 @@ def _background_relief_preservation_metrics(
             "output_span_p02_p98_mm": output_span,
             "reference_gradient_rms_mm": source_gradient_rms,
             "output_gradient_rms_mm": output_gradient_rms,
+            "localized_structure": localized_structure,
             "quality_failures": quality_failures,
         }
     )
@@ -3973,6 +4239,47 @@ def _blend_updates_outside_protected_region(
     }
 
 
+def _blend_updates_inside_region(
+    baseline_values,
+    candidate_values,
+    active_region_mask,
+    feather_pixels=6.0,
+):
+    """Keep solver corrections inside a feathered subject region."""
+    baseline = np.asarray(baseline_values, dtype=np.float32)
+    candidate = np.asarray(candidate_values, dtype=np.float32)
+    if baseline.shape != candidate.shape:
+        raise ValueError("Active-region blend surfaces must have identical shapes")
+    if active_region_mask is None:
+        return baseline_values, {"enabled": False, "reason": "no_active_region"}
+
+    active = _resize_binary_mask(active_region_mask, baseline.shape)
+    if not np.any(active):
+        return baseline_values, {"enabled": False, "reason": "empty_active_region"}
+    feather = max(float(feather_pixels), 1.0)
+    outside_distance = distance_transform_edt(~active)
+    candidate_weight = np.clip(1.0 - outside_distance / feather, 0.0, 1.0)
+    candidate_weight[active] = 1.0
+    finite = np.isfinite(baseline) & np.isfinite(candidate)
+    blended = baseline.copy()
+    blended[finite] = (
+        baseline[finite]
+        + candidate_weight[finite] * (candidate[finite] - baseline[finite])
+    )
+    correction = np.abs(blended - baseline)
+    return blended.astype(candidate.dtype, copy=False), {
+        "enabled": True,
+        "active_pixels": int(np.count_nonzero(active)),
+        "feather_pixels": feather,
+        "inside_correction_max_mm": float(np.max(correction[active & finite]))
+        if np.any(active & finite)
+        else 0.0,
+        "outside_correction_max_mm": float(np.max(correction[~active & finite]))
+        if np.any(~active & finite)
+        else 0.0,
+    }
+
+
 def _compress_selected_relief_surface(
     values,
     selected_region_mask,
@@ -4026,6 +4333,13 @@ def _compress_selected_relief_surface(
             max_slope_mm_per_mm=max_slope_mm_per_mm,
             structural_region_mask=selected,
         )
+        limited, localization_stats = _blend_updates_inside_region(
+            values,
+            limited,
+            selected,
+            feather_pixels=max(2.0, 1.5 / max(float(sample_pitch_mm), 1e-6)),
+        )
+        stats["selected_region_blend"] = localization_stats
         return limited, stats, slope_stats
 
     selection_surface, stats = _compress_relief_gradients(
@@ -4082,6 +4396,13 @@ def _compress_selected_relief_surface(
                 protected,
             )
             stats["protected_region_blend"] = protection_stats
+        selection_surface, localization_stats = _blend_updates_inside_region(
+            values,
+            selection_surface,
+            selected,
+            feather_pixels=max(2.0, 1.5 / max(float(sample_pitch_mm), 1e-6)),
+        )
+        stats["selected_region_blend"] = localization_stats
         return selection_surface, stats, stats
 
     if np.any(protected):
@@ -4092,6 +4413,13 @@ def _compress_selected_relief_surface(
         max_slope_mm_per_mm=max_slope_mm_per_mm,
         structural_region_mask=selected,
     )
+    limited, localization_stats = _blend_updates_inside_region(
+        values,
+        limited,
+        selected,
+        feather_pixels=max(2.0, 1.5 / max(float(sample_pitch_mm), 1e-6)),
+    )
+    stats["selected_region_blend"] = localization_stats
     return limited, stats, slope_stats
 
 
@@ -4384,6 +4712,22 @@ def depth_data_to_3d_model(
             if restoration_accepted:
                 gradient_surface = restored_gradient_surface
                 gradient_compression_stats["detail_preservation"] = restored_detail
+            face_blend_region = (
+                head_region_mask if head_region_mask is not None else region_mask
+            )
+            if selected_region is not None:
+                face_blend_region = (
+                    _resize_binary_mask(face_blend_region, selected_region.shape)
+                    & selected_region
+                )
+            gradient_surface, face_region_blend_stats = _blend_updates_inside_region(
+                unstabilized_scene,
+                gradient_surface,
+                face_blend_region,
+                feather_pixels=6.0,
+            )
+            face_region_blend_stats["selection_bounded"] = selected_region is not None
+            gradient_compression_stats["face_region_blend"] = face_region_blend_stats
             gradient_compression_stats["sample_pitch_source"] = gradient_sample_pitch_source
             z = gradient_surface
             processed_scene = gradient_surface
@@ -4663,15 +5007,25 @@ def depth_data_to_3d_model(
         "reason": "no_selection_mask",
     }
     if selected_region is not None:
+        # Compare background retention with identical final foreground geometry so
+        # required printable support ramps are not mistaken for context loss.
+        background_reference_surface = np.where(
+            selected_region,
+            z,
+            background_reference_surface,
+        )
         background_reference_surface, reference_background_cap_stats = (
             _cap_selection_background_relief(
-                unstabilized_scene,
+                background_reference_surface,
                 selected_region,
                 relief_height_mm=z_scale,
                 sample_pitch_mm=gradient_sample_pitch_mm,
                 max_slope_mm_per_mm=max_relief_slope,
                 background_depth_ratio=selection_background_depth_ratio,
             )
+        )
+        reference_background_cap_stats["foreground_geometry_source"] = (
+            "final_processed_selection"
         )
         z, selection_background_cap_stats = _cap_selection_background_relief(
             z,
@@ -4699,6 +5053,10 @@ def depth_data_to_3d_model(
             sample_pitch_mm=gradient_sample_pitch_mm,
         )
         background_preservation_stats["enforced"] = True
+        if not background_preservation_stats.get("available", False):
+            raise ValueError(
+                "Background relief preservation telemetry is unavailable"
+            )
     else:
         background_preservation_stats = {
             "available": False,
