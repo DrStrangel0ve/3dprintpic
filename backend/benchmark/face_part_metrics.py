@@ -20,6 +20,7 @@ from backend.face_depth_refinement import FACE_PART_NAMES
 
 
 FACE_PART_METRIC_SCHEMA_VERSION = 3
+FACE_PART_AFFINE_MM_SCHEMA_VERSION = 2
 FACE_PART_SMOOTHING_RADII_MM = (0.0, 0.8)
 FACE_PART_MINIMUM_ERODED_SUPPORT_RATIO = 0.35
 FACE_PART_GATES = {
@@ -570,7 +571,7 @@ def face_part_affine_surface_error_metrics(
     if gates is not None:
         effective_gates.update(gates)
     stats = {
-        "schema_version": 1,
+        "schema_version": FACE_PART_AFFINE_MM_SCHEMA_VERSION,
         "method": "shared_face_affine_then_part_mm_error",
         "available": False,
         "passed": False,

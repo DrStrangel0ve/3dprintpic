@@ -273,6 +273,7 @@ class FacePartMetricsTest(unittest.TestCase):
         )
 
         self.assertTrue(passing["passed"])
+        self.assertEqual(passing["schema_version"], 2)
         self.assertAlmostEqual(passing["face_affine_fit"]["scale"], 0.55, places=6)
         self.assertLess(max(part["rmse_mm"] for part in passing["parts"]), 1e-5)
         self.assertFalse(failing["passed"])
