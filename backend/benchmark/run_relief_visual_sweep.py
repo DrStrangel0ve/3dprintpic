@@ -46,7 +46,9 @@ from backend.pic_to_3d import (
 RELIEF_HEIGHTS_MM = (20.0, 30.0, 40.0)
 PROVENANCE_PATHS = (
     "backend/pic_to_3d.py",
+    "backend/face_depth_refinement.py",
     "backend/face_relief_geometry.py",
+    "backend/benchmark/face_part_metrics.py",
     "backend/benchmark/run_relief_scene_regression.py",
     "backend/benchmark/run_relief_visual_sweep.py",
     "backend/benchmark/mesh_rendering.py",
