@@ -1,0 +1,3122 @@
+{
+  "schema_version": 1,
+  "run_kind": "canonical_face_absolute_relief_fidelity",
+  "privacy": "official canonical mesh and deterministic analytic background only",
+  "asset": {
+    "source_url": "https://github.com/google-ai-edge/mediapipe/blob/a908d668c730da128dfa8d9f6bd25d519d006692/mediapipe/modules/face_geometry/data/canonical_face_model.obj",
+    "source_commit": "a908d668c730da128dfa8d9f6bd25d519d006692",
+    "asset_sha256": "8bac80443397e113f41a8b565ea72c59390bc031d9defab289dba7bc0c54e618",
+    "license": "Apache-2.0",
+    "license_sha256": "8707eef0533987efc5b155d64761eeb6e20793f50b9bd1a68dad1cf4719d0ed8",
+    "coordinate_unit": "centimeter",
+    "vertex_count": 468,
+    "face_count": 898,
+    "component_count": 1,
+    "watertight": false,
+    "bounds_cm": [
+      [
+        -7.743095,
+        -9.403378,
+        -2.435867
+      ],
+      [
+        7.743095,
+        8.261778,
+        7.58658
+      ]
+    ],
+    "extents_cm": [
+      15.48619,
+      17.665156,
+      10.022447
+    ]
+  },
+  "implementation_provenance": {
+    "available": true,
+    "clean": true,
+    "revision": "f6a473c3f9f25b0f6e58e36c2574663aefd687f6",
+    "paths": [
+      "backend/pic_to_3d.py",
+      "backend/face_depth_refinement.py",
+      "backend/benchmark/face_part_metrics.py",
+      "backend/benchmark/mesh_rendering.py",
+      "backend/benchmark/run_relief_scene_regression.py",
+      "backend/benchmark/run_relief_visual_sweep.py",
+      "backend/benchmark/run_canonical_face_relief_smoke.py",
+      "backend/benchmark/assets/mediapipe_canonical_face"
+    ],
+    "status": []
+  },
+  "allow_dirty": false,
+  "allow_failures": false,
+  "matrix": {
+    "yaws_deg": [
+      0.0,
+      -30.0,
+      30.0
+    ],
+    "relief_heights_mm": [
+      20.0,
+      30.0,
+      40.0
+    ],
+    "render_size": 256,
+    "physical_size_mm": 96.0,
+    "expected_rows": 9,
+    "completed_rows": 9
+  },
+  "face_appearance_gates": {
+    "minimum_normal_mean_cosine": 0.95,
+    "minimum_normal_p05_cosine": 0.85,
+    "maximum_normal_angle_p95_deg": 30.0,
+    "minimum_lighting_correlation": 0.8,
+    "maximum_lighting_mae": 0.08,
+    "minimum_lighting_rms_retention": 0.75,
+    "maximum_lighting_rms_retention": 1.4
+  },
+  "named_face_part_gates": {
+    "minimum_coverage_ratio": 1.0,
+    "minimum_shape_correlation": 0.9,
+    "maximum_face_normalized_shape_rmse": 0.2,
+    "minimum_gradient_correlation": 0.75,
+    "minimum_slope_q95_retention": 0.45,
+    "maximum_slope_q95_retention": 2.2,
+    "minimum_curvature_q95_retention": 0.35,
+    "maximum_curvature_q95_retention": 2.8,
+    "maximum_slope_wasserstein_ratio": 0.75,
+    "maximum_curvature_wasserstein_ratio": 0.9
+  },
+  "named_face_part_affine_mm_gates": {
+    "minimum_coverage_ratio": 1.0,
+    "minimum_face_affine_scale": 0.1,
+    "maximum_face_affine_scale": 2.0,
+    "maximum_rmse_mm": 0.8,
+    "maximum_p95_absolute_error_mm": 1.5,
+    "maximum_absolute_bias_mm": 0.5,
+    "minimum_span_retention": 0.65,
+    "maximum_span_retention": 1.35
+  },
+  "checks": {
+    "expected_rows": true,
+    "implementation_provenance_clean": true,
+    "all_row_gates_passed": true,
+    "passed": true
+  },
+  "rows": [
+    {
+      "row_id": "yaw_+00p0_height_20p0mm",
+      "yaw_deg": 0.0,
+      "relief_height_mm": 20.0,
+      "render_size": 256,
+      "physical_size_mm": 96.0,
+      "runtime_seconds": 4.855908199999249,
+      "checks": {
+        "source_context": true,
+        "absolute_face_appearance": true,
+        "absolute_named_parts": true,
+        "absolute_named_part_mm_error": true,
+        "background_preservation": true,
+        "localized_background_structure": true,
+        "physical_emission": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "complete_shell": true,
+        "screened_face_reconstruction": true,
+        "redundant_emboss_suppressed": true,
+        "feature_bridge_requested": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 28413,
+        "normalized_context_correlation": 1.0,
+        "normalized_context_rms_retention": 1.0,
+        "recoverable_context_coverage_ratio": 0.8135461604831752
+      },
+      "absolute_face": {
+        "available": true,
+        "samples": 25792,
+        "reference_samples": 25792,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9999965284279371,
+        "normal_p05_cosine": 0.9999838804834533,
+        "normal_angle_p95_deg": 0.3253225767275619,
+        "minimum_lighting_correlation": 0.9999755371597281,
+        "maximum_lighting_mae": 0.0002578896518102742,
+        "minimum_lighting_rms_retention": 0.9999510413737167,
+        "maximum_lighting_rms_retention": 1.0005505993314714,
+        "checks": {
+          "telemetry": true,
+          "coverage": true,
+          "normal_field": true,
+          "lighting": true,
+          "lighting_energy": true,
+          "components": true,
+          "passed": true
+        }
+      },
+      "absolute_named_parts": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_shape_correlation": 0.9,
+          "maximum_face_normalized_shape_rmse": 0.2,
+          "minimum_gradient_correlation": 0.75,
+          "minimum_slope_q95_retention": 0.45,
+          "maximum_slope_q95_retention": 2.2,
+          "minimum_curvature_q95_retention": 0.35,
+          "maximum_curvature_q95_retention": 2.8,
+          "maximum_slope_wasserstein_ratio": 0.75,
+          "maximum_curvature_wasserstein_ratio": 0.9
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "passed": true,
+            "samples": 149,
+            "shape_correlation": 0.9999999984574309,
+            "face_normalized_shape_rmse": 9.741034781179605e-05,
+            "minimum_gradient_correlation": 0.999999998861475,
+            "minimum_slope_q95_retention": 1.000012531584471,
+            "maximum_slope_q95_retention": 1.0000180537307182,
+            "minimum_curvature_q95_retention": 0.9999966315117006,
+            "maximum_curvature_q95_retention": 1.0000147497304448
+          },
+          {
+            "name": "left_eyebrow",
+            "passed": true,
+            "samples": 939,
+            "shape_correlation": 0.9999999923294062,
+            "face_normalized_shape_rmse": 0.0001242592089654386,
+            "minimum_gradient_correlation": 0.9999997105933617,
+            "minimum_slope_q95_retention": 0.9994568013788768,
+            "maximum_slope_q95_retention": 0.9994752401970813,
+            "minimum_curvature_q95_retention": 0.999527502907106,
+            "maximum_curvature_q95_retention": 0.9999527429662427
+          },
+          {
+            "name": "mouth",
+            "passed": true,
+            "samples": 241,
+            "shape_correlation": 0.9999999999775556,
+            "face_normalized_shape_rmse": 0.00010108805861869237,
+            "minimum_gradient_correlation": 0.999999999887815,
+            "minimum_slope_q95_retention": 1.000003425332682,
+            "maximum_slope_q95_retention": 1.000018865037039,
+            "minimum_curvature_q95_retention": 1.0000111388402888,
+            "maximum_curvature_q95_retention": 1.0000621787554873
+          },
+          {
+            "name": "nose",
+            "passed": true,
+            "samples": 175,
+            "shape_correlation": 0.9999999999773767,
+            "face_normalized_shape_rmse": 8.905569901333713e-05,
+            "minimum_gradient_correlation": 0.9999999994186799,
+            "minimum_slope_q95_retention": 0.9999539580602874,
+            "maximum_slope_q95_retention": 0.9999773724382461,
+            "minimum_curvature_q95_retention": 0.999926740940712,
+            "maximum_curvature_q95_retention": 1.0000019017112616
+          },
+          {
+            "name": "right_eye",
+            "passed": true,
+            "samples": 148,
+            "shape_correlation": 0.9999999983307951,
+            "face_normalized_shape_rmse": 9.741353802618587e-05,
+            "minimum_gradient_correlation": 0.999999998849216,
+            "minimum_slope_q95_retention": 1.0000066716895037,
+            "maximum_slope_q95_retention": 1.0000160577859802,
+            "minimum_curvature_q95_retention": 0.9999880638234985,
+            "maximum_curvature_q95_retention": 0.9999965256133948
+          },
+          {
+            "name": "right_eyebrow",
+            "passed": true,
+            "samples": 942,
+            "shape_correlation": 0.9999999941216079,
+            "face_normalized_shape_rmse": 0.00011843001623141949,
+            "minimum_gradient_correlation": 0.999999766301676,
+            "minimum_slope_q95_retention": 0.9995221643640185,
+            "maximum_slope_q95_retention": 0.9995881491331071,
+            "minimum_curvature_q95_retention": 0.9995998058539397,
+            "maximum_curvature_q95_retention": 0.9999990999554751
+          }
+        ]
+      },
+      "absolute_named_part_mm_error": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_face_affine_scale": 0.1,
+          "maximum_face_affine_scale": 2.0,
+          "maximum_rmse_mm": 0.8,
+          "maximum_p95_absolute_error_mm": 1.5,
+          "maximum_absolute_bias_mm": 0.5,
+          "minimum_span_retention": 0.65,
+          "maximum_span_retention": 1.35
+        },
+        "face_affine_fit": {
+          "scale": 0.9999191668482603,
+          "offset_mm": -0.0006227569833391092
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "available": true,
+            "passed": true,
+            "samples": 149,
+            "rmse_mm": 0.0016314052291600894,
+            "bias_mm": 0.0016309861134058993,
+            "p95_absolute_error_mm": 0.0016629848223146837,
+            "span_retention": 1.0001157209841087,
+            "reason": null
+          },
+          {
+            "name": "left_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 939,
+            "rmse_mm": 0.001986804095416058,
+            "bias_mm": 0.0019640352019169834,
+            "p95_absolute_error_mm": 0.0026997485693714294,
+            "span_retention": 0.9998095342958933,
+            "reason": null
+          },
+          {
+            "name": "mouth",
+            "available": true,
+            "passed": true,
+            "samples": 241,
+            "rmse_mm": 0.0018690706843032397,
+            "bias_mm": 0.0018684402962682205,
+            "p95_absolute_error_mm": 0.0019204634624117034,
+            "span_retention": 1.0000832317686343,
+            "reason": null
+          },
+          {
+            "name": "nose",
+            "available": true,
+            "passed": true,
+            "samples": 175,
+            "rmse_mm": 0.0018993078623179512,
+            "bias_mm": 0.0018986405105867732,
+            "p95_absolute_error_mm": 0.0019834314573827783,
+            "span_retention": 1.0000291290415093,
+            "reason": null
+          },
+          {
+            "name": "right_eye",
+            "available": true,
+            "passed": true,
+            "samples": 148,
+            "rmse_mm": 0.0016318290317893008,
+            "bias_mm": 0.0016314258341617023,
+            "p95_absolute_error_mm": 0.0016627610667429237,
+            "span_retention": 1.0001184851405058,
+            "reason": null
+          },
+          {
+            "name": "right_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 942,
+            "rmse_mm": 0.0019304237044742527,
+            "bias_mm": 0.0019132681295392997,
+            "p95_absolute_error_mm": 0.002531485021191049,
+            "span_retention": 0.9999177248262767,
+            "reason": null
+          }
+        ]
+      },
+      "render_depth_provenance": {
+        "source_coordinate_unit": "canonical centimeters before normalization",
+        "camera_frame_z_near": 0.40953001379966736,
+        "camera_frame_z_far": -0.4087708592414856,
+        "camera_frame_z_span": 0.8183008432388306,
+        "depth_convention": "near=0, far=1 within visible canonical face",
+        "part_labels": "barycentric vertex weights sharing the primary z-buffer"
+      },
+      "background": {
+        "passed": true,
+        "correlation": 1.0,
+        "rms_retention": 1.0,
+        "span_retention": 1.0,
+        "gradient_correlation": 1.0,
+        "gradient_rms_retention": 1.0,
+        "candidate_coverage_ratio": 1.0,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 423,
+          "structured_window_count": 131,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.07050207437600145,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999999999999998,
+          "maximum_window_shape_error_ratio": 0.0,
+          "worst_window": {
+            "row": 7,
+            "col": 84,
+            "samples": 218,
+            "reference_rms_mm": 0.2841135610117803,
+            "correlation": 0.9999999999999998,
+            "shape_error_ratio": 0.0
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "physical_cap": {
+        "emission_passed": true,
+        "far_background_max_mm": 9.010000228881836,
+        "far_background_ceiling_mm": 9.009999999776483,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633
+      },
+      "feature_handling": {
+        "requested_feature_depth_mm": 0.8,
+        "effective_feature_depth_mm": 0.0,
+        "emboss_suppressed": true,
+        "bridge_enabled": false,
+        "bridge_reason": "no_peripheral_feature_gaps"
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 232320,
+        "vertex_count": 116162,
+        "printable": true
+      },
+      "shell": {
+        "passed": true,
+        "complete_shell_verified": true,
+        "facet_geometry_passed": true,
+        "coverage_ratio": 1.0,
+        "max_abs_error_mm": 0.0,
+        "rms_error_mm": 0.0,
+        "expected_shell_triangle_count": 232320,
+        "actual_shell_triangle_count": 232320,
+        "invalid_shell_triangle_count": 0
+      },
+      "artifacts": {
+        "source.png": {
+          "size_bytes": 20291,
+          "sha256": "aebd6ffd18a8979c6e2cc686564728ac39624010284c9caca81db988ed6d40ee"
+        },
+        "composed_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "9344100de9dd3720040e65b2b047c3a5f806a857e8776684d3cc15e8c5782e15"
+        },
+        "reference_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "2c452e89e654cdf2e87ce8c2ce70d6064ef53ceee70fe3a2d02b52d0d43574c2"
+        },
+        "emitted_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "0372d279426b5f37844fa4964bd3cc96572964117221512a0fa74b16bb5d896f"
+        },
+        "relief.stl": {
+          "size_bytes": 11616084,
+          "sha256": "4d77d243534fdc6752a74dd38f8555a357fa0892d15a31b8a254566977e11502"
+        },
+        "postprocess.json": {
+          "size_bytes": 73468,
+          "sha256": "76fc2fdd8442177d7dee305f81b5ebd3f639fdb39ba8807722de4e94720674fc"
+        }
+      }
+    },
+    {
+      "row_id": "yaw_+00p0_height_30p0mm",
+      "yaw_deg": 0.0,
+      "relief_height_mm": 30.0,
+      "render_size": 256,
+      "physical_size_mm": 96.0,
+      "runtime_seconds": 4.695532000001549,
+      "checks": {
+        "source_context": true,
+        "absolute_face_appearance": true,
+        "absolute_named_parts": true,
+        "absolute_named_part_mm_error": true,
+        "background_preservation": true,
+        "localized_background_structure": true,
+        "physical_emission": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "complete_shell": true,
+        "screened_face_reconstruction": true,
+        "redundant_emboss_suppressed": true,
+        "feature_bridge_requested": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 25159,
+        "normalized_context_correlation": 1.0000000000000002,
+        "normalized_context_rms_retention": 0.9999999999999998,
+        "recoverable_context_coverage_ratio": 0.7214552775381076
+      },
+      "absolute_face": {
+        "available": true,
+        "samples": 25792,
+        "reference_samples": 25792,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9999926964678905,
+        "normal_p05_cosine": 0.9999634034217487,
+        "normal_angle_p95_deg": 0.4901840715460953,
+        "minimum_lighting_correlation": 0.999961657756333,
+        "maximum_lighting_mae": 0.00036935757409569926,
+        "minimum_lighting_rms_retention": 0.999689828069996,
+        "maximum_lighting_rms_retention": 1.0017693888760955,
+        "checks": {
+          "telemetry": true,
+          "coverage": true,
+          "normal_field": true,
+          "lighting": true,
+          "lighting_energy": true,
+          "components": true,
+          "passed": true
+        }
+      },
+      "absolute_named_parts": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_shape_correlation": 0.9,
+          "maximum_face_normalized_shape_rmse": 0.2,
+          "minimum_gradient_correlation": 0.75,
+          "minimum_slope_q95_retention": 0.45,
+          "maximum_slope_q95_retention": 2.2,
+          "minimum_curvature_q95_retention": 0.35,
+          "maximum_curvature_q95_retention": 2.8,
+          "maximum_slope_wasserstein_ratio": 0.75,
+          "maximum_curvature_wasserstein_ratio": 0.9
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "passed": true,
+            "samples": 149,
+            "shape_correlation": 0.9999999899436549,
+            "face_normalized_shape_rmse": 0.00012439704560187603,
+            "minimum_gradient_correlation": 0.9999999968628986,
+            "minimum_slope_q95_retention": 0.9998696545484631,
+            "maximum_slope_q95_retention": 0.9999124975364548,
+            "minimum_curvature_q95_retention": 0.999755799528451,
+            "maximum_curvature_q95_retention": 0.9997990928322023
+          },
+          {
+            "name": "left_eyebrow",
+            "passed": true,
+            "samples": 939,
+            "shape_correlation": 0.9999999939104468,
+            "face_normalized_shape_rmse": 0.0001080122094643064,
+            "minimum_gradient_correlation": 0.9999996234145836,
+            "minimum_slope_q95_retention": 0.9993696296320107,
+            "maximum_slope_q95_retention": 0.9994253257829245,
+            "minimum_curvature_q95_retention": 0.9993855424979857,
+            "maximum_curvature_q95_retention": 0.9997442681712166
+          },
+          {
+            "name": "mouth",
+            "passed": true,
+            "samples": 241,
+            "shape_correlation": 0.9999999999575088,
+            "face_normalized_shape_rmse": 6.68197085031139e-05,
+            "minimum_gradient_correlation": 0.9999999999000962,
+            "minimum_slope_q95_retention": 0.9998024735565313,
+            "maximum_slope_q95_retention": 0.9998059954981762,
+            "minimum_curvature_q95_retention": 0.9997686061416999,
+            "maximum_curvature_q95_retention": 0.999806559126853
+          },
+          {
+            "name": "nose",
+            "passed": true,
+            "samples": 175,
+            "shape_correlation": 0.9999999998947862,
+            "face_normalized_shape_rmse": 5.441908894758867e-05,
+            "minimum_gradient_correlation": 0.9999999980390895,
+            "minimum_slope_q95_retention": 0.9996751542350367,
+            "maximum_slope_q95_retention": 0.9997144476858848,
+            "minimum_curvature_q95_retention": 0.9996200489885266,
+            "maximum_curvature_q95_retention": 0.9997685174409262
+          },
+          {
+            "name": "right_eye",
+            "passed": true,
+            "samples": 148,
+            "shape_correlation": 0.9999999890466699,
+            "face_normalized_shape_rmse": 0.00012433830991954347,
+            "minimum_gradient_correlation": 0.999999996758993,
+            "minimum_slope_q95_retention": 0.9998693068898062,
+            "maximum_slope_q95_retention": 0.9999161444209681,
+            "minimum_curvature_q95_retention": 0.9997557974991198,
+            "maximum_curvature_q95_retention": 0.9997678393074012
+          },
+          {
+            "name": "right_eyebrow",
+            "passed": true,
+            "samples": 942,
+            "shape_correlation": 0.9999999944136468,
+            "face_normalized_shape_rmse": 0.00010589770883421377,
+            "minimum_gradient_correlation": 0.9999996817728691,
+            "minimum_slope_q95_retention": 0.9993804177419306,
+            "maximum_slope_q95_retention": 0.9994136841489429,
+            "minimum_curvature_q95_retention": 0.9994043691969877,
+            "maximum_curvature_q95_retention": 0.9997210485091712
+          }
+        ]
+      },
+      "absolute_named_part_mm_error": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_face_affine_scale": 0.1,
+          "maximum_face_affine_scale": 2.0,
+          "maximum_rmse_mm": 0.8,
+          "maximum_p95_absolute_error_mm": 1.5,
+          "maximum_absolute_bias_mm": 0.5,
+          "minimum_span_retention": 0.65,
+          "maximum_span_retention": 1.35
+        },
+        "face_affine_fit": {
+          "scale": 1.0003105491766477,
+          "offset_mm": -0.009504466070751227
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "available": true,
+            "passed": true,
+            "samples": 149,
+            "rmse_mm": 0.0037904029920915873,
+            "bias_mm": 0.0037896316054727304,
+            "p95_absolute_error_mm": 0.003914848153271322,
+            "span_retention": 0.9998491445992879,
+            "reason": null
+          },
+          {
+            "name": "left_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 939,
+            "rmse_mm": 0.003249430604453225,
+            "bias_mm": 0.0031070149472323186,
+            "p95_absolute_error_mm": 0.005264716930967239,
+            "span_retention": 0.9995429362614527,
+            "reason": null
+          },
+          {
+            "name": "mouth",
+            "available": true,
+            "passed": true,
+            "samples": 241,
+            "rmse_mm": 0.0024531987325741153,
+            "bias_mm": 0.0024392892358375837,
+            "p95_absolute_error_mm": 0.003043027568459422,
+            "span_retention": 0.9997067634940635,
+            "reason": null
+          },
+          {
+            "name": "nose",
+            "available": true,
+            "passed": true,
+            "samples": 175,
+            "rmse_mm": 0.0014145724630083608,
+            "bias_mm": 0.0008988132640187376,
+            "p95_absolute_error_mm": 0.002400047041831499,
+            "span_retention": 0.9995840126208879,
+            "reason": null
+          },
+          {
+            "name": "right_eye",
+            "available": true,
+            "passed": true,
+            "samples": 148,
+            "rmse_mm": 0.0037885507773220213,
+            "bias_mm": 0.0037878136004509473,
+            "p95_absolute_error_mm": 0.003912119771085898,
+            "span_retention": 0.9998566958790075,
+            "reason": null
+          },
+          {
+            "name": "right_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 942,
+            "rmse_mm": 0.003217151699832207,
+            "bias_mm": 0.00307444433441783,
+            "p95_absolute_error_mm": 0.0051964862799568565,
+            "span_retention": 0.9996310859884975,
+            "reason": null
+          }
+        ]
+      },
+      "render_depth_provenance": {
+        "source_coordinate_unit": "canonical centimeters before normalization",
+        "camera_frame_z_near": 0.40953001379966736,
+        "camera_frame_z_far": -0.4087708592414856,
+        "camera_frame_z_span": 0.8183008432388306,
+        "depth_convention": "near=0, far=1 within visible canonical face",
+        "part_labels": "barycentric vertex weights sharing the primary z-buffer"
+      },
+      "background": {
+        "passed": true,
+        "correlation": 0.9999999999999999,
+        "rms_retention": 1.0,
+        "span_retention": 1.0,
+        "gradient_correlation": 1.0,
+        "gradient_rms_retention": 1.0,
+        "candidate_coverage_ratio": 1.0,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 423,
+          "structured_window_count": 185,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.15706489436047796,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999999999999998,
+          "maximum_window_shape_error_ratio": 0.0,
+          "worst_window": {
+            "row": 7,
+            "col": 91,
+            "samples": 211,
+            "reference_rms_mm": 1.1873997882713379,
+            "correlation": 0.9999999999999998,
+            "shape_error_ratio": 0.0
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "physical_cap": {
+        "emission_passed": true,
+        "far_background_max_mm": 13.510000228881836,
+        "far_background_ceiling_mm": 13.509999999776483,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633
+      },
+      "feature_handling": {
+        "requested_feature_depth_mm": 0.8,
+        "effective_feature_depth_mm": 0.0,
+        "emboss_suppressed": true,
+        "bridge_enabled": false,
+        "bridge_reason": "no_peripheral_feature_gaps"
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 232320,
+        "vertex_count": 116162,
+        "printable": true
+      },
+      "shell": {
+        "passed": true,
+        "complete_shell_verified": true,
+        "facet_geometry_passed": true,
+        "coverage_ratio": 1.0,
+        "max_abs_error_mm": 0.0,
+        "rms_error_mm": 0.0,
+        "expected_shell_triangle_count": 232320,
+        "actual_shell_triangle_count": 232320,
+        "invalid_shell_triangle_count": 0
+      },
+      "artifacts": {
+        "source.png": {
+          "size_bytes": 20291,
+          "sha256": "aebd6ffd18a8979c6e2cc686564728ac39624010284c9caca81db988ed6d40ee"
+        },
+        "composed_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "95b469a516b156a30a1b506b3f9d915c3c5d2490a859ce54f350eb68d1250d56"
+        },
+        "reference_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "ffebaa7021ebd0ceb71d26dc99943811f600de4fb71458351be6402c8ba358a0"
+        },
+        "emitted_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "f5d6e73384a9aebf460aa9f55c3e4d05cbf8080badad1fc0321bbbcd7c59609d"
+        },
+        "relief.stl": {
+          "size_bytes": 11616084,
+          "sha256": "f678e86915e0ab6a9fe16b5b1ad42322fd8867af34dd4c8ae6ee2e37e08ca79f"
+        },
+        "postprocess.json": {
+          "size_bytes": 73475,
+          "sha256": "c6f787bcdaa4c9679e82da11aedb989bae0a5bc95c3b768915c787ea570878df"
+        }
+      }
+    },
+    {
+      "row_id": "yaw_+00p0_height_40p0mm",
+      "yaw_deg": 0.0,
+      "relief_height_mm": 40.0,
+      "render_size": 256,
+      "physical_size_mm": 96.0,
+      "runtime_seconds": 4.819770199999766,
+      "checks": {
+        "source_context": true,
+        "absolute_face_appearance": true,
+        "absolute_named_parts": true,
+        "absolute_named_part_mm_error": true,
+        "background_preservation": true,
+        "localized_background_structure": true,
+        "physical_emission": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "complete_shell": true,
+        "screened_face_reconstruction": true,
+        "redundant_emboss_suppressed": true,
+        "feature_bridge_requested": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 21727,
+        "normalized_context_correlation": 1.0000000000000002,
+        "normalized_context_rms_retention": 1.0,
+        "recoverable_context_coverage_ratio": 0.6240149554213402
+      },
+      "absolute_face": {
+        "available": true,
+        "samples": 25792,
+        "reference_samples": 25792,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9999882475370744,
+        "normal_p05_cosine": 0.9999422702972112,
+        "normal_angle_p95_deg": 0.6156576916669826,
+        "minimum_lighting_correlation": 0.9999465304844857,
+        "maximum_lighting_mae": 0.0005171244522080745,
+        "minimum_lighting_rms_retention": 0.9996658575834368,
+        "maximum_lighting_rms_retention": 1.0018983797034184,
+        "checks": {
+          "telemetry": true,
+          "coverage": true,
+          "normal_field": true,
+          "lighting": true,
+          "lighting_energy": true,
+          "components": true,
+          "passed": true
+        }
+      },
+      "absolute_named_parts": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_shape_correlation": 0.9,
+          "maximum_face_normalized_shape_rmse": 0.2,
+          "minimum_gradient_correlation": 0.75,
+          "minimum_slope_q95_retention": 0.45,
+          "maximum_slope_q95_retention": 2.2,
+          "minimum_curvature_q95_retention": 0.35,
+          "maximum_curvature_q95_retention": 2.8,
+          "maximum_slope_wasserstein_ratio": 0.75,
+          "maximum_curvature_wasserstein_ratio": 0.9
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "passed": true,
+            "samples": 149,
+            "shape_correlation": 0.9999999702519229,
+            "face_normalized_shape_rmse": 0.0001465528700446951,
+            "minimum_gradient_correlation": 0.9999999905598181,
+            "minimum_slope_q95_retention": 0.9997815093047548,
+            "maximum_slope_q95_retention": 0.9998785581991172,
+            "minimum_curvature_q95_retention": 0.9995724654410066,
+            "maximum_curvature_q95_retention": 0.9996080411135702
+          },
+          {
+            "name": "left_eyebrow",
+            "passed": true,
+            "samples": 939,
+            "shape_correlation": 0.9999999937748346,
+            "face_normalized_shape_rmse": 9.906656202913023e-05,
+            "minimum_gradient_correlation": 0.9999995495221219,
+            "minimum_slope_q95_retention": 0.9992771090035205,
+            "maximum_slope_q95_retention": 0.9993739663353991,
+            "minimum_curvature_q95_retention": 0.9992461005884482,
+            "maximum_curvature_q95_retention": 0.9996373127731292
+          },
+          {
+            "name": "mouth",
+            "passed": true,
+            "samples": 241,
+            "shape_correlation": 0.9999999999000725,
+            "face_normalized_shape_rmse": 4.759281653663977e-05,
+            "minimum_gradient_correlation": 0.9999999995607346,
+            "minimum_slope_q95_retention": 0.9996549497982357,
+            "maximum_slope_q95_retention": 0.9996677808529542,
+            "minimum_curvature_q95_retention": 0.9996686308348453,
+            "maximum_curvature_q95_retention": 0.9997159979411389
+          },
+          {
+            "name": "nose",
+            "passed": true,
+            "samples": 175,
+            "shape_correlation": 0.9999999996974742,
+            "face_normalized_shape_rmse": 0.0001244086341593539,
+            "minimum_gradient_correlation": 0.9999999950708406,
+            "minimum_slope_q95_retention": 0.9994546829770272,
+            "maximum_slope_q95_retention": 0.9995192080685611,
+            "minimum_curvature_q95_retention": 0.9993629085347877,
+            "maximum_curvature_q95_retention": 0.9996217496974734
+          },
+          {
+            "name": "right_eye",
+            "passed": true,
+            "samples": 148,
+            "shape_correlation": 0.9999999675499653,
+            "face_normalized_shape_rmse": 0.00014645560332344535,
+            "minimum_gradient_correlation": 0.999999990281598,
+            "minimum_slope_q95_retention": 0.9997814791854129,
+            "maximum_slope_q95_retention": 0.9998825716952285,
+            "minimum_curvature_q95_retention": 0.9995738383324447,
+            "maximum_curvature_q95_retention": 0.9996008839653369
+          },
+          {
+            "name": "right_eyebrow",
+            "passed": true,
+            "samples": 942,
+            "shape_correlation": 0.9999999938804527,
+            "face_normalized_shape_rmse": 9.915261796113145e-05,
+            "minimum_gradient_correlation": 0.9999996070828917,
+            "minimum_slope_q95_retention": 0.9992776019712025,
+            "maximum_slope_q95_retention": 0.9992849879085963,
+            "minimum_curvature_q95_retention": 0.9992550898208248,
+            "maximum_curvature_q95_retention": 0.9995629199740903
+          }
+        ]
+      },
+      "absolute_named_part_mm_error": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_face_affine_scale": 0.1,
+          "maximum_face_affine_scale": 2.0,
+          "maximum_rmse_mm": 0.8,
+          "maximum_p95_absolute_error_mm": 1.5,
+          "maximum_absolute_bias_mm": 0.5,
+          "minimum_span_retention": 0.65,
+          "maximum_span_retention": 1.35
+        },
+        "face_affine_fit": {
+          "scale": 1.0006421479427559,
+          "offset_mm": -0.02225731255951121
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "available": true,
+            "passed": true,
+            "samples": 149,
+            "rmse_mm": 0.0064885494364029525,
+            "bias_mm": 0.006485087176314048,
+            "p95_absolute_error_mm": 0.006841280226071688,
+            "span_retention": 0.9996500776778939,
+            "reason": null
+          },
+          {
+            "name": "left_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 939,
+            "rmse_mm": 0.004636225312957168,
+            "bias_mm": 0.004229360714210607,
+            "p95_absolute_error_mm": 0.008374452960837784,
+            "span_retention": 0.9993057333776874,
+            "reason": null
+          },
+          {
+            "name": "mouth",
+            "available": true,
+            "passed": true,
+            "samples": 241,
+            "rmse_mm": 0.0028399392560009423,
+            "bias_mm": 0.002747221912244059,
+            "p95_absolute_error_mm": 0.004413085191426802,
+            "span_retention": 0.9993902948908422,
+            "reason": null
+          },
+          {
+            "name": "nose",
+            "available": true,
+            "passed": true,
+            "samples": 175,
+            "rmse_mm": 0.003073326958912772,
+            "bias_mm": -0.0011966035511869271,
+            "p95_absolute_error_mm": 0.00501282549773947,
+            "span_retention": 0.9991917388847733,
+            "reason": null
+          },
+          {
+            "name": "right_eye",
+            "available": true,
+            "passed": true,
+            "samples": 148,
+            "rmse_mm": 0.00648306168973502,
+            "bias_mm": 0.006479764831602271,
+            "p95_absolute_error_mm": 0.006805548852340593,
+            "span_retention": 0.9996585980532553,
+            "reason": null
+          },
+          {
+            "name": "right_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 942,
+            "rmse_mm": 0.004638925519399352,
+            "bias_mm": 0.0042178307912291374,
+            "p95_absolute_error_mm": 0.008479849650824706,
+            "span_retention": 0.9993909189325881,
+            "reason": null
+          }
+        ]
+      },
+      "render_depth_provenance": {
+        "source_coordinate_unit": "canonical centimeters before normalization",
+        "camera_frame_z_near": 0.40953001379966736,
+        "camera_frame_z_far": -0.4087708592414856,
+        "camera_frame_z_span": 0.8183008432388306,
+        "depth_convention": "near=0, far=1 within visible canonical face",
+        "part_labels": "barycentric vertex weights sharing the primary z-buffer"
+      },
+      "background": {
+        "passed": true,
+        "correlation": 1.0,
+        "rms_retention": 1.0,
+        "span_retention": 1.0,
+        "gradient_correlation": 1.0000000000000002,
+        "gradient_rms_retention": 1.0,
+        "candidate_coverage_ratio": 1.0,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 423,
+          "structured_window_count": 211,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.26252953818983266,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999999999999998,
+          "maximum_window_shape_error_ratio": 0.0,
+          "worst_window": {
+            "row": 7,
+            "col": 84,
+            "samples": 218,
+            "reference_rms_mm": 1.7320808252382367,
+            "correlation": 0.9999999999999998,
+            "shape_error_ratio": 0.0
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "physical_cap": {
+        "emission_passed": true,
+        "far_background_max_mm": 18.010000228881836,
+        "far_background_ceiling_mm": 18.009999999776483,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633
+      },
+      "feature_handling": {
+        "requested_feature_depth_mm": 0.8,
+        "effective_feature_depth_mm": 0.0,
+        "emboss_suppressed": true,
+        "bridge_enabled": false,
+        "bridge_reason": "no_peripheral_feature_gaps"
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 232320,
+        "vertex_count": 116162,
+        "printable": true
+      },
+      "shell": {
+        "passed": true,
+        "complete_shell_verified": true,
+        "facet_geometry_passed": true,
+        "coverage_ratio": 1.0,
+        "max_abs_error_mm": 0.0,
+        "rms_error_mm": 0.0,
+        "expected_shell_triangle_count": 232320,
+        "actual_shell_triangle_count": 232320,
+        "invalid_shell_triangle_count": 0
+      },
+      "artifacts": {
+        "source.png": {
+          "size_bytes": 20291,
+          "sha256": "aebd6ffd18a8979c6e2cc686564728ac39624010284c9caca81db988ed6d40ee"
+        },
+        "composed_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "1bcea2cc0ce2da53af5fafd869581594097ead16814fd2aa79ce412e191bd2f9"
+        },
+        "reference_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "6ebff04820d9cd3547b49842b8220c1f15e16bd1a990e15dd94729259e44249a"
+        },
+        "emitted_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "c7dffbc9d603eb36269e26c46ce9eeb19f4c5ece68e69e168082c60694d1b281"
+        },
+        "relief.stl": {
+          "size_bytes": 11616084,
+          "sha256": "68ed932c6bcc04719c2607ca094d7fc0d4ef4996b44f99ebc2e72502310e4bb4"
+        },
+        "postprocess.json": {
+          "size_bytes": 73914,
+          "sha256": "6db44a960ca2eb4324eee9ca00934eb45d170a20c18a3ab9b6d42602083e499a"
+        }
+      }
+    },
+    {
+      "row_id": "yaw_-30p0_height_20p0mm",
+      "yaw_deg": -30.0,
+      "relief_height_mm": 20.0,
+      "render_size": 256,
+      "physical_size_mm": 96.0,
+      "runtime_seconds": 5.2942488999979105,
+      "checks": {
+        "source_context": true,
+        "absolute_face_appearance": true,
+        "absolute_named_parts": true,
+        "absolute_named_part_mm_error": true,
+        "background_preservation": true,
+        "localized_background_structure": true,
+        "physical_emission": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "complete_shell": true,
+        "screened_face_reconstruction": true,
+        "redundant_emboss_suppressed": true,
+        "feature_bridge_requested": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 32446,
+        "normalized_context_correlation": 1.0,
+        "normalized_context_rms_retention": 1.0,
+        "recoverable_context_coverage_ratio": 0.8559000610031032
+      },
+      "absolute_face": {
+        "available": true,
+        "samples": 23263,
+        "reference_samples": 23263,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9999802235466075,
+        "normal_p05_cosine": 0.9999730136153607,
+        "normal_angle_p95_deg": 0.4209310071686655,
+        "minimum_lighting_correlation": 0.9993935366421305,
+        "maximum_lighting_mae": 0.0004676854714319734,
+        "minimum_lighting_rms_retention": 0.9989595749268773,
+        "maximum_lighting_rms_retention": 1.000571284176577,
+        "checks": {
+          "telemetry": true,
+          "coverage": true,
+          "normal_field": true,
+          "lighting": true,
+          "lighting_energy": true,
+          "components": true,
+          "passed": true
+        }
+      },
+      "absolute_named_parts": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_shape_correlation": 0.9,
+          "maximum_face_normalized_shape_rmse": 0.2,
+          "minimum_gradient_correlation": 0.75,
+          "minimum_slope_q95_retention": 0.45,
+          "maximum_slope_q95_retention": 2.2,
+          "minimum_curvature_q95_retention": 0.35,
+          "maximum_curvature_q95_retention": 2.8,
+          "maximum_slope_wasserstein_ratio": 0.75,
+          "maximum_curvature_wasserstein_ratio": 0.9
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "passed": true,
+            "samples": 140,
+            "shape_correlation": 0.9999999999322933,
+            "face_normalized_shape_rmse": 0.00016298727788899875,
+            "minimum_gradient_correlation": 0.9999999982860408,
+            "minimum_slope_q95_retention": 1.0000613870799413,
+            "maximum_slope_q95_retention": 1.0000890463406151,
+            "minimum_curvature_q95_retention": 1.0000184632459832,
+            "maximum_curvature_q95_retention": 1.0000553221597286
+          },
+          {
+            "name": "left_eyebrow",
+            "passed": true,
+            "samples": 552,
+            "shape_correlation": 0.9995393913526917,
+            "face_normalized_shape_rmse": 0.007419649948902998,
+            "minimum_gradient_correlation": 0.901081301312773,
+            "minimum_slope_q95_retention": 0.8916534934150613,
+            "maximum_slope_q95_retention": 0.9104497614219705,
+            "minimum_curvature_q95_retention": 0.8061945914850699,
+            "maximum_curvature_q95_retention": 0.8954933793914331
+          },
+          {
+            "name": "mouth",
+            "passed": true,
+            "samples": 199,
+            "shape_correlation": 0.9999999882920488,
+            "face_normalized_shape_rmse": 0.00013609737478295067,
+            "minimum_gradient_correlation": 0.999999980547969,
+            "minimum_slope_q95_retention": 0.9999452877534524,
+            "maximum_slope_q95_retention": 1.0000714230957484,
+            "minimum_curvature_q95_retention": 0.9998776437947572,
+            "maximum_curvature_q95_retention": 0.999953944535866
+          },
+          {
+            "name": "nose",
+            "passed": true,
+            "samples": 136,
+            "shape_correlation": 0.9999999708100814,
+            "face_normalized_shape_rmse": 7.352866572713437e-05,
+            "minimum_gradient_correlation": 0.9999991432818194,
+            "minimum_slope_q95_retention": 0.9989337041891929,
+            "maximum_slope_q95_retention": 0.9993723359953837,
+            "minimum_curvature_q95_retention": 0.999954315292081,
+            "maximum_curvature_q95_retention": 0.9999723903714718
+          },
+          {
+            "name": "right_eye",
+            "passed": true,
+            "samples": 109,
+            "shape_correlation": 0.9999999597743262,
+            "face_normalized_shape_rmse": 0.00032167527400414153,
+            "minimum_gradient_correlation": 0.9999997917137186,
+            "minimum_slope_q95_retention": 0.9996214529940678,
+            "maximum_slope_q95_retention": 0.9997815848583005,
+            "minimum_curvature_q95_retention": 0.9998590954211409,
+            "maximum_curvature_q95_retention": 0.9999657076919234
+          },
+          {
+            "name": "right_eyebrow",
+            "passed": true,
+            "samples": 1052,
+            "shape_correlation": 0.9999999970286877,
+            "face_normalized_shape_rmse": 0.0001685892710309736,
+            "minimum_gradient_correlation": 0.9999999773919364,
+            "minimum_slope_q95_retention": 1.0000513291488506,
+            "maximum_slope_q95_retention": 1.0001145814181855,
+            "minimum_curvature_q95_retention": 1.0000396653582078,
+            "maximum_curvature_q95_retention": 1.0000828022201844
+          }
+        ]
+      },
+      "absolute_named_part_mm_error": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_face_affine_scale": 0.1,
+          "maximum_face_affine_scale": 2.0,
+          "maximum_rmse_mm": 0.8,
+          "maximum_p95_absolute_error_mm": 1.5,
+          "maximum_absolute_bias_mm": 0.5,
+          "minimum_span_retention": 0.65,
+          "maximum_span_retention": 1.35
+        },
+        "face_affine_fit": {
+          "scale": 1.0005769865904368,
+          "offset_mm": -0.010822621684913115
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "available": true,
+            "passed": true,
+            "samples": 140,
+            "rmse_mm": 0.0018188753004742798,
+            "bias_mm": 0.0017947391542510794,
+            "p95_absolute_error_mm": 0.0024128066876878402,
+            "span_retention": 0.9994417515096753,
+            "reason": null
+          },
+          {
+            "name": "left_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 552,
+            "rmse_mm": 0.07295738891617083,
+            "bias_mm": 0.01215852136992069,
+            "p95_absolute_error_mm": 0.013980479050588128,
+            "span_retention": 1.0025578210326196,
+            "reason": null
+          },
+          {
+            "name": "mouth",
+            "available": true,
+            "passed": true,
+            "samples": 199,
+            "rmse_mm": 0.0016969306199634273,
+            "bias_mm": 0.0016356159439517965,
+            "p95_absolute_error_mm": 0.002520622570281716,
+            "span_retention": 0.9995986991380492,
+            "reason": null
+          },
+          {
+            "name": "nose",
+            "available": true,
+            "passed": true,
+            "samples": 136,
+            "rmse_mm": 0.001809641054436825,
+            "bias_mm": -0.0007481793522049931,
+            "p95_absolute_error_mm": 0.003021984709918435,
+            "span_retention": 0.9990397077679322,
+            "reason": null
+          },
+          {
+            "name": "right_eye",
+            "available": true,
+            "passed": true,
+            "samples": 109,
+            "rmse_mm": 0.00798320943311932,
+            "bias_mm": 0.007909854770672084,
+            "p95_absolute_error_mm": 0.009893095984038602,
+            "span_retention": 0.9986717054579497,
+            "reason": null
+          },
+          {
+            "name": "right_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 1052,
+            "rmse_mm": 0.0008656942976779241,
+            "bias_mm": 0.0007997340695989977,
+            "p95_absolute_error_mm": 0.00141277906210453,
+            "span_retention": 0.9994656690826257,
+            "reason": null
+          }
+        ]
+      },
+      "render_depth_provenance": {
+        "source_coordinate_unit": "canonical centimeters before normalization",
+        "camera_frame_z_near": 0.36513879895210266,
+        "camera_frame_z_far": -0.334833562374115,
+        "camera_frame_z_span": 0.69997239112854,
+        "depth_convention": "near=0, far=1 within visible canonical face",
+        "part_labels": "barycentric vertex weights sharing the primary z-buffer"
+      },
+      "background": {
+        "passed": true,
+        "correlation": 1.0,
+        "rms_retention": 1.0,
+        "span_retention": 1.0,
+        "gradient_correlation": 0.9999999999999999,
+        "gradient_rms_retention": 1.0,
+        "candidate_coverage_ratio": 1.0,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 477,
+          "structured_window_count": 109,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.05932481356967155,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999999999999998,
+          "maximum_window_shape_error_ratio": 0.0,
+          "worst_window": {
+            "row": 7,
+            "col": 70,
+            "samples": 225,
+            "reference_rms_mm": 0.14609688923637676,
+            "correlation": 0.9999999999999998,
+            "shape_error_ratio": 0.0
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "physical_cap": {
+        "emission_passed": true,
+        "far_background_max_mm": 9.010000228881836,
+        "far_background_ceiling_mm": 9.009999999776483,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633
+      },
+      "feature_handling": {
+        "requested_feature_depth_mm": 0.8,
+        "effective_feature_depth_mm": 0.0,
+        "emboss_suppressed": true,
+        "bridge_enabled": true,
+        "bridge_reason": null
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 232320,
+        "vertex_count": 116162,
+        "printable": true
+      },
+      "shell": {
+        "passed": true,
+        "complete_shell_verified": true,
+        "facet_geometry_passed": true,
+        "coverage_ratio": 1.0,
+        "max_abs_error_mm": 0.0,
+        "rms_error_mm": 0.0,
+        "expected_shell_triangle_count": 232320,
+        "actual_shell_triangle_count": 232320,
+        "invalid_shell_triangle_count": 0
+      },
+      "artifacts": {
+        "source.png": {
+          "size_bytes": 19448,
+          "sha256": "699a1d9684f886cc6d0139c2e9982c393d55fed4c95f1e3f2a008d21659d4153"
+        },
+        "composed_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "9b1c8bc7ca34e9e73cbfd4fd7721a27d1871ad2820fe18bb37c589ab5b66a56a"
+        },
+        "reference_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "c579270d87d904f26e719926c7a7d287e701ddfde9d8ba3bf5feccc22c04b80c"
+        },
+        "emitted_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "57f2de791f429ac99a70e72a1565a50d4e2d06c019f848767bc01746c7577295"
+        },
+        "relief.stl": {
+          "size_bytes": 11616084,
+          "sha256": "a3fc0cddd9df792a0d2ad53d0abe47e6d13a1441afbef4426adec18ce7d2b9ca"
+        },
+        "postprocess.json": {
+          "size_bytes": 75184,
+          "sha256": "5b4a8886fadb6e0284158659f42ec25cbdf2ea471d642d154639e5d3addef78b"
+        }
+      }
+    },
+    {
+      "row_id": "yaw_-30p0_height_30p0mm",
+      "yaw_deg": -30.0,
+      "relief_height_mm": 30.0,
+      "render_size": 256,
+      "physical_size_mm": 96.0,
+      "runtime_seconds": 4.885876899999857,
+      "checks": {
+        "source_context": true,
+        "absolute_face_appearance": true,
+        "absolute_named_parts": true,
+        "absolute_named_part_mm_error": true,
+        "background_preservation": true,
+        "localized_background_structure": true,
+        "physical_emission": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "complete_shell": true,
+        "screened_face_reconstruction": true,
+        "redundant_emboss_suppressed": true,
+        "feature_bridge_requested": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 29853,
+        "normalized_context_correlation": 1.0,
+        "normalized_context_rms_retention": 1.0,
+        "recoverable_context_coverage_ratio": 0.7881070471845741
+      },
+      "absolute_face": {
+        "available": true,
+        "samples": 23263,
+        "reference_samples": 23263,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9999897959537416,
+        "normal_p05_cosine": 0.9999492895110044,
+        "normal_angle_p95_deg": 0.577016676166722,
+        "minimum_lighting_correlation": 0.9998923526690826,
+        "maximum_lighting_mae": 0.0006313800712753817,
+        "minimum_lighting_rms_retention": 0.9993069034856494,
+        "maximum_lighting_rms_retention": 1.0039397490937225,
+        "checks": {
+          "telemetry": true,
+          "coverage": true,
+          "normal_field": true,
+          "lighting": true,
+          "lighting_energy": true,
+          "components": true,
+          "passed": true
+        }
+      },
+      "absolute_named_parts": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_shape_correlation": 0.9,
+          "maximum_face_normalized_shape_rmse": 0.2,
+          "minimum_gradient_correlation": 0.75,
+          "minimum_slope_q95_retention": 0.45,
+          "maximum_slope_q95_retention": 2.2,
+          "minimum_curvature_q95_retention": 0.35,
+          "maximum_curvature_q95_retention": 2.8,
+          "maximum_slope_wasserstein_ratio": 0.75,
+          "maximum_curvature_wasserstein_ratio": 0.9
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "passed": true,
+            "samples": 140,
+            "shape_correlation": 0.9999999998278923,
+            "face_normalized_shape_rmse": 0.00016632498805592,
+            "minimum_gradient_correlation": 0.9999999964273153,
+            "minimum_slope_q95_retention": 0.9998174670123953,
+            "maximum_slope_q95_retention": 0.9998592848911716,
+            "minimum_curvature_q95_retention": 0.9997597986835698,
+            "maximum_curvature_q95_retention": 0.9998396074538751
+          },
+          {
+            "name": "left_eyebrow",
+            "passed": true,
+            "samples": 552,
+            "shape_correlation": 0.9999810816639346,
+            "face_normalized_shape_rmse": 0.0018038696165912562,
+            "minimum_gradient_correlation": 0.9620320856867552,
+            "minimum_slope_q95_retention": 0.966654111977677,
+            "maximum_slope_q95_retention": 0.9930680772560061,
+            "minimum_curvature_q95_retention": 0.9196016644537542,
+            "maximum_curvature_q95_retention": 0.9572394798105301
+          },
+          {
+            "name": "mouth",
+            "passed": true,
+            "samples": 199,
+            "shape_correlation": 0.9999999561697179,
+            "face_normalized_shape_rmse": 0.00010772919380732689,
+            "minimum_gradient_correlation": 0.9999999473336936,
+            "minimum_slope_q95_retention": 0.9999032085026035,
+            "maximum_slope_q95_retention": 1.0000285700852358,
+            "minimum_curvature_q95_retention": 0.9996608617920515,
+            "maximum_curvature_q95_retention": 0.9997265944309884
+          },
+          {
+            "name": "nose",
+            "passed": true,
+            "samples": 136,
+            "shape_correlation": 0.9999999301544872,
+            "face_normalized_shape_rmse": 0.0001749373845699773,
+            "minimum_gradient_correlation": 0.9999987478847445,
+            "minimum_slope_q95_retention": 0.9983819014301275,
+            "maximum_slope_q95_retention": 0.9989901303559479,
+            "minimum_curvature_q95_retention": 0.9997021265787139,
+            "maximum_curvature_q95_retention": 0.9997166214143127
+          },
+          {
+            "name": "right_eye",
+            "passed": true,
+            "samples": 109,
+            "shape_correlation": 0.9999999435698544,
+            "face_normalized_shape_rmse": 0.0004500494286275771,
+            "minimum_gradient_correlation": 0.9999995958122123,
+            "minimum_slope_q95_retention": 0.9995381335666043,
+            "maximum_slope_q95_retention": 0.9997172044687607,
+            "minimum_curvature_q95_retention": 0.9994075232615581,
+            "maximum_curvature_q95_retention": 0.9996413635267558
+          },
+          {
+            "name": "right_eyebrow",
+            "passed": true,
+            "samples": 1052,
+            "shape_correlation": 0.9999999959750289,
+            "face_normalized_shape_rmse": 0.00012818323108571616,
+            "minimum_gradient_correlation": 0.9999999725015681,
+            "minimum_slope_q95_retention": 0.9998084870130424,
+            "maximum_slope_q95_retention": 0.9999190924310688,
+            "minimum_curvature_q95_retention": 0.9998414422304047,
+            "maximum_curvature_q95_retention": 0.9998442022937147
+          }
+        ]
+      },
+      "absolute_named_part_mm_error": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_face_affine_scale": 0.1,
+          "maximum_face_affine_scale": 2.0,
+          "maximum_rmse_mm": 0.8,
+          "maximum_p95_absolute_error_mm": 1.5,
+          "maximum_absolute_bias_mm": 0.5,
+          "minimum_span_retention": 0.65,
+          "maximum_span_retention": 1.35
+        },
+        "face_affine_fit": {
+          "scale": 1.0011033029610161,
+          "offset_mm": -0.029079941631946216
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "available": true,
+            "passed": true,
+            "samples": 140,
+            "rmse_mm": 0.003316465908758593,
+            "bias_mm": 0.0032028540506364627,
+            "p95_absolute_error_mm": 0.005004890758725187,
+            "span_retention": 0.9989170727233114,
+            "reason": null
+          },
+          {
+            "name": "left_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 552,
+            "rmse_mm": 0.024083113278030702,
+            "bias_mm": 0.0015300607169665373,
+            "p95_absolute_error_mm": 0.04999793710525911,
+            "span_retention": 1.0052497780622232,
+            "reason": null
+          },
+          {
+            "name": "mouth",
+            "available": true,
+            "passed": true,
+            "samples": 199,
+            "rmse_mm": 0.0025898405400227994,
+            "bias_mm": 0.002426087872994871,
+            "p95_absolute_error_mm": 0.004129357609085815,
+            "span_retention": 0.999548556886616,
+            "reason": null
+          },
+          {
+            "name": "nose",
+            "available": true,
+            "passed": true,
+            "samples": 136,
+            "rmse_mm": 0.005380813847185589,
+            "bias_mm": -0.0031845305221532903,
+            "p95_absolute_error_mm": 0.009136307081669237,
+            "span_retention": 0.9982883442565013,
+            "reason": null
+          },
+          {
+            "name": "right_eye",
+            "available": true,
+            "passed": true,
+            "samples": 109,
+            "rmse_mm": 0.017480535468393177,
+            "bias_mm": 0.01739283950658543,
+            "p95_absolute_error_mm": 0.020782001362022125,
+            "span_retention": 0.9985632442352371,
+            "reason": null
+          },
+          {
+            "name": "right_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 1052,
+            "rmse_mm": 0.0009966799959906882,
+            "bias_mm": 0.0003593471055977869,
+            "p95_absolute_error_mm": 0.002094142341995209,
+            "span_retention": 0.9989756800036023,
+            "reason": null
+          }
+        ]
+      },
+      "render_depth_provenance": {
+        "source_coordinate_unit": "canonical centimeters before normalization",
+        "camera_frame_z_near": 0.36513879895210266,
+        "camera_frame_z_far": -0.334833562374115,
+        "camera_frame_z_span": 0.69997239112854,
+        "depth_convention": "near=0, far=1 within visible canonical face",
+        "part_labels": "barycentric vertex weights sharing the primary z-buffer"
+      },
+      "background": {
+        "passed": true,
+        "correlation": 1.0000000000000002,
+        "rms_retention": 1.0,
+        "span_retention": 1.0,
+        "gradient_correlation": 1.0000000000000002,
+        "gradient_rms_retention": 1.0,
+        "candidate_coverage_ratio": 1.0,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 477,
+          "structured_window_count": 148,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.13625676016482002,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999999999999998,
+          "maximum_window_shape_error_ratio": 0.0,
+          "worst_window": {
+            "row": 7,
+            "col": 105,
+            "samples": 210,
+            "reference_rms_mm": 2.2526268169880557,
+            "correlation": 0.9999999999999998,
+            "shape_error_ratio": 0.0
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "physical_cap": {
+        "emission_passed": true,
+        "far_background_max_mm": 13.510000228881836,
+        "far_background_ceiling_mm": 13.509999999776483,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633
+      },
+      "feature_handling": {
+        "requested_feature_depth_mm": 0.8,
+        "effective_feature_depth_mm": 0.0,
+        "emboss_suppressed": true,
+        "bridge_enabled": true,
+        "bridge_reason": null
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 232320,
+        "vertex_count": 116162,
+        "printable": true
+      },
+      "shell": {
+        "passed": true,
+        "complete_shell_verified": true,
+        "facet_geometry_passed": true,
+        "coverage_ratio": 1.0,
+        "max_abs_error_mm": 0.0,
+        "rms_error_mm": 0.0,
+        "expected_shell_triangle_count": 232320,
+        "actual_shell_triangle_count": 232320,
+        "invalid_shell_triangle_count": 0
+      },
+      "artifacts": {
+        "source.png": {
+          "size_bytes": 19448,
+          "sha256": "699a1d9684f886cc6d0139c2e9982c393d55fed4c95f1e3f2a008d21659d4153"
+        },
+        "composed_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "45e897dbf3952a141b917d39b91f6b6861c55e0d07d772cec84ae7d34d6fed36"
+        },
+        "reference_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "e592763c3e65b76d30685862eabeeb52bf9480e5c50c3c42bc5b44f9a8a320e9"
+        },
+        "emitted_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "09e696530154dfb7c5c1588cba77c9410c2a971c4a21ac146511585879eb5eef"
+        },
+        "relief.stl": {
+          "size_bytes": 11616084,
+          "sha256": "0e701f25bc0c94d67dae4e083fb470d7ddfc8146922bdf4733d4b135678d8cfe"
+        },
+        "postprocess.json": {
+          "size_bytes": 75107,
+          "sha256": "05a0dbdda4c83c9e3fe8b3fbbad02b7c683cddf18b4a97071b5d48665a0e3298"
+        }
+      }
+    },
+    {
+      "row_id": "yaw_-30p0_height_40p0mm",
+      "yaw_deg": -30.0,
+      "relief_height_mm": 40.0,
+      "render_size": 256,
+      "physical_size_mm": 96.0,
+      "runtime_seconds": 4.841738899998745,
+      "checks": {
+        "source_context": true,
+        "absolute_face_appearance": true,
+        "absolute_named_parts": true,
+        "absolute_named_part_mm_error": true,
+        "background_preservation": true,
+        "localized_background_structure": true,
+        "physical_emission": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "complete_shell": true,
+        "screened_face_reconstruction": true,
+        "redundant_emboss_suppressed": true,
+        "feature_bridge_requested": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 27090,
+        "normalized_context_correlation": 1.0,
+        "normalized_context_rms_retention": 1.0,
+        "recoverable_context_coverage_ratio": 0.7156990159934222
+      },
+      "absolute_face": {
+        "available": true,
+        "samples": 23263,
+        "reference_samples": 23263,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9999540247695802,
+        "normal_p05_cosine": 0.9997652606435216,
+        "normal_angle_p95_deg": 1.2414781307850509,
+        "minimum_lighting_correlation": 0.9997032034985655,
+        "maximum_lighting_mae": 0.0014667230873820012,
+        "minimum_lighting_rms_retention": 0.9989499502755682,
+        "maximum_lighting_rms_retention": 1.0040976596672886,
+        "checks": {
+          "telemetry": true,
+          "coverage": true,
+          "normal_field": true,
+          "lighting": true,
+          "lighting_energy": true,
+          "components": true,
+          "passed": true
+        }
+      },
+      "absolute_named_parts": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_shape_correlation": 0.9,
+          "maximum_face_normalized_shape_rmse": 0.2,
+          "minimum_gradient_correlation": 0.75,
+          "minimum_slope_q95_retention": 0.45,
+          "maximum_slope_q95_retention": 2.2,
+          "minimum_curvature_q95_retention": 0.35,
+          "maximum_curvature_q95_retention": 2.8,
+          "maximum_slope_wasserstein_ratio": 0.75,
+          "maximum_curvature_wasserstein_ratio": 0.9
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "passed": true,
+            "samples": 140,
+            "shape_correlation": 0.999999997879908,
+            "face_normalized_shape_rmse": 0.0006903175855471559,
+            "minimum_gradient_correlation": 0.9999999614764346,
+            "minimum_slope_q95_retention": 0.9982177410463041,
+            "maximum_slope_q95_retention": 0.9983557643875112,
+            "minimum_curvature_q95_retention": 0.9980334333490937,
+            "maximum_curvature_q95_retention": 0.9982130757648651
+          },
+          {
+            "name": "left_eyebrow",
+            "passed": true,
+            "samples": 552,
+            "shape_correlation": 0.999961053444949,
+            "face_normalized_shape_rmse": 0.002767014723568621,
+            "minimum_gradient_correlation": 0.9790521523336693,
+            "minimum_slope_q95_retention": 0.9710847620460075,
+            "maximum_slope_q95_retention": 1.0274937764586831,
+            "minimum_curvature_q95_retention": 0.8795628084871089,
+            "maximum_curvature_q95_retention": 0.9168041756458096
+          },
+          {
+            "name": "mouth",
+            "passed": true,
+            "samples": 199,
+            "shape_correlation": 0.999999379906295,
+            "face_normalized_shape_rmse": 0.00043857580754364195,
+            "minimum_gradient_correlation": 0.9999994258003037,
+            "minimum_slope_q95_retention": 0.9986128444244841,
+            "maximum_slope_q95_retention": 0.9989868689404744,
+            "minimum_curvature_q95_retention": 0.9977547823589917,
+            "maximum_curvature_q95_retention": 0.9979898991098167
+          },
+          {
+            "name": "nose",
+            "passed": true,
+            "samples": 136,
+            "shape_correlation": 0.9999993656608555,
+            "face_normalized_shape_rmse": 0.0007136012969922432,
+            "minimum_gradient_correlation": 0.9999917231758082,
+            "minimum_slope_q95_retention": 0.994497815539493,
+            "maximum_slope_q95_retention": 0.9965137339087429,
+            "minimum_curvature_q95_retention": 0.9979449490312339,
+            "maximum_curvature_q95_retention": 0.9979791018600416
+          },
+          {
+            "name": "right_eye",
+            "passed": true,
+            "samples": 109,
+            "shape_correlation": 0.9999995750605712,
+            "face_normalized_shape_rmse": 0.0022808007517569526,
+            "minimum_gradient_correlation": 0.9999966878316877,
+            "minimum_slope_q95_retention": 0.9976723286461957,
+            "maximum_slope_q95_retention": 0.9983199776390613,
+            "minimum_curvature_q95_retention": 0.9970157623963877,
+            "maximum_curvature_q95_retention": 0.9976555205810521
+          },
+          {
+            "name": "right_eyebrow",
+            "passed": true,
+            "samples": 1052,
+            "shape_correlation": 0.9999999383540674,
+            "face_normalized_shape_rmse": 0.00035990907026750015,
+            "minimum_gradient_correlation": 0.9999996298497754,
+            "minimum_slope_q95_retention": 0.9981798856316106,
+            "maximum_slope_q95_retention": 0.9985572858421162,
+            "minimum_curvature_q95_retention": 0.9983332842719164,
+            "maximum_curvature_q95_retention": 0.9983527284624808
+          }
+        ]
+      },
+      "absolute_named_part_mm_error": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_face_affine_scale": 0.1,
+          "maximum_face_affine_scale": 2.0,
+          "maximum_rmse_mm": 0.8,
+          "maximum_p95_absolute_error_mm": 1.5,
+          "maximum_absolute_bias_mm": 0.5,
+          "minimum_span_retention": 0.65,
+          "maximum_span_retention": 1.35
+        },
+        "face_affine_fit": {
+          "scale": 1.0024613743620165,
+          "offset_mm": -0.08883931659186575
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "available": true,
+            "passed": true,
+            "samples": 140,
+            "rmse_mm": 0.012132788889047352,
+            "bias_mm": 0.011867095082336325,
+            "p95_absolute_error_mm": 0.017142708848280105,
+            "span_retention": 0.9976162154364533,
+            "reason": null
+          },
+          {
+            "name": "left_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 552,
+            "rmse_mm": 0.05190923013993274,
+            "bias_mm": 0.002570591813371835,
+            "p95_absolute_error_mm": 0.11064090398644011,
+            "span_retention": 1.0103486103455137,
+            "reason": null
+          },
+          {
+            "name": "mouth",
+            "available": true,
+            "passed": true,
+            "samples": 199,
+            "rmse_mm": 0.007382747912638736,
+            "bias_mm": 0.007000279108060415,
+            "p95_absolute_error_mm": 0.010023072535252453,
+            "span_retention": 0.9999742805988363,
+            "reason": null
+          },
+          {
+            "name": "nose",
+            "available": true,
+            "passed": true,
+            "samples": 136,
+            "rmse_mm": 0.017847764644922125,
+            "bias_mm": -0.01043326659958606,
+            "p95_absolute_error_mm": 0.03043654109673888,
+            "span_retention": 0.9957098846829782,
+            "reason": null
+          },
+          {
+            "name": "right_eye",
+            "available": true,
+            "passed": true,
+            "samples": 109,
+            "rmse_mm": 0.0529217002747268,
+            "bias_mm": 0.0527112283392258,
+            "p95_absolute_error_mm": 0.06171856825334458,
+            "span_retention": 0.9971411581674948,
+            "reason": null
+          },
+          {
+            "name": "right_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 1052,
+            "rmse_mm": 0.004053907530583035,
+            "bias_mm": 0.0030550371979445037,
+            "p95_absolute_error_mm": 0.007969815107883704,
+            "span_retention": 0.9978844259748277,
+            "reason": null
+          }
+        ]
+      },
+      "render_depth_provenance": {
+        "source_coordinate_unit": "canonical centimeters before normalization",
+        "camera_frame_z_near": 0.36513879895210266,
+        "camera_frame_z_far": -0.334833562374115,
+        "camera_frame_z_span": 0.69997239112854,
+        "depth_convention": "near=0, far=1 within visible canonical face",
+        "part_labels": "barycentric vertex weights sharing the primary z-buffer"
+      },
+      "background": {
+        "passed": true,
+        "correlation": 1.0,
+        "rms_retention": 1.0,
+        "span_retention": 1.0,
+        "gradient_correlation": 1.0000000000000002,
+        "gradient_rms_retention": 1.0,
+        "candidate_coverage_ratio": 1.0,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 477,
+          "structured_window_count": 187,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.2330204104421103,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999999999999998,
+          "maximum_window_shape_error_ratio": 0.0,
+          "worst_window": {
+            "row": 21,
+            "col": 189,
+            "samples": 225,
+            "reference_rms_mm": 1.694536746221521,
+            "correlation": 0.9999999999999998,
+            "shape_error_ratio": 0.0
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "physical_cap": {
+        "emission_passed": true,
+        "far_background_max_mm": 18.010000228881836,
+        "far_background_ceiling_mm": 18.009999999776483,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633
+      },
+      "feature_handling": {
+        "requested_feature_depth_mm": 0.8,
+        "effective_feature_depth_mm": 0.0,
+        "emboss_suppressed": true,
+        "bridge_enabled": true,
+        "bridge_reason": null
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 232320,
+        "vertex_count": 116162,
+        "printable": true
+      },
+      "shell": {
+        "passed": true,
+        "complete_shell_verified": true,
+        "facet_geometry_passed": true,
+        "coverage_ratio": 1.0,
+        "max_abs_error_mm": 0.0,
+        "rms_error_mm": 0.0,
+        "expected_shell_triangle_count": 232320,
+        "actual_shell_triangle_count": 232320,
+        "invalid_shell_triangle_count": 0
+      },
+      "artifacts": {
+        "source.png": {
+          "size_bytes": 19448,
+          "sha256": "699a1d9684f886cc6d0139c2e9982c393d55fed4c95f1e3f2a008d21659d4153"
+        },
+        "composed_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "eeb7a746458863f66ade58cd98e263c7cb5d3f3a0a7e6a709e8d4446e299ef08"
+        },
+        "reference_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "a663431575d479fa50e76febb36b84f270ac1cfe0a333945de80e41e1cf7ee27"
+        },
+        "emitted_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "4ac3235f93dcfe4f998734f1b91eb344391b01c3c6821fb44204a9783bc6b1ea"
+        },
+        "relief.stl": {
+          "size_bytes": 11616084,
+          "sha256": "dcb2d48f4bf89ddd9ec773d9780be7c0ae46cd4b7a170b8dce79554e96179330"
+        },
+        "postprocess.json": {
+          "size_bytes": 68828,
+          "sha256": "6faf026559c0dc683703bc6af32a467a7664ef063feee410daf808e0d6c6c184"
+        }
+      }
+    },
+    {
+      "row_id": "yaw_+30p0_height_20p0mm",
+      "yaw_deg": 30.0,
+      "relief_height_mm": 20.0,
+      "render_size": 256,
+      "physical_size_mm": 96.0,
+      "runtime_seconds": 5.404866900000343,
+      "checks": {
+        "source_context": true,
+        "absolute_face_appearance": true,
+        "absolute_named_parts": true,
+        "absolute_named_part_mm_error": true,
+        "background_preservation": true,
+        "localized_background_structure": true,
+        "physical_emission": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "complete_shell": true,
+        "screened_face_reconstruction": true,
+        "redundant_emboss_suppressed": true,
+        "feature_bridge_requested": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 32594,
+        "normalized_context_correlation": 0.9999999999999999,
+        "normalized_context_rms_retention": 1.0000000000000002,
+        "recoverable_context_coverage_ratio": 0.8560061533564969
+      },
+      "absolute_face": {
+        "available": true,
+        "samples": 23259,
+        "reference_samples": 23259,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9999790180488041,
+        "normal_p05_cosine": 0.9999689776198868,
+        "normal_angle_p95_deg": 0.45131140520906393,
+        "minimum_lighting_correlation": 0.999384609445437,
+        "maximum_lighting_mae": 0.0005437863207595008,
+        "minimum_lighting_rms_retention": 0.9991008006041734,
+        "maximum_lighting_rms_retention": 1.0002585594332396,
+        "checks": {
+          "telemetry": true,
+          "coverage": true,
+          "normal_field": true,
+          "lighting": true,
+          "lighting_energy": true,
+          "components": true,
+          "passed": true
+        }
+      },
+      "absolute_named_parts": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_shape_correlation": 0.9,
+          "maximum_face_normalized_shape_rmse": 0.2,
+          "minimum_gradient_correlation": 0.75,
+          "minimum_slope_q95_retention": 0.45,
+          "maximum_slope_q95_retention": 2.2,
+          "minimum_curvature_q95_retention": 0.35,
+          "maximum_curvature_q95_retention": 2.8,
+          "maximum_slope_wasserstein_ratio": 0.75,
+          "maximum_curvature_wasserstein_ratio": 0.9
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "passed": true,
+            "samples": 109,
+            "shape_correlation": 0.9999999588136196,
+            "face_normalized_shape_rmse": 0.0005434463021833079,
+            "minimum_gradient_correlation": 0.9999997937235647,
+            "minimum_slope_q95_retention": 0.9992892581253001,
+            "maximum_slope_q95_retention": 0.9994520802863608,
+            "minimum_curvature_q95_retention": 0.9995110964965113,
+            "maximum_curvature_q95_retention": 0.9996324318455023
+          },
+          {
+            "name": "left_eyebrow",
+            "passed": true,
+            "samples": 1052,
+            "shape_correlation": 0.9999999966702665,
+            "face_normalized_shape_rmse": 7.374383984664275e-05,
+            "minimum_gradient_correlation": 0.9999999795503178,
+            "minimum_slope_q95_retention": 0.999677748330001,
+            "maximum_slope_q95_retention": 0.9997158387856028,
+            "minimum_curvature_q95_retention": 0.9997003589007031,
+            "maximum_curvature_q95_retention": 0.9997425764564906
+          },
+          {
+            "name": "mouth",
+            "passed": true,
+            "samples": 197,
+            "shape_correlation": 0.9999999912962277,
+            "face_normalized_shape_rmse": 0.00011025190736819347,
+            "minimum_gradient_correlation": 0.9999999874429324,
+            "minimum_slope_q95_retention": 0.9995658318040325,
+            "maximum_slope_q95_retention": 0.9996585935694838,
+            "minimum_curvature_q95_retention": 0.9995160213359283,
+            "maximum_curvature_q95_retention": 0.9996011929930493
+          },
+          {
+            "name": "nose",
+            "passed": true,
+            "samples": 134,
+            "shape_correlation": 0.9999999720178164,
+            "face_normalized_shape_rmse": 0.00014889546846288254,
+            "minimum_gradient_correlation": 0.9999991142608841,
+            "minimum_slope_q95_retention": 0.9986136902024537,
+            "maximum_slope_q95_retention": 0.9990335890225709,
+            "minimum_curvature_q95_retention": 0.9996063519082704,
+            "maximum_curvature_q95_retention": 0.9996229258360966
+          },
+          {
+            "name": "right_eye",
+            "passed": true,
+            "samples": 140,
+            "shape_correlation": 0.9999999999319253,
+            "face_normalized_shape_rmse": 0.00012317535977035232,
+            "minimum_gradient_correlation": 0.9999999982791822,
+            "minimum_slope_q95_retention": 0.9997116568212416,
+            "maximum_slope_q95_retention": 0.9997389914649119,
+            "minimum_curvature_q95_retention": 0.9996697006934094,
+            "maximum_curvature_q95_retention": 0.9997057970956097
+          },
+          {
+            "name": "right_eyebrow",
+            "passed": true,
+            "samples": 550,
+            "shape_correlation": 0.9995393506987253,
+            "face_normalized_shape_rmse": 0.007448606652118261,
+            "minimum_gradient_correlation": 0.893221173448213,
+            "minimum_slope_q95_retention": 0.8707105654772797,
+            "maximum_slope_q95_retention": 0.9020369075815164,
+            "minimum_curvature_q95_retention": 0.7812853634635246,
+            "maximum_curvature_q95_retention": 0.9056852350992651
+          }
+        ]
+      },
+      "absolute_named_part_mm_error": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_face_affine_scale": 0.1,
+          "maximum_face_affine_scale": 2.0,
+          "maximum_rmse_mm": 0.8,
+          "maximum_p95_absolute_error_mm": 1.5,
+          "maximum_absolute_bias_mm": 0.5,
+          "minimum_span_retention": 0.65,
+          "maximum_span_retention": 1.35
+        },
+        "face_affine_fit": {
+          "scale": 1.000661833303557,
+          "offset_mm": -0.012301229763832413
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "available": true,
+            "passed": true,
+            "samples": 109,
+            "rmse_mm": 0.00875393135610563,
+            "bias_mm": 0.008679585203226375,
+            "p95_absolute_error_mm": 0.010784476868665393,
+            "span_retention": 0.9985979828175741,
+            "reason": null
+          },
+          {
+            "name": "left_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 1052,
+            "rmse_mm": 0.0009205018792221135,
+            "bias_mm": 0.0008467352204838412,
+            "p95_absolute_error_mm": 0.001525997281431124,
+            "span_retention": 0.9994109054744635,
+            "reason": null
+          },
+          {
+            "name": "mouth",
+            "available": true,
+            "passed": true,
+            "samples": 197,
+            "rmse_mm": 0.0019545695832496636,
+            "bias_mm": 0.0018723715841110983,
+            "p95_absolute_error_mm": 0.003100297341904223,
+            "span_retention": 0.9994687163110305,
+            "reason": null
+          },
+          {
+            "name": "nose",
+            "available": true,
+            "passed": true,
+            "samples": 134,
+            "rmse_mm": 0.0019539531285274565,
+            "bias_mm": -0.0007448453913424938,
+            "p95_absolute_error_mm": 0.003196251065631905,
+            "span_retention": 0.9989598716006822,
+            "reason": null
+          },
+          {
+            "name": "right_eye",
+            "available": true,
+            "passed": true,
+            "samples": 140,
+            "rmse_mm": 0.001976027535083658,
+            "bias_mm": 0.0019464949937917934,
+            "p95_absolute_error_mm": 0.002659095159206703,
+            "span_retention": 0.9993570964446867,
+            "reason": null
+          },
+          {
+            "name": "right_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 550,
+            "rmse_mm": 0.07324888987873196,
+            "bias_mm": 0.012967655432224098,
+            "p95_absolute_error_mm": 0.011776562913799313,
+            "span_retention": 1.0021212372719195,
+            "reason": null
+          }
+        ]
+      },
+      "render_depth_provenance": {
+        "source_coordinate_unit": "canonical centimeters before normalization",
+        "camera_frame_z_near": 0.36513879895210266,
+        "camera_frame_z_far": -0.3348335921764374,
+        "camera_frame_z_span": 0.69997239112854,
+        "depth_convention": "near=0, far=1 within visible canonical face",
+        "part_labels": "barycentric vertex weights sharing the primary z-buffer"
+      },
+      "background": {
+        "passed": true,
+        "correlation": 1.0,
+        "rms_retention": 1.0,
+        "span_retention": 1.0,
+        "gradient_correlation": 1.0,
+        "gradient_rms_retention": 1.0,
+        "candidate_coverage_ratio": 1.0,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 479,
+          "structured_window_count": 117,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.05889473611503569,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999999999999998,
+          "maximum_window_shape_error_ratio": 0.0,
+          "worst_window": {
+            "row": 14,
+            "col": 175,
+            "samples": 225,
+            "reference_rms_mm": 0.07482374449053991,
+            "correlation": 0.9999999999999998,
+            "shape_error_ratio": 0.0
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "physical_cap": {
+        "emission_passed": true,
+        "far_background_max_mm": 9.010000228881836,
+        "far_background_ceiling_mm": 9.009999999776483,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633
+      },
+      "feature_handling": {
+        "requested_feature_depth_mm": 0.8,
+        "effective_feature_depth_mm": 0.0,
+        "emboss_suppressed": true,
+        "bridge_enabled": true,
+        "bridge_reason": null
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 232320,
+        "vertex_count": 116162,
+        "printable": true
+      },
+      "shell": {
+        "passed": true,
+        "complete_shell_verified": true,
+        "facet_geometry_passed": true,
+        "coverage_ratio": 1.0,
+        "max_abs_error_mm": 0.0,
+        "rms_error_mm": 0.0,
+        "expected_shell_triangle_count": 232320,
+        "actual_shell_triangle_count": 232320,
+        "invalid_shell_triangle_count": 0
+      },
+      "artifacts": {
+        "source.png": {
+          "size_bytes": 20062,
+          "sha256": "da406c3c076b7aac9f285b3746d611b55131c41ac51c88621a7c6e416bf3093b"
+        },
+        "composed_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "412c9bd0f7837c6d857353476d55c3e7c64f98d9cccbc350ab2f3bbe87e1520c"
+        },
+        "reference_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "7b9f3da28fca0f37a58791553311ff76cc71681b5a763723ca1e08a4c71d1008"
+        },
+        "emitted_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "c7b8fc37d86cb24315acef550c939b453c28c6dabf0b756399b21c3ef8c62226"
+        },
+        "relief.stl": {
+          "size_bytes": 11616084,
+          "sha256": "543940db9ee4ef21a76e359f05b0f97ac9ceea03821ad7dc41e2f79be4cc0541"
+        },
+        "postprocess.json": {
+          "size_bytes": 75220,
+          "sha256": "c29e981471b721ecd4bb74b3ccc27a1dcefd44758e385e45684d557ad403d8d1"
+        }
+      }
+    },
+    {
+      "row_id": "yaw_+30p0_height_30p0mm",
+      "yaw_deg": 30.0,
+      "relief_height_mm": 30.0,
+      "render_size": 256,
+      "physical_size_mm": 96.0,
+      "runtime_seconds": 5.019893500000762,
+      "checks": {
+        "source_context": true,
+        "absolute_face_appearance": true,
+        "absolute_named_parts": true,
+        "absolute_named_part_mm_error": true,
+        "background_preservation": true,
+        "localized_background_structure": true,
+        "physical_emission": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "complete_shell": true,
+        "screened_face_reconstruction": true,
+        "redundant_emboss_suppressed": true,
+        "feature_bridge_requested": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 30000,
+        "normalized_context_correlation": 1.0000000000000002,
+        "normalized_context_rms_retention": 1.0000000000000002,
+        "recoverable_context_coverage_ratio": 0.7882396626263162
+      },
+      "absolute_face": {
+        "available": true,
+        "samples": 23259,
+        "reference_samples": 23259,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9999894186788896,
+        "normal_p05_cosine": 0.9999464869879926,
+        "normal_angle_p95_deg": 0.5927468640904419,
+        "minimum_lighting_correlation": 0.9998897570200908,
+        "maximum_lighting_mae": 0.0006641505236277425,
+        "minimum_lighting_rms_retention": 0.9993932168076867,
+        "maximum_lighting_rms_retention": 1.00328683389015,
+        "checks": {
+          "telemetry": true,
+          "coverage": true,
+          "normal_field": true,
+          "lighting": true,
+          "lighting_energy": true,
+          "components": true,
+          "passed": true
+        }
+      },
+      "absolute_named_parts": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_shape_correlation": 0.9,
+          "maximum_face_normalized_shape_rmse": 0.2,
+          "minimum_gradient_correlation": 0.75,
+          "minimum_slope_q95_retention": 0.45,
+          "maximum_slope_q95_retention": 2.2,
+          "minimum_curvature_q95_retention": 0.35,
+          "maximum_curvature_q95_retention": 2.8,
+          "maximum_slope_wasserstein_ratio": 0.75,
+          "maximum_curvature_wasserstein_ratio": 0.9
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "passed": true,
+            "samples": 109,
+            "shape_correlation": 0.9999999439157846,
+            "face_normalized_shape_rmse": 0.0006687451731280577,
+            "minimum_gradient_correlation": 0.9999996032625907,
+            "minimum_slope_q95_retention": 0.9992113913391731,
+            "maximum_slope_q95_retention": 0.9993926934088724,
+            "minimum_curvature_q95_retention": 0.9990772813200425,
+            "maximum_curvature_q95_retention": 0.9992770379196675
+          },
+          {
+            "name": "left_eyebrow",
+            "passed": true,
+            "samples": 1052,
+            "shape_correlation": 0.999999995577328,
+            "face_normalized_shape_rmse": 4.9100824228583735e-05,
+            "minimum_gradient_correlation": 0.999999973213827,
+            "minimum_slope_q95_retention": 0.9994859296259258,
+            "maximum_slope_q95_retention": 0.9994871604421558,
+            "minimum_curvature_q95_retention": 0.999431006897268,
+            "maximum_curvature_q95_retention": 0.9994852596374088
+          },
+          {
+            "name": "mouth",
+            "passed": true,
+            "samples": 197,
+            "shape_correlation": 0.9999999701135235,
+            "face_normalized_shape_rmse": 8.421240893461802e-05,
+            "minimum_gradient_correlation": 0.9999999646419148,
+            "minimum_slope_q95_retention": 0.9995111251514353,
+            "maximum_slope_q95_retention": 0.9996054921777642,
+            "minimum_curvature_q95_retention": 0.99930481365076,
+            "maximum_curvature_q95_retention": 0.9994075660369411
+          },
+          {
+            "name": "nose",
+            "passed": true,
+            "samples": 134,
+            "shape_correlation": 0.9999999340943332,
+            "face_normalized_shape_rmse": 0.0002759936197420294,
+            "minimum_gradient_correlation": 0.9999987100205964,
+            "minimum_slope_q95_retention": 0.9980876642052222,
+            "maximum_slope_q95_retention": 0.9986646263206128,
+            "minimum_curvature_q95_retention": 0.9993705282114694,
+            "maximum_curvature_q95_retention": 0.9993708989382065
+          },
+          {
+            "name": "right_eye",
+            "passed": true,
+            "samples": 140,
+            "shape_correlation": 0.9999999998277556,
+            "face_normalized_shape_rmse": 0.00013587529789394848,
+            "minimum_gradient_correlation": 0.9999999964395831,
+            "minimum_slope_q95_retention": 0.9994846536468234,
+            "maximum_slope_q95_retention": 0.9995232765405996,
+            "minimum_curvature_q95_retention": 0.9994271505417083,
+            "maximum_curvature_q95_retention": 0.9995066609868941
+          },
+          {
+            "name": "right_eyebrow",
+            "passed": true,
+            "samples": 550,
+            "shape_correlation": 0.9999851151214162,
+            "face_normalized_shape_rmse": 0.0015241379839367655,
+            "minimum_gradient_correlation": 0.9624106330942706,
+            "minimum_slope_q95_retention": 0.9622233297368675,
+            "maximum_slope_q95_retention": 0.9923746163408527,
+            "minimum_curvature_q95_retention": 0.9106779587100293,
+            "maximum_curvature_q95_retention": 0.9304836478576756
+          }
+        ]
+      },
+      "absolute_named_part_mm_error": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_face_affine_scale": 0.1,
+          "maximum_face_affine_scale": 2.0,
+          "maximum_rmse_mm": 0.8,
+          "maximum_p95_absolute_error_mm": 1.5,
+          "maximum_absolute_bias_mm": 0.5,
+          "minimum_span_retention": 0.65,
+          "maximum_span_retention": 1.35
+        },
+        "face_affine_fit": {
+          "scale": 1.0010960924711634,
+          "offset_mm": -0.02902685947669061
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "available": true,
+            "passed": true,
+            "samples": 109,
+            "rmse_mm": 0.017541946809568134,
+            "bias_mm": 0.017455175974309504,
+            "p95_absolute_error_mm": 0.020824956081258603,
+            "span_retention": 0.998567659841758,
+            "reason": null
+          },
+          {
+            "name": "left_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 1052,
+            "rmse_mm": 0.0010452242304085984,
+            "bias_mm": 0.0005304152656167176,
+            "p95_absolute_error_mm": 0.0022186212480393755,
+            "span_retention": 0.9990138059334003,
+            "reason": null
+          },
+          {
+            "name": "mouth",
+            "available": true,
+            "passed": true,
+            "samples": 197,
+            "rmse_mm": 0.0028685160603735,
+            "bias_mm": 0.0027100002875607766,
+            "p95_absolute_error_mm": 0.004815148126692036,
+            "span_retention": 0.999378427670279,
+            "reason": null
+          },
+          {
+            "name": "nose",
+            "available": true,
+            "passed": true,
+            "samples": 134,
+            "rmse_mm": 0.005312083099630846,
+            "bias_mm": -0.003025750133287906,
+            "p95_absolute_error_mm": 0.008925605678083847,
+            "span_retention": 0.9983031693250183,
+            "reason": null
+          },
+          {
+            "name": "right_eye",
+            "available": true,
+            "passed": true,
+            "samples": 140,
+            "rmse_mm": 0.003427124179597746,
+            "bias_mm": 0.0033187980774590287,
+            "p95_absolute_error_mm": 0.005108855070222872,
+            "span_retention": 0.998924267517817,
+            "reason": null
+          },
+          {
+            "name": "right_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 550,
+            "rmse_mm": 0.021282402084283437,
+            "bias_mm": 0.0025805036104223707,
+            "p95_absolute_error_mm": 0.047262742192830685,
+            "span_retention": 1.0046237164342062,
+            "reason": null
+          }
+        ]
+      },
+      "render_depth_provenance": {
+        "source_coordinate_unit": "canonical centimeters before normalization",
+        "camera_frame_z_near": 0.36513879895210266,
+        "camera_frame_z_far": -0.3348335921764374,
+        "camera_frame_z_span": 0.69997239112854,
+        "depth_convention": "near=0, far=1 within visible canonical face",
+        "part_labels": "barycentric vertex weights sharing the primary z-buffer"
+      },
+      "background": {
+        "passed": true,
+        "correlation": 1.0,
+        "rms_retention": 1.0,
+        "span_retention": 1.0,
+        "gradient_correlation": 0.9999999999999998,
+        "gradient_rms_retention": 1.0,
+        "candidate_coverage_ratio": 1.0,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 479,
+          "structured_window_count": 156,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.1356856579689186,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999999999999998,
+          "maximum_window_shape_error_ratio": 0.0,
+          "worst_window": {
+            "row": 7,
+            "col": 140,
+            "samples": 225,
+            "reference_rms_mm": 2.37155306064628,
+            "correlation": 0.9999999999999998,
+            "shape_error_ratio": 0.0
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "physical_cap": {
+        "emission_passed": true,
+        "far_background_max_mm": 13.510000228881836,
+        "far_background_ceiling_mm": 13.509999999776483,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633
+      },
+      "feature_handling": {
+        "requested_feature_depth_mm": 0.8,
+        "effective_feature_depth_mm": 0.0,
+        "emboss_suppressed": true,
+        "bridge_enabled": true,
+        "bridge_reason": null
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 232320,
+        "vertex_count": 116162,
+        "printable": true
+      },
+      "shell": {
+        "passed": true,
+        "complete_shell_verified": true,
+        "facet_geometry_passed": true,
+        "coverage_ratio": 1.0,
+        "max_abs_error_mm": 0.0,
+        "rms_error_mm": 0.0,
+        "expected_shell_triangle_count": 232320,
+        "actual_shell_triangle_count": 232320,
+        "invalid_shell_triangle_count": 0
+      },
+      "artifacts": {
+        "source.png": {
+          "size_bytes": 20062,
+          "sha256": "da406c3c076b7aac9f285b3746d611b55131c41ac51c88621a7c6e416bf3093b"
+        },
+        "composed_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "e7ffad06526aec7fe82df601a09477bbd2174c40215f9a9bb0df8328ca5b7bbc"
+        },
+        "reference_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "700c9aef8001b9c7fa0a20cdb97dacefce80cc449597073f5beafc6ea79c4108"
+        },
+        "emitted_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "9725be5df4c24ac2af8b6d1a2d53885a3bb6d50f63a144371a8bf634f302d3c7"
+        },
+        "relief.stl": {
+          "size_bytes": 11616084,
+          "sha256": "1698d7de4bc470a165a1fc0590547ea5169a74fc050da35ad5b991aaeafd6e67"
+        },
+        "postprocess.json": {
+          "size_bytes": 75127,
+          "sha256": "8a51e03eeabbf7751ca2b355fc6439f0d72afaa5eab5f1c8fafef9d588532b73"
+        }
+      }
+    },
+    {
+      "row_id": "yaw_+30p0_height_40p0mm",
+      "yaw_deg": 30.0,
+      "relief_height_mm": 40.0,
+      "render_size": 256,
+      "physical_size_mm": 96.0,
+      "runtime_seconds": 5.865454000002501,
+      "checks": {
+        "source_context": true,
+        "absolute_face_appearance": true,
+        "absolute_named_parts": true,
+        "absolute_named_part_mm_error": true,
+        "background_preservation": true,
+        "localized_background_structure": true,
+        "physical_emission": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "complete_shell": true,
+        "screened_face_reconstruction": true,
+        "redundant_emboss_suppressed": true,
+        "feature_bridge_requested": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 27247,
+        "normalized_context_correlation": 1.0,
+        "normalized_context_rms_retention": 1.0,
+        "recoverable_context_coverage_ratio": 0.7159642468769063
+      },
+      "absolute_face": {
+        "available": true,
+        "samples": 23259,
+        "reference_samples": 23259,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9999870433535255,
+        "normal_p05_cosine": 0.9999318323894936,
+        "normal_angle_p95_deg": 0.6690046358524515,
+        "minimum_lighting_correlation": 0.9999002675201449,
+        "maximum_lighting_mae": 0.0007781754932343983,
+        "minimum_lighting_rms_retention": 0.9995941259161758,
+        "maximum_lighting_rms_retention": 1.0032125695629752,
+        "checks": {
+          "telemetry": true,
+          "coverage": true,
+          "normal_field": true,
+          "lighting": true,
+          "lighting_energy": true,
+          "components": true,
+          "passed": true
+        }
+      },
+      "absolute_named_parts": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_shape_correlation": 0.9,
+          "maximum_face_normalized_shape_rmse": 0.2,
+          "minimum_gradient_correlation": 0.75,
+          "minimum_slope_q95_retention": 0.45,
+          "maximum_slope_q95_retention": 2.2,
+          "minimum_curvature_q95_retention": 0.35,
+          "maximum_curvature_q95_retention": 2.8,
+          "maximum_slope_wasserstein_ratio": 0.75,
+          "maximum_curvature_wasserstein_ratio": 0.9
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "passed": true,
+            "samples": 109,
+            "shape_correlation": 0.9999999149103349,
+            "face_normalized_shape_rmse": 0.0007208849547446002,
+            "minimum_gradient_correlation": 0.9999994091060618,
+            "minimum_slope_q95_retention": 0.9991978509107164,
+            "maximum_slope_q95_retention": 0.9994278533236061,
+            "minimum_curvature_q95_retention": 0.9988127993973894,
+            "maximum_curvature_q95_retention": 0.9990993448122878
+          },
+          {
+            "name": "left_eyebrow",
+            "passed": true,
+            "samples": 1052,
+            "shape_correlation": 0.9999999940498815,
+            "face_normalized_shape_rmse": 4.53429739256851e-05,
+            "minimum_gradient_correlation": 0.9999999680855739,
+            "minimum_slope_q95_retention": 0.9993712651549412,
+            "maximum_slope_q95_retention": 0.9994077300763601,
+            "minimum_curvature_q95_retention": 0.9993837805073392,
+            "maximum_curvature_q95_retention": 0.9993900889976822
+          },
+          {
+            "name": "mouth",
+            "passed": true,
+            "samples": 197,
+            "shape_correlation": 0.9999999306788642,
+            "face_normalized_shape_rmse": 7.07092024584195e-05,
+            "minimum_gradient_correlation": 0.9999999308498804,
+            "minimum_slope_q95_retention": 0.9995362140007784,
+            "maximum_slope_q95_retention": 0.9996355140799636,
+            "minimum_curvature_q95_retention": 0.9992020271741822,
+            "maximum_curvature_q95_retention": 0.9993342746433341
+          },
+          {
+            "name": "nose",
+            "passed": true,
+            "samples": 134,
+            "shape_correlation": 0.999999886680484,
+            "face_normalized_shape_rmse": 0.0003593931562998791,
+            "minimum_gradient_correlation": 0.9999983811294155,
+            "minimum_slope_q95_retention": 0.9977654086285918,
+            "maximum_slope_q95_retention": 0.9984597872799027,
+            "minimum_curvature_q95_retention": 0.999245401715045,
+            "maximum_curvature_q95_retention": 0.9992589046724863
+          },
+          {
+            "name": "right_eye",
+            "passed": true,
+            "samples": 140,
+            "shape_correlation": 0.9999999996666704,
+            "face_normalized_shape_rmse": 0.00015043168426002982,
+            "minimum_gradient_correlation": 0.9999999944071202,
+            "minimum_slope_q95_retention": 0.999372434529186,
+            "maximum_slope_q95_retention": 0.9994223660983339,
+            "minimum_curvature_q95_retention": 0.9993051966026656,
+            "maximum_curvature_q95_retention": 0.9994142610491125
+          },
+          {
+            "name": "right_eyebrow",
+            "passed": true,
+            "samples": 550,
+            "shape_correlation": 0.9999740981000689,
+            "face_normalized_shape_rmse": 0.0022914610457557298,
+            "minimum_gradient_correlation": 0.9810273602127827,
+            "minimum_slope_q95_retention": 0.9800428676532927,
+            "maximum_slope_q95_retention": 1.0291629697609084,
+            "minimum_curvature_q95_retention": 0.8704798312861282,
+            "maximum_curvature_q95_retention": 0.9395423579498388
+          }
+        ]
+      },
+      "absolute_named_part_mm_error": {
+        "passed": true,
+        "failed_parts": [],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_face_affine_scale": 0.1,
+          "maximum_face_affine_scale": 2.0,
+          "maximum_rmse_mm": 0.8,
+          "maximum_p95_absolute_error_mm": 1.5,
+          "maximum_absolute_bias_mm": 0.5,
+          "minimum_span_retention": 0.65,
+          "maximum_span_retention": 1.35
+        },
+        "face_affine_fit": {
+          "scale": 1.0014347020194156,
+          "offset_mm": -0.04959875123211385
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "available": true,
+            "passed": true,
+            "samples": 109,
+            "rmse_mm": 0.027921433986203573,
+            "bias_mm": 0.02781504544453589,
+            "p95_absolute_error_mm": 0.032648655964769444,
+            "span_retention": 0.9985112188535257,
+            "reason": null
+          },
+          {
+            "name": "left_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 1052,
+            "rmse_mm": 0.001578574510437331,
+            "bias_mm": -0.00017576588726772623,
+            "p95_absolute_error_mm": 0.002761550893571396,
+            "span_retention": 0.9987089416440321,
+            "reason": null
+          },
+          {
+            "name": "mouth",
+            "available": true,
+            "passed": true,
+            "samples": 197,
+            "rmse_mm": 0.003550454595297935,
+            "bias_mm": 0.0032838816866858403,
+            "p95_absolute_error_mm": 0.0061941853951090284,
+            "span_retention": 0.999345938445066,
+            "reason": null
+          },
+          {
+            "name": "nose",
+            "available": true,
+            "passed": true,
+            "samples": 134,
+            "rmse_mm": 0.009771214221363768,
+            "bias_mm": -0.00616370126953678,
+            "p95_absolute_error_mm": 0.01638986535375828,
+            "span_retention": 0.9977813949254094,
+            "reason": null
+          },
+          {
+            "name": "right_eye",
+            "available": true,
+            "passed": true,
+            "samples": 140,
+            "rmse_mm": 0.00498520384978624,
+            "bias_mm": 0.004752989600885828,
+            "p95_absolute_error_mm": 0.007899516684418016,
+            "span_retention": 0.9985818359655529,
+            "reason": null
+          },
+          {
+            "name": "right_eyebrow",
+            "available": true,
+            "passed": true,
+            "samples": 550,
+            "rmse_mm": 0.04111766237084128,
+            "bias_mm": -0.0011107037281395064,
+            "p95_absolute_error_mm": 0.09870303698080897,
+            "span_retention": 1.0067165151176667,
+            "reason": null
+          }
+        ]
+      },
+      "render_depth_provenance": {
+        "source_coordinate_unit": "canonical centimeters before normalization",
+        "camera_frame_z_near": 0.36513879895210266,
+        "camera_frame_z_far": -0.3348335921764374,
+        "camera_frame_z_span": 0.69997239112854,
+        "depth_convention": "near=0, far=1 within visible canonical face",
+        "part_labels": "barycentric vertex weights sharing the primary z-buffer"
+      },
+      "background": {
+        "passed": true,
+        "correlation": 0.9999999999999999,
+        "rms_retention": 1.0,
+        "span_retention": 1.0,
+        "gradient_correlation": 1.0000000000000002,
+        "gradient_rms_retention": 1.0,
+        "candidate_coverage_ratio": 1.0,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 479,
+          "structured_window_count": 182,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.23243511761405822,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999999999999998,
+          "maximum_window_shape_error_ratio": 0.0,
+          "worst_window": {
+            "row": 28,
+            "col": 182,
+            "samples": 179,
+            "reference_rms_mm": 2.449689726038624,
+            "correlation": 0.9999999999999998,
+            "shape_error_ratio": 0.0
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "physical_cap": {
+        "emission_passed": true,
+        "far_background_max_mm": 18.010000228881836,
+        "far_background_ceiling_mm": 18.009999999776483,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633
+      },
+      "feature_handling": {
+        "requested_feature_depth_mm": 0.8,
+        "effective_feature_depth_mm": 0.0,
+        "emboss_suppressed": true,
+        "bridge_enabled": true,
+        "bridge_reason": null
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 232320,
+        "vertex_count": 116162,
+        "printable": true
+      },
+      "shell": {
+        "passed": true,
+        "complete_shell_verified": true,
+        "facet_geometry_passed": true,
+        "coverage_ratio": 1.0,
+        "max_abs_error_mm": 0.0,
+        "rms_error_mm": 0.0,
+        "expected_shell_triangle_count": 232320,
+        "actual_shell_triangle_count": 232320,
+        "invalid_shell_triangle_count": 0
+      },
+      "artifacts": {
+        "source.png": {
+          "size_bytes": 20062,
+          "sha256": "da406c3c076b7aac9f285b3746d611b55131c41ac51c88621a7c6e416bf3093b"
+        },
+        "composed_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "16924f9e061f6b1a9dbd05ea3563a004ac735a2d322240cdc46d075cd3ad8224"
+        },
+        "reference_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "79036c9a4749fb1a73544c4fca5ac03faa7d144daf14ab6eb7c08d1454f9678f"
+        },
+        "emitted_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "888ec7466290e9fff5563c99f7006bf878f13c78dcd87929fdf6397f328059dd"
+        },
+        "relief.stl": {
+          "size_bytes": 11616084,
+          "sha256": "2bf355714f69be311b4a223f0f4e59549ca822635c0965905ea2218a90ea7f48"
+        },
+        "postprocess.json": {
+          "size_bytes": 75594,
+          "sha256": "6eb456715d9f07892c03f5a212da94965f17d127e8a8cc237db36d53ad9ef298"
+        }
+      }
+    }
+  ]
+}

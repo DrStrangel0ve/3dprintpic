@@ -241,6 +241,39 @@ part fails. Evidence is in
 `docs/benchmark-evidence/relief_named_face_parts_n12/`; private artifacts remain
 local and ignored.
 
+## Canonical 3D face and selection-bound follow-up
+
+Cross-height consistency still cannot prove that every relief is faithful to a
+real 3D face: the same distortion could recur at all heights. Revision
+`f6a473c3f9f25b0f6e58e36c2574663aefd687f6` therefore adds a checksum-pinned,
+Apache-2.0 MediaPipe canonical face oracle and renders it at yaw `0`, `-30`, and
+`+30` degrees at 20, 30, and 40 mm. Visible facial-part labels share the primary
+z-buffer, and one face-wide affine calibration is followed by independent
+millimeter errors for the eyes, eyebrows, nose, and mouth.
+
+All 9 rows pass. Minimum face relighting correlation is `0.999385`, minimum
+mean-normal cosine is `0.999954`, and the worst named-part p95 error is only
+`0.110641` mm. Every STL is a single watertight manifold volume with zero
+degenerates and an exact 232,320-facet shell. The companion 12-scene analytic
+matrix also passes every face, selection, background, cap, shell, topology, and
+negative-control gate; minimum background depth correlation is `1.0`.
+
+The matrix exposed one asymmetric failure at yaw `-30`, 40 mm. The primary face
+candidate failed only cardinal p99 (`13.2044` versus `12`), while the old
+fallback badly damaged the nose and mouth. A `0.10` screening retry is now
+eligible only for that exact singleton failure and must pass all unchanged
+gates. The accepted row reaches `10.9944`. Face updates are also hard-bounded to
+the selection: a measured `1.3163` mm pre-bound background correction becomes
+exactly zero. The exact bounded surface is then re-audited for detail, span,
+correction, and cardinal/diagonal edges; failed or unavailable telemetry routes
+to the existing fallback.
+
+Evidence and reproduction commands are in
+`docs/benchmark-evidence/canonical_face_relief_yaw_height_n9/`. Historical
+private portrait and llama evidence remains separate because the original
+private selection masks are deliberately not tracked; no new exact-input claim
+is inferred from cached depth arrays alone.
+
 ## Validation
 
 ```powershell
