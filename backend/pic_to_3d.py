@@ -1076,8 +1076,11 @@ def compose_selection_depth_with_context(
     sample_pitch_mm=1.0,
     max_slope_mm_per_mm=2.0,
     base_margin_ratio=0.03,
+    background_depth_ratio=0.45,
+    background_feather_mm=1.5,
+    background_smoothing_mm=0.6,
 ):
-    """Keep full-scene depth inside a selection and add a printable support ramp."""
+    """Keep selected depth while retaining bounded, printable scene context."""
     source = np.asarray(depth_values, dtype=np.float32)
     if source.ndim != 2:
         raise ValueError("Selection depth composition requires a 2D depth array")
@@ -1093,14 +1096,15 @@ def compose_selection_depth_with_context(
     selected = _resize_binary_mask(selection_mask, source.shape)
     valid = np.isfinite(source)
     selected &= valid
-    if np.count_nonzero(selected) < 4:
-        raise ValueError("Selection mask does not overlap enough finite depth samples")
 
     try:
         height_mm = float(relief_height_mm)
         pitch_mm = float(sample_pitch_mm)
         max_slope = float(max_slope_mm_per_mm)
         margin_ratio = float(base_margin_ratio)
+        background_ratio = float(background_depth_ratio)
+        background_feather = float(background_feather_mm)
+        background_smoothing = float(background_smoothing_mm)
     except (TypeError, ValueError) as exc:
         raise ValueError("Invalid selection depth composition controls") from exc
     if (
@@ -1112,10 +1116,23 @@ def compose_selection_depth_with_context(
         or max_slope <= 0
         or not np.isfinite(margin_ratio)
         or margin_ratio < 0
+        or not np.isfinite(background_ratio)
+        or not 0 <= background_ratio <= 1
+        or not np.isfinite(background_feather)
+        or background_feather < 0
+        or not np.isfinite(background_smoothing)
+        or background_smoothing < 0
     ):
-        raise ValueError("Selection depth composition controls must be finite and positive")
+        raise ValueError("Selection depth composition controls are outside their supported range")
 
     canonical, reverses_order = _transform_relief_values(source, value_transform)
+    canonical_valid = np.isfinite(canonical)
+    valid = canonical_valid
+    selected &= canonical_valid
+    if np.count_nonzero(selected) < 4:
+        raise ValueError(
+            "Selection mask does not overlap enough valid relief-depth samples"
+        )
     selected_values = canonical[selected]
     low = float(np.percentile(selected_values, 1.0))
     high = float(np.percentile(selected_values, 99.0))
@@ -1139,7 +1156,79 @@ def compose_selection_depth_with_context(
         base_value,
         nearest_selected_values - outside_distance * canonical_step,
     )
-    composed_canonical = np.where(selected, canonical, ramp).astype(np.float32, copy=False)
+    composed_background = ramp
+    background = (~selected) & valid
+    background_context_enabled = False
+    background_context_pixels = 0
+    background_context_correlation = None
+    background_input_low = None
+    background_input_high = None
+    background_output_low = None
+    background_output_high = None
+    background_output_span_ratio = 0.0
+    smoothing_sigma_px = 0.0
+    feather_distance_px = 0.0
+    if background_ratio > 0 and np.count_nonzero(background) >= 4:
+        smoothing_sigma_px = (
+            max(0.8, min(24.0, background_smoothing / pitch_mm))
+            if background_smoothing > 0
+            else 0.0
+        )
+        context_source = (
+            _smooth_nan_aware(canonical, sigma=smoothing_sigma_px)
+            if smoothing_sigma_px > 0
+            else canonical
+        )
+        background_values = context_source[background]
+        background_input_low, background_input_high = (
+            float(value) for value in np.percentile(background_values, [2.0, 98.0])
+        )
+        background_span = background_input_high - background_input_low
+        if np.isfinite(background_span) and background_span > float(np.finfo(np.float32).eps):
+            context_unit = np.clip(
+                (context_source - background_input_low) / background_span,
+                0.0,
+                1.0,
+            )
+            context_surface = base_value + background_ratio * span * context_unit
+            feather_distance_px = max(1.0, background_feather / pitch_mm)
+            feather = np.clip(outside_distance / feather_distance_px, 0.0, 1.0)
+            feather = feather * feather * (3.0 - 2.0 * feather)
+            feathered_context = base_value + feather * (context_surface - base_value)
+            feathered_context = np.where(
+                np.isfinite(feathered_context),
+                feathered_context,
+                ramp,
+            )
+            composed_background = np.maximum(ramp, feathered_context)
+            context_lift = background & (composed_background > ramp + span * 1e-6)
+            background_context_pixels = int(np.count_nonzero(context_lift))
+            background_context_enabled = background_context_pixels > 0
+
+            measured_background = background & (outside_distance >= feather_distance_px)
+            if np.count_nonzero(measured_background) >= 4:
+                source_measure = context_source[measured_background].astype(np.float64)
+                output_measure = composed_background[measured_background].astype(np.float64)
+                source_measure -= float(np.mean(source_measure))
+                output_measure -= float(np.mean(output_measure))
+                denominator = float(
+                    np.sqrt(np.sum(source_measure * source_measure) * np.sum(output_measure * output_measure))
+                )
+                if denominator > 1e-12:
+                    background_context_correlation = float(
+                        np.sum(source_measure * output_measure) / denominator
+                    )
+            background_output_low, background_output_high = (
+                float(value) for value in np.percentile(composed_background[background], [2.0, 98.0])
+            )
+            background_output_span_ratio = (
+                background_output_high - background_output_low
+            ) / span
+
+    composed_canonical = np.where(selected, canonical, composed_background).astype(
+        np.float32,
+        copy=False,
+    )
 
     if reverses_order:
         composed = np.reciprocal(
@@ -1154,7 +1243,7 @@ def compose_selection_depth_with_context(
     halo_distances = outside_distance[halo]
     return composed.astype(np.float32, copy=False), {
         "enabled": True,
-        "method": "full_scene_depth_then_slope_bounded_selection",
+        "method": "full_scene_depth_with_bounded_background_context_v2",
         "value_transform": value_transform,
         "mask_pixels": int(np.count_nonzero(selected)),
         "mask_coverage_ratio": float(np.mean(selected)),
@@ -1173,6 +1262,20 @@ def compose_selection_depth_with_context(
         "selected_canonical_p99": high,
         "base_canonical_value": float(base_value),
         "base_margin_ratio": margin_ratio,
+        "background_depth_ratio": background_ratio,
+        "background_feather_mm": background_feather,
+        "background_feather_px": float(feather_distance_px),
+        "background_smoothing_mm": background_smoothing,
+        "background_smoothing_sigma_px": float(smoothing_sigma_px),
+        "background_context_enabled": background_context_enabled,
+        "background_context_pixels": background_context_pixels,
+        "background_context_coverage_ratio": float(background_context_pixels / source.size),
+        "background_context_correlation": background_context_correlation,
+        "background_input_canonical_p02": background_input_low,
+        "background_input_canonical_p98": background_input_high,
+        "background_output_canonical_p02": background_output_low,
+        "background_output_canonical_p98": background_output_high,
+        "background_output_span_ratio": float(background_output_span_ratio),
     }
 
 
@@ -1681,7 +1784,7 @@ def _guard_weighted_feature_updates(
     def accepted(audit):
         return (
             audit.get("enabled", False)
-            and float(audit["accepted_surface_ratio_max"]) <= ratio_limit
+            and float(audit["accepted_surface_ratio_max"]) <= ratio_limit + 1e-6
         )
 
     if accepted(candidate_audit):
@@ -1751,10 +1854,13 @@ def _guard_weighted_feature_updates(
         # Projection should converge because the baseline is feasible. Keep a
         # scalar backstop so numerical edge cases still fail toward that safe
         # surface rather than emitting an unchecked update.
+        projection_final_audit = final_audit
         projected_delta = np.where(movable, output - baseline64, 0.0)
         low_scale = 0.0
         high_scale = 1.0
-        for _ in range(max(1, int(iterations))):
+        output = baseline64.copy()
+        final_audit = _surface_edge_audit(output, baseline64, max_neighbor_step_mm)
+        for _ in range(max(24, int(iterations))):
             scale = (low_scale + high_scale) * 0.5
             trial = np.where(
                 np.isfinite(baseline64),
@@ -1768,6 +1874,15 @@ def _guard_weighted_feature_updates(
                 final_audit = trial_audit
             else:
                 high_scale = scale
+    else:
+        projection_final_audit = final_audit
+        low_scale = 1.0
+
+    fell_back_to_baseline = False
+    if not accepted(final_audit):
+        output = baseline64.copy()
+        final_audit = _surface_edge_audit(output, baseline64, max_neighbor_step_mm)
+        fell_back_to_baseline = True
 
     original_rms = float(np.sqrt(np.mean(np.square(delta[movable]))))
     retained_rms = float(np.sqrt(np.mean(np.square((output - baseline64)[movable]))))
@@ -1787,6 +1902,9 @@ def _guard_weighted_feature_updates(
         "attenuated_pixels": int(attenuated_pixels),
         "updated_pixels": int(np.count_nonzero(movable)),
         "projection_iterations": int(projection_iterations),
+        "projection_final_audit": projection_final_audit,
+        "binary_backstop_scale": float(low_scale),
+        "fell_back_to_baseline": fell_back_to_baseline,
         "max_ratio": ratio_limit,
         "candidate_audit": candidate_audit,
         "final_audit": final_audit,
@@ -2812,6 +2930,582 @@ def _face_detail_preservation_metrics(reference_values, candidate_values, face_r
     }
 
 
+def _cap_selection_background_relief(
+    values,
+    selection_mask,
+    *,
+    relief_height_mm,
+    sample_pitch_mm,
+    max_slope_mm_per_mm,
+    background_depth_ratio,
+):
+    """Enforce a physical far-background budget without clipping the support ramp."""
+    stats = {"enabled": False, "affected_pixels": 0}
+    if selection_mask is None:
+        stats["reason"] = "no_selection_mask"
+        return values, stats
+    try:
+        height_mm = float(relief_height_mm)
+        pitch_mm = float(sample_pitch_mm)
+        max_slope = float(max_slope_mm_per_mm)
+        background_ratio = float(background_depth_ratio)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Invalid physical background cap controls") from exc
+    if (
+        not np.isfinite(height_mm)
+        or height_mm <= 0
+        or not np.isfinite(pitch_mm)
+        or pitch_mm <= 0
+        or not np.isfinite(max_slope)
+        or max_slope <= 0
+        or not np.isfinite(background_ratio)
+        or not 0 <= background_ratio <= 1
+    ):
+        raise ValueError("Physical background cap controls are outside their supported range")
+
+    source = np.asarray(values, dtype=np.float32)
+    valid = np.isfinite(source)
+    selected = _resize_binary_mask(selection_mask, source.shape) & valid
+    background = valid & ~selected
+    if np.count_nonzero(selected) < 4 or np.count_nonzero(background) < 4:
+        stats["reason"] = "insufficient_selection_or_background"
+        return values, stats
+
+    base_height = float(np.min(source[valid]))
+    far_background_ceiling = base_height + background_ratio * height_mm
+    outside_distance, nearest = distance_transform_edt(
+        ~selected,
+        return_distances=True,
+        return_indices=True,
+    )
+    nearest_selected_height = source[tuple(nearest)]
+    support_delta = outside_distance * pitch_mm * max_slope
+    support_floor = nearest_selected_height - support_delta
+    support_upper = nearest_selected_height + support_delta
+    physical_ceiling = np.minimum(
+        support_upper,
+        np.maximum(far_background_ceiling, support_floor),
+    )
+    capped = source.copy()
+    before = source[background]
+    capped[background] = np.clip(
+        before,
+        support_floor[background],
+        physical_ceiling[background],
+    )
+    boundary_floor = np.full(source.shape, -np.inf, dtype=np.float32)
+    boundary_ceiling = np.full(source.shape, np.inf, dtype=np.float32)
+    boundary_touched = np.zeros(source.shape, dtype=bool)
+    max_step = pitch_mm * max_slope
+    for background_slice, selected_slice in (
+        ((slice(None), slice(1, None)), (slice(None), slice(None, -1))),
+        ((slice(None), slice(None, -1)), (slice(None), slice(1, None))),
+        ((slice(1, None), slice(None)), (slice(None, -1), slice(None))),
+        ((slice(None, -1), slice(None)), (slice(1, None), slice(None))),
+    ):
+        touches_selected = background[background_slice] & selected[selected_slice]
+        local_floor = boundary_floor[background_slice]
+        local_ceiling = boundary_ceiling[background_slice]
+        local_touched = boundary_touched[background_slice]
+        selected_values = source[selected_slice]
+        local_floor[touches_selected] = np.maximum(
+            local_floor[touches_selected],
+            selected_values[touches_selected] - max_step,
+        )
+        local_ceiling[touches_selected] = np.minimum(
+            local_ceiling[touches_selected],
+            selected_values[touches_selected] + max_step,
+        )
+        local_touched[touches_selected] = True
+    feasible_boundary = boundary_touched & (boundary_floor <= boundary_ceiling)
+    capped[feasible_boundary] = np.clip(
+        capped[feasible_boundary],
+        boundary_floor[feasible_boundary],
+        boundary_ceiling[feasible_boundary],
+    )
+    conflicting_boundary = boundary_touched & ~feasible_boundary
+    capped[conflicting_boundary] = (
+        boundary_floor[conflicting_boundary] + boundary_ceiling[conflicting_boundary]
+    ) * 0.5
+    signed_correction = capped[background] - before
+    absolute_correction = np.abs(signed_correction)
+    far_background = (
+        background
+        & (support_floor <= far_background_ceiling)
+        & (support_upper >= far_background_ceiling)
+        & ~boundary_touched
+    )
+    far_values = capped[far_background]
+    far_violation = (
+        float(max(0.0, np.max(far_values) - far_background_ceiling))
+        if far_values.size
+        else 0.0
+    )
+    horizontal_boundary = (
+        (selected[:, :-1] ^ selected[:, 1:])
+        & valid[:, :-1]
+        & valid[:, 1:]
+    )
+    vertical_boundary = (
+        (selected[:-1, :] ^ selected[1:, :])
+        & valid[:-1, :]
+        & valid[1:, :]
+    )
+    attachment_jumps = np.concatenate(
+        (
+            np.abs(capped[:, 1:] - capped[:, :-1])[horizontal_boundary],
+            np.abs(capped[1:, :] - capped[:-1, :])[vertical_boundary],
+        )
+    ).astype(np.float64)
+    attachment_step_limit = pitch_mm * max_slope
+    attachment_jump_p99 = (
+        float(np.percentile(attachment_jumps, 99.0))
+        if attachment_jumps.size
+        else 0.0
+    )
+    attachment_jump_max = (
+        float(np.max(attachment_jumps)) if attachment_jumps.size else 0.0
+    )
+    attachment_violation = max(0.0, attachment_jump_max - attachment_step_limit)
+    feasible_horizontal_boundary = horizontal_boundary & ~(
+        conflicting_boundary[:, :-1] | conflicting_boundary[:, 1:]
+    )
+    feasible_vertical_boundary = vertical_boundary & ~(
+        conflicting_boundary[:-1, :] | conflicting_boundary[1:, :]
+    )
+    feasible_attachment_jumps = np.concatenate(
+        (
+            np.abs(capped[:, 1:] - capped[:, :-1])[feasible_horizontal_boundary],
+            np.abs(capped[1:, :] - capped[:-1, :])[feasible_vertical_boundary],
+        )
+    ).astype(np.float64)
+    feasible_attachment_jump_max = (
+        float(np.max(feasible_attachment_jumps))
+        if feasible_attachment_jumps.size
+        else 0.0
+    )
+    feasible_attachment_violation = max(
+        0.0,
+        feasible_attachment_jump_max - attachment_step_limit,
+    )
+    has_attachment_conflicts = bool(np.any(conflicting_boundary))
+    far_background_cap_passed = far_violation <= 1e-5
+    feasible_attachment_passed = feasible_attachment_violation <= 1e-5
+    attachment_constraints_passed = (
+        not has_attachment_conflicts and attachment_violation <= 1e-5
+    )
+    stats.update(
+        {
+            "enabled": True,
+            "background_depth_ratio": background_ratio,
+            "base_height_mm": base_height,
+            "far_background_ceiling_mm": float(far_background_ceiling),
+            "support_slope_mm_per_mm": max_slope,
+            "sample_pitch_mm": pitch_mm,
+            "background_pixels": int(np.count_nonzero(background)),
+            "far_background_pixels": int(np.count_nonzero(far_background)),
+            "affected_pixels": int(np.count_nonzero(absolute_correction > 1e-5)),
+            "correction_p95_mm": (
+                float(np.percentile(absolute_correction[absolute_correction > 1e-5], 95.0))
+                if np.any(absolute_correction > 1e-5)
+                else 0.0
+            ),
+            "correction_max_mm": (
+                float(np.max(absolute_correction)) if absolute_correction.size else 0.0
+            ),
+            "upward_correction_pixels": int(np.count_nonzero(signed_correction > 1e-5)),
+            "downward_correction_pixels": int(np.count_nonzero(signed_correction < -1e-5)),
+            "far_background_max_mm": float(np.max(far_values)) if far_values.size else None,
+            "far_background_cap_violation_mm": far_violation,
+            "attachment_step_limit_mm": float(attachment_step_limit),
+            "attachment_jump_p99_mm": attachment_jump_p99,
+            "attachment_jump_max_mm": attachment_jump_max,
+            "attachment_slope_violation_mm": float(attachment_violation),
+            "feasible_attachment_jump_max_mm": feasible_attachment_jump_max,
+            "feasible_attachment_slope_violation_mm": float(
+                feasible_attachment_violation
+            ),
+            "attachment_constraint_conflicts": int(np.count_nonzero(conflicting_boundary)),
+            "attachment_constraint_conflict_max_mm": (
+                float(np.max(boundary_floor[conflicting_boundary] - boundary_ceiling[conflicting_boundary]))
+                if np.any(conflicting_boundary)
+                else 0.0
+            ),
+            "far_background_cap_passed": far_background_cap_passed,
+            "feasible_attachment_constraints_passed": feasible_attachment_passed,
+            "attachment_constraints_passed": attachment_constraints_passed,
+            "emission_passed": far_background_cap_passed and feasible_attachment_passed,
+            "passed": far_background_cap_passed and attachment_constraints_passed,
+        }
+    )
+    return capped, stats
+
+
+def _restore_background_from_reference(
+    candidate_values,
+    reference_values,
+    foreground_mask,
+    *,
+    sample_pitch_mm,
+    feather_mm=1.5,
+    max_neighbor_step_mm=None,
+):
+    """Restore rejected background geometry while feathering its subject attachment."""
+    candidate = np.asarray(candidate_values, dtype=np.float32)
+    reference = np.asarray(reference_values, dtype=np.float32)
+    if candidate.shape != reference.shape:
+        raise ValueError("Background fallback surfaces must have identical shapes")
+    foreground = _resize_binary_mask(foreground_mask, candidate.shape)
+    valid = np.isfinite(candidate) & np.isfinite(reference)
+    background = valid & ~foreground
+    try:
+        pitch_mm = float(sample_pitch_mm)
+        feather_distance_mm = float(feather_mm)
+    except (TypeError, ValueError):
+        pitch_mm = 0.0
+        feather_distance_mm = 0.0
+    feather_px = (
+        max(1.0, feather_distance_mm / pitch_mm)
+        if np.isfinite(pitch_mm) and pitch_mm > 0 and feather_distance_mm > 0
+        else 1.0
+    )
+    distance = distance_transform_edt(~foreground)
+    weight = np.clip(distance / feather_px, 0.0, 1.0)
+    weight = weight * weight * (3.0 - 2.0 * weight)
+    restored = candidate.copy()
+    restored[background] = (
+        candidate[background] * (1.0 - weight[background])
+        + reference[background] * weight[background]
+    )
+    slope_guard_stats = {
+        "enabled": False,
+        "reason": "not_requested",
+    }
+    try:
+        max_step = float(max_neighbor_step_mm)
+    except (TypeError, ValueError):
+        max_step = 0.0
+    if np.isfinite(max_step) and max_step > 0:
+        restored, slope_guard_stats = _guard_weighted_feature_updates(
+            candidate,
+            restored,
+            max_neighbor_step_mm=max_step,
+            max_ratio=1.0,
+        )
+    return restored, {
+        "enabled": True,
+        "background_pixels": int(np.count_nonzero(background)),
+        "feather_mm": float(max(feather_distance_mm, 0.0)),
+        "feather_px": float(feather_px),
+        "restored_pixels": int(
+            np.count_nonzero(background & (np.abs(restored - candidate) > 1e-5))
+        ),
+        "correction_max_mm": (
+            float(np.max(np.abs(restored[background] - candidate[background])))
+            if np.any(background)
+            else 0.0
+        ),
+        "slope_guard": slope_guard_stats,
+    }
+
+
+def _background_relief_preservation_metrics(
+    reference_values,
+    candidate_values,
+    foreground_mask,
+    *,
+    sample_pitch_mm=None,
+    boundary_exclusion_mm=1.5,
+    minimum_correlation=0.8,
+    minimum_rms_retention=0.5,
+    minimum_span_retention=0.5,
+    minimum_gradient_correlation=0.58,
+    minimum_gradient_rms_retention=0.25,
+    maximum_rms_retention=1.5,
+    maximum_span_retention=1.5,
+    maximum_gradient_rms_retention=1.75,
+    maximum_mean_shift_mm=2.0,
+    maximum_boundary_jump_mm=6.0,
+    minimum_coverage_ratio=1.0,
+):
+    """Measure broad scene structure outside a protected foreground subject."""
+    stats = {
+        "available": False,
+        "passed": False,
+        "samples": 0,
+        "correlation": None,
+        "rms_retention": None,
+        "span_retention": None,
+        "gradient_correlation": None,
+        "gradient_rms_retention": None,
+        "quality_failures": [],
+    }
+    if foreground_mask is None:
+        stats["reason"] = "no_foreground_mask"
+        return stats
+
+    reference = np.asarray(reference_values, dtype=np.float32)
+    candidate = np.asarray(candidate_values, dtype=np.float32)
+    if reference.shape != candidate.shape:
+        raise ValueError("Background preservation surfaces must have identical shapes")
+    foreground = _resize_binary_mask(foreground_mask, reference.shape)
+    reference_valid = np.isfinite(reference)
+    candidate_valid = np.isfinite(candidate)
+    valid = reference_valid & candidate_valid
+    try:
+        pitch_mm = float(sample_pitch_mm)
+    except (TypeError, ValueError):
+        pitch_mm = 0.0
+    exclusion_px = (
+        max(2, int(np.ceil(float(boundary_exclusion_mm) / pitch_mm)))
+        if np.isfinite(pitch_mm) and pitch_mm > 0
+        else 3
+    )
+    reference_context = reference_valid & ~foreground
+    reference_context &= distance_transform_edt(~foreground) >= float(exclusion_px)
+    border = max(2, min(exclusion_px // 2, 8))
+    reference_context[:border, :] = False
+    reference_context[-border:, :] = False
+    reference_context[:, :border] = False
+    reference_context[:, -border:] = False
+    reference_samples = int(np.count_nonzero(reference_context))
+    context = reference_context & candidate_valid
+    samples = int(np.count_nonzero(context))
+    coverage_ratio = samples / max(reference_samples, 1)
+    stats.update(
+        {
+            "samples": samples,
+            "reference_samples": reference_samples,
+            "missing_candidate_samples": int(reference_samples - samples),
+            "candidate_coverage_ratio": float(coverage_ratio),
+            "minimum_coverage_ratio": float(minimum_coverage_ratio),
+            "boundary_exclusion_mm": float(boundary_exclusion_mm),
+            "boundary_exclusion_px": int(exclusion_px),
+            "minimum_correlation": float(minimum_correlation),
+            "minimum_rms_retention": float(minimum_rms_retention),
+            "minimum_span_retention": float(minimum_span_retention),
+            "minimum_gradient_correlation": float(minimum_gradient_correlation),
+            "minimum_gradient_rms_retention": float(minimum_gradient_rms_retention),
+            "maximum_rms_retention": float(maximum_rms_retention),
+            "maximum_span_retention": float(maximum_span_retention),
+            "maximum_gradient_rms_retention": float(maximum_gradient_rms_retention),
+            "maximum_mean_shift_mm": float(maximum_mean_shift_mm),
+            "maximum_boundary_jump_mm": float(maximum_boundary_jump_mm),
+        }
+    )
+    if reference_samples < 64:
+        stats["reason"] = "insufficient_reference_background_samples"
+        return stats
+
+    quality_failures = []
+    if coverage_ratio < float(minimum_coverage_ratio):
+        quality_failures.append("coverage")
+    if samples < 64:
+        stats.update(
+            {
+                "available": True,
+                "reason": "insufficient_candidate_background_samples",
+                "quality_failures": quality_failures or ["coverage"],
+            }
+        )
+        return stats
+
+    source = reference[context].astype(np.float64)
+    output = candidate[context].astype(np.float64)
+    mean_shift_mm = float(np.mean(output - source))
+    source_centered = source - float(np.mean(source))
+    output_centered = output - float(np.mean(output))
+    source_rms = float(np.sqrt(np.mean(np.square(source_centered))))
+    output_rms = float(np.sqrt(np.mean(np.square(output_centered))))
+    source_norm = float(np.linalg.norm(source_centered))
+    output_norm = float(np.linalg.norm(output_centered))
+    correlation = (
+        float(np.dot(source_centered, output_centered) / (source_norm * output_norm))
+        if source_norm > 1e-10 and output_norm > 1e-10
+        else (1.0 if source_norm <= 1e-10 and output_norm <= 1e-8 else 0.0)
+    )
+    rms_retention = (
+        output_rms / source_rms
+        if source_rms > 1e-10
+        else (1.0 if output_rms <= 1e-8 else None)
+    )
+    source_low, source_high = (float(value) for value in np.percentile(source, [2.0, 98.0]))
+    output_low, output_high = (float(value) for value in np.percentile(output, [2.0, 98.0]))
+    source_span = source_high - source_low
+    output_span = output_high - output_low
+    span_retention = (
+        output_span / source_span
+        if source_span > 1e-10
+        else (1.0 if output_span <= 1e-8 else None)
+    )
+
+    horizontal = context[:, :-1] & context[:, 1:]
+    vertical = context[:-1, :] & context[1:, :]
+    source_gradients = np.concatenate(
+        (
+            (reference[:, 1:] - reference[:, :-1])[horizontal],
+            (reference[1:, :] - reference[:-1, :])[vertical],
+        )
+    ).astype(np.float64)
+    output_gradients = np.concatenate(
+        (
+            (candidate[:, 1:] - candidate[:, :-1])[horizontal],
+            (candidate[1:, :] - candidate[:-1, :])[vertical],
+        )
+    ).astype(np.float64)
+    if source_gradients.size < 32:
+        quality_failures.append("gradient_coverage")
+        stats.update(
+            {
+                "available": True,
+                "reason": "insufficient_background_gradient_samples",
+                "quality_failures": quality_failures,
+            }
+        )
+        return stats
+    source_gradient_rms = float(np.sqrt(np.mean(np.square(source_gradients))))
+    output_gradient_rms = float(np.sqrt(np.mean(np.square(output_gradients))))
+    source_gradient_centered = source_gradients - float(np.mean(source_gradients))
+    output_gradient_centered = output_gradients - float(np.mean(output_gradients))
+    source_gradient_norm = float(np.linalg.norm(source_gradient_centered))
+    output_gradient_norm = float(np.linalg.norm(output_gradient_centered))
+    gradient_correlation = (
+        float(
+            np.dot(source_gradient_centered, output_gradient_centered)
+            / (source_gradient_norm * output_gradient_norm)
+        )
+        if source_gradient_norm > 1e-10 and output_gradient_norm > 1e-10
+        else (
+            1.0
+            if source_gradient_norm <= 1e-10 and output_gradient_norm <= 1e-8
+            else 0.0
+        )
+    )
+    gradient_rms_retention = (
+        output_gradient_rms / source_gradient_rms
+        if source_gradient_rms > 1e-10
+        else (1.0 if output_gradient_rms <= 1e-8 else None)
+    )
+
+    boundary_horizontal = (
+        (foreground[:, :-1] ^ foreground[:, 1:])
+        & valid[:, :-1]
+        & valid[:, 1:]
+    )
+    boundary_vertical = (
+        (foreground[:-1, :] ^ foreground[1:, :])
+        & valid[:-1, :]
+        & valid[1:, :]
+    )
+    reference_boundary_jumps = np.concatenate(
+        (
+            np.abs(reference[:, 1:] - reference[:, :-1])[boundary_horizontal],
+            np.abs(reference[1:, :] - reference[:-1, :])[boundary_vertical],
+        )
+    ).astype(np.float64)
+    output_boundary_jumps = np.concatenate(
+        (
+            np.abs(candidate[:, 1:] - candidate[:, :-1])[boundary_horizontal],
+            np.abs(candidate[1:, :] - candidate[:-1, :])[boundary_vertical],
+        )
+    ).astype(np.float64)
+    boundary_samples = int(output_boundary_jumps.size)
+    reference_boundary_p99 = (
+        float(np.percentile(reference_boundary_jumps, 99.0))
+        if boundary_samples
+        else None
+    )
+    reference_boundary_max = (
+        float(np.max(reference_boundary_jumps)) if boundary_samples else None
+    )
+    output_boundary_p99 = (
+        float(np.percentile(output_boundary_jumps, 99.0))
+        if boundary_samples
+        else None
+    )
+    output_boundary_max = (
+        float(np.max(output_boundary_jumps)) if boundary_samples else None
+    )
+    effective_boundary_p99_limit = (
+        max(float(maximum_boundary_jump_mm), reference_boundary_p99 * 1.25)
+        if boundary_samples
+        else float(maximum_boundary_jump_mm)
+    )
+    effective_boundary_max_limit = (
+        max(float(maximum_boundary_jump_mm) * 2.0, reference_boundary_max * 1.25)
+        if boundary_samples
+        else float(maximum_boundary_jump_mm) * 2.0
+    )
+
+    if correlation < float(minimum_correlation):
+        quality_failures.append("correlation")
+    if (
+        rms_retention is None
+        or not float(minimum_rms_retention)
+        <= rms_retention
+        <= float(maximum_rms_retention)
+    ):
+        quality_failures.append("rms_retention")
+    if (
+        span_retention is None
+        or not float(minimum_span_retention)
+        <= span_retention
+        <= float(maximum_span_retention)
+    ):
+        quality_failures.append("span_retention")
+    if gradient_correlation < float(minimum_gradient_correlation):
+        quality_failures.append("gradient_correlation")
+    if (
+        gradient_rms_retention is None
+        or not float(minimum_gradient_rms_retention)
+        <= gradient_rms_retention
+        <= float(maximum_gradient_rms_retention)
+    ):
+        quality_failures.append("gradient_rms_retention")
+    if abs(mean_shift_mm) > float(maximum_mean_shift_mm):
+        quality_failures.append("mean_shift")
+    if (
+        boundary_samples
+        and (
+            output_boundary_p99 > effective_boundary_p99_limit
+            or output_boundary_max > effective_boundary_max_limit
+        )
+    ):
+        quality_failures.append("boundary_jump")
+    stats.update(
+        {
+            "available": True,
+            "passed": not quality_failures,
+            "correlation": correlation,
+            "rms_retention": float(rms_retention) if rms_retention is not None else None,
+            "span_retention": float(span_retention) if span_retention is not None else None,
+            "gradient_samples": int(source_gradients.size),
+            "gradient_correlation": gradient_correlation,
+            "gradient_rms_retention": (
+                float(gradient_rms_retention)
+                if gradient_rms_retention is not None
+                else None
+            ),
+            "mean_shift_mm": mean_shift_mm,
+            "boundary_samples": boundary_samples,
+            "reference_boundary_jump_p99_mm": reference_boundary_p99,
+            "reference_boundary_jump_max_mm": reference_boundary_max,
+            "output_boundary_jump_p99_mm": output_boundary_p99,
+            "output_boundary_jump_max_mm": output_boundary_max,
+            "effective_boundary_jump_p99_limit_mm": effective_boundary_p99_limit,
+            "effective_boundary_jump_max_limit_mm": effective_boundary_max_limit,
+            "reference_rms_mm": source_rms,
+            "output_rms_mm": output_rms,
+            "reference_span_p02_p98_mm": source_span,
+            "output_span_p02_p98_mm": output_span,
+            "reference_gradient_rms_mm": source_gradient_rms,
+            "output_gradient_rms_mm": output_gradient_rms,
+            "quality_failures": quality_failures,
+        }
+    )
+    return stats
+
+
 def _compress_relief_gradients(
     values,
     sample_pitch_mm,
@@ -3461,6 +4155,7 @@ def depth_data_to_3d_model(
     max_relief_slope=2.0,
     face_region_mask=None,
     selection_region_mask=None,
+    selection_background_depth_ratio=0.45,
     background_detail_boost=1.0,
     source_image=None,
     background_photo_detail_mm=0.0,
@@ -3962,6 +4657,109 @@ def depth_data_to_3d_model(
     if base_border_px:
         z = _flatten_border(np.maximum(z - 0.01, 0.0), base_border_px) + 0.01
         z = np.where(top_silhouette_mask, z, np.nan)
+    background_reference_surface = unstabilized_scene
+    selection_background_cap_stats = {
+        "enabled": False,
+        "reason": "no_selection_mask",
+    }
+    if selected_region is not None:
+        background_reference_surface, reference_background_cap_stats = (
+            _cap_selection_background_relief(
+                unstabilized_scene,
+                selected_region,
+                relief_height_mm=z_scale,
+                sample_pitch_mm=gradient_sample_pitch_mm,
+                max_slope_mm_per_mm=max_relief_slope,
+                background_depth_ratio=selection_background_depth_ratio,
+            )
+        )
+        z, selection_background_cap_stats = _cap_selection_background_relief(
+            z,
+            selected_region,
+            relief_height_mm=z_scale,
+            sample_pitch_mm=gradient_sample_pitch_mm,
+            max_slope_mm_per_mm=max_relief_slope,
+            background_depth_ratio=selection_background_depth_ratio,
+        )
+        selection_background_cap_stats["reference_cap"] = reference_background_cap_stats
+        if not reference_background_cap_stats.get("emission_passed", False):
+            raise ValueError("Bounded background reference failed its physical emission gates")
+        if not selection_background_cap_stats.get("emission_passed", False):
+            raise ValueError("Background relief failed its physical emission gates")
+    background_foreground_mask = selected_region
+    background_context_enforced = bool(
+        selected_region is not None
+        and float(selection_background_depth_ratio) > 0
+    )
+    if background_context_enforced:
+        background_preservation_stats = _background_relief_preservation_metrics(
+            background_reference_surface,
+            z,
+            background_foreground_mask,
+            sample_pitch_mm=gradient_sample_pitch_mm,
+        )
+        background_preservation_stats["enforced"] = True
+    else:
+        background_preservation_stats = {
+            "available": False,
+            "passed": True,
+            "enforced": False,
+            "reason": "background_context_disabled",
+            "quality_failures": [],
+        }
+    if (
+        background_preservation_stats.get("available", False)
+        and not background_preservation_stats.get("passed", False)
+    ):
+        initial_background_stats = background_preservation_stats
+        restored_background, fallback_stats = _restore_background_from_reference(
+            z,
+            background_reference_surface,
+            background_foreground_mask,
+            sample_pitch_mm=gradient_sample_pitch_mm,
+            max_neighbor_step_mm=gradient_sample_pitch_mm * float(max_relief_slope),
+        )
+        if selected_region is not None:
+            restored_background, fallback_cap_stats = _cap_selection_background_relief(
+                restored_background,
+                selected_region,
+                relief_height_mm=z_scale,
+                sample_pitch_mm=gradient_sample_pitch_mm,
+                max_slope_mm_per_mm=max_relief_slope,
+                background_depth_ratio=selection_background_depth_ratio,
+            )
+            fallback_stats["physical_cap"] = fallback_cap_stats
+        fallback_metrics = _background_relief_preservation_metrics(
+            background_reference_surface,
+            restored_background,
+            background_foreground_mask,
+            sample_pitch_mm=gradient_sample_pitch_mm,
+        )
+        fallback_cap_accepted = bool(
+            fallback_stats.get("physical_cap", {}).get("emission_passed", False)
+        )
+        fallback_slope_guard = fallback_stats.get("slope_guard", {})
+        fallback_slope_audit = fallback_slope_guard.get("final_audit", {})
+        fallback_slope_accepted = bool(
+            not fallback_slope_guard.get("enabled", False)
+            or float(fallback_slope_audit.get("accepted_surface_ratio_max", float("inf")))
+            <= float(fallback_slope_guard.get("max_ratio", 1.0)) + 1e-6
+        )
+        fallback_stats["physical_cap_accepted"] = fallback_cap_accepted
+        fallback_stats["slope_guard_accepted"] = fallback_slope_accepted
+        fallback_stats["accepted"] = bool(
+            fallback_metrics.get("passed", False)
+            and fallback_cap_accepted
+            and fallback_slope_accepted
+        )
+        fallback_metrics["initial_candidate"] = initial_background_stats
+        fallback_metrics["fallback"] = fallback_stats
+        if not fallback_stats["accepted"]:
+            raise ValueError(
+                "Background relief preservation failed after bounded reference fallback"
+            )
+        z = restored_background
+        background_preservation_stats = fallback_metrics
 
     # Create a mask for non-NaN values
     mask = np.isfinite(z)
@@ -4060,6 +4858,9 @@ def depth_data_to_3d_model(
         "background_detail_face_protected": region_mask is not None,
         "background_photo_detail_mm": float(background_photo_detail_mm),
         "background_photo_detail": photo_detail_stats,
+        "selection_background_depth_ratio": float(selection_background_depth_ratio),
+        "selection_background_physical_cap": selection_background_cap_stats,
+        "background_depth_preservation": background_preservation_stats,
         "top_silhouette": top_silhouette_stats,
         "printable_feature_depth_mm": float(printable_feature_depth_mm),
         "printable_feature_depth": printable_feature_stats,

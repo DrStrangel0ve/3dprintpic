@@ -19,6 +19,8 @@ from backend.pic_to_3d import (
     _guard_weighted_feature_updates,
     _align_stabilized_head_to_reference_boundary,
     _attach_face_boundary_to_local_surface,
+    _background_relief_preservation_metrics,
+    _cap_selection_background_relief,
     _bridge_weighted_face_features,
     _compress_relief_gradients,
     _expand_face_region_to_depth_connected_head,
@@ -27,6 +29,7 @@ from backend.pic_to_3d import (
     _inject_photo_relief_detail,
     _limit_positive_relief_slope,
     _prepare_relief_for_printing,
+    _restore_background_from_reference,
     _restore_stabilized_face_surface,
     _resize_nan_aware,
     _shape_relief_values,
@@ -51,7 +54,7 @@ class ReliefStlControlsTest(unittest.TestCase):
 
         self.assertEqual(oriented.size, (4, 8))
 
-    def test_context_selection_depth_preserves_subject_and_builds_support_ramp(self):
+    def test_context_selection_depth_preserves_subject_support_and_background(self):
         rows, cols = np.indices((61, 81), dtype=np.float32)
         depth = 0.2 + 0.004 * cols + 0.08 * np.exp(
             -((rows - 34.0) ** 2 + (cols - 42.0) ** 2) / 90.0
@@ -68,10 +71,238 @@ class ReliefStlControlsTest(unittest.TestCase):
 
         np.testing.assert_array_equal(composed[selected], depth[selected])
         self.assertTrue(stats["enabled"])
+        self.assertEqual(
+            stats["method"],
+            "full_scene_depth_with_bounded_background_context_v2",
+        )
         self.assertGreater(stats["support_halo_pixels"], 0)
         self.assertLess(stats["base_canonical_value"], stats["selected_canonical_p01"])
         self.assertAlmostEqual(float(composed[0, 0]), stats["base_canonical_value"], places=6)
         self.assertGreater(float(np.max(composed[~selected])), float(composed[0, 0]))
+        self.assertTrue(stats["background_context_enabled"])
+        self.assertGreater(stats["background_context_pixels"], 0)
+        self.assertGreater(stats["background_context_correlation"], 0.9)
+        self.assertGreater(stats["background_output_span_ratio"], 0.2)
+        self.assertGreater(float(composed[5, 75]), float(composed[5, 5]))
+
+    def test_context_selection_depth_can_replay_legacy_flat_background(self):
+        rows, cols = np.indices((61, 81), dtype=np.float32)
+        depth = 0.2 + 0.004 * cols
+        selected = ((rows - 30.0) ** 2 + (cols - 40.0) ** 2) <= 10.0**2
+
+        composed, stats = compose_selection_depth_with_context(
+            depth,
+            selected,
+            relief_height_mm=30.0,
+            sample_pitch_mm=0.4,
+            max_slope_mm_per_mm=2.0,
+            background_depth_ratio=0.0,
+        )
+
+        self.assertFalse(stats["background_context_enabled"])
+        self.assertEqual(stats["background_context_pixels"], 0)
+        self.assertAlmostEqual(float(composed[0, 0]), stats["base_canonical_value"], places=6)
+        self.assertAlmostEqual(float(composed[0, -1]), stats["base_canonical_value"], places=6)
+
+    def test_context_selection_depth_rejects_invalid_background_ratio(self):
+        depth = np.ones((20, 20), dtype=np.float32)
+        selected = np.zeros(depth.shape, dtype=bool)
+        selected[5:15, 5:15] = True
+
+        with self.assertRaisesRegex(ValueError, "supported range"):
+            compose_selection_depth_with_context(
+                depth,
+                selected,
+                background_depth_ratio=1.1,
+            )
+
+    def test_background_preservation_metric_rejects_flattened_scene_context(self):
+        rows, cols = np.indices((80, 100), dtype=np.float32)
+        foreground = ((rows - 47.0) ** 2 / 210.0 + (cols - 52.0) ** 2 / 330.0) <= 1.0
+        reference = (
+            2.0
+            + 0.035 * cols
+            + 0.9 * np.sin(cols / 9.0)
+            + 0.5 * np.cos(rows / 7.0)
+            + 4.0 * foreground
+        ).astype(np.float32)
+
+        preserved = _background_relief_preservation_metrics(
+            reference,
+            reference.copy(),
+            foreground,
+            sample_pitch_mm=0.4,
+        )
+        flattened = reference.copy()
+        flattened[~foreground] = float(np.median(reference[~foreground]))
+        rejected = _background_relief_preservation_metrics(
+            reference,
+            flattened,
+            foreground,
+            sample_pitch_mm=0.4,
+        )
+
+        self.assertTrue(preserved["passed"])
+        self.assertAlmostEqual(preserved["correlation"], 1.0, places=6)
+        self.assertAlmostEqual(preserved["span_retention"], 1.0, places=6)
+        self.assertFalse(rejected["passed"])
+        self.assertIn("correlation", rejected["quality_failures"])
+        self.assertIn("span_retention", rejected["quality_failures"])
+        self.assertIn("gradient_rms_retention", rejected["quality_failures"])
+
+        flat_reference = np.full(reference.shape, 2.0, dtype=np.float32)
+        flat_reference[foreground] = 6.0
+        flat = _background_relief_preservation_metrics(
+            flat_reference,
+            flat_reference.copy(),
+            foreground,
+            sample_pitch_mm=0.4,
+        )
+        self.assertTrue(flat["passed"])
+        self.assertEqual(flat["rms_retention"], 1.0)
+        self.assertEqual(flat["span_retention"], 1.0)
+
+        background = ~foreground
+        amplified = reference.copy()
+        background_mean = float(np.mean(reference[background]))
+        amplified[background] = background_mean + 10.0 * (
+            reference[background] - background_mean
+        )
+        amplification_metrics = _background_relief_preservation_metrics(
+            reference,
+            amplified,
+            foreground,
+            sample_pitch_mm=0.4,
+        )
+        self.assertFalse(amplification_metrics["passed"])
+        self.assertIn("rms_retention", amplification_metrics["quality_failures"])
+        self.assertIn("span_retention", amplification_metrics["quality_failures"])
+
+        shifted = reference.copy()
+        shifted[background] += 20.0
+        shift_metrics = _background_relief_preservation_metrics(
+            reference,
+            shifted,
+            foreground,
+            sample_pitch_mm=0.4,
+        )
+        self.assertFalse(shift_metrics["passed"])
+        self.assertIn("mean_shift", shift_metrics["quality_failures"])
+        self.assertIn("boundary_jump", shift_metrics["quality_failures"])
+
+        missing = reference.copy()
+        missing[5:25, 5:25] = np.nan
+        missing_metrics = _background_relief_preservation_metrics(
+            reference,
+            missing,
+            foreground,
+            sample_pitch_mm=0.4,
+        )
+        self.assertTrue(missing_metrics["available"])
+        self.assertFalse(missing_metrics["passed"])
+        self.assertIn("coverage", missing_metrics["quality_failures"])
+        self.assertLess(missing_metrics["candidate_coverage_ratio"], 1.0)
+
+    def test_selection_background_physical_cap_preserves_support_and_limits_far_context(self):
+        values = np.full((61, 81), 20.0, dtype=np.float32)
+        values[0, :] = 0.0
+        values[-1, :] = 0.0
+        values[:, 0] = 0.0
+        values[:, -1] = 0.0
+        selected = np.zeros(values.shape, dtype=bool)
+        selected[25:36, 35:46] = True
+        values[selected] = 27.0
+
+        capped, stats = _cap_selection_background_relief(
+            values,
+            selected,
+            relief_height_mm=30.0,
+            sample_pitch_mm=0.5,
+            max_slope_mm_per_mm=2.0,
+            background_depth_ratio=0.45,
+        )
+
+        np.testing.assert_array_equal(capped[selected], values[selected])
+        self.assertTrue(stats["passed"])
+        self.assertGreater(stats["affected_pixels"], 0)
+        self.assertLessEqual(stats["far_background_max_mm"], 13.5 + 1e-5)
+        self.assertGreater(float(capped[24, 40]), stats["far_background_ceiling_mm"])
+        self.assertAlmostEqual(float(capped[5, 5]), 13.5, places=5)
+        self.assertLessEqual(
+            stats["attachment_jump_max_mm"],
+            stats["attachment_step_limit_mm"] + 1e-5,
+        )
+
+        low_subject = values.copy()
+        low_subject[selected] = 5.0
+        low_capped, low_stats = _cap_selection_background_relief(
+            low_subject,
+            selected,
+            relief_height_mm=30.0,
+            sample_pitch_mm=0.5,
+            max_slope_mm_per_mm=2.0,
+            background_depth_ratio=0.45,
+        )
+        self.assertTrue(low_stats["passed"])
+        self.assertAlmostEqual(float(low_capped[24, 40]), 6.0, places=5)
+        self.assertAlmostEqual(float(low_capped[5, 5]), 13.5, places=5)
+        self.assertEqual(low_stats["attachment_slope_violation_mm"], 0.0)
+
+    def test_background_reference_fallback_cannot_steepen_accepted_surface(self):
+        candidate = np.full((61, 81), 5.0, dtype=np.float32)
+        reference = candidate.copy()
+        foreground = np.zeros(candidate.shape, dtype=bool)
+        foreground[25:36, 35:46] = True
+        reference[~foreground] = 20.0
+
+        restored, stats = _restore_background_from_reference(
+            candidate,
+            reference,
+            foreground,
+            sample_pitch_mm=1.0,
+            feather_mm=1.5,
+            max_neighbor_step_mm=1.0,
+        )
+
+        horizontal = np.abs(restored[:, 1:] - restored[:, :-1])
+        vertical = np.abs(restored[1:, :] - restored[:-1, :])
+        self.assertTrue(stats["slope_guard"]["enabled"])
+        self.assertLessEqual(float(np.max(horizontal)), 1.0001)
+        self.assertLessEqual(float(np.max(vertical)), 1.0001)
+        self.assertLessEqual(
+            stats["slope_guard"]["final_audit"]["accepted_surface_ratio_max"],
+            1.0001,
+        )
+
+    def test_background_cap_reports_incompatible_subject_boundary_constraints(self):
+        values = np.full((21, 21), 20.0, dtype=np.float32)
+        values[[0, -1], :] = 0.0
+        values[:, [0, -1]] = 0.0
+        selected = np.zeros(values.shape, dtype=bool)
+        selected[10, 9] = True
+        selected[9, 10] = True
+        selected[10, 11] = True
+        selected[11, 10] = True
+        values[10, 9] = 5.0
+        values[9, 10] = 10.0
+        values[10, 11] = 5.0
+        values[11, 10] = 10.0
+
+        _, stats = _cap_selection_background_relief(
+            values,
+            selected,
+            relief_height_mm=30.0,
+            sample_pitch_mm=0.5,
+            max_slope_mm_per_mm=2.0,
+            background_depth_ratio=0.45,
+        )
+
+        self.assertTrue(stats["far_background_cap_passed"])
+        self.assertTrue(stats["feasible_attachment_constraints_passed"])
+        self.assertTrue(stats["emission_passed"])
+        self.assertFalse(stats["attachment_constraints_passed"])
+        self.assertFalse(stats["passed"])
+        self.assertGreater(stats["attachment_constraint_conflicts"], 0)
 
     def test_context_selection_depth_supports_metric_far_high_values(self):
         depth = np.full((31, 31), 8.0, dtype=np.float32)
@@ -92,6 +323,27 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertTrue(np.all(np.isfinite(composed)))
         self.assertGreater(float(composed[0, 0]), float(depth[9, 9]))
         self.assertEqual(stats["value_transform"], RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH)
+
+    def test_context_selection_depth_ignores_nonpositive_inverse_depth_samples(self):
+        depth = np.full((31, 31), 8.0, dtype=np.float32)
+        selected = np.zeros(depth.shape, dtype=bool)
+        selected[9:22, 9:22] = True
+        depth[selected] = 3.0
+        depth[15, 15] = 0.0
+        depth[:13, :13] = 0.0
+
+        composed, stats = compose_selection_depth_with_context(
+            depth,
+            selected,
+            value_transform=RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
+            relief_height_mm=20.0,
+            sample_pitch_mm=0.5,
+            max_slope_mm_per_mm=2.0,
+        )
+
+        self.assertTrue(np.all(np.isfinite(composed)))
+        self.assertGreater(float(composed[15, 15]), 0.0)
+        self.assertEqual(stats["mask_pixels"], int(np.count_nonzero(selected & (depth > 0))))
 
     def test_context_selection_depth_rejects_misaligned_aspect_ratio(self):
         depth = np.ones((40, 80), dtype=np.float32)
@@ -536,6 +788,25 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertEqual(stats["applied_scale"], 1.0)
         np.testing.assert_array_equal(guarded, candidate)
 
+    def test_feature_guard_uses_safe_baseline_when_projection_does_not_converge(self):
+        rng = np.random.default_rng(0)
+        baseline = (rng.normal(size=(7, 7)) * 2.0).astype(np.float32)
+        candidate = (baseline + rng.normal(size=(7, 7)) * 10.0).astype(np.float32)
+
+        guarded, stats = _guard_weighted_feature_updates(
+            baseline,
+            candidate,
+            max_neighbor_step_mm=1.0,
+            max_ratio=1.0,
+        )
+
+        self.assertLessEqual(
+            stats["final_audit"]["accepted_surface_ratio_max"],
+            1.0 + 1e-6,
+        )
+        if stats["fell_back_to_baseline"]:
+            np.testing.assert_array_equal(guarded, baseline)
+
     def test_face_boundary_attachment_preserves_detail_and_does_not_raise_background(self):
         values = np.full((81, 81), 2.0, dtype=np.float32)
         region = np.zeros_like(values, dtype=bool)
@@ -972,6 +1243,7 @@ class ReliefStlControlsTest(unittest.TestCase):
                 base_border_px=1,
                 minimum_feature_mm=0.8,
                 selection_region_mask=selected,
+                selection_background_depth_ratio=0.0,
             )
             stl_exists = stl_path.is_file()
 
@@ -1019,6 +1291,7 @@ class ReliefStlControlsTest(unittest.TestCase):
                 max_relief_slope=2.0,
                 face_region_mask=face,
                 selection_region_mask=selected,
+                selection_background_depth_ratio=0.0,
             )
             stl_exists = stl_path.is_file()
 

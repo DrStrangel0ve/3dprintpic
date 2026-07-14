@@ -1274,6 +1274,9 @@ async def process_image(
     detail_boost: float = Form(0.8),
     background_detail_boost: float = Form(2.4),
     background_photo_detail_mm: float = Form(0.12),
+    selection_background_depth_ratio: float = Form(0.45),
+    selection_background_feather_mm: float = Form(1.5),
+    selection_background_smoothing_mm: float = Form(0.6),
     trim_top_background: bool = Form(True),
     printable_feature_depth_mm: float = Form(0.4),
     feature_bridge_depth_mm: float = Form(0.8),
@@ -1427,6 +1430,9 @@ async def process_image(
                     relief_height_mm=z_scale,
                     sample_pitch_mm=context_sample_pitch_mm,
                     max_slope_mm_per_mm=max_relief_slope,
+                    background_depth_ratio=selection_background_depth_ratio,
+                    background_feather_mm=selection_background_feather_mm,
+                    background_smoothing_mm=selection_background_smoothing_mm,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1528,6 +1534,7 @@ async def process_image(
                 else None
             ),
             selection_region_mask=selection_region_mask_path,
+            selection_background_depth_ratio=selection_background_depth_ratio,
         )
         record_timing("stl_seconds", stage_started)
         logger.info(f"3D model saved as: {stl_path}")
@@ -1596,6 +1603,9 @@ async def process_image(
             "detail_boost": detail_boost,
             "background_detail_boost": background_detail_boost,
             "background_photo_detail_mm": background_photo_detail_mm,
+            "selection_background_depth_ratio": selection_background_depth_ratio,
+            "selection_background_feather_mm": selection_background_feather_mm,
+            "selection_background_smoothing_mm": selection_background_smoothing_mm,
             "trim_top_background": trim_top_background,
             "effective_trim_top_background": effective_trim_top_background,
             "printable_feature_depth_mm": printable_feature_depth_mm,

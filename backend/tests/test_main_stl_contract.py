@@ -272,8 +272,9 @@ class MainStlContractTest(unittest.TestCase):
             self.assertEqual(payload["selection_depth_context"]["selection_job_id"], selection_job_id)
             self.assertEqual(
                 payload["selection_depth_context"]["method"],
-                "full_scene_depth_then_slope_bounded_selection",
+                "full_scene_depth_with_bounded_background_context_v2",
             )
+            self.assertEqual(payload["selection_depth_context"]["background_depth_ratio"], 0.45)
             self.assertFalse(payload["effective_trim_top_background"])
             self.assertTrue(payload["depth_data"].endswith("output_depth_data_selected_context.npy"))
             self.assertTrue(payload["relief_postprocess"]["selection_gradient_compression"]["enabled"])
