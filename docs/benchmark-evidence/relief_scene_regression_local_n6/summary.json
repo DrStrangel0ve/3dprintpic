@@ -1,0 +1,609 @@
+{
+  "schema_version": 2,
+  "run_kind": "deterministic_privacy_safe_relief_scene_regression",
+  "privacy": "all inputs are analytic arrays; no photos, masks, or private meshes are used",
+  "implementation_provenance": {
+    "available": true,
+    "clean": true,
+    "revision": "7ff402422511f5dcaa83ad16af4eae10990fca4c",
+    "paths": [
+      "backend/pic_to_3d.py",
+      "backend/benchmark/run_relief_scene_regression.py",
+      "backend/benchmark/mesh_rendering.py"
+    ],
+    "status": []
+  },
+  "allow_dirty": false,
+  "relief_height_mm": 30.0,
+  "background_depth_ratio": 0.45,
+  "sample_pitch_mm": 0.4,
+  "scene_count": 6,
+  "runtime_seconds": 5.041797300000326,
+  "checks": {
+    "full_scene_matrix_complete": true,
+    "expected_scene_count": true,
+    "implementation_provenance_clean": true,
+    "required_telemetry_complete": true,
+    "negative_controls_passed": true,
+    "all_scene_gates_passed": true,
+    "all_background_gates_passed": true,
+    "all_face_gates_passed": true,
+    "all_physical_emission_gates_passed": true,
+    "all_meshes_printable": true,
+    "passed": true
+  },
+  "aggregate": {
+    "minimum_normalized_context_correlation": 0.9999999999999998,
+    "minimum_recoverable_context_coverage_ratio": 0.7129510685507415,
+    "minimum_background_correlation": 0.9999812456475624,
+    "minimum_background_rms_retention": 0.9997876461417056,
+    "minimum_background_span_retention": 1.0,
+    "minimum_background_gradient_correlation": 0.9994969584288338,
+    "minimum_face_correlation": 0.9544638321381809,
+    "minimum_face_rms_retention": 1.0169957628288562,
+    "maximum_far_background_mm": 13.510000228881836,
+    "maximum_feasible_attachment_jump_mm": 0.8000001907348633,
+    "total_attachment_constraint_conflicts": 13,
+    "fallback_count": 0
+  },
+  "negative_controls": {
+    "checks": {
+      "whole_background_flattening_rejected": true,
+      "localized_object_loss_rejected": true,
+      "insufficient_context_unavailable": true,
+      "passed": true
+    },
+    "localized_loss_global_correlation": 0.9831366487066254,
+    "localized_loss_global_gradient_correlation": 0.8251472709308764,
+    "localized_loss_failed_windows": 5,
+    "insufficient_context_reason": "insufficient_reference_background_samples"
+  },
+  "rows": [
+    {
+      "scene_id": "planar_room_center",
+      "background_archetype": "planar_room",
+      "runtime_seconds": 0.8203558999994129,
+      "checks": {
+        "context_composed": true,
+        "source_context_signal": true,
+        "background_preservation": true,
+        "background_coverage": true,
+        "localized_background_structure": true,
+        "face_detail": true,
+        "physical_emission": true,
+        "far_background_cap": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 6712,
+        "context_coverage_ratio": 0.45843863124103545,
+        "context_correlation": 0.5929353086312115,
+        "normalized_context_correlation": 1.0,
+        "normalized_context_rms_retention": 1.0000000000000002,
+        "recoverable_context_coverage_ratio": 0.7286102308736985,
+        "output_span_ratio": 0.7290715655861046
+      },
+      "background": {
+        "correlation": 0.9999922268142333,
+        "rms_retention": 0.9999381661178433,
+        "span_retention": 1.0,
+        "gradient_correlation": 0.9995836944843616,
+        "gradient_rms_retention": 0.993591475632254,
+        "mean_shift_mm": 0.0004565292413949663,
+        "candidate_coverage_ratio": 1.0,
+        "fallback_used": false,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 91,
+          "structured_window_count": 83,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.3700306923987961,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999947103624997,
+          "maximum_window_shape_error_ratio": 0.003259235666735123,
+          "worst_window": {
+            "row": 63,
+            "col": 77,
+            "samples": 174,
+            "reference_rms_mm": 5.593335791988938,
+            "correlation": 0.9999947103624997,
+            "shape_error_ratio": 0.003259235666735123
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "face": {
+        "correlation": 0.9678584691309822,
+        "rms_retention": 1.0169957628288562,
+        "component_count": 1
+      },
+      "physical_cap": {
+        "far_background_ceiling_mm": 13.509999999776483,
+        "far_background_max_mm": 13.510000228881836,
+        "far_background_cap_violation_mm": 2.2910535335540771e-07,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633,
+        "attachment_constraint_conflicts": 2,
+        "strict_passed": false,
+        "emission_passed": true
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 58560,
+        "vertex_count": 29282,
+        "printable": true
+      }
+    },
+    {
+      "scene_id": "framed_wall_left_portrait",
+      "background_archetype": "framed_wall",
+      "runtime_seconds": 0.7862358000002132,
+      "checks": {
+        "context_composed": true,
+        "source_context_signal": true,
+        "background_preservation": true,
+        "background_coverage": true,
+        "localized_background_structure": true,
+        "face_detail": true,
+        "physical_emission": true,
+        "far_background_cap": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 6846,
+        "context_coverage_ratio": 0.46759101154292737,
+        "context_correlation": -0.021029112461837047,
+        "normalized_context_correlation": 0.9999999999999998,
+        "normalized_context_rms_retention": 1.0000000000000004,
+        "recoverable_context_coverage_ratio": 0.7385453736654805,
+        "output_span_ratio": 0.6929101616362655
+      },
+      "background": {
+        "correlation": 0.9999859705129346,
+        "rms_retention": 0.9998970497753356,
+        "span_retention": 1.0,
+        "gradient_correlation": 0.9996029122824965,
+        "gradient_rms_retention": 0.9940627280838688,
+        "mean_shift_mm": 0.0005068057088123894,
+        "candidate_coverage_ratio": 1.0,
+        "fallback_used": false,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 97,
+          "structured_window_count": 96,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.3040032149928758,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999935234642648,
+          "maximum_window_shape_error_ratio": 0.003608258499615921,
+          "worst_window": {
+            "row": 63,
+            "col": 98,
+            "samples": 174,
+            "reference_rms_mm": 5.00090234858674,
+            "correlation": 0.9999935234642648,
+            "shape_error_ratio": 0.003608258499615921
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "face": {
+        "correlation": 0.9544638321381809,
+        "rms_retention": 1.0172794936021092,
+        "component_count": 1
+      },
+      "physical_cap": {
+        "far_background_ceiling_mm": 13.509999999776483,
+        "far_background_max_mm": 13.510000228881836,
+        "far_background_cap_violation_mm": 2.2910535335540771e-07,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633,
+        "attachment_constraint_conflicts": 2,
+        "strict_passed": false,
+        "emission_passed": true
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 58560,
+        "vertex_count": 29282,
+        "printable": true
+      }
+    },
+    {
+      "scene_id": "shelving_right_portrait",
+      "background_archetype": "shelving",
+      "runtime_seconds": 0.8429586000002018,
+      "checks": {
+        "context_composed": true,
+        "source_context_signal": true,
+        "background_preservation": true,
+        "background_coverage": true,
+        "localized_background_structure": true,
+        "face_detail": true,
+        "physical_emission": true,
+        "far_background_cap": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 6967,
+        "context_coverage_ratio": 0.47585547435284475,
+        "context_correlation": 0.7013306835179045,
+        "normalized_context_correlation": 1.0,
+        "normalized_context_rms_retention": 1.0000000000000002,
+        "recoverable_context_coverage_ratio": 0.7589514779698828,
+        "output_span_ratio": 0.7090993717820085
+      },
+      "background": {
+        "correlation": 0.9999928573420008,
+        "rms_retention": 0.9999866787588626,
+        "span_retention": 1.0,
+        "gradient_correlation": 0.9996028608589336,
+        "gradient_rms_retention": 0.9935336169865248,
+        "mean_shift_mm": 0.0004156389826418671,
+        "candidate_coverage_ratio": 1.0,
+        "fallback_used": false,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 108,
+          "structured_window_count": 101,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.3783232293141471,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999370631952207,
+          "maximum_window_shape_error_ratio": 0.011258158651285379,
+          "worst_window": {
+            "row": 63,
+            "col": 56,
+            "samples": 161,
+            "reference_rms_mm": 5.31881216768596,
+            "correlation": 0.9999370631952207,
+            "shape_error_ratio": 0.011258158651285379
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "face": {
+        "correlation": 0.9811723034308343,
+        "rms_retention": 1.0169972175800452,
+        "component_count": 1
+      },
+      "physical_cap": {
+        "far_background_ceiling_mm": 13.509999999776483,
+        "far_background_max_mm": 13.510000228881836,
+        "far_background_cap_violation_mm": 2.2910535335540771e-07,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633,
+        "attachment_constraint_conflicts": 3,
+        "strict_passed": false,
+        "emission_passed": true
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 58560,
+        "vertex_count": 29282,
+        "printable": true
+      }
+    },
+    {
+      "scene_id": "soft_outdoor_smile",
+      "background_archetype": "soft_outdoor",
+      "runtime_seconds": 0.8267778999997972,
+      "checks": {
+        "context_composed": true,
+        "source_context_signal": true,
+        "background_preservation": true,
+        "background_coverage": true,
+        "localized_background_structure": true,
+        "face_detail": true,
+        "physical_emission": true,
+        "far_background_cap": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 6764,
+        "context_coverage_ratio": 0.4619903012089338,
+        "context_correlation": 0.10288547742543828,
+        "normalized_context_correlation": 1.0,
+        "normalized_context_rms_retention": 1.0000000000000002,
+        "recoverable_context_coverage_ratio": 0.7266862833861476,
+        "output_span_ratio": 0.7210912141652301
+      },
+      "background": {
+        "correlation": 0.9999846484791333,
+        "rms_retention": 0.9998790902872778,
+        "span_retention": 1.0,
+        "gradient_correlation": 0.9995337549295924,
+        "gradient_rms_retention": 0.992745655509725,
+        "mean_shift_mm": 0.0005872806800940444,
+        "candidate_coverage_ratio": 1.0,
+        "fallback_used": false,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 95,
+          "structured_window_count": 94,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.3482820905823934,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999419220625072,
+          "maximum_window_shape_error_ratio": 0.010815530274516871,
+          "worst_window": {
+            "row": 63,
+            "col": 35,
+            "samples": 161,
+            "reference_rms_mm": 5.008780351126892,
+            "correlation": 0.9999419220625072,
+            "shape_error_ratio": 0.010815530274516871
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "face": {
+        "correlation": 0.963031546249757,
+        "rms_retention": 1.0187799019731176,
+        "component_count": 1
+      },
+      "physical_cap": {
+        "far_background_ceiling_mm": 13.509999999776483,
+        "far_background_max_mm": 13.510000228881836,
+        "far_background_cap_violation_mm": 2.2910535335540771e-07,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633,
+        "attachment_constraint_conflicts": 2,
+        "strict_passed": false,
+        "emission_passed": true
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 58560,
+        "vertex_count": 29282,
+        "printable": true
+      }
+    },
+    {
+      "scene_id": "split_depth_turn",
+      "background_archetype": "split_depth",
+      "runtime_seconds": 0.8305718999999954,
+      "checks": {
+        "context_composed": true,
+        "source_context_signal": true,
+        "background_preservation": true,
+        "background_coverage": true,
+        "localized_background_structure": true,
+        "face_detail": true,
+        "physical_emission": true,
+        "far_background_cap": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 6809,
+        "context_coverage_ratio": 0.4650638617580766,
+        "context_correlation": 0.5624816813366227,
+        "normalized_context_correlation": 0.9999999999999999,
+        "normalized_context_rms_retention": 0.9999999999999993,
+        "recoverable_context_coverage_ratio": 0.731326392032594,
+        "output_span_ratio": 0.7060905030914829
+      },
+      "background": {
+        "correlation": 0.999991981038007,
+        "rms_retention": 0.9999512313764062,
+        "span_retention": 1.0,
+        "gradient_correlation": 0.9994969584288338,
+        "gradient_rms_retention": 0.9924221066804491,
+        "mean_shift_mm": 0.0004382605736720483,
+        "candidate_coverage_ratio": 1.0,
+        "fallback_used": false,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 99,
+          "structured_window_count": 88,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.3936475170529109,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999327247555367,
+          "maximum_window_shape_error_ratio": 0.011637329203630737,
+          "worst_window": {
+            "row": 63,
+            "col": 70,
+            "samples": 161,
+            "reference_rms_mm": 5.870941695132161,
+            "correlation": 0.9999327247555367,
+            "shape_error_ratio": 0.011637329203630737
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "face": {
+        "correlation": 0.9709118687138607,
+        "rms_retention": 1.018153109552902,
+        "component_count": 1
+      },
+      "physical_cap": {
+        "far_background_ceiling_mm": 13.509999999776483,
+        "far_background_max_mm": 13.510000228881836,
+        "far_background_cap_violation_mm": 2.2910535335540771e-07,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633,
+        "attachment_constraint_conflicts": 2,
+        "strict_passed": false,
+        "emission_passed": true
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 58560,
+        "vertex_count": 29282,
+        "printable": true
+      }
+    },
+    {
+      "scene_id": "low_contrast_close_background",
+      "background_archetype": "low_contrast",
+      "runtime_seconds": 0.8415021000000706,
+      "checks": {
+        "context_composed": true,
+        "source_context_signal": true,
+        "background_preservation": true,
+        "background_coverage": true,
+        "localized_background_structure": true,
+        "face_detail": true,
+        "physical_emission": true,
+        "far_background_cap": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "passed": true
+      },
+      "compose": {
+        "context_pixels": 6507,
+        "context_coverage_ratio": 0.4444368554060515,
+        "context_correlation": 0.2289692409621023,
+        "normalized_context_correlation": 1.0,
+        "normalized_context_rms_retention": 1.0000000000000002,
+        "recoverable_context_coverage_ratio": 0.7129510685507415,
+        "output_span_ratio": 0.6916342302104603
+      },
+      "background": {
+        "correlation": 0.9999812456475624,
+        "rms_retention": 0.9997876461417056,
+        "span_retention": 1.0,
+        "gradient_correlation": 0.9996318292171156,
+        "gradient_rms_retention": 0.9942340313424397,
+        "mean_shift_mm": 0.000526746738772552,
+        "candidate_coverage_ratio": 1.0,
+        "fallback_used": false,
+        "localized_structure": {
+          "available": true,
+          "passed": true,
+          "window_mm": 6.0,
+          "window_px": 15,
+          "stride_px": 7,
+          "border_exclusion_px": 7,
+          "minimum_samples_per_window": 113,
+          "minimum_window_coverage_ratio": 0.5,
+          "measured_window_count": 94,
+          "structured_window_count": 94,
+          "failed_window_count": 0,
+          "minimum_structure_rms_mm": 0.2591647302327174,
+          "minimum_correlation": 0.35,
+          "maximum_shape_error_ratio": 0.95,
+          "minimum_window_correlation": 0.9999946502318295,
+          "maximum_window_shape_error_ratio": 0.0032729907956420366,
+          "worst_window": {
+            "row": 63,
+            "col": 42,
+            "samples": 153,
+            "reference_rms_mm": 5.643632193685265,
+            "correlation": 0.9999946502318295,
+            "shape_error_ratio": 0.0032729907956420366
+          },
+          "flat_or_smooth_reference": false
+        }
+      },
+      "face": {
+        "correlation": 0.9591147907290883,
+        "rms_retention": 1.0172313603210565,
+        "component_count": 1
+      },
+      "physical_cap": {
+        "far_background_ceiling_mm": 13.509999999776483,
+        "far_background_max_mm": 13.510000228881836,
+        "far_background_cap_violation_mm": 2.2910535335540771e-07,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633,
+        "attachment_constraint_conflicts": 2,
+        "strict_passed": false,
+        "emission_passed": true
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 58560,
+        "vertex_count": 29282,
+        "printable": true
+      }
+    }
+  ]
+}

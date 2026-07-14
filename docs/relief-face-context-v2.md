@@ -34,8 +34,9 @@ The implementation follows the useful common ground in current monocular geometr
 10. Curvature telemetry uses finite values or `null` plus an explicit flat-reference violation, so a rejected candidate cannot turn a valid fallback STL into a JSON serialization failure.
 11. Final-surface background telemetry measures centred depth correlation, RMS and percentile-span retention, gradient correlation/RMS, absolute mean shift, and subject-boundary jumps outside the selected subject. Lower and upper bounds reject both flattening and artificial amplification.
 12. A second cap runs in physical millimetres after gamma and every surface solver. Far context cannot exceed 45% of the requested relief height. High and low subject boundaries both constrain the immediate attachment; incompatible constraints are counted explicitly rather than silently certified.
-13. The comparison remains the original bounded pre-solver surface; it is never rewritten from the candidate being scored. A failed final gate may restore that reference through a physical feather, but the result is accepted only when the slope guard, far cap, satisfiable attachment constraints, coverage, and preservation metrics all pass.
+13. The background comparison combines the final processed foreground with the original background before applying the same physical cap to reference and candidate. This holds required support-ramp changes constant without letting the candidate rewrite the scene context being scored.
 14. Nonpositive inverse-depth samples are excluded before selected-depth percentiles are computed, and large invalid patches fall back to the finite support surface. Candidate coverage is measured against the reference context so missing geometry cannot pass by omission.
+15. Face/head gradient updates are clipped to the selected subject before the physical attachment stage. Overlapping 6 mm windows reject localized background loss that can hide inside strong global scores, and unavailable preservation telemetry blocks STL emission.
 
 ### Faces at high relief
 
@@ -73,6 +74,28 @@ After the final feature guard, the two portrait face components remained above t
 
 Aggregate follow-up evidence is in `docs/benchmark-evidence/relief_30mm_background_context_v2/`. Private source images, masks, renders, and meshes remain local and ignored.
 
+## Privacy-safe varied-scene regression
+
+A deterministic six-scene follow-up varied portrait placement, expression, yaw,
+foreground-to-background contrast, and broad background geometry without using
+any private image. It exposed a real v2 failure: the depth-connected head region
+could let face-solver updates reach well outside the user's selection and flatten
+localized background structure. The v3 path clips those updates to the subject
+and scores the original background with identical final foreground geometry and
+physical support constraints.
+
+All six 30 mm v3 runs pass the face, source-context, local/global background,
+physical-cap, attachment, provenance, and printability gates without fallback on
+implementation commit `7ff4024`. The minimum face correlation is 0.954; minimum
+final background and gradient correlations are 0.999981 and 0.999497. Every STL
+is a single watertight, winding-consistent volume with no nonmanifold edges or
+degenerate faces. The localized-deletion control still fails in five windows
+despite global depth/gradient correlations of 0.983/0.825.
+
+The runnable harness is `backend/benchmark/run_relief_scene_regression.py`, and
+compact per-scene evidence is in
+`docs/benchmark-evidence/relief_scene_regression_local_n6/`.
+
 ## Validation
 
 ```powershell
@@ -83,9 +106,9 @@ npm run lint
 npm run test:ui
 ```
 
-Measured state on 2026-07-14:
+Measured state on 2026-07-15:
 
-- Backend: 423 passed, 8 subtests passed.
+- Backend: 430 passed, 14 subtests passed.
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
