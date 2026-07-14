@@ -38,6 +38,7 @@ The implementation follows the useful common ground in current monocular geometr
 14. Nonpositive inverse-depth samples are excluded before selected-depth percentiles are computed, and large invalid patches fall back to the finite support surface. Candidate coverage is measured against the reference context so missing geometry cannot pass by omission.
 15. Face/head gradient updates are clipped to the selected subject before the physical attachment stage. Overlapping 6 mm windows reject localized background loss that can hide inside strong global scores, and unavailable preservation telemetry blocks STL emission.
 16. Final physical-normal and relighting telemetry scores faces, selected non-face surfaces, and background components independently. A disconnected island or an enclosed background hole cannot disappear into an aggregate score.
+17. If a final background candidate fails preservation after an already capped reference surface passed, fallback restoration uses that accepted reference as the slope-audit baseline. The foreground remains unchanged, and the reference is still re-capped and re-audited before emission; a flattened rejected candidate can no longer prevent valid context from being restored.
 
 ### Faces at high relief
 
@@ -46,7 +47,7 @@ The implementation follows the useful common ground in current monocular geometr
 3. A post-solve high-pass restoration is capped at 0.6 mm and reprojected against the accepted surface. Its morphological boundary is explicitly reset and audited.
 4. Feature embossing is audited again after application. The update is attenuated until every face still passes, preventing glasses or landmark weights from degrading an otherwise accepted solve.
 5. Opaque eyewear de-occlusion and its feature-exclusion mask remain active before these stages.
-6. The high-relief face solve uses a `0.05` screened data term. A bounded exact-input ablation selected this value after the old `0.01` term let one face's worst-light correlation fall to `0.773947`; the new value raises it to `0.819375` without changing background, cap, or printability outcomes.
+6. The high-relief face solve uses a uniform `0.25` screened data term at 20, 30, and 40 mm. The earlier `0.05` setting passed 30 mm narrowly but rejected the larger face at 40 mm, sending it through a fallback whose worst-light correlation fell to `0.233819`. The uniform setting raises the exact weaker-face scores to `0.862279`, `0.869303`, and `0.896382` while all face edge ratios remain below their physical limits.
 7. Final face telemetry compares physical surface normals and four deterministic Lambertian lights. Coverage and every disconnected face component must pass independently, so missing geometry or one damaged face cannot hide inside a union score.
 
 ## Exact private replay results
@@ -158,6 +159,38 @@ certified. This exact-input caveat does not occur in the privacy-safe matrix,
 whose disconnected subject and enclosed background hole are both large enough
 to be measured component by component.
 
+## Uniform face-height follow-up
+
+The first exact 40 mm replay exposed two coupled failures. The `0.05` face
+candidate missed its per-component detail gate, and the rejected fallback
+surface reduced the weaker face's worst-light correlation to `0.233819`. The
+same run's accepted background reference could not be restored because the
+slope guard compared it against the already flattened rejected candidate.
+
+A bounded `0.06` through `0.30` exact-input ablation found `0.25` to be the
+first face term that passed. Applying that setting uniformly also improves the
+weaker exact face from `0.845156` to `0.862279` at 20 mm and from `0.819365` to
+`0.869303` at 30 mm. At 40 mm it reaches `0.896382` worst-light correlation,
+`0.985779` mean-normal cosine, and `16.4955` degrees p95 normal error. Face
+solver cardinal p99/max and diagonal max ratios are `6.4311` / `18.1081` /
+`12.8252`, below `12` / `24` / `24`.
+
+The accepted-reference fallback keeps exact background depth correlation above
+`0.999997` with 100% coverage at all three heights. Every exact output is a
+single watertight manifold volume with zero degenerates and exactly matches all
+309,440 expected shell facets. The exact 20-to-40 gradient-consistency
+diagnostic remains a disclosed near miss at `0.967754` versus `0.97`; 20-to-30
+and 30-to-40 pass. At 40 mm the selection-wide candidate independently exceeds
+its edge gate and fails closed, so the accepted face/background surface is not
+replaced.
+
+The clean privacy-safe 12-row matrix passes on implementation revision
+`53d37b08672519dfb1cd9c1b6b27c673a416e0c7`. Its minimum face relighting
+correlation improves from `0.971095` to `0.990004`, minimum background depth
+correlation is `0.999973`, and every complete STL shell and printability check
+passes. Evidence is in
+`docs/benchmark-evidence/relief_visual_sweep_face025_n12/`.
+
 ## Validation
 
 ```powershell
@@ -170,7 +203,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 442 passed, 32 subtests passed (2 existing warnings).
+- Backend: 443 passed, 32 subtests passed (3 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
