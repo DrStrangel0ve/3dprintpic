@@ -45,6 +45,8 @@ The implementation follows the useful common ground in current monocular geometr
 3. A post-solve high-pass restoration is capped at 0.6 mm and reprojected against the accepted surface. Its morphological boundary is explicitly reset and audited.
 4. Feature embossing is audited again after application. The update is attenuated until every face still passes, preventing glasses or landmark weights from degrading an otherwise accepted solve.
 5. Opaque eyewear de-occlusion and its feature-exclusion mask remain active before these stages.
+6. The high-relief face solve uses a `0.05` screened data term. A bounded exact-input ablation selected this value after the old `0.01` term let one face's worst-light correlation fall to `0.773947`; the new value raises it to `0.819375` without changing background, cap, or printability outcomes.
+7. Final face telemetry compares physical surface normals and four deterministic Lambertian lights. Coverage and every disconnected face component must pass independently, so missing geometry or one damaged face cannot hide inside a union score.
 
 ## Exact private replay results
 
@@ -96,6 +98,33 @@ The runnable harness is `backend/benchmark/run_relief_scene_regression.py`, and
 compact per-scene evidence is in
 `docs/benchmark-evidence/relief_scene_regression_local_n6/`.
 
+## Relief-height appearance sweep
+
+The follow-up harness `backend/benchmark/run_relief_visual_sweep.py` expands the
+privacy-safe regression to 20, 30, and 40 mm. Four mask topologies cover a
+centered subject, an edge-clipped subject, a near-full-frame subject, and two
+disconnected components with an internal hole. It verifies physical normals,
+four deterministic light responses, candidate coverage, every face component,
+background appearance and depth, exact reopened-STL agreement, and pairwise
+cross-height face shape consistency.
+
+The first exact two-face replay found a real aggregate-metric blind spot: the
+larger face failed at `0.773947` worst-light correlation and `1.405562` maximum
+lighting RMS retention even though the union passed. A nine-variant cached-depth
+ablation isolated the face solver's low screening weight. Raising only that
+face-aware term from `0.01` to `0.05` makes both exact face components pass at
+`0.819375` and `0.915401` worst-light correlation. The exact portrait keeps
+`0.999996` background depth correlation, the physical caps pass, and the mesh
+remains one watertight manifold component with zero degenerates.
+
+The clean 12-row matrix passes every gate on commit `b2c82eb`. Minimum face
+normal cosine and lighting correlation are `0.991248` and `0.971095`; minimum
+background depth correlation is `0.999774`. Across 20/30/40 mm pairs, minimum
+normalized face shape and gradient correlations are `0.997841` and `0.993255`,
+with maximum normalized shape RMSE `0.023164`. Every STL exactly reproduces the
+measured heightfield and passes topology checks. Full evidence is in
+`docs/benchmark-evidence/relief_visual_sweep_local_n12/`.
+
 ## Validation
 
 ```powershell
@@ -108,7 +137,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 430 passed, 14 subtests passed.
+- Backend: 438 passed, 18 subtests passed.
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
