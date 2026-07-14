@@ -1310,6 +1310,8 @@ class ReliefStlControlsTest(unittest.TestCase):
                 high_percentile=100.0,
                 face_region_mask=face,
                 max_relief_slope=2.0,
+                feature_weight_mask=np.ones(depth.shape, dtype=np.float32),
+                printable_feature_depth_mm=0.8,
             )
             stl_exists = stl_path.is_file()
 
@@ -1346,6 +1348,20 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertEqual(compression["sample_pitch_source"], "implicit_stl_grid_unit")
         self.assertAlmostEqual(compression["max_neighbor_step_mm"], 2.0)
         self.assertTrue(stl_exists)
+        self.assertFalse(postprocess["printable_feature_depth"]["enabled"])
+        self.assertTrue(
+            postprocess["printable_feature_depth"][
+                "suppressed_after_screened_face_reconstruction"
+            ]
+        )
+        self.assertAlmostEqual(postprocess["printable_feature_depth_mm"], 0.8)
+        self.assertAlmostEqual(postprocess["effective_printable_feature_depth_mm"], 0.0)
+        transform = postprocess["surface_grid_transform"]
+        self.assertEqual(transform["input_depth_shape"], [48, 48])
+        self.assertEqual(transform["target_depth_shape"], [48, 48])
+        self.assertTrue(transform["flip_x"])
+        self.assertEqual(transform["emitted_shape"], postprocess["mesh_grid_shape"])
+        self.assertEqual(transform["mask_interpolation"], "nearest")
 
     def test_high_face_relief_records_rejected_gradient_candidate_before_fallback(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

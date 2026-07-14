@@ -31,15 +31,25 @@ FACE_OVAL_INDICES = [
     400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21,
     54, 103, 67, 109,
 ]
-FACE_FEATURE_INDEX_GROUPS = [
-    [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398],
-    [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246],
-    [70, 63, 105, 66, 107, 55, 65, 52, 53, 46],
-    [336, 296, 334, 293, 300, 276, 283, 282, 295, 285],
-    [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 308, 324, 318, 402, 317,
-     14, 87, 178, 88, 95, 78],
-    [168, 6, 197, 195, 5, 4, 1, 2, 98, 327],
-]
+FACE_PART_INDEX_GROUPS = {
+    "left_eye": [
+        362, 382, 381, 380, 374, 373, 390, 249,
+        263, 466, 388, 387, 386, 385, 384, 398,
+    ],
+    "right_eye": [
+        33, 7, 163, 144, 145, 153, 154, 155,
+        133, 173, 157, 158, 159, 160, 161, 246,
+    ],
+    "left_eyebrow": [70, 63, 105, 66, 107, 55, 65, 52, 53, 46],
+    "right_eyebrow": [336, 296, 334, 293, 300, 276, 283, 282, 295, 285],
+    "mouth": [
+        61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291,
+        308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78,
+    ],
+    "nose": [168, 6, 197, 195, 5, 4, 1, 2, 98, 327],
+}
+FACE_PART_NAMES = tuple(FACE_PART_INDEX_GROUPS)
+FACE_FEATURE_INDEX_GROUPS = list(FACE_PART_INDEX_GROUPS.values())
 EYEWEAR_LANDMARK_INDICES = sorted(
     set(
         FACE_FEATURE_INDEX_GROUPS[0]
@@ -174,6 +184,21 @@ def _fill_landmark_region(mask: np.ndarray, points: np.ndarray, indices: list[in
         cv2.fillConvexPoly(mask, cv2.convexHull(selected.astype(np.int32)), 255)
 
 
+def _landmark_part_masks(
+    points: np.ndarray,
+    image_shape,
+    index_groups: dict[str, list[int]] | None = None,
+) -> dict[str, np.ndarray]:
+    height, width = int(image_shape[0]), int(image_shape[1])
+    groups = index_groups or FACE_PART_INDEX_GROUPS
+    masks = {}
+    for name in FACE_PART_NAMES:
+        mask = np.zeros((height, width), dtype=np.uint8)
+        _fill_landmark_region(mask, points, list(groups.get(name, ())))
+        masks[name] = mask
+    return masks
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -217,6 +242,7 @@ def _landmark_region(
     detector_name: str,
     oval_indices: list[int] | None = None,
     feature_index_groups: list[list[int]] | None = None,
+    part_index_groups: dict[str, list[int]] | None = None,
 ) -> dict | None:
     height, width = int(image_shape[0]), int(image_shape[1])
     if not len(points):
@@ -228,6 +254,7 @@ def _landmark_region(
     _fill_landmark_region(face_mask, points, oval_indices or FACE_OVAL_INDICES)
     for indices in feature_index_groups or FACE_FEATURE_INDEX_GROUPS:
         _fill_landmark_region(feature_mask, points, indices)
+    part_masks = _landmark_part_masks(points, image_shape, part_index_groups)
     if not np.any(face_mask):
         face_mask, fallback_features = face_masks_from_box(image_shape, (x0, y0, x1, y1))
         feature_mask = np.maximum(feature_mask, fallback_features)
@@ -238,6 +265,10 @@ def _landmark_region(
         "bbox": [int(x0), int(y0), int(x1), int(y1)],
         "face_mask": face_mask,
         "feature_mask": cv2.bitwise_and(feature_mask, face_mask),
+        "part_masks": {
+            name: cv2.bitwise_and(mask, face_mask)
+            for name, mask in part_masks.items()
+        },
         "detector": detector_name,
         "landmark_count": int(len(points)),
     }
@@ -307,14 +338,18 @@ def _detect_faces_mediapipe(image_rgb: np.ndarray, max_faces: int, min_face_pixe
         result = detector.process(image_rgb)
 
     oval_indices = _connection_indices(getattr(face_mesh_api, "FACEMESH_FACE_OVAL", ()))
-    feature_groups = [
-        getattr(face_mesh_api, "FACEMESH_LEFT_EYE", ()),
-        getattr(face_mesh_api, "FACEMESH_RIGHT_EYE", ()),
-        getattr(face_mesh_api, "FACEMESH_LEFT_EYEBROW", ()),
-        getattr(face_mesh_api, "FACEMESH_RIGHT_EYEBROW", ()),
-        getattr(face_mesh_api, "FACEMESH_LIPS", ()),
-        getattr(face_mesh_api, "FACEMESH_NOSE", ()),
-    ]
+    part_connections = {
+        "left_eye": getattr(face_mesh_api, "FACEMESH_LEFT_EYE", ()),
+        "right_eye": getattr(face_mesh_api, "FACEMESH_RIGHT_EYE", ()),
+        "left_eyebrow": getattr(face_mesh_api, "FACEMESH_LEFT_EYEBROW", ()),
+        "right_eyebrow": getattr(face_mesh_api, "FACEMESH_RIGHT_EYEBROW", ()),
+        "mouth": getattr(face_mesh_api, "FACEMESH_LIPS", ()),
+        "nose": getattr(face_mesh_api, "FACEMESH_NOSE", ()),
+    }
+    part_index_groups = {
+        name: _connection_indices(connections)
+        for name, connections in part_connections.items()
+    }
     for landmarks in result.multi_face_landmarks or ():
         landmarks_xyz = np.asarray(
             [[landmark.x, landmark.y, landmark.z] for landmark in landmarks.landmark],
@@ -341,7 +376,8 @@ def _detect_faces_mediapipe(image_rgb: np.ndarray, max_faces: int, min_face_pixe
             image_rgb.shape,
             detector_name="mediapipe-face-mesh",
             oval_indices=oval_indices or list(range(len(points))),
-            feature_index_groups=[_connection_indices(connections) for connections in feature_groups],
+            feature_index_groups=list(part_index_groups.values()),
+            part_index_groups=part_index_groups,
         )
         if region is not None:
             region["landmarks_xyz"] = landmarks_xyz
@@ -1129,6 +1165,9 @@ def refine_depth_for_faces(
         "eyewear_deoccluded_faces": 0,
         "faces": [],
         "detector_errors": [],
+        "part_mask_schema_version": 1,
+        "part_names": list(FACE_PART_NAMES),
+        "part_mask_faces": 0,
     }
     if mode == "off":
         metadata["reason"] = "disabled"
@@ -1207,6 +1246,15 @@ def refine_depth_for_faces(
             target_shape = (dy1 - dy0, dx1 - dx0)
             face_mask = _resize_mask(region["face_mask"][y0:y1, x0:x1], target_shape)
             feature_mask = _resize_mask(region["feature_mask"][y0:y1, x0:x1], target_shape)
+            region_part_masks = region.get("part_masks") or {}
+            local_part_masks = {
+                name: _resize_mask(
+                    region_part_masks[name][y0:y1, x0:x1],
+                    target_shape,
+                )
+                for name in FACE_PART_NAMES
+                if region_part_masks.get(name) is not None
+            }
             local_depth = _resize_float(local_depth, target_shape)
             source_shape_input = refined[dy0:dy1, dx0:dx1].copy()
             shape_input = source_shape_input
@@ -1233,6 +1281,22 @@ def refine_depth_for_faces(
                         * max(target_shape[0] - 1, 1)
                     )
                     landmark_points = np.column_stack((landmark_x, landmark_y))
+                    complete_local_parts = bool(
+                        len(local_part_masks) == len(FACE_PART_NAMES)
+                        and all(
+                            np.any(local_part_masks.get(name, 0))
+                            for name in FACE_PART_NAMES
+                        )
+                    )
+                    if not complete_local_parts:
+                        local_part_masks = _landmark_part_masks(
+                            landmark_points,
+                            target_shape,
+                        )
+                    local_part_masks = {
+                        name: cv2.bitwise_and(mask, face_mask)
+                        for name, mask in local_part_masks.items()
+                    }
                     face_image = cv2.resize(
                         image_rgb[y0:y1, x0:x1],
                         (target_shape[1], target_shape[0]),
@@ -1315,12 +1379,38 @@ def refine_depth_for_faces(
                 combined_region[dy0:dy1, dx0:dx1],
                 (face_mask > 0).astype(np.uint8) * 255,
             )
+            part_mask_files = {}
+            if all(np.any(local_part_masks.get(name, 0)) for name in FACE_PART_NAMES):
+                part_dir = artifact_dir / f"face_{index:02d}_parts"
+                part_dir.mkdir(parents=True, exist_ok=True)
+                full_face_mask = np.zeros(global_depth.shape, dtype=np.uint8)
+                full_face_mask[dy0:dy1, dx0:dx1] = face_mask
+                face_mask_path = part_dir / "face.png"
+                Image.fromarray(full_face_mask).save(face_mask_path)
+                for name in FACE_PART_NAMES:
+                    part_path = part_dir / f"{name}.png"
+                    full_part_mask = np.zeros(global_depth.shape, dtype=np.uint8)
+                    full_part_mask[dy0:dy1, dx0:dx1] = local_part_masks[name]
+                    Image.fromarray(full_part_mask).save(part_path)
+                    part_mask_files[name] = part_path.relative_to(output_dir).as_posix()
+                metadata["part_mask_faces"] += 1
             face_record.update(
                 {
                     "status": "refined",
                     "depth_bbox": [dx0, dy0, dx1, dy1],
                     "landmark_shape_prior": shape_prior_stats,
                     "eyewear_deocclusion": eyewear_deocclusion_stats,
+                    "part_masks": {
+                        "schema_version": 1,
+                        "coordinate_space": "depth",
+                        "face_file": (
+                            face_mask_path.relative_to(output_dir).as_posix()
+                            if part_mask_files
+                            else None
+                        ),
+                        "files": part_mask_files,
+                        "complete": len(part_mask_files) == len(FACE_PART_NAMES),
+                    },
                     **stats,
                 }
             )

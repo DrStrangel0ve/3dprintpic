@@ -12,6 +12,7 @@ from scipy.ndimage import gaussian_filter
 import backend.main as main_module
 from backend.face_depth_refinement import (
     EYEWEAR_LANDMARK_INDICES,
+    FACE_PART_NAMES,
     _detect_eyewear_occlusion_weight,
     _reconstruct_eyewear_occlusion,
     face_blend_weight,
@@ -309,6 +310,10 @@ class FaceDepthRefinementTest(unittest.TestCase):
                 )
             ).astype(np.float32)
             landmarks_xyz[1, 0] = 64.0 / 127.0
+            detector_part_masks = {
+                name: feature_mask.copy() for name in FACE_PART_NAMES
+            }
+            detector_part_masks["nose"] = np.zeros_like(feature_mask)
 
             def detector(_image):
                 return [
@@ -319,6 +324,7 @@ class FaceDepthRefinementTest(unittest.TestCase):
                         "detector": "test-landmarks",
                         "landmark_count": 478,
                         "landmarks_xyz": landmarks_xyz,
+                        "part_masks": detector_part_masks,
                     }
                 ]
 
@@ -349,6 +355,19 @@ class FaceDepthRefinementTest(unittest.TestCase):
             self.assertEqual(metadata["refined_faces"], 1)
             self.assertEqual(metadata["eyewear_deoccluded_faces"], 0)
             self.assertEqual(metadata["faces"][0]["landmark_count"], 478)
+            self.assertEqual(metadata["part_mask_faces"], 1)
+            self.assertEqual(tuple(metadata["part_names"]), FACE_PART_NAMES)
+            self.assertTrue(metadata["faces"][0]["part_masks"]["complete"])
+            face_part_mask = np.asarray(
+                Image.open(root / metadata["faces"][0]["part_masks"]["face_file"])
+            )
+            self.assertEqual(face_part_mask.shape, global_depth.shape)
+            self.assertGreater(np.count_nonzero(face_part_mask), 0)
+            for name, relative_path in metadata["faces"][0]["part_masks"]["files"].items():
+                self.assertIn(name, FACE_PART_NAMES)
+                part_mask = np.asarray(Image.open(root / relative_path))
+                self.assertEqual(part_mask.shape, global_depth.shape)
+                self.assertGreater(np.count_nonzero(part_mask), 0)
             self.assertTrue(metadata["faces"][0]["landmark_shape_prior"]["enabled"])
             self.assertFalse(metadata["faces"][0]["eyewear_deocclusion"]["enabled"])
             self.assertGreater(float(np.max(np.abs(refined - global_depth))), 0.0)

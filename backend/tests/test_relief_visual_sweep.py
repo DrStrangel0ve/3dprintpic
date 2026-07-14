@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 from stl import mesh
 
+from backend.benchmark.face_part_metrics import FACE_PART_GATES
 from backend.benchmark.run_relief_visual_sweep import (
     BACKGROUND_APPEARANCE_GATES,
     FACE_APPEARANCE_GATES,
@@ -133,6 +134,8 @@ class ReliefVisualSweepTest(unittest.TestCase):
         self.assertTrue(controls["checks"]["missing_candidate_pixels_rejected"])
         self.assertTrue(controls["checks"]["single_component_damage_rejected"])
         self.assertTrue(controls["checks"]["cross_height_face_damage_rejected"])
+        self.assertTrue(controls["checks"]["mouth_flattening_rejected"])
+        self.assertTrue(controls["checks"]["nose_oversharpening_rejected"])
         self.assertTrue(controls["checks"]["passed"])
 
     def test_cross_height_shape_gate_accepts_scaling_and_rejects_local_damage(self):
@@ -392,6 +395,11 @@ class ReliefVisualSweepTest(unittest.TestCase):
         self.assertTrue(cross_height["passed"])
         self.assertEqual(cross_height["comparison_count"], 12)
         self.assertTrue(all(record["passed"] for record in cross_height["records"]))
+        self.assertGreaterEqual(
+            cross_height["minimum_named_part_shape_correlation"],
+            FACE_PART_GATES["minimum_shape_correlation"],
+        )
+        self.assertEqual(cross_height["failed_named_parts"], [])
 
     def test_matrix_coverage_rejects_duplicate_substitution(self):
         expected = {("a", 20.0), ("a", 30.0), ("b", 20.0)}

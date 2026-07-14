@@ -4775,6 +4775,7 @@ def depth_data_to_3d_model(
 ):
     # Load the .npy file
     data = np.load(npy_file).astype(np.float32)
+    input_depth_shape = [int(data.shape[0]), int(data.shape[1])]
     region_mask = None
     if face_region_mask is not None:
         if isinstance(face_region_mask, (str, os.PathLike)):
@@ -4808,6 +4809,7 @@ def depth_data_to_3d_model(
             print(f"Keeping depth grid resolution: {data.shape}")
     else:
         print("Skipping downsampling as target_dimension is -1")
+    target_depth_shape = [int(data.shape[0]), int(data.shape[1])]
 
     # Flip the x axis
     data = np.flip(data, axis=1)
@@ -4862,6 +4864,7 @@ def depth_data_to_3d_model(
         max_xy_size=max_xy_size,
         minimum_feature_mm=minimum_feature_mm,
     )
+    mesh_shape_before_crop = [int(relief.shape[0]), int(relief.shape[1])]
     gradient_sample_pitch_mm = print_filter_stats["mesh_sample_pitch_mm"]
     gradient_sample_pitch_source = "physical_size"
     if gradient_sample_pitch_mm is None and max_xy_size is None:
@@ -5130,11 +5133,27 @@ def depth_data_to_3d_model(
             ),
         }
         accepted_face_surface = z.copy()
+        effective_printable_feature_depth_mm = float(printable_feature_depth_mm)
+        feature_emboss_suppressed = bool(
+            gradient_reconstruction_selected
+            and effective_printable_feature_depth_mm > 0
+        )
+        if feature_emboss_suppressed:
+            effective_printable_feature_depth_mm = 0.0
         z, printable_feature_stats = _enhance_weighted_relief_features(
             z,
             feature_weight_mask,
-            max_feature_depth_mm=printable_feature_depth_mm,
+            max_feature_depth_mm=effective_printable_feature_depth_mm,
             feature_exclusion_mask=feature_exclusion_mask,
+        )
+        printable_feature_stats.update(
+            {
+                "requested_max_feature_depth_mm": float(printable_feature_depth_mm),
+                "effective_max_feature_depth_mm": effective_printable_feature_depth_mm,
+                "suppressed_after_screened_face_reconstruction": (
+                    feature_emboss_suppressed
+                ),
+            }
         )
         z, feature_bridge_stats = _bridge_weighted_face_features(
             z,
@@ -5466,6 +5485,16 @@ def depth_data_to_3d_model(
     # Crop the data to the bounding box
     z = z[top:bottom, left:right]
     mask = mask[top:bottom, left:right]
+    surface_grid_transform = {
+        "schema_version": 1,
+        "input_depth_shape": input_depth_shape,
+        "target_depth_shape": target_depth_shape,
+        "flip_x": True,
+        "mesh_shape_before_crop": mesh_shape_before_crop,
+        "crop_bbox_rc": [int(top), int(left), int(bottom), int(right)],
+        "emitted_shape": [int(z.shape[0]), int(z.shape[1])],
+        "mask_interpolation": "nearest",
+    }
     if surface_output_path is not None:
         surface_output_path = os.fspath(surface_output_path)
         os.makedirs(os.path.dirname(surface_output_path) or ".", exist_ok=True)
@@ -5560,6 +5589,12 @@ def depth_data_to_3d_model(
         "surface_appearance_agreement": surface_appearance_stats,
         "top_silhouette": top_silhouette_stats,
         "printable_feature_depth_mm": float(printable_feature_depth_mm),
+        "effective_printable_feature_depth_mm": float(
+            printable_feature_stats.get(
+                "effective_max_feature_depth_mm",
+                printable_feature_depth_mm,
+            )
+        ),
         "printable_feature_depth": printable_feature_stats,
         "feature_bridge_depth_mm": float(feature_bridge_depth_mm),
         "feature_bridge": feature_bridge_stats,
@@ -5572,6 +5607,7 @@ def depth_data_to_3d_model(
         "head_stabilization_region": head_region_stats,
         "face_boundary_alignment": face_boundary_alignment_stats,
         "face_surface_protection": face_surface_protection_stats,
+        "surface_grid_transform": surface_grid_transform,
         "mesh_grid_shape": [int(z.shape[0]), int(z.shape[1])],
         "face_count": int(len(faces)),
     }

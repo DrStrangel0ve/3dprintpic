@@ -32,6 +32,10 @@ from backend.benchmark.run_relief_scene_regression import (
     _scene_checks,
     _synthetic_scene,
 )
+from backend.benchmark.face_part_metrics import (
+    FACE_PART_GATES,
+    face_part_cross_height_metrics,
+)
 from backend.pic_to_3d import (
     _surface_lighting_agreement_metrics,
     compose_selection_depth_with_context,
@@ -200,6 +204,36 @@ def _mask_topology(mask: np.ndarray) -> dict:
         "euler_characteristic": int(component_count - hole_count),
         "border_contacts": border_contacts,
         "coverage_ratio": float(np.mean(mask)),
+    }
+
+
+def _synthetic_face_part_masks(face_mask: np.ndarray) -> dict[str, np.ndarray]:
+    """Create deterministic semantic regions inside an analytic face mask."""
+    face = np.asarray(face_mask, dtype=bool)
+    rows, cols = np.indices(face.shape, dtype=np.float32)
+    face_rows, face_cols = np.where(face)
+    if not len(face_rows):
+        return {}
+    top, bottom = float(face_rows.min()), float(face_rows.max())
+    left, right = float(face_cols.min()), float(face_cols.max())
+    height = max(bottom - top + 1.0, 1.0)
+    width = max(right - left + 1.0, 1.0)
+
+    def ellipse(center_x, center_y, radius_x, radius_y):
+        mask = (
+            np.square((cols - (left + width * center_x)) / max(width * radius_x, 1.0))
+            + np.square((rows - (top + height * center_y)) / max(height * radius_y, 1.0))
+            <= 1.0
+        )
+        return mask & face
+
+    return {
+        "left_eye": ellipse(0.68, 0.39, 0.14, 0.07),
+        "right_eye": ellipse(0.32, 0.39, 0.14, 0.07),
+        "left_eyebrow": ellipse(0.68, 0.29, 0.16, 0.05),
+        "right_eyebrow": ellipse(0.32, 0.29, 0.16, 0.05),
+        "mouth": ellipse(0.50, 0.74, 0.22, 0.08),
+        "nose": ellipse(0.50, 0.54, 0.12, 0.18),
     }
 
 
@@ -1112,6 +1146,10 @@ def _cross_height_face_consistency(
     for spec in specs:
         _, face_mask, _ = _topology_scene(spec)
         emitted_face_mask = np.flip(face_mask, axis=1)
+        emitted_part_masks = {
+            name: np.flip(mask, axis=1)
+            for name, mask in _synthetic_face_part_masks(face_mask).items()
+        }
         available_heights = [
             height_mm
             for height_mm in RELIEF_HEIGHTS_MM
@@ -1136,6 +1174,17 @@ def _cross_height_face_consistency(
                 surfaces[candidate_height],
                 emitted_face_mask,
             )
+            named_parts = face_part_cross_height_metrics(
+                surfaces[reference_height],
+                surfaces[candidate_height],
+                emitted_face_mask,
+                emitted_part_masks,
+                sample_pitch_mm=0.4,
+            )
+            whole_face_passed = bool(metrics["passed"])
+            metrics["whole_face_passed"] = whole_face_passed
+            metrics["named_parts"] = named_parts
+            metrics["passed"] = bool(whole_face_passed and named_parts["passed"])
             records.append(
                 {
                     "topology_id": spec.topology_id,
@@ -1162,9 +1211,16 @@ def _cross_height_face_consistency(
         for record in records
         if _finite(record.get("minimum_gradient_correlation"))
     ]
+    named_part_records = [
+        part
+        for record in records
+        for part in record.get("named_parts", {}).get("parts", [])
+        if part.get("available", False)
+    ]
     return {
-        "method": "robust_span_normalized_face_shape_v1",
+        "method": "robust_span_normalized_face_shape_with_named_parts_v2",
         "gates": CROSS_HEIGHT_FACE_GATES,
+        "named_part_gates": FACE_PART_GATES,
         "expected_comparison_count": expected_comparisons,
         "comparison_count": len(records),
         "missing_rows": missing,
@@ -1181,6 +1237,31 @@ def _cross_height_face_consistency(
             if finite_gradient_correlations
             else None
         ),
+        "minimum_named_part_shape_correlation": (
+            min(part["shape_correlation"] for part in named_part_records)
+            if named_part_records
+            else None
+        ),
+        "maximum_named_part_face_normalized_shape_rmse": (
+            max(part["face_normalized_shape_rmse"] for part in named_part_records)
+            if named_part_records
+            else None
+        ),
+        "minimum_named_part_gradient_correlation": (
+            min(part["minimum_gradient_correlation"] for part in named_part_records)
+            if named_part_records
+            else None
+        ),
+        "failed_named_parts": [
+            {
+                "topology_id": record["topology_id"],
+                "reference_height_mm": record["reference_height_mm"],
+                "candidate_height_mm": record["candidate_height_mm"],
+                "parts": record.get("named_parts", {}).get("failed_parts", []),
+            }
+            for record in records
+            if record.get("named_parts", {}).get("failed_parts")
+        ],
         "passed": bool(coverage_complete and quality_passed),
         "records": records,
     }
@@ -1248,6 +1329,32 @@ def _appearance_negative_controls() -> dict:
         height_damage,
         region,
     )
+    part_face = (rows - 41.0) ** 2 / 31.0**2 + (cols - 50.0) ** 2 / 27.0**2 <= 1.0
+    part_masks = _synthetic_face_part_masks(part_face)
+    mouth_flattened = reference.copy()
+    mouth_flattened[part_masks["mouth"]] = float(
+        np.mean(reference[part_masks["mouth"]])
+    )
+    nose_oversharpened = reference.copy()
+    nose_reference = reference[part_masks["nose"]]
+    nose_oversharpened[part_masks["nose"]] = (
+        float(np.mean(nose_reference))
+        + 4.0 * (nose_reference - float(np.mean(nose_reference)))
+    )
+    mouth_part_damage = face_part_cross_height_metrics(
+        reference,
+        mouth_flattened,
+        part_face,
+        part_masks,
+        sample_pitch_mm=0.4,
+    )
+    nose_part_damage = face_part_cross_height_metrics(
+        reference,
+        nose_oversharpened,
+        part_face,
+        part_masks,
+        sample_pitch_mm=0.4,
+    )
     shifted_checks = _appearance_checks(shifted, FACE_APPEARANCE_GATES)
     flattened_checks = _appearance_checks(flattened, FACE_APPEARANCE_GATES)
     smoothed_checks = _appearance_checks(smoothed, FACE_APPEARANCE_GATES)
@@ -1260,6 +1367,14 @@ def _appearance_negative_controls() -> dict:
         "missing_candidate_pixels_rejected": not missing_checks["passed"],
         "single_component_damage_rejected": not component_checks["passed"],
         "cross_height_face_damage_rejected": not cross_height_damage["passed"],
+        "mouth_flattening_rejected": bool(
+            not mouth_part_damage["passed"]
+            and "mouth" in mouth_part_damage["failed_parts"]
+        ),
+        "nose_oversharpening_rejected": bool(
+            not nose_part_damage["passed"]
+            and "nose" in nose_part_damage["failed_parts"]
+        ),
     }
     return {
         "checks": {**checks, "passed": all(checks.values())},
@@ -1269,6 +1384,8 @@ def _appearance_negative_controls() -> dict:
         "missing": _appearance_record(missing),
         "component_damage": _appearance_record(component_damage),
         "cross_height_damage": cross_height_damage,
+        "mouth_part_damage": mouth_part_damage,
+        "nose_part_damage": nose_part_damage,
     }
 
 
@@ -1568,6 +1685,7 @@ def run(
         "selection_solver_gates": SELECTION_SOLVER_GATES,
         "background_appearance_gates": BACKGROUND_APPEARANCE_GATES,
         "cross_height_face_gates": CROSS_HEIGHT_FACE_GATES,
+        "named_face_part_gates": FACE_PART_GATES,
         "runtime_seconds": float(time.perf_counter() - started),
         "checks": {**checks, "passed": all(checks.values())},
         "aggregate": {
