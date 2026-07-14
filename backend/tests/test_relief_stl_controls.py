@@ -290,6 +290,67 @@ class ReliefStlControlsTest(unittest.TestCase):
         np.testing.assert_array_equal(bridged[18:22, 18:22], values[18:22, 18:22])
         np.testing.assert_array_equal(bridged[~region], values[~region])
 
+    def test_accessory_exclusion_blocks_feature_enhancement_and_bridge_after_expansion(self):
+        yy, xx = np.indices((40, 40), dtype=np.float32)
+        values = 5.0 + 0.3 * np.sin(xx * 0.8) * np.cos(yy * 0.7)
+        weights = np.ones_like(values, dtype=np.float32)
+        exclusion = np.zeros_like(values, dtype=np.uint8)
+        exclusion[13:27, 13:27] = 255
+        flipped_exclusion = np.flip(exclusion > 0, axis=1)
+
+        enhanced, enhancement_stats = _enhance_weighted_relief_features(
+            values,
+            weights,
+            max_feature_depth_mm=0.4,
+            feature_exclusion_mask=exclusion,
+        )
+
+        enhancement_change = enhanced - values
+        self.assertTrue(enhancement_stats["enabled"])
+        np.testing.assert_array_equal(
+            enhancement_change[flipped_exclusion],
+            np.zeros(np.count_nonzero(flipped_exclusion)),
+        )
+        self.assertGreater(float(np.max(np.abs(enhancement_change[~flipped_exclusion]))), 0.1)
+
+        bridge_values = np.full((40, 40), 5.0, dtype=np.float32)
+        region = np.zeros_like(bridge_values, dtype=bool)
+        region[6:34, 6:34] = True
+        bridge_weights = np.zeros_like(bridge_values, dtype=np.float32)
+        bridge_weights[15:25, 6:12] = 1.0
+        bridge_weights[15:25, 28:34] = 1.0
+        bridge_values[18:22, 7:11] = 3.0
+        bridge_values[18:22, 29:33] = 3.0
+        bridge_exclusion = np.zeros_like(bridge_values, dtype=np.uint8)
+        bridge_exclusion[18:22, 29:33] = 255
+
+        bridged, bridge_stats = _bridge_weighted_face_features(
+            bridge_values,
+            region,
+            bridge_weights,
+            max_bridge_depth_mm=0.8,
+            feature_exclusion_mask=bridge_exclusion,
+        )
+
+        self.assertTrue(bridge_stats["enabled"])
+        np.testing.assert_array_equal(bridged[18:22, 7:11], bridge_values[18:22, 7:11])
+        self.assertGreater(float(np.mean(bridged[18:22, 29:33])), 3.1)
+
+    def test_unreadable_accessory_exclusion_fails_feature_enhancement_closed(self):
+        values = np.linspace(4.0, 6.0, 24 * 24, dtype=np.float32).reshape(24, 24)
+        weights = np.ones_like(values)
+
+        enhanced, stats = _enhance_weighted_relief_features(
+            values,
+            weights,
+            max_feature_depth_mm=0.4,
+            feature_exclusion_mask="missing-accessory-exclusion.png",
+        )
+
+        self.assertFalse(stats["enabled"])
+        self.assertEqual(stats["reason"], "feature_exclusion_unreadable")
+        np.testing.assert_array_equal(enhanced, values)
+
     def test_feature_guard_attenuates_new_horizontal_vertical_and_diagonal_cliffs(self):
         baseline = np.zeros((24, 24), dtype=np.float32)
         candidate = baseline.copy()

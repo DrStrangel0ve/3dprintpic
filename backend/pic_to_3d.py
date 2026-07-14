@@ -1284,12 +1284,29 @@ def _top_silhouette_mask(source_image, target_shape, padding_px=1):
     }
 
 
+def _load_flipped_feature_exclusion_mask(feature_exclusion_mask, target_shape):
+    if feature_exclusion_mask is None:
+        return None
+
+    from PIL import Image
+
+    if isinstance(feature_exclusion_mask, (str, os.PathLike)):
+        exclusion = np.asarray(Image.open(feature_exclusion_mask).convert("L")) > 0
+    elif isinstance(feature_exclusion_mask, Image.Image):
+        exclusion = np.asarray(feature_exclusion_mask.convert("L")) > 0
+    else:
+        exclusion = np.asarray(feature_exclusion_mask) > 0
+    exclusion = _resize_binary_mask(exclusion, target_shape)
+    return np.flip(exclusion, axis=1)
+
+
 def _enhance_weighted_relief_features(
     values,
     feature_weight_mask,
     max_feature_depth_mm=0.0,
     detail_radius_px=1.4,
     edge_limit_mm=4.0,
+    feature_exclusion_mask=None,
 ):
     """Add bounded signed depth to printable face features in physical units."""
     if feature_weight_mask is None or max_feature_depth_mm <= 0:
@@ -1316,9 +1333,22 @@ def _enhance_weighted_relief_features(
             "reason": "feature_weight_unreadable",
             "error": str(exc),
         }
+    try:
+        exclusion = _load_flipped_feature_exclusion_mask(
+            feature_exclusion_mask,
+            values.shape,
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        return values, {
+            "enabled": False,
+            "reason": "feature_exclusion_unreadable",
+            "error": str(exc),
+        }
 
     weight_image = weight_image.resize((values.shape[1], values.shape[0]), Image.Resampling.BILINEAR)
     weight = np.flip(np.asarray(weight_image, dtype=np.float32) / 255.0, axis=1)
+    if exclusion is not None:
+        weight = np.where(exclusion, 0.0, weight)
     valid = np.isfinite(values)
     support = valid & (weight > 0.08)
     if not np.any(support):
@@ -1340,6 +1370,8 @@ def _enhance_weighted_relief_features(
     )
     edge_gate = 1.0 / (1.0 + np.power(local_range / max(float(edge_limit_mm), 1e-6), 4))
     addition = float(max_feature_depth_mm) * normalized_detail * weight * edge_gate
+    if exclusion is not None:
+        addition = np.where(exclusion, 0.0, addition)
     enhanced = np.where(valid, values + addition, np.nan)
     applied = np.abs(addition[support])
     return enhanced, {
@@ -1347,6 +1379,7 @@ def _enhance_weighted_relief_features(
         "max_feature_depth_mm": float(max_feature_depth_mm),
         "detail_scale_mm": detail_scale,
         "support_ratio": float(np.mean(support)),
+        "excluded_ratio": float(np.mean(exclusion)) if exclusion is not None else 0.0,
         "applied_depth_p95_mm": float(np.percentile(applied, 95.0)),
         "applied_depth_max_mm": float(np.max(applied)),
     }
@@ -1357,6 +1390,7 @@ def _bridge_weighted_face_features(
     face_region_mask,
     feature_weight_mask,
     max_bridge_depth_mm=0.0,
+    feature_exclusion_mask=None,
 ):
     """Fill narrow peripheral valleys so eyewear remains attached to a face."""
     if face_region_mask is None or feature_weight_mask is None or max_bridge_depth_mm <= 0:
@@ -1383,6 +1417,17 @@ def _bridge_weighted_face_features(
             "reason": "feature_weight_unreadable",
             "error": str(exc),
         }
+    try:
+        exclusion = _load_flipped_feature_exclusion_mask(
+            feature_exclusion_mask,
+            values.shape,
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        return values, {
+            "enabled": False,
+            "reason": "feature_exclusion_unreadable",
+            "error": str(exc),
+        }
 
     region = _resize_binary_mask(face_region_mask, values.shape)
     weight_image = weight_image.resize((values.shape[1], values.shape[0]), Image.Resampling.BILINEAR)
@@ -1396,6 +1441,8 @@ def _bridge_weighted_face_features(
     peripheral_band = region & ~inner_region
     feature_support = maximum_filter((weight > 0.08).astype(np.uint8), size=9) > 0
     bridge_zone = valid & peripheral_band & feature_support
+    if exclusion is not None:
+        bridge_zone &= ~exclusion
     if not np.any(bridge_zone):
         return values, {"enabled": False, "reason": "no_peripheral_feature_gaps"}
 
@@ -1404,8 +1451,12 @@ def _bridge_weighted_face_features(
     closed = grey_closing(filled, size=(5, 5))
     potential_raise = np.maximum(closed - values, 0.0)
     bridge_weight = maximum_filter(weight, size=9)
+    if exclusion is not None:
+        bridge_weight = np.where(exclusion, 0.0, bridge_weight)
     addition = np.minimum(potential_raise, float(max_bridge_depth_mm)) * bridge_weight
     addition = np.where(bridge_zone, addition, 0.0)
+    if exclusion is not None:
+        addition = np.where(exclusion, 0.0, addition)
     bridged = np.where(valid, values + addition, np.nan)
     applied = addition[bridge_zone]
     active = applied > 0.02
@@ -1413,6 +1464,7 @@ def _bridge_weighted_face_features(
         "enabled": True,
         "max_bridge_depth_mm": float(max_bridge_depth_mm),
         "bridge_zone_ratio": float(np.mean(bridge_zone)),
+        "excluded_ratio": float(np.mean(exclusion)) if exclusion is not None else 0.0,
         "bridged_pixels": int(np.count_nonzero(active)),
         "applied_raise_p95_mm": float(np.percentile(applied, 95.0)),
         "applied_raise_max_mm": float(np.max(applied)),
@@ -2827,6 +2879,7 @@ def depth_data_to_3d_model(
     feature_weight_mask=None,
     printable_feature_depth_mm=0.0,
     feature_bridge_depth_mm=0.0,
+    feature_exclusion_mask=None,
 ):
     # Load the .npy file
     data = np.load(npy_file).astype(np.float32)
@@ -3087,12 +3140,14 @@ def depth_data_to_3d_model(
             z,
             feature_weight_mask,
             max_feature_depth_mm=printable_feature_depth_mm,
+            feature_exclusion_mask=feature_exclusion_mask,
         )
         z, feature_bridge_stats = _bridge_weighted_face_features(
             z,
             region_mask,
             feature_weight_mask,
             max_bridge_depth_mm=feature_bridge_depth_mm,
+            feature_exclusion_mask=feature_exclusion_mask,
         )
         z, post_feature_slope_guard_stats = _guard_weighted_feature_updates(
             accepted_face_surface,
@@ -3112,12 +3167,14 @@ def depth_data_to_3d_model(
             z,
             feature_weight_mask,
             max_feature_depth_mm=printable_feature_depth_mm,
+            feature_exclusion_mask=feature_exclusion_mask,
         )
         z, feature_bridge_stats = _bridge_weighted_face_features(
             z,
             region_mask,
             feature_weight_mask,
             max_bridge_depth_mm=feature_bridge_depth_mm,
+            feature_exclusion_mask=feature_exclusion_mask,
         )
         try:
             configured_feature_step = (
@@ -3246,6 +3303,7 @@ def depth_data_to_3d_model(
         "printable_feature_depth": printable_feature_stats,
         "feature_bridge_depth_mm": float(feature_bridge_depth_mm),
         "feature_bridge": feature_bridge_stats,
+        "feature_exclusion_masked": feature_exclusion_mask is not None,
         "post_feature_slope_guard": post_feature_slope_guard_stats,
         "face_boundary_attachment": face_boundary_attachment_stats,
         "face_height_stabilization": face_height_stabilization_stats,

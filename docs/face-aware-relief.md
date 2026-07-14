@@ -50,6 +50,7 @@ An applied refinement writes these files beside the normal depth output:
 - `output_depth_face_refined_preview.png`
 - `output_face_refinement_weight.png`
 - `output_face_refinement_region.png`
+- `output_face_refinement_occlusion.png`
 - `output_face_refinement_metadata.json`
 
 The metadata records the detector, crop and depth boxes, landmark count,
@@ -77,6 +78,40 @@ Correction strength scales with correlation and is capped at half of the
 configured face correction ratio. The outer two pixels of the face mask are
 held at zero correction. Hair, the head silhouette, and background remain from
 the generic depth model.
+
+## Opaque Eyewear Occlusion
+
+Dark or reflective sunglasses can be a semantic outlier for monocular depth.
+The generic model may turn a wraparound lens into one rigid depth sheet across
+the eyes and brow. Treating that sheet as protected face detail preserves and
+then amplifies the error in a tall relief.
+
+The face stage now detects this narrow case before printable feature
+enhancement. It builds an eyewear envelope from the MediaPipe eye and brow
+landmarks, estimates skin luminance below the envelope, and accepts only one
+broad connected dark component. Detection fails closed unless dark coverage is
+at least `0.50`, component coverage is at least `0.45`, and component width is
+at least `0.60` of the visible face size. Separate eyes, brows, and ordinary
+shadows do not meet those gates in the regression fixtures.
+
+For an accepted opaque occlusion, the hidden low-frequency surface comes from
+the already aligned MediaPipe relative-z prior. The original depth may retain
+only a signed accessory residual of `0.02` times the robust face-depth span.
+The total correction is capped at `0.15` times that span and is rejected if
+more than `5%` of the occlusion core saturates the cap, the residual does not
+fall by at least `35%`, or the final residual remains above `0.05` times the
+span. A feathered audit mask removes the accepted region from both printable
+feature enhancement and the later maximum-filter bridge. The hard exclusion
+is applied after those operations expand their support, so they cannot stamp
+the lens sheet back into the STL.
+
+The privacy-held two-face replay at 30 mm accepted both opaque eyewear regions.
+Prior residual fell by `64.86%` and `60.51%`; cap saturation was `0%` and
+`0.41%`. The regenerated STL retained the same `258,864` triangles,
+`128 x 96 x 26.119 mm` bounds, one watertight volume, consistent winding, and
+zero degenerate faces. Only aggregate evidence is committed under
+`docs/benchmark-evidence/face_eyewear_occlusion_local`; the personal source,
+crops, masks, renders, depth arrays, and STLs remain local and ignored.
 
 ## Reliefs Above 12 mm
 
@@ -158,6 +193,15 @@ path:
   non-commercial, also requires FLAME, and uses per-image optimization.
 - [FaceLift](https://github.com/weijielyu/FaceLift) targets novel-view 3D
   Gaussian reconstruction rather than a directly printable watertight mesh.
+- [Fast 3D Reconstruction of Faces With Glasses](https://openaccess.thecvf.com/content_cvpr_2017/html/Maninchedda_Fast_3D_Reconstruction_CVPR_2017_paper.html)
+  segments glasses, excludes their measured depth from face fitting, and
+  reconstructs the underlying face before optionally modeling the accessory.
+- [Extreme 3D Face Reconstruction](https://openaccess.thecvf.com/content_cvpr_2018/html/Tran_Extreme_3D_Face_CVPR_2018_paper.html)
+  separates a coarse facial foundation from bounded mid-level detail under
+  occlusion.
+- [FOCUS](https://openaccess.thecvf.com/content/CVPR2023/html/Li_Robust_Model-Based_Face_Reconstruction_Through_Weakly-Supervised_Outlier_Segmentation_CVPR_2023_paper.html)
+  demonstrates that outlier segmentation should be part of robust face-model
+  fitting rather than treating every observed pixel as facial geometry.
 
 Those remain isolated research providers. MediaPipe is the deployable default
 because its maintained Apache-licensed landmark runtime supplies expression and

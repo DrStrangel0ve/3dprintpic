@@ -1361,6 +1361,11 @@ async def process_image(
                 if face_refinement.get("applied") and face_refinement.get("weight_file")
                 else None
             ),
+            feature_exclusion_mask=(
+                job_dir / face_refinement["occlusion_file"]
+                if face_refinement.get("applied") and face_refinement.get("occlusion_file")
+                else None
+            ),
             printable_feature_depth_mm=printable_feature_depth_mm,
             feature_bridge_depth_mm=feature_bridge_depth_mm,
             detail_radius=detail_radius,

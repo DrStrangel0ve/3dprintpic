@@ -11,6 +11,9 @@ from scipy.ndimage import gaussian_filter
 
 import backend.main as main_module
 from backend.face_depth_refinement import (
+    EYEWEAR_LANDMARK_INDICES,
+    _detect_eyewear_occlusion_weight,
+    _reconstruct_eyewear_occlusion,
     face_blend_weight,
     face_masks_from_box,
     fuse_face_depth,
@@ -26,6 +29,99 @@ def gaussian_peak(shape, center, sigma, amplitude):
 
 
 class FaceDepthRefinementTest(unittest.TestCase):
+    @staticmethod
+    def _synthetic_eyewear_landmarks():
+        indices = np.arange(478, dtype=np.float64)
+        angles = indices * (np.pi * (3.0 - np.sqrt(5.0)))
+        radii = 0.90 * np.sqrt((indices + 0.5) / 478.0)
+        points = np.column_stack(
+            (
+                64.0 + 39.0 * radii * np.cos(angles),
+                64.0 + 51.0 * radii * np.sin(angles),
+            )
+        )
+        eyewear_indices = np.asarray(EYEWEAR_LANDMARK_INDICES, dtype=np.int64)
+        eyewear_angles = np.linspace(0.0, 2.0 * np.pi, len(eyewear_indices), endpoint=False)
+        points[eyewear_indices] = np.column_stack(
+            (
+                64.0 + 34.0 * np.cos(eyewear_angles),
+                50.0 + 9.0 * np.sin(eyewear_angles),
+            )
+        )
+        points[1] = (64.0, 62.0)
+        return points
+
+    def test_broad_dark_eyewear_component_is_detected(self):
+        image = np.full((128, 128, 3), 210, dtype=np.uint8)
+        face_mask, _ = face_masks_from_box(image.shape, (20, 8, 108, 120))
+        points = self._synthetic_eyewear_landmarks()
+        image[38:63, 25:103] = 24
+
+        weight, stats = _detect_eyewear_occlusion_weight(image, face_mask, points)
+
+        self.assertTrue(stats["enabled"])
+        self.assertGreaterEqual(stats["dark_coverage_ratio"], 0.50)
+        self.assertGreaterEqual(stats["component_width_ratio"], 0.60)
+        self.assertGreater(stats["core_pixels"], 32)
+        self.assertGreater(float(np.max(weight)), 0.99)
+
+    def test_separate_eye_shadows_do_not_trigger_eyewear_reconstruction(self):
+        image = np.full((128, 128, 3), 210, dtype=np.uint8)
+        face_mask, _ = face_masks_from_box(image.shape, (20, 8, 108, 120))
+        points = self._synthetic_eyewear_landmarks()
+        cv2.ellipse(image, (46, 52), (8, 4), 0, 0, 360, (24, 24, 24), -1)
+        cv2.ellipse(image, (82, 52), (8, 4), 0, 0, 360, (24, 24, 24), -1)
+
+        weight, stats = _detect_eyewear_occlusion_weight(image, face_mask, points)
+
+        self.assertFalse(stats["enabled"])
+        self.assertEqual(stats["reason"], "eyewear_detection_gate")
+        self.assertEqual(float(np.max(weight)), 0.0)
+
+    def test_eyewear_sheet_is_replaced_by_bounded_landmark_surface(self):
+        shape = (96, 96)
+        yy, xx = np.indices(shape, dtype=np.float32)
+        prior = 0.35 + xx * 0.001 + yy * 0.0004
+        source = prior.copy()
+        occlusion = np.zeros(shape, dtype=np.float32)
+        occlusion[30:52, 20:76] = 1.0
+        source[occlusion > 0] += 0.08
+
+        candidate, stats = _reconstruct_eyewear_occlusion(
+            source,
+            source,
+            prior,
+            occlusion,
+            reference_span=0.50,
+        )
+
+        self.assertTrue(stats["enabled"])
+        self.assertGreaterEqual(stats["residual_reduction_ratio"], 0.35)
+        self.assertLessEqual(stats["output_residual_p95_ratio"], 0.05 + 1e-6)
+        self.assertLessEqual(stats["maximum_correction_observed_ratio"], 0.15 + 1e-6)
+        self.assertLessEqual(stats["saturated_core_ratio"], 0.05)
+        np.testing.assert_array_equal(candidate[occlusion == 0], source[occlusion == 0])
+
+    def test_eyewear_reconstruction_fails_closed_when_correction_cap_saturates(self):
+        prior = np.full((64, 64), 0.35, dtype=np.float32)
+        source = prior.copy()
+        occlusion = np.zeros_like(source)
+        occlusion[18:46, 10:54] = 1.0
+        source[occlusion > 0] += 0.50
+
+        candidate, stats = _reconstruct_eyewear_occlusion(
+            source,
+            source,
+            prior,
+            occlusion,
+            reference_span=0.50,
+        )
+
+        self.assertFalse(stats["enabled"])
+        self.assertEqual(stats["reason"], "quality_gate_failed")
+        self.assertIn("correction_saturation", stats["quality_gates"]["failures"])
+        np.testing.assert_array_equal(candidate, source)
+
     def test_landmark_relative_z_adds_bounded_coarse_shape_without_a_seam(self):
         shape = (128, 128)
         yy, xx = np.indices(shape, dtype=np.float32)
@@ -251,12 +347,25 @@ class FaceDepthRefinementTest(unittest.TestCase):
             self.assertTrue(metadata["applied"])
             self.assertEqual(metadata["detected_faces"], 1)
             self.assertEqual(metadata["refined_faces"], 1)
+            self.assertEqual(metadata["eyewear_deoccluded_faces"], 0)
             self.assertEqual(metadata["faces"][0]["landmark_count"], 478)
             self.assertTrue(metadata["faces"][0]["landmark_shape_prior"]["enabled"])
+            self.assertFalse(metadata["faces"][0]["eyewear_deocclusion"]["enabled"])
             self.assertGreater(float(np.max(np.abs(refined - global_depth))), 0.0)
             self.assertTrue((root / "output_depth_face_refined_preview.png").is_file())
             self.assertTrue((root / "output_face_refinement_weight.png").is_file())
             self.assertTrue((root / "output_face_refinement_region.png").is_file())
+            self.assertTrue((root / "output_face_refinement_occlusion.png").is_file())
+            self.assertEqual(
+                int(
+                    np.max(
+                        np.asarray(
+                            Image.open(root / "output_face_refinement_occlusion.png")
+                        )
+                    )
+                ),
+                0,
+            )
             self.assertTrue((root / "output_face_refinement_metadata.json").is_file())
             self.assertEqual(metadata["region_file"], "output_face_refinement_region.png")
 

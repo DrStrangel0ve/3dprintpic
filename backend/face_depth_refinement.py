@@ -40,6 +40,19 @@ FACE_FEATURE_INDEX_GROUPS = [
      14, 87, 178, 88, 95, 78],
     [168, 6, 197, 195, 5, 4, 1, 2, 98, 327],
 ]
+EYEWEAR_LANDMARK_INDICES = sorted(
+    set(
+        FACE_FEATURE_INDEX_GROUPS[0]
+        + FACE_FEATURE_INDEX_GROUPS[1]
+        + FACE_FEATURE_INDEX_GROUPS[2]
+        + FACE_FEATURE_INDEX_GROUPS[3]
+    )
+)
+EYEWEAR_MINIMUM_DARK_COVERAGE = 0.50
+EYEWEAR_MINIMUM_COMPONENT_COVERAGE = 0.45
+EYEWEAR_MINIMUM_COMPONENT_WIDTH_RATIO = 0.60
+EYEWEAR_ACCESSORY_RESIDUAL_RATIO = 0.02
+EYEWEAR_MAXIMUM_CORRECTION_RATIO = 0.15
 
 
 def _clamp_box(box, width: int, height: int) -> tuple[int, int, int, int]:
@@ -468,7 +481,172 @@ def _landmark_depth_prior(
     }
 
 
-def fuse_face_landmark_shape_prior(
+def _odd_kernel_size(value: float) -> int:
+    size = max(3, int(round(float(value))))
+    return size if size % 2 else size + 1
+
+
+def _detect_eyewear_occlusion_weight(
+    image_rgb: np.ndarray,
+    face_mask: np.ndarray,
+    landmark_points_xy: np.ndarray,
+) -> tuple[np.ndarray, dict]:
+    """Find one broad, dark eyewear component across the landmark eye band."""
+    face_binary = np.asarray(face_mask) > 0
+    empty = np.zeros(face_binary.shape, dtype=np.float32)
+    image = np.asarray(image_rgb)
+    points = np.asarray(landmark_points_xy, dtype=np.float64)
+    if face_binary.ndim != 2 or image.ndim != 3 or image.shape[2] < 3:
+        return empty, {"enabled": False, "reason": "invalid_input"}
+    if image.shape[:2] != face_binary.shape:
+        image = cv2.resize(
+            image[:, :, :3],
+            (face_binary.shape[1], face_binary.shape[0]),
+            interpolation=cv2.INTER_AREA,
+        )
+    else:
+        image = image[:, :, :3]
+    if (
+        points.ndim != 2
+        or points.shape[1] != 2
+        or len(points) <= max(EYEWEAR_LANDMARK_INDICES)
+        or not np.all(np.isfinite(points[EYEWEAR_LANDMARK_INDICES]))
+        or not np.any(face_binary)
+    ):
+        return empty, {"enabled": False, "reason": "landmarks_unavailable"}
+
+    visible_points = points[: min(468, len(points))]
+    face_size = max(
+        1.0,
+        float(min(np.ptp(visible_points[:, 0]), np.ptp(visible_points[:, 1]))),
+    )
+    support = np.zeros(face_binary.shape, dtype=np.uint8)
+    eyewear_points = np.rint(points[EYEWEAR_LANDMARK_INDICES]).astype(np.int32)
+    cv2.fillConvexPoly(support, cv2.convexHull(eyewear_points), 1)
+    support_kernel = _odd_kernel_size(face_size * 0.10)
+    support = cv2.dilate(
+        support,
+        cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE,
+            (support_kernel, support_kernel),
+        ),
+    ).astype(bool)
+    support &= face_binary
+    support_pixels = int(np.count_nonzero(support))
+    face_pixels = int(np.count_nonzero(face_binary))
+    if support_pixels < 32:
+        return empty, {"enabled": False, "reason": "empty_eyewear_support"}
+
+    luminance = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_RGB2GRAY).astype(np.float32)
+    rows = np.indices(face_binary.shape)[0]
+    support_row_max = int(np.max(np.where(support)[0]))
+    skin_reference = face_binary & ~support & (rows > support_row_max)
+    minimum_reference_pixels = max(64, int(round(face_pixels * 0.02)))
+    if np.count_nonzero(skin_reference) < minimum_reference_pixels:
+        skin_reference = face_binary & ~support
+    if np.count_nonzero(skin_reference) < minimum_reference_pixels:
+        return empty, {"enabled": False, "reason": "skin_reference_unavailable"}
+    skin_luminance_median = float(np.median(luminance[skin_reference]))
+    dark_threshold = max(18.0, skin_luminance_median * 0.66)
+    dark = support & (luminance < dark_threshold)
+    close_width = _odd_kernel_size(face_size * 0.08)
+    connected = cv2.morphologyEx(
+        dark.astype(np.uint8),
+        cv2.MORPH_CLOSE,
+        np.ones((3, close_width), dtype=np.uint8),
+    )
+    component_count, labels, component_stats, _ = cv2.connectedComponentsWithStats(
+        connected,
+        connectivity=8,
+    )
+    if component_count <= 1:
+        return empty, {
+            "enabled": False,
+            "reason": "no_dark_component",
+            "skin_luminance_median": skin_luminance_median,
+            "dark_luminance_threshold": float(dark_threshold),
+        }
+    component_index = max(
+        range(1, component_count),
+        key=lambda index: int(component_stats[index, cv2.CC_STAT_AREA]),
+    )
+    component_area = int(component_stats[component_index, cv2.CC_STAT_AREA])
+    component_width = int(component_stats[component_index, cv2.CC_STAT_WIDTH])
+    dark_coverage = float(np.count_nonzero(dark) / support_pixels)
+    component_coverage = float(component_area / support_pixels)
+    component_width_ratio = float(component_width / face_size)
+    support_face_ratio = float(support_pixels / max(face_pixels, 1))
+    failures = []
+    if dark_coverage < EYEWEAR_MINIMUM_DARK_COVERAGE:
+        failures.append("dark_coverage")
+    if component_coverage < EYEWEAR_MINIMUM_COMPONENT_COVERAGE:
+        failures.append("component_coverage")
+    if component_width_ratio < EYEWEAR_MINIMUM_COMPONENT_WIDTH_RATIO:
+        failures.append("component_width")
+    detection_stats = {
+        "method": "landmark-guided-dark-eyewear-component",
+        "face_size_px": float(face_size),
+        "support_pixels": support_pixels,
+        "support_face_ratio": support_face_ratio,
+        "skin_luminance_median": skin_luminance_median,
+        "dark_luminance_threshold": float(dark_threshold),
+        "dark_coverage_ratio": dark_coverage,
+        "component_coverage_ratio": component_coverage,
+        "component_width_ratio": component_width_ratio,
+        "minimum_dark_coverage_ratio": EYEWEAR_MINIMUM_DARK_COVERAGE,
+        "minimum_component_coverage_ratio": EYEWEAR_MINIMUM_COMPONENT_COVERAGE,
+        "minimum_component_width_ratio": EYEWEAR_MINIMUM_COMPONENT_WIDTH_RATIO,
+    }
+    if failures:
+        return empty, {
+            "enabled": False,
+            "reason": "eyewear_detection_gate",
+            "failures": failures,
+            **detection_stats,
+        }
+
+    hard_component = labels == component_index
+    dilation_size = _odd_kernel_size(face_size * 0.055)
+    hard_component = cv2.dilate(
+        hard_component.astype(np.uint8),
+        cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE,
+            (dilation_size, dilation_size),
+        ),
+    ).astype(bool)
+    hard_component &= support
+    feather_sigma = max(1.0, face_size * 0.025)
+    weight = gaussian_filter(
+        hard_component.astype(np.float32),
+        sigma=feather_sigma,
+        mode="nearest",
+    )
+    weight_max = float(np.max(weight))
+    if weight_max <= 1e-6:
+        return empty, {
+            "enabled": False,
+            "reason": "empty_eyewear_weight",
+            **detection_stats,
+        }
+    weight = np.clip((weight / weight_max - 0.025) / 0.975, 0.0, 1.0)
+    weight *= support.astype(np.float32)
+    core_pixels = int(np.count_nonzero(weight >= 0.5))
+    if core_pixels < max(32, int(round(face_pixels * 0.02))):
+        return empty, {
+            "enabled": False,
+            "reason": "insufficient_eyewear_core",
+            "core_pixels": core_pixels,
+            **detection_stats,
+        }
+    return weight.astype(np.float32), {
+        "enabled": True,
+        "core_pixels": core_pixels,
+        "feather_sigma_px": float(feather_sigma),
+        **detection_stats,
+    }
+
+
+def _fuse_face_landmark_shape_prior_with_context(
     global_depth: np.ndarray,
     face_mask: np.ndarray,
     feature_mask: np.ndarray,
@@ -479,7 +657,7 @@ def fuse_face_landmark_shape_prior(
     max_correction_ratio: float = DEFAULT_FACE_MAX_CORRECTION_RATIO,
     minimum_abs_correlation: float = 0.15,
     maximum_yaw_proxy: float = 0.32,
-) -> tuple[np.ndarray, np.ndarray, dict]:
+) -> tuple[np.ndarray, np.ndarray, dict, dict | None]:
     """Fuse a gated coarse face prior while preserving the generic depth map."""
     global_depth = np.asarray(global_depth, dtype=np.float32)
     face_binary = np.asarray(face_mask) > 0
@@ -504,7 +682,7 @@ def fuse_face_landmark_shape_prior(
             "reason": "clipped_contour_gate",
             "contour_margin_px": float(contour_margin),
             "minimum_contour_margin_px": float(minimum_contour_margin),
-        }
+        }, None
     if len(points) > 454:
         face_width = visible_width
         face_center_x = float(np.min(visible_points[:, 0]) + np.max(visible_points[:, 0])) * 0.5
@@ -517,7 +695,7 @@ def fuse_face_landmark_shape_prior(
             "reason": "yaw_gate",
             "yaw_proxy": float(yaw_proxy),
             "maximum_yaw_proxy": float(maximum_yaw_proxy),
-        }
+        }, None
 
     prior, prior_stats = _landmark_depth_prior(
         points,
@@ -555,7 +733,7 @@ def fuse_face_landmark_shape_prior(
             "reason": "flat_alignment_signal",
             "yaw_proxy": float(yaw_proxy),
             **prior_stats,
-        }
+        }, None
     correlation = float(
         np.dot(prior_centered, target_centered)
         / np.sqrt(denominator * target_norm)
@@ -568,7 +746,7 @@ def fuse_face_landmark_shape_prior(
             "minimum_abs_correlation": float(minimum_abs_correlation),
             "yaw_proxy": float(yaw_proxy),
             **prior_stats,
-        }
+        }, None
 
     scale = float(np.dot(prior_centered, target_centered) / denominator)
     reference_span = _robust_span(global_depth, face_binary)
@@ -597,7 +775,7 @@ def fuse_face_landmark_shape_prior(
     refined = global_depth.copy()
     refined[valid] = global_depth[valid] + correction[valid]
     boundary = (distance > 0) & (distance <= 2.0)
-    return refined, weight.astype(np.float32), {
+    stats = {
         "enabled": True,
         "method": "mediapipe-relative-z-coarse-prior",
         "correlation": correlation,
@@ -615,6 +793,150 @@ def fuse_face_landmark_shape_prior(
         "boundary_max_abs_correction": float(np.max(np.abs(correction[boundary]))) if np.any(boundary) else 0.0,
         **prior_stats,
     }
+    context = {
+        "aligned_prior": aligned_prior.astype(np.float32),
+        "reference_span": float(reference_span),
+    }
+    return refined, weight.astype(np.float32), stats, context
+
+
+def fuse_face_landmark_shape_prior(
+    global_depth: np.ndarray,
+    face_mask: np.ndarray,
+    feature_mask: np.ndarray,
+    landmark_points_xy: np.ndarray,
+    landmark_relative_z: np.ndarray,
+    *,
+    feather_ratio: float = DEFAULT_FACE_FEATHER_RATIO,
+    max_correction_ratio: float = DEFAULT_FACE_MAX_CORRECTION_RATIO,
+    minimum_abs_correlation: float = 0.15,
+    maximum_yaw_proxy: float = 0.32,
+) -> tuple[np.ndarray, np.ndarray, dict]:
+    refined, weight, stats, _ = _fuse_face_landmark_shape_prior_with_context(
+        global_depth,
+        face_mask,
+        feature_mask,
+        landmark_points_xy,
+        landmark_relative_z,
+        feather_ratio=feather_ratio,
+        max_correction_ratio=max_correction_ratio,
+        minimum_abs_correlation=minimum_abs_correlation,
+        maximum_yaw_proxy=maximum_yaw_proxy,
+    )
+    return refined, weight, stats
+
+
+def _reconstruct_eyewear_occlusion(
+    refined_depth: np.ndarray,
+    source_depth: np.ndarray,
+    aligned_prior: np.ndarray,
+    occlusion_weight: np.ndarray,
+    *,
+    reference_span: float,
+    accessory_residual_ratio: float = EYEWEAR_ACCESSORY_RESIDUAL_RATIO,
+    maximum_correction_ratio: float = EYEWEAR_MAXIMUM_CORRECTION_RATIO,
+    minimum_input_residual_ratio: float = 0.05,
+    maximum_output_residual_ratio: float = 0.05,
+    minimum_residual_reduction_ratio: float = 0.35,
+    maximum_saturated_core_ratio: float = 0.05,
+) -> tuple[np.ndarray, dict]:
+    """Replace an eyewear sheet with a bounded face-prior surface."""
+    refined = np.asarray(refined_depth, dtype=np.float32)
+    source = np.asarray(source_depth, dtype=np.float32)
+    prior = np.asarray(aligned_prior, dtype=np.float32)
+    weight = np.clip(np.asarray(occlusion_weight, dtype=np.float32), 0.0, 1.0)
+    if not (refined.shape == source.shape == prior.shape == weight.shape) or refined.ndim != 2:
+        raise ValueError("Eyewear reconstruction expects matching two-dimensional arrays")
+    span = float(reference_span)
+    if not np.isfinite(span) or span <= 1e-8:
+        return refined, {"enabled": False, "reason": "invalid_reference_span"}
+    finite = np.isfinite(refined) & np.isfinite(source) & np.isfinite(prior)
+    core = finite & (weight >= 0.5)
+    core_pixels = int(np.count_nonzero(core))
+    if core_pixels < 32:
+        return refined, {
+            "enabled": False,
+            "reason": "insufficient_occlusion_core",
+            "core_pixels": core_pixels,
+        }
+
+    input_residual_p95 = float(np.percentile(np.abs(source[core] - prior[core]), 95.0))
+    input_residual_ratio = input_residual_p95 / span
+    if input_residual_ratio < float(minimum_input_residual_ratio):
+        return refined, {
+            "enabled": False,
+            "reason": "source_depth_already_consistent",
+            "core_pixels": core_pixels,
+            "input_residual_p95_ratio": input_residual_ratio,
+            "minimum_input_residual_p95_ratio": float(minimum_input_residual_ratio),
+        }
+
+    accessory_limit = span * max(0.0, float(accessory_residual_ratio))
+    target = prior + np.clip(source - prior, -accessory_limit, accessory_limit)
+    requested_correction = np.zeros_like(refined)
+    requested_correction[finite] = weight[finite] * (target[finite] - refined[finite])
+    maximum_correction = span * max(0.0, float(maximum_correction_ratio))
+    saturated_core = core & (np.abs(requested_correction) >= maximum_correction * (1.0 - 1e-6))
+    saturated_core_ratio = float(np.count_nonzero(saturated_core) / core_pixels)
+    correction = np.clip(requested_correction, -maximum_correction, maximum_correction)
+    candidate = refined.copy()
+    candidate[finite] = refined[finite] + correction[finite]
+    output_residual_p95 = float(np.percentile(np.abs(candidate[core] - prior[core]), 95.0))
+    output_residual_ratio = output_residual_p95 / span
+    residual_reduction = float(1.0 - output_residual_ratio / max(input_residual_ratio, 1e-8))
+    correction_values = np.abs(correction[finite])
+    maximum_correction_observed_ratio = (
+        float(np.max(correction_values) / span) if correction_values.size else 0.0
+    )
+    correction_p95_ratio = (
+        float(np.percentile(correction_values, 95.0) / span) if correction_values.size else 0.0
+    )
+    transition = finite & (weight > 0.0) & (weight < 0.5)
+    transition_correction_p95_ratio = (
+        float(np.percentile(np.abs(correction[transition]), 95.0) / span)
+        if np.any(transition)
+        else 0.0
+    )
+    failures = []
+    if not np.all(np.isfinite(candidate[finite])):
+        failures.append("non_finite_candidate")
+    if output_residual_ratio > float(maximum_output_residual_ratio):
+        failures.append("output_residual")
+    if residual_reduction < float(minimum_residual_reduction_ratio):
+        failures.append("residual_reduction")
+    if maximum_correction_observed_ratio > float(maximum_correction_ratio) + 1e-6:
+        failures.append("maximum_correction")
+    if saturated_core_ratio > float(maximum_saturated_core_ratio):
+        failures.append("correction_saturation")
+    stats = {
+        "method": "landmark-prior-eyewear-deocclusion",
+        "core_pixels": core_pixels,
+        "accessory_residual_ratio": float(accessory_residual_ratio),
+        "maximum_correction_ratio": float(maximum_correction_ratio),
+        "input_residual_p95_ratio": input_residual_ratio,
+        "output_residual_p95_ratio": output_residual_ratio,
+        "residual_reduction_ratio": residual_reduction,
+        "correction_p95_ratio": correction_p95_ratio,
+        "maximum_correction_observed_ratio": maximum_correction_observed_ratio,
+        "saturated_core_ratio": saturated_core_ratio,
+        "transition_correction_p95_ratio": transition_correction_p95_ratio,
+        "quality_gates": {
+            "passed": not failures,
+            "failures": failures,
+            "minimum_input_residual_p95_ratio": float(minimum_input_residual_ratio),
+            "maximum_output_residual_p95_ratio": float(maximum_output_residual_ratio),
+            "minimum_residual_reduction_ratio": float(minimum_residual_reduction_ratio),
+            "maximum_correction_ratio": float(maximum_correction_ratio),
+            "maximum_saturated_core_ratio": float(maximum_saturated_core_ratio),
+        },
+    }
+    if failures:
+        return refined, {
+            "enabled": False,
+            "reason": "quality_gate_failed",
+            **stats,
+        }
+    return candidate, {"enabled": True, **stats}
 
 
 def _fit_face_depth(local_depth: np.ndarray, global_depth: np.ndarray, anchor_mask: np.ndarray) -> tuple[np.ndarray, dict]:
@@ -804,6 +1126,7 @@ def refine_depth_for_faces(
         "applied": False,
         "detected_faces": 0,
         "refined_faces": 0,
+        "eyewear_deoccluded_faces": 0,
         "faces": [],
         "detector_errors": [],
     }
@@ -847,6 +1170,7 @@ def refine_depth_for_faces(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     combined_weight = np.zeros(global_depth.shape, dtype=np.float32)
     combined_region = np.zeros(global_depth.shape, dtype=np.uint8)
+    combined_occlusion = np.zeros(global_depth.shape, dtype=np.float32)
     image_height, image_width = image_rgb.shape[:2]
     depth_height, depth_width = global_depth.shape
     refined = global_depth.copy()
@@ -884,9 +1208,16 @@ def refine_depth_for_faces(
             face_mask = _resize_mask(region["face_mask"][y0:y1, x0:x1], target_shape)
             feature_mask = _resize_mask(region["feature_mask"][y0:y1, x0:x1], target_shape)
             local_depth = _resize_float(local_depth, target_shape)
-            shape_input = refined[dy0:dy1, dx0:dx1]
+            source_shape_input = refined[dy0:dy1, dx0:dx1].copy()
+            shape_input = source_shape_input
             shape_weight = np.zeros(target_shape, dtype=np.float32)
             shape_prior_stats = {"enabled": False, "reason": "no_relative_z_landmarks"}
+            shape_context = None
+            eyewear_weight = np.zeros(target_shape, dtype=np.float32)
+            eyewear_detection_stats = {
+                "enabled": False,
+                "reason": "no_relative_z_landmarks",
+            }
             landmarks_xyz = region.get("landmarks_xyz")
             if landmarks_xyz is not None:
                 try:
@@ -902,7 +1233,22 @@ def refine_depth_for_faces(
                         * max(target_shape[0] - 1, 1)
                     )
                     landmark_points = np.column_stack((landmark_x, landmark_y))
-                    shape_input, shape_weight, shape_prior_stats = fuse_face_landmark_shape_prior(
+                    face_image = cv2.resize(
+                        image_rgb[y0:y1, x0:x1],
+                        (target_shape[1], target_shape[0]),
+                        interpolation=cv2.INTER_AREA,
+                    )
+                    eyewear_weight, eyewear_detection_stats = _detect_eyewear_occlusion_weight(
+                        face_image,
+                        face_mask,
+                        landmark_points,
+                    )
+                    (
+                        shape_input,
+                        shape_weight,
+                        shape_prior_stats,
+                        shape_context,
+                    ) = _fuse_face_landmark_shape_prior_with_context(
                         shape_input,
                         face_mask,
                         feature_mask,
@@ -917,6 +1263,12 @@ def refine_depth_for_faces(
                         "reason": "prior_error",
                         "error": f"{type(exc).__name__}:{exc}",
                     }
+                    shape_context = None
+                    eyewear_detection_stats = {
+                        "enabled": False,
+                        "reason": "landmark_processing_error",
+                        "error": f"{type(exc).__name__}:{exc}",
+                    }
             refined_crop, weight, stats = fuse_face_depth(
                 shape_input,
                 local_depth,
@@ -926,10 +1278,38 @@ def refine_depth_for_faces(
                 feather_ratio=feather_ratio,
                 max_correction_ratio=max_correction_ratio,
             )
+            eyewear_deocclusion_stats = {
+                "enabled": False,
+                "reason": "eyewear_not_detected",
+                "detection": eyewear_detection_stats,
+            }
+            if eyewear_detection_stats.get("enabled"):
+                if shape_context is None:
+                    eyewear_deocclusion_stats["reason"] = "landmark_prior_unavailable"
+                else:
+                    refined_crop, reconstruction_stats = _reconstruct_eyewear_occlusion(
+                        refined_crop,
+                        source_shape_input,
+                        shape_context["aligned_prior"],
+                        eyewear_weight,
+                        reference_span=shape_context["reference_span"],
+                    )
+                    eyewear_deocclusion_stats = {
+                        **reconstruction_stats,
+                        "detection": eyewear_detection_stats,
+                    }
+            detail_weight = np.maximum(weight, shape_weight)
+            if eyewear_deocclusion_stats.get("enabled"):
+                detail_weight *= 1.0 - eyewear_weight
+                combined_occlusion[dy0:dy1, dx0:dx1] = np.maximum(
+                    combined_occlusion[dy0:dy1, dx0:dx1],
+                    eyewear_weight,
+                )
+                metadata["eyewear_deoccluded_faces"] += 1
             refined[dy0:dy1, dx0:dx1] = refined_crop
             combined_weight[dy0:dy1, dx0:dx1] = np.maximum(
                 combined_weight[dy0:dy1, dx0:dx1],
-                np.maximum(weight, shape_weight),
+                detail_weight,
             )
             combined_region[dy0:dy1, dx0:dx1] = np.maximum(
                 combined_region[dy0:dy1, dx0:dx1],
@@ -940,6 +1320,7 @@ def refine_depth_for_faces(
                     "status": "refined",
                     "depth_bbox": [dx0, dy0, dx1, dy1],
                     "landmark_shape_prior": shape_prior_stats,
+                    "eyewear_deocclusion": eyewear_deocclusion_stats,
                     **stats,
                 }
             )
@@ -964,11 +1345,15 @@ def refine_depth_for_faces(
     preview_path = output_dir / "output_depth_face_refined_preview.png"
     weight_path = output_dir / "output_face_refinement_weight.png"
     region_path = output_dir / "output_face_refinement_region.png"
+    occlusion_path = output_dir / "output_face_refinement_occlusion.png"
     metadata_path = output_dir / "output_face_refinement_metadata.json"
     np.save(refined_path, refined)
     _save_preview(refined, preview_path)
     Image.fromarray((np.clip(combined_weight, 0.0, 1.0) * 255).astype(np.uint8)).save(weight_path)
     Image.fromarray(combined_region).save(region_path)
+    Image.fromarray((np.clip(combined_occlusion, 0.0, 1.0) * 255).astype(np.uint8)).save(
+        occlusion_path
+    )
     metadata.update(
         {
             "applied": True,
@@ -979,6 +1364,7 @@ def refine_depth_for_faces(
             "preview_file": preview_path.name,
             "weight_file": weight_path.name,
             "region_file": region_path.name,
+            "occlusion_file": occlusion_path.name,
             "metadata_file": metadata_path.name,
         }
     )
