@@ -66,6 +66,13 @@ BACKGROUND_APPEARANCE_GATES = {
     "maximum_lighting_rms_retention": 1.25,
 }
 SELECTION_APPEARANCE_GATES = dict(FACE_APPEARANCE_GATES)
+SELECTION_SOLVER_GATES = {
+    "expected_screening_weight": 2.0,
+    "expected_detail_gradient_retention": 0.9,
+    "maximum_output_edge_p99_ratio": 12.0,
+    "maximum_output_edge_ratio": 24.0,
+    "maximum_diagonal_edge_ratio": 24.0,
+}
 CROSS_HEIGHT_FACE_GATES = {
     "minimum_shape_correlation": 0.98,
     "maximum_normalized_shape_rmse": 0.08,
@@ -201,6 +208,87 @@ def _finite(value) -> bool:
         return bool(np.isfinite(float(value)))
     except (TypeError, ValueError):
         return False
+
+
+def _selection_solver_record(stats: dict) -> dict:
+    quality_gates = stats.get("quality_gates", {})
+    quality_gate_failures = quality_gates.get("failures", [])
+    if not isinstance(quality_gate_failures, (list, tuple)):
+        quality_gate_failures = [str(quality_gate_failures)]
+    screening_weight = _finite_metric(stats, "screening_weight")
+    detail_gradient_retention = _finite_metric(
+        stats,
+        "detail_gradient_retention",
+    )
+    output_edge_ratio_p99 = _finite_metric(stats, "output_edge_ratio_p99")
+    output_edge_ratio_max = _finite_metric(stats, "output_edge_ratio_max")
+    diagonal_edge_ratio_max = _finite_metric(stats, "diagonal_edge_ratio_max")
+    telemetry = all(
+        _finite(value)
+        for value in (
+            screening_weight,
+            detail_gradient_retention,
+            output_edge_ratio_p99,
+            output_edge_ratio_max,
+            diagonal_edge_ratio_max,
+        )
+    )
+    checks = {
+        "telemetry": telemetry,
+        "enabled": bool(stats.get("enabled", False)),
+        "reason_clear": stats.get("reason") is None,
+        "quality_gate": bool(
+            quality_gates.get("passed", False) and not quality_gate_failures
+        ),
+        "face_protection": bool(stats.get("face_protection_passed", False)),
+        "calibration": bool(
+            telemetry
+            and np.isclose(
+                screening_weight,
+                SELECTION_SOLVER_GATES["expected_screening_weight"],
+            )
+            and np.isclose(
+                detail_gradient_retention,
+                SELECTION_SOLVER_GATES["expected_detail_gradient_retention"],
+            )
+        ),
+        "cardinal_edge_p99": bool(
+            telemetry
+            and output_edge_ratio_p99
+            <= SELECTION_SOLVER_GATES["maximum_output_edge_p99_ratio"]
+        ),
+        "cardinal_edge_max": bool(
+            telemetry
+            and output_edge_ratio_max
+            <= SELECTION_SOLVER_GATES["maximum_output_edge_ratio"]
+        ),
+        "diagonal_edge_max": bool(
+            telemetry
+            and diagonal_edge_ratio_max
+            <= SELECTION_SOLVER_GATES["maximum_diagonal_edge_ratio"]
+        ),
+    }
+    return {
+        "enabled": bool(stats.get("enabled", False)),
+        "reason": stats.get("reason"),
+        "screening_weight": screening_weight,
+        "detail_gradient_retention": detail_gradient_retention,
+        "output_edge_ratio_p99": output_edge_ratio_p99,
+        "output_edge_ratio_max": output_edge_ratio_max,
+        "diagonal_edge_ratio_max": diagonal_edge_ratio_max,
+        "dropped_detail_components": (
+            int(stats["dropped_detail_components"])
+            if _finite(stats.get("dropped_detail_components"))
+            else None
+        ),
+        "dropped_detail_pixels": (
+            int(stats["dropped_detail_pixels"])
+            if _finite(stats.get("dropped_detail_pixels"))
+            else None
+        ),
+        "quality_gate_failures": list(quality_gate_failures),
+        "checks": {**checks, "passed": all(checks.values())},
+    }
 
 
 def _appearance_checks(metrics: dict, gates: dict) -> dict[str, bool]:
@@ -1286,6 +1374,9 @@ def run(
         face_appearance = appearance["face"]
         selection_appearance = appearance["selection_nonface"]
         background_appearance = appearance["background"]
+        selection_solver = _selection_solver_record(
+            postprocess.get("selection_gradient_compression", {})
+        )
         face_checks = _appearance_checks(face_appearance, FACE_APPEARANCE_GATES)
         selection_checks = _appearance_checks(
             selection_appearance,
@@ -1300,6 +1391,7 @@ def run(
             "face_appearance": face_checks["passed"],
             "selection_appearance": selection_checks["passed"],
             "background_appearance": background_checks["passed"],
+            "selection_solver": selection_solver["checks"]["passed"],
             "emitted_surface": emitted_surface["passed"],
             "mask_topology": bool(
                 mask_topology["component_count"] == spec.expected_components
@@ -1360,6 +1452,7 @@ def run(
                 "face_appearance": _appearance_record(face_appearance),
                 "selection_appearance": _appearance_record(selection_appearance),
                 "background_appearance": _appearance_record(background_appearance),
+                "selection_solver": selection_solver,
                 "emitted_surface": emitted_surface,
                 "background": {
                     "correlation": _finite_metric(
@@ -1442,13 +1535,15 @@ def run(
         and all(row["checks"]["selection_appearance"] for row in rows),
         "all_background_appearance_gates_passed": bool(rows)
         and all(row["checks"]["background_appearance"] for row in rows),
+        "all_selection_solver_gates_passed": bool(rows)
+        and all(row["checks"]["selection_solver"] for row in rows),
         "all_emitted_surfaces_match": bool(rows)
         and all(row["checks"]["emitted_surface"] for row in rows),
         "all_meshes_printable": bool(rows)
         and all(row["topology"]["printable"] for row in rows),
     }
     summary = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_kind": "deterministic_privacy_safe_relief_visual_sweep",
         "privacy": "all inputs are analytic arrays; no private artifacts are used",
         "implementation_provenance": provenance,
@@ -1470,6 +1565,7 @@ def run(
         },
         "face_appearance_gates": FACE_APPEARANCE_GATES,
         "selection_appearance_gates": SELECTION_APPEARANCE_GATES,
+        "selection_solver_gates": SELECTION_SOLVER_GATES,
         "background_appearance_gates": BACKGROUND_APPEARANCE_GATES,
         "cross_height_face_gates": CROSS_HEIGHT_FACE_GATES,
         "runtime_seconds": float(time.perf_counter() - started),
@@ -1540,6 +1636,24 @@ def run(
                 "background",
                 "correlation",
                 min,
+            ),
+            "maximum_selection_solver_edge_p99_ratio": _extreme(
+                rows,
+                "selection_solver",
+                "output_edge_ratio_p99",
+                max,
+            ),
+            "maximum_selection_solver_edge_ratio": _extreme(
+                rows,
+                "selection_solver",
+                "output_edge_ratio_max",
+                max,
+            ),
+            "maximum_selection_solver_diagonal_edge_ratio": _extreme(
+                rows,
+                "selection_solver",
+                "diagonal_edge_ratio_max",
+                max,
             ),
             "maximum_far_background_mm": _extreme(
                 rows,

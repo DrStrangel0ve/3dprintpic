@@ -12,11 +12,13 @@ from backend.benchmark.run_relief_visual_sweep import (
     FACE_APPEARANCE_GATES,
     RELIEF_HEIGHTS_MM,
     SELECTION_APPEARANCE_GATES,
+    SELECTION_SOLVER_GATES,
     _appearance_checks,
     _appearance_negative_controls,
     _cross_height_face_shape_metrics,
     _mask_topology,
     _matrix_coverage,
+    _selection_solver_record,
     _stl_heightfield_agreement,
     _sweep_specs,
     _topology_scene,
@@ -46,6 +48,34 @@ class ReliefVisualSweepTest(unittest.TestCase):
                 _appearance_checks(component_metrics, gates)["passed"],
                 msg=f"{row['row_id']} {region} component {component['component']}",
             )
+
+    def test_selection_solver_record_fails_closed_on_calibration_or_edge_drift(self):
+        stats = {
+            "enabled": True,
+            "reason": None,
+            "screening_weight": 2.0,
+            "detail_gradient_retention": 0.9,
+            "output_edge_ratio_p99": 8.0,
+            "output_edge_ratio_max": 20.0,
+            "diagonal_edge_ratio_max": 18.0,
+            "face_protection_passed": True,
+            "quality_gates": {"passed": True, "failures": []},
+        }
+        self.assertTrue(_selection_solver_record(stats)["checks"]["passed"])
+        self.assertFalse(_selection_solver_record({})["checks"]["passed"])
+
+        wrong_calibration = {**stats, "screening_weight": 1.0}
+        self.assertFalse(
+            _selection_solver_record(wrong_calibration)["checks"]["calibration"]
+        )
+        excessive_edge = {**stats, "output_edge_ratio_max": 24.0001}
+        self.assertFalse(
+            _selection_solver_record(excessive_edge)["checks"]["cardinal_edge_max"]
+        )
+        missing_protection = {**stats, "face_protection_passed": False}
+        self.assertFalse(
+            _selection_solver_record(missing_protection)["checks"]["face_protection"]
+        )
 
     def test_topology_matrix_is_varied_deterministic_and_keeps_context(self):
         specs = _sweep_specs()
@@ -295,6 +325,7 @@ class ReliefVisualSweepTest(unittest.TestCase):
             "all_face_appearance_gates_passed",
             "all_selection_appearance_gates_passed",
             "all_background_appearance_gates_passed",
+            "all_selection_solver_gates_passed",
             "all_emitted_surfaces_match",
             "all_meshes_printable",
         )
@@ -307,6 +338,28 @@ class ReliefVisualSweepTest(unittest.TestCase):
                 self.assertTrue(row["checks"]["passed"])
                 self.assertTrue(row["checks"]["mask_topology"])
                 self.assertTrue(row["checks"]["appearance_component_coverage"])
+                self.assertTrue(row["checks"]["selection_solver"])
+                self.assertTrue(row["selection_solver"]["checks"]["passed"])
+                self.assertEqual(
+                    row["selection_solver"]["screening_weight"],
+                    SELECTION_SOLVER_GATES["expected_screening_weight"],
+                )
+                self.assertEqual(
+                    row["selection_solver"]["detail_gradient_retention"],
+                    SELECTION_SOLVER_GATES["expected_detail_gradient_retention"],
+                )
+                self.assertLessEqual(
+                    row["selection_solver"]["output_edge_ratio_p99"],
+                    SELECTION_SOLVER_GATES["maximum_output_edge_p99_ratio"],
+                )
+                self.assertLessEqual(
+                    row["selection_solver"]["output_edge_ratio_max"],
+                    SELECTION_SOLVER_GATES["maximum_output_edge_ratio"],
+                )
+                self.assertLessEqual(
+                    row["selection_solver"]["diagonal_edge_ratio_max"],
+                    SELECTION_SOLVER_GATES["maximum_diagonal_edge_ratio"],
+                )
                 self.assertTrue(row["face_appearance_checks"]["passed"])
                 self._assert_component_appearance(
                     row,
