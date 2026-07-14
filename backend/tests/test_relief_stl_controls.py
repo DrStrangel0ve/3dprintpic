@@ -422,6 +422,32 @@ class ReliefStlControlsTest(unittest.TestCase):
             1.0001,
         )
 
+    def test_background_reference_fallback_can_restore_an_accepted_reference(self):
+        candidate = np.full((61, 81), 5.0, dtype=np.float32)
+        reference = candidate.copy()
+        foreground = np.zeros(candidate.shape, dtype=bool)
+        foreground[25:36, 35:46] = True
+        reference[~foreground] = 20.0
+
+        restored, stats = _restore_background_from_reference(
+            candidate,
+            reference,
+            foreground,
+            sample_pitch_mm=1.0,
+            feather_mm=1.5,
+            max_neighbor_step_mm=1.0,
+            reference_is_accepted=True,
+        )
+
+        self.assertEqual(stats["slope_guard_baseline"], "accepted_reference")
+        self.assertGreater(stats["restored_pixels"], 0)
+        self.assertAlmostEqual(float(restored[0, 0]), 20.0, places=5)
+        np.testing.assert_array_equal(restored[foreground], candidate[foreground])
+        self.assertLessEqual(
+            stats["slope_guard"]["final_audit"]["accepted_surface_ratio_max"],
+            1.0001,
+        )
+
     def test_background_cap_reports_incompatible_subject_boundary_constraints(self):
         values = np.full((21, 21), 20.0, dtype=np.float32)
         values[[0, -1], :] = 0.0
@@ -1294,7 +1320,7 @@ class ReliefStlControlsTest(unittest.TestCase):
         )
         self.assertTrue(compression["enabled"])
         self.assertTrue(compression["quality_gates"]["passed"])
-        self.assertAlmostEqual(compression["screening_weight"], 0.05)
+        self.assertAlmostEqual(compression["screening_weight"], 0.25)
         self.assertGreaterEqual(
             compression["detail_preservation"]["correlation"],
             compression["quality_gates"]["minimum_detail_correlation"],

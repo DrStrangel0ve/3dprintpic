@@ -34,7 +34,7 @@ RELIEF_VALUE_TRANSFORMS = {
     RELIEF_VALUE_TRANSFORM_LINEAR,
     RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
 }
-HIGH_RELIEF_FACE_SCREENING_WEIGHT = 0.05
+HIGH_RELIEF_FACE_SCREENING_WEIGHT = 0.25
 HIGH_RELIEF_SELECTION_SCREENING_WEIGHT = 2.0
 HIGH_RELIEF_SELECTION_DETAIL_GRADIENT_RETENTION = 0.9
 METRIC_FAR_HIGH_DEPTH_MODELS = frozenset(
@@ -3287,6 +3287,7 @@ def _restore_background_from_reference(
     sample_pitch_mm,
     feather_mm=1.5,
     max_neighbor_step_mm=None,
+    reference_is_accepted=False,
 ):
     """Restore rejected background geometry while feathering its subject attachment."""
     candidate = np.asarray(candidate_values, dtype=np.float32)
@@ -3324,8 +3325,13 @@ def _restore_background_from_reference(
     except (TypeError, ValueError):
         max_step = 0.0
     if np.isfinite(max_step) and max_step > 0:
+        guard_baseline = (
+            np.where(background, reference, candidate)
+            if bool(reference_is_accepted)
+            else candidate
+        )
         restored, slope_guard_stats = _guard_weighted_feature_updates(
-            candidate,
+            guard_baseline,
             restored,
             max_neighbor_step_mm=max_step,
             max_ratio=1.0,
@@ -3342,6 +3348,9 @@ def _restore_background_from_reference(
             float(np.max(np.abs(restored[background] - candidate[background])))
             if np.any(background)
             else 0.0
+        ),
+        "slope_guard_baseline": (
+            "accepted_reference" if bool(reference_is_accepted) else "candidate"
         ),
         "slope_guard": slope_guard_stats,
     }
@@ -5348,6 +5357,7 @@ def depth_data_to_3d_model(
             background_foreground_mask,
             sample_pitch_mm=gradient_sample_pitch_mm,
             max_neighbor_step_mm=gradient_sample_pitch_mm * float(max_relief_slope),
+            reference_is_accepted=True,
         )
         if selected_region is not None:
             restored_background, fallback_cap_stats = _cap_selection_background_relief(
