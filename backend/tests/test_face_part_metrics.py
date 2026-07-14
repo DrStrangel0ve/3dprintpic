@@ -103,6 +103,67 @@ class FacePartMetricsTest(unittest.TestCase):
         self.assertTrue(metrics["passed"])
         self.assertTrue(all(record["passed"] for record in metrics["parts"]))
 
+    def test_thin_visible_part_keeps_full_support_instead_of_biased_skeleton(self):
+        reference, face, _parts = self._surface_and_masks()
+        thin_nose = np.zeros_like(face)
+        thin_nose[30:60, 49:52] = True
+
+        metrics = face_part_cross_height_metrics(
+            reference,
+            reference.copy(),
+            face,
+            {"nose": thin_nose},
+            sample_pitch_mm=0.4,
+        )
+
+        self.assertTrue(metrics["passed"])
+        nose = metrics["parts"][0]
+        self.assertFalse(nose["boundary_exclusion_applied"])
+        self.assertEqual(nose["samples"], 90)
+        self.assertEqual(nose["visible_samples_before_boundary_exclusion"], 90)
+        self.assertEqual(
+            nose["boundary_exclusion_reason"],
+            "insufficient_retained_fraction",
+        )
+        self.assertEqual(nose["boundary_exclusion_eroded_samples"], 28)
+        self.assertAlmostEqual(
+            nose["boundary_exclusion_attempted_retained_fraction"],
+            28.0 / 90.0,
+        )
+        self.assertEqual(nose["boundary_exclusion_retained_fraction"], 1.0)
+
+        flattened = reference.copy()
+        flattened[thin_nose] = float(np.mean(reference[thin_nose]))
+        damaged = face_part_cross_height_metrics(
+            reference,
+            flattened,
+            face,
+            {"nose": thin_nose},
+            sample_pitch_mm=0.4,
+        )
+        self.assertFalse(damaged["passed"])
+        self.assertIn("nose", damaged["failed_parts"])
+        damaged_affine = face_part_affine_surface_error_metrics(
+            reference,
+            flattened,
+            face,
+            {"nose": thin_nose},
+        )
+        self.assertFalse(damaged_affine["passed"])
+        self.assertIn("nose", damaged_affine["failed_parts"])
+
+        boundary_damaged = reference.copy()
+        boundary_damaged[30:60, 49] += 2.0
+        boundary_damaged[30:60, 51] += 2.0
+        boundary_affine = face_part_affine_surface_error_metrics(
+            reference,
+            boundary_damaged,
+            face,
+            {"nose": thin_nose},
+        )
+        self.assertFalse(boundary_affine["passed"])
+        self.assertIn("nose", boundary_affine["failed_parts"])
+
     def test_missing_part_pixel_and_flat_part_fail_closed(self):
         reference, face, parts = self._surface_and_masks()
         missing = reference.astype(np.float64)

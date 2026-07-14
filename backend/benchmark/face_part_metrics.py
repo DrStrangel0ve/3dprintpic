@@ -19,8 +19,9 @@ from scipy.stats import wasserstein_distance
 from backend.face_depth_refinement import FACE_PART_NAMES
 
 
-FACE_PART_METRIC_SCHEMA_VERSION = 1
+FACE_PART_METRIC_SCHEMA_VERSION = 2
 FACE_PART_SMOOTHING_RADII_MM = (0.0, 0.8)
+FACE_PART_MINIMUM_ERODED_SUPPORT_RATIO = 0.35
 FACE_PART_GATES = {
     "minimum_coverage_ratio": 1.0,
     "minimum_shape_correlation": 0.90,
@@ -138,17 +139,66 @@ def _distribution_metrics(
     return stats
 
 
-def _eroded_or_original(mask: np.ndarray, iterations: int, minimum_samples: int) -> np.ndarray:
+def _eroded_or_original(
+    mask: np.ndarray,
+    iterations: int,
+    minimum_samples: int,
+    minimum_retained_fraction: float = 0.0,
+) -> np.ndarray:
+    return _select_eroded_support(
+        mask,
+        iterations,
+        minimum_samples,
+        minimum_retained_fraction,
+    )[0]
+
+
+def _select_eroded_support(
+    mask: np.ndarray,
+    iterations: int,
+    minimum_samples: int,
+    minimum_retained_fraction: float = 0.0,
+) -> tuple[np.ndarray, dict]:
     mask = np.asarray(mask, dtype=bool)
+    original_samples = int(np.count_nonzero(mask))
     if iterations <= 0:
-        return mask
+        return mask, {
+            "attempted": False,
+            "applied": False,
+            "reason": "not_requested",
+            "visible_samples": original_samples,
+            "eroded_samples": original_samples,
+            "attempted_retained_fraction": 1.0,
+            "selected_samples": original_samples,
+        }
     eroded = binary_erosion(
         mask,
         structure=np.ones((3, 3), dtype=bool),
         iterations=int(iterations),
         border_value=0,
     )
-    return eroded if np.count_nonzero(eroded) >= int(minimum_samples) else mask
+    eroded_samples = int(np.count_nonzero(eroded))
+    retained_fraction = eroded_samples / max(original_samples, 1)
+    enough_samples = eroded_samples >= int(minimum_samples)
+    enough_support = retained_fraction >= float(minimum_retained_fraction)
+    applied = bool(enough_samples and enough_support)
+    reason = (
+        "accepted"
+        if applied
+        else "insufficient_samples"
+        if not enough_samples
+        else "insufficient_retained_fraction"
+    )
+    selected = eroded if applied else mask
+    return selected, {
+        "attempted": True,
+        "applied": applied,
+        "reason": reason,
+        "visible_samples": original_samples,
+        "eroded_samples": eroded_samples,
+        "attempted_retained_fraction": float(retained_fraction),
+        "selected_samples": int(np.count_nonzero(selected)),
+    }
 
 
 def face_part_cross_height_metrics(
@@ -286,8 +336,15 @@ def face_part_cross_height_metrics(
         )
 
     for name in sorted(part_masks):
-        part = np.asarray(part_masks[name], dtype=bool) & face
-        part = _eroded_or_original(part, boundary_exclusion_px, minimum_part_samples)
+        visible_part = np.asarray(part_masks[name], dtype=bool) & face
+        visible_part_samples = int(np.count_nonzero(visible_part))
+        part, boundary_support = _select_eroded_support(
+            visible_part,
+            boundary_exclusion_px,
+            minimum_part_samples,
+            FACE_PART_MINIMUM_ERODED_SUPPORT_RATIO,
+        )
+        selected_part_samples = int(np.count_nonzero(part))
         expected = part & reference_valid
         measured = expected & candidate_valid
         reference_samples = int(np.count_nonzero(expected))
@@ -300,6 +357,22 @@ def face_part_cross_height_metrics(
             "reference_samples": reference_samples,
             "samples": samples,
             "candidate_coverage_ratio": float(coverage),
+            "visible_samples_before_boundary_exclusion": visible_part_samples,
+            "boundary_exclusion_requested_px": int(boundary_exclusion_px),
+            "boundary_exclusion_applied": bool(boundary_support["applied"]),
+            "boundary_exclusion_reason": boundary_support["reason"],
+            "boundary_exclusion_eroded_samples": int(
+                boundary_support["eroded_samples"]
+            ),
+            "boundary_exclusion_attempted_retained_fraction": float(
+                boundary_support["attempted_retained_fraction"]
+            ),
+            "boundary_exclusion_retained_fraction": float(
+                selected_part_samples / max(visible_part_samples, 1)
+            ),
+            "minimum_eroded_support_ratio": (
+                FACE_PART_MINIMUM_ERODED_SUPPORT_RATIO
+            ),
             "scales": [],
         }
         if reference_samples < int(minimum_part_samples):
@@ -525,8 +598,15 @@ def face_part_affine_surface_error_metrics(
     }
 
     for name in sorted(part_masks):
-        part = np.asarray(part_masks[name], dtype=bool) & face
-        part = _eroded_or_original(part, boundary_exclusion_px, minimum_part_samples)
+        visible_part = np.asarray(part_masks[name], dtype=bool) & face
+        visible_part_samples = int(np.count_nonzero(visible_part))
+        part, boundary_support = _select_eroded_support(
+            visible_part,
+            boundary_exclusion_px,
+            minimum_part_samples,
+            FACE_PART_MINIMUM_ERODED_SUPPORT_RATIO,
+        )
+        selected_part_samples = int(np.count_nonzero(part))
         expected = part & reference_valid
         measured = expected & candidate_valid
         reference_samples = int(np.count_nonzero(expected))
@@ -539,6 +619,22 @@ def face_part_affine_surface_error_metrics(
             "reference_samples": reference_samples,
             "samples": samples,
             "candidate_coverage_ratio": float(coverage),
+            "visible_samples_before_boundary_exclusion": visible_part_samples,
+            "boundary_exclusion_requested_px": int(boundary_exclusion_px),
+            "boundary_exclusion_applied": bool(boundary_support["applied"]),
+            "boundary_exclusion_reason": boundary_support["reason"],
+            "boundary_exclusion_eroded_samples": int(
+                boundary_support["eroded_samples"]
+            ),
+            "boundary_exclusion_attempted_retained_fraction": float(
+                boundary_support["attempted_retained_fraction"]
+            ),
+            "boundary_exclusion_retained_fraction": float(
+                selected_part_samples / max(visible_part_samples, 1)
+            ),
+            "minimum_eroded_support_ratio": (
+                FACE_PART_MINIMUM_ERODED_SUPPORT_RATIO
+            ),
         }
         if reference_samples < int(minimum_part_samples):
             record["reason"] = "insufficient_reference_samples"

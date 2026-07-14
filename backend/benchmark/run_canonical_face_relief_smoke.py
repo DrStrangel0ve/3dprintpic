@@ -16,6 +16,7 @@ from PIL import Image
 from backend.benchmark.face_part_metrics import (
     FACE_PART_AFFINE_MM_GATES,
     FACE_PART_GATES,
+    FACE_PART_METRIC_SCHEMA_VERSION,
     face_part_affine_surface_error_metrics,
     face_part_cross_height_metrics,
     load_persisted_face_part_masks,
@@ -162,6 +163,7 @@ def make_structured_face_scene(
     rendered_depth: np.ndarray,
     face_mask: np.ndarray,
     yaw_deg: float,
+    scene_phase_rad: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Place known face depth in front of a deterministic structured background."""
     depth = np.asarray(rendered_depth, dtype=np.float32)
@@ -169,10 +171,15 @@ def make_structured_face_scene(
     rows, cols = np.indices(depth.shape, dtype=np.float32)
     x = 2.0 * cols / max(depth.shape[1] - 1, 1) - 1.0
     y = 2.0 * rows / max(depth.shape[0] - 1, 1) - 1.0
+    phase = float(scene_phase_rad)
     background = 0.76 + 0.055 * x + 0.035 * y
-    background += 0.035 * np.sin(2.6 * np.pi * x + np.deg2rad(yaw_deg))
-    background += 0.028 * np.cos(2.1 * np.pi * y - 0.4 * x)
-    background += 0.045 * np.exp(-((x + 0.52) ** 2 + (y - 0.22) ** 2) / 0.08)
+    background += 0.035 * np.sin(
+        2.6 * np.pi * x + np.deg2rad(yaw_deg) + phase
+    )
+    background += 0.028 * np.cos(2.1 * np.pi * y - 0.4 * x - 0.7 * phase)
+    blob_x = -0.52 + 0.14 * np.sin(phase)
+    blob_y = 0.22 + 0.12 * np.cos(phase) - 0.12
+    background += 0.045 * np.exp(-((x - blob_x) ** 2 + (y - blob_y) ** 2) / 0.08)
     background = np.clip(background, 0.64, 0.92)
 
     face_depth = 0.08 + 0.50 * depth
@@ -258,6 +265,8 @@ def _run_row(
     relief_height_mm: float,
     render_size: int,
     physical_size_mm: float,
+    render_ortho_scale: float = 1.8,
+    background_phase_rad: float = 0.0,
 ) -> dict:
     started = time.perf_counter()
     row_id = f"yaw_{yaw_deg:+05.1f}_height_{relief_height_mm:04.1f}mm".replace(
@@ -268,7 +277,7 @@ def _run_row(
     camera = CameraSpec(azimuth_deg=float(yaw_deg), elevation_deg=0.0)
     render_config = RenderConfig(
         size=int(render_size),
-        ortho_scale=1.8,
+        ortho_scale=float(render_ortho_scale),
         background_rgb=(0.84, 0.87, 0.91),
         ambient=0.52,
         diffuse=0.48,
@@ -289,6 +298,7 @@ def _run_row(
         rendered.depth,
         face_mask,
         yaw_deg,
+        scene_phase_rad=background_phase_rad,
     )
     preview = background_rgb.copy()
     preview[face_mask] = rendered.rgb[face_mask]
@@ -421,6 +431,24 @@ def _run_row(
             "name": record["name"],
             "passed": bool(record["passed"]),
             "samples": int(record["samples"]),
+            "visible_samples_before_boundary_exclusion": int(
+                record.get("visible_samples_before_boundary_exclusion", 0)
+            ),
+            "boundary_exclusion_applied": bool(
+                record.get("boundary_exclusion_applied", False)
+            ),
+            "boundary_exclusion_reason": record.get(
+                "boundary_exclusion_reason"
+            ),
+            "boundary_exclusion_eroded_samples": int(
+                record.get("boundary_exclusion_eroded_samples", 0)
+            ),
+            "boundary_exclusion_attempted_retained_fraction": _finite(
+                record.get("boundary_exclusion_attempted_retained_fraction")
+            ),
+            "boundary_exclusion_retained_fraction": _finite(
+                record.get("boundary_exclusion_retained_fraction")
+            ),
             "shape_correlation": _finite(record.get("shape_correlation")),
             "face_normalized_shape_rmse": _finite(
                 record.get("face_normalized_shape_rmse")
@@ -449,6 +477,24 @@ def _run_row(
             "available": bool(record["available"]),
             "passed": bool(record["passed"]),
             "samples": int(record["samples"]),
+            "visible_samples_before_boundary_exclusion": int(
+                record.get("visible_samples_before_boundary_exclusion", 0)
+            ),
+            "boundary_exclusion_applied": bool(
+                record.get("boundary_exclusion_applied", False)
+            ),
+            "boundary_exclusion_reason": record.get(
+                "boundary_exclusion_reason"
+            ),
+            "boundary_exclusion_eroded_samples": int(
+                record.get("boundary_exclusion_eroded_samples", 0)
+            ),
+            "boundary_exclusion_attempted_retained_fraction": _finite(
+                record.get("boundary_exclusion_attempted_retained_fraction")
+            ),
+            "boundary_exclusion_retained_fraction": _finite(
+                record.get("boundary_exclusion_retained_fraction")
+            ),
             "rmse_mm": _finite(record.get("rmse_mm")),
             "bias_mm": _finite(record.get("bias_mm")),
             "p95_absolute_error_mm": _finite(
@@ -466,6 +512,8 @@ def _run_row(
         "relief_height_mm": float(relief_height_mm),
         "render_size": int(render_size),
         "physical_size_mm": float(physical_size_mm),
+        "render_ortho_scale": float(render_ortho_scale),
+        "background_phase_rad": float(background_phase_rad),
         "runtime_seconds": float(time.perf_counter() - started),
         "checks": {**checks, "passed": bool(all(checks.values()))},
         "compose": {
@@ -485,12 +533,14 @@ def _run_row(
             "checks": appearance_checks,
         },
         "absolute_named_parts": {
+            "schema_version": int(absolute_parts["schema_version"]),
             "passed": bool(absolute_parts["passed"]),
             "failed_parts": absolute_parts["failed_parts"],
             "gates": FACE_PART_GATES,
             "parts": part_records,
         },
         "absolute_named_part_mm_error": {
+            "schema_version": int(absolute_part_mm["schema_version"]),
             "passed": bool(absolute_part_mm["passed"]),
             "failed_parts": absolute_part_mm["failed_parts"],
             "gates": FACE_PART_AFFINE_MM_GATES,
@@ -560,7 +610,7 @@ def _run_row(
             )
         },
         "artifacts": {
-            path.name: {
+            path.relative_to(row_dir).as_posix(): {
                 "size_bytes": int(path.stat().st_size),
                 "sha256": _sha256(path),
             }
@@ -571,6 +621,8 @@ def _run_row(
                 surface_path,
                 stl_path,
                 postprocess_path,
+                metadata_path,
+                *sorted((row_dir / "face_parts").glob("*.png")),
             )
         },
     }
@@ -610,7 +662,10 @@ def run(
         and all(row["checks"]["passed"] for row in rows),
     }
     summary = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "named_face_part_metric_schema_version": (
+            FACE_PART_METRIC_SCHEMA_VERSION
+        ),
         "run_kind": "canonical_face_absolute_relief_fidelity",
         "privacy": "official canonical mesh and deterministic analytic background only",
         "asset": asset,
