@@ -274,6 +274,51 @@ private portrait and llama evidence remains separate because the original
 private selection masks are deliberately not tracked; no new exact-input claim
 is inferred from cached depth arrays alone.
 
+## Varied canonical identities and deeper background context
+
+The next privacy-safe pass deforms the pinned canonical face into six
+deterministic identity/expression profiles, including broad and projected
+noses, high cheeks, asymmetry, and deep-set eyes. Exact topology, signed
+triangle Jacobians, area and edge ratios, normal bending, connectedness, and
+self-intersections are audited before rendering. The matrix covers yaw `-45`,
+`0`, and `+45` degrees at 20, 30, and 40 mm.
+
+The first expansion found a real 40 mm profile failure. The primary screened
+solve lost detail and the legacy fallback produced 13-14 mm nose RMSE. A
+bounded screening-`8.0` retry now becomes eligible only when its remaining
+failures are raw edge maxima at source discontinuities. It remains provisional
+until the exact blended surface passes the baseline-aware edge, detail,
+correction, span, attachment, face-appearance, and STL gates. Projected-nose
+profiles can cascade from the existing `0.10` cardinal-edge retry into this
+guarded high-detail candidate only when the low-screening attempt itself loses
+detail.
+
+Metric schema v3 separates the unsmoothed raster derivative from the 0.8 mm
+physical gradient. The strict `0.75` gate applies to the physical signal, while
+the raw signal retains a `0.25` anti-collapse floor and all raw slope,
+curvature, and Wasserstein gates remain active. Thin profile masks fall back to
+their complete visible support when erosion would retain less than 35%; both
+shape and affine millimeter metrics use the same rule and record the attempted
+support ratio.
+
+The named-part metric is schema v3 and its affine millimeter companion is
+independently versioned as schema v2, so the support-semantics change cannot be
+mistaken for historical v1 telemetry.
+
+The production selection-background default is now 50% instead of 45%. On the
+two previously marginal 40 mm frontal scenes, recoverable context coverage
+increases from 0.596/0.588 to 0.640/0.630. Background depth, RMS, span, and
+gradient retention remain effectively 1.0, the far-background cap is 20.01 mm
+at 40 mm relief, and feasible attachment steps remain at 0.8000002 mm or less.
+
+All 54 clean rows pass on revision
+`c0bc7ccb81ac724e6cdb3a99b7d406f9dbb2d36a`. Minimum named-part shape and
+physical-gradient correlations are 0.9746 and 0.9697; worst p95 part error is
+1.2892 mm; minimum face relighting correlation is 0.9961. Every output is one
+watertight, winding-consistent positive volume with no nonmanifold edges or
+degenerate faces, and every exact shell check passes. Evidence is in
+`docs/benchmark-evidence/canonical_face_variants_height_v3_n54/`.
+
 ## Validation
 
 ```powershell
@@ -286,7 +331,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 451 passed, 32 subtests passed (2 existing warnings).
+- Backend: 467 passed, 44 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
