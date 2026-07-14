@@ -8,6 +8,7 @@ python-multipart
 aiohttp
 python-dotenv
 pillow
+opencv-python-headless==4.10.0.84
 torch>=2.11,<2.12
 transformers==5.13.0
 huggingface-hub==1.22.0

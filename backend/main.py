@@ -26,6 +26,12 @@ try:
         process_image_get_depth_data,
         relief_value_transform_for_model,
     )
+    from .face_depth_refinement import (
+        DEFAULT_FACE_DETAIL_STRENGTH,
+        DEFAULT_FACE_FEATHER_RATIO,
+        DEFAULT_FACE_MAX_CORRECTION_RATIO,
+        refine_depth_for_faces,
+    )
 except ImportError:  # pragma: no cover - supports running uvicorn from backend/
     if __package__:
         raise
@@ -35,6 +41,12 @@ except ImportError:  # pragma: no cover - supports running uvicorn from backend/
         depth_data_to_3d_model,
         process_image_get_depth_data,
         relief_value_transform_for_model,
+    )
+    from face_depth_refinement import (
+        DEFAULT_FACE_DETAIL_STRENGTH,
+        DEFAULT_FACE_FEATHER_RATIO,
+        DEFAULT_FACE_MAX_CORRECTION_RATIO,
+        refine_depth_for_faces,
     )
 try:
     from .stl_diagnostics import json_safe_stl_diagnostics, stl_diagnostics
@@ -106,6 +118,8 @@ SELECTION_PRECOMPUTE_CACHE: dict[str, dict] = {}
 SELECTION_PRECOMPUTE_MAX_ENTRIES = int(os.getenv("SELECTION_PRECOMPUTE_MAX_ENTRIES", "12"))
 RELIEF_MIN_DETAIL_DIMENSION = int(os.getenv("RELIEF_MIN_DETAIL_DIMENSION", "192"))
 RELIEF_MAX_DETAIL_DIMENSION = int(os.getenv("RELIEF_MAX_DETAIL_DIMENSION", "900"))
+DEFAULT_NOZZLE_DIAMETER_MM = float(os.getenv("DEFAULT_NOZZLE_DIAMETER_MM", "0.4"))
+DEFAULT_MAX_RELIEF_SLOPE = float(os.getenv("DEFAULT_MAX_RELIEF_SLOPE", "2.0"))
 
 DEPTH_MODELS = [
     {
@@ -218,6 +232,15 @@ def relief_sample_pitch_mm(max_xy_size: float | None, target_dimension: int) -> 
     if physical_xy is None or target_dimension in (-1, 0, 1):
         return None
     return physical_xy / float(max(1, target_dimension - 1))
+
+
+def resolve_minimum_feature_mm(
+    nozzle_diameter_mm: float | None,
+    requested_minimum_feature_mm: float | None,
+) -> float:
+    nozzle = _positive_float(nozzle_diameter_mm) or DEFAULT_NOZZLE_DIAMETER_MM
+    requested = _positive_float(requested_minimum_feature_mm) or 0.0
+    return max(requested, nozzle * 2.0)
 
 
 def _hf_model_cache_dir(model_id: str) -> Path:
@@ -1168,21 +1191,30 @@ async def process_image(
     depth_model: str | None = Form(None),
     device: str = Form("auto"),
     target_dimension: int = Form(300),
-    z_scale: float = Form(50),
+    z_scale: float = Form(10),
     max_xy_size: float | None = Form(None),
     printer_profile: str | None = Form(None),
     printer_max_x_mm: float | None = Form(None),
     printer_max_y_mm: float | None = Form(None),
     printer_max_z_mm: float | None = Form(None),
     printer_clearance_mm: float | None = Form(None),
+    nozzle_diameter_mm: float = Form(DEFAULT_NOZZLE_DIAMETER_MM),
+    minimum_feature_mm: float | None = Form(None),
     print_scale_percent: float | None = Form(None),
     relief_polarity: str = Form("raised-print"),
     mesh_resolution_multiplier: float | None = Form(None),
     invert: bool = Form(False),
     sigma: float = Form(0.6),
     relief_gamma: float = Form(0.75),
-    detail_boost: float = Form(1.4),
+    detail_boost: float = Form(0.8),
+    background_detail_boost: float = Form(2.4),
+    background_photo_detail_mm: float = Form(0.12),
+    trim_top_background: bool = Form(True),
+    printable_feature_depth_mm: float = Form(0.4),
+    feature_bridge_depth_mm: float = Form(0.8),
     detail_radius: float = Form(2.0),
+    detail_edge_threshold: float = Form(0.12),
+    max_relief_slope: float = Form(DEFAULT_MAX_RELIEF_SLOPE),
     low_percentile: float = Form(1.0),
     high_percentile: float = Form(99.0),
     base_border_px: int = Form(2),
@@ -1196,6 +1228,10 @@ async def process_image(
     completion_guidance: float | None = Form(None),
     completion_seed: int | None = Form(None),
     completion_inpaint_max_dimension: int = Form(768),
+    face_refinement_mode: str = Form("auto"),
+    face_detail_strength: float = Form(DEFAULT_FACE_DETAIL_STRENGTH),
+    face_feather_ratio: float = Form(DEFAULT_FACE_FEATHER_RATIO),
+    face_max_correction_ratio: float = Form(DEFAULT_FACE_MAX_CORRECTION_RATIO),
 ):
     logger.info(f"Received file: {file.filename}")
 
@@ -1257,6 +1293,32 @@ async def process_image(
             with open(depth_metadata_path, encoding="utf-8") as depth_metadata_file:
                 depth_metadata = json.load(depth_metadata_file)
         effective_depth_model = depth_metadata.get("effective_model") or selected_model
+        stage_started = time.perf_counter()
+
+        def infer_face_depth(crop_path: Path, face_output_dir: Path):
+            return process_image_get_depth_data(
+                str(crop_path),
+                output_dir=str(face_output_dir),
+                provider=depth_provider,
+                model_name=effective_depth_model,
+                device=device,
+            )
+
+        depth_data_path, face_refinement = refine_depth_for_faces(
+            image_for_depth,
+            depth_data_path,
+            job_dir,
+            infer_depth=infer_face_depth,
+            mode=face_refinement_mode,
+            detail_strength=face_detail_strength,
+            feather_ratio=face_feather_ratio,
+            max_correction_ratio=face_max_correction_ratio,
+        )
+        record_timing("face_refinement_seconds", stage_started)
+        depth_metadata["face_refinement"] = face_refinement
+        if depth_metadata_path.exists():
+            with open(depth_metadata_path, "w", encoding="utf-8") as depth_metadata_file:
+                json.dump(depth_metadata, depth_metadata_file, indent=2)
         effective_invert = relief_invert_for_model(effective_depth_model, relief_polarity, invert)
         relief_value_transform = depth_metadata.get("relief_value_transform")
         if not relief_value_transform:
@@ -1271,12 +1333,16 @@ async def process_image(
             mesh_resolution_multiplier=mesh_resolution_multiplier,
         )
         effective_sample_pitch_mm = relief_sample_pitch_mm(max_xy_size, effective_target_dimension)
+        effective_minimum_feature_mm = resolve_minimum_feature_mm(
+            nozzle_diameter_mm,
+            minimum_feature_mm,
+        )
         
         # Generate 3D model
         logger.info("Generating 3D model...")
         stl_path = job_dir / "output_model.stl"
         stage_started = time.perf_counter()
-        depth_data_to_3d_model(
+        relief_postprocess = depth_data_to_3d_model(
             depth_data_path,
             output_stl_path=str(stl_path),
             target_dimension=effective_target_dimension,
@@ -1286,11 +1352,30 @@ async def process_image(
             sigma=sigma,
             relief_gamma=relief_gamma,
             detail_boost=detail_boost,
+            background_detail_boost=background_detail_boost,
+            source_image=image_for_depth,
+            background_photo_detail_mm=background_photo_detail_mm,
+            trim_top_background=trim_top_background,
+            feature_weight_mask=(
+                job_dir / face_refinement["weight_file"]
+                if face_refinement.get("applied") and face_refinement.get("weight_file")
+                else None
+            ),
+            printable_feature_depth_mm=printable_feature_depth_mm,
+            feature_bridge_depth_mm=feature_bridge_depth_mm,
             detail_radius=detail_radius,
+            detail_edge_threshold=detail_edge_threshold,
             low_percentile=low_percentile,
             high_percentile=high_percentile,
             base_border_px=base_border_px,
             value_transform=relief_value_transform,
+            minimum_feature_mm=effective_minimum_feature_mm,
+            max_relief_slope=max_relief_slope,
+            face_region_mask=(
+                job_dir / face_refinement["region_file"]
+                if face_refinement.get("applied") and face_refinement.get("region_file")
+                else None
+            ),
         )
         record_timing("stl_seconds", stage_started)
         logger.info(f"3D model saved as: {stl_path}")
@@ -1336,10 +1421,16 @@ async def process_image(
                 "max_y_mm": printer_max_y_mm,
                 "max_z_mm": printer_max_z_mm,
                 "clearance_mm": printer_clearance_mm,
+                "nozzle_diameter_mm": nozzle_diameter_mm,
+                "minimum_feature_mm": effective_minimum_feature_mm,
                 "print_scale_percent": print_scale_percent,
             },
             "relief_polarity": relief_polarity,
             "mesh_resolution_multiplier": mesh_resolution_multiplier,
+            "minimum_feature_mm": effective_minimum_feature_mm,
+            "requested_minimum_feature_mm": minimum_feature_mm,
+            "max_relief_slope": max_relief_slope,
+            "relief_postprocess": relief_postprocess,
             "size_aware_detail": {
                 "min_detail_dimension": RELIEF_MIN_DETAIL_DIMENSION,
                 "max_detail_dimension": RELIEF_MAX_DETAIL_DIMENSION,
@@ -1351,7 +1442,13 @@ async def process_image(
             "sigma": sigma,
             "relief_gamma": relief_gamma,
             "detail_boost": detail_boost,
+            "background_detail_boost": background_detail_boost,
+            "background_photo_detail_mm": background_photo_detail_mm,
+            "trim_top_background": trim_top_background,
+            "printable_feature_depth_mm": printable_feature_depth_mm,
+            "feature_bridge_depth_mm": feature_bridge_depth_mm,
             "detail_radius": detail_radius,
+            "detail_edge_threshold": detail_edge_threshold,
             "low_percentile": low_percentile,
             "high_percentile": high_percentile,
             "base_border_px": base_border_px,
@@ -1365,6 +1462,11 @@ async def process_image(
             "completion_seed": completion_seed,
             "completion_inpaint_max_dimension": completion_inpaint_max_dimension,
             "applied_completion_mode": applied_completion_mode,
+            "face_refinement_mode": face_refinement_mode,
+            "face_detail_strength": face_detail_strength,
+            "face_feather_ratio": face_feather_ratio,
+            "face_max_correction_ratio": face_max_correction_ratio,
+            "face_refinement": face_refinement,
             "runtime": runtime,
             "timings": timings,
             "created_at": datetime.utcnow().isoformat() + "Z",

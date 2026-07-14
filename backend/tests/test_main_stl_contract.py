@@ -79,6 +79,11 @@ class MainStlContractTest(unittest.TestCase):
 
         self.assertEqual(resolved, main_module.RELIEF_MAX_DETAIL_DIMENSION)
 
+    def test_minimum_feature_is_never_smaller_than_two_nozzle_widths(self):
+        self.assertAlmostEqual(main_module.resolve_minimum_feature_mm(0.4, None), 0.8)
+        self.assertAlmostEqual(main_module.resolve_minimum_feature_mm(0.6, 0.5), 1.2)
+        self.assertAlmostEqual(main_module.resolve_minimum_feature_mm(0.4, 1.4), 1.4)
+
     def test_process_image_emits_output_model_and_diagnostics_json(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_root = Path(temp_dir) / "output"
@@ -110,6 +115,9 @@ class MainStlContractTest(unittest.TestCase):
                         "printer_max_x_mm": "256",
                         "printer_max_y_mm": "256",
                         "printer_clearance_mm": "0",
+                        "nozzle_diameter_mm": "0.6",
+                        "minimum_feature_mm": "0.5",
+                        "max_relief_slope": "1.5",
                         "mesh_resolution_multiplier": "2",
                     },
                 )
@@ -128,6 +136,10 @@ class MainStlContractTest(unittest.TestCase):
                 self.assertEqual(payload["target_dimension"], 512)
                 self.assertAlmostEqual(payload["relief_sample_pitch_mm"], 40 / 511)
                 self.assertTrue(payload["size_aware_detail"]["applied"])
+                self.assertAlmostEqual(payload["minimum_feature_mm"], 1.2)
+                self.assertAlmostEqual(payload["max_relief_slope"], 1.5)
+                self.assertTrue(payload["relief_postprocess"]["enabled"])
+                self.assertAlmostEqual(payload["printer"]["nozzle_diameter_mm"], 0.6)
 
                 diagnostics_response = client.get(payload["diagnostics_url"])
                 self.assertEqual(diagnostics_response.status_code, 200)
@@ -137,6 +149,7 @@ class MainStlContractTest(unittest.TestCase):
                 metadata = json.loads((output_root / payload["job_id"] / "metadata.json").read_text(encoding="utf-8"))
                 self.assertEqual(metadata["target_dimension"], payload["target_dimension"])
                 self.assertEqual(metadata["requested_target_dimension"], payload["requested_target_dimension"])
+                self.assertEqual(metadata["relief_postprocess"], payload["relief_postprocess"])
 
     def test_process_image_reports_depth_fallback_and_uses_effective_polarity(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -1,0 +1,361 @@
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import cv2
+import numpy as np
+from fastapi.testclient import TestClient
+from PIL import Image
+from scipy.ndimage import gaussian_filter
+
+import backend.main as main_module
+from backend.face_depth_refinement import (
+    face_blend_weight,
+    face_masks_from_box,
+    fuse_face_depth,
+    fuse_face_landmark_shape_prior,
+    refine_depth_for_faces,
+)
+
+
+def gaussian_peak(shape, center, sigma, amplitude):
+    yy, xx = np.indices(shape, dtype=np.float32)
+    cy, cx = center
+    return amplitude * np.exp(-((yy - cy) ** 2 + (xx - cx) ** 2) / (2.0 * sigma**2))
+
+
+class FaceDepthRefinementTest(unittest.TestCase):
+    def test_landmark_relative_z_adds_bounded_coarse_shape_without_a_seam(self):
+        shape = (128, 128)
+        yy, xx = np.indices(shape, dtype=np.float32)
+        face_mask, feature_mask = face_masks_from_box(shape, (20, 8, 108, 120))
+        rng = np.random.default_rng(4040)
+        angles = rng.uniform(0.0, 2.0 * np.pi, 468)
+        radii = np.sqrt(rng.uniform(0.0, 0.92**2, 468))
+        points = np.column_stack(
+            (
+                64.0 + 40.0 * radii * np.cos(angles),
+                64.0 + 51.0 * radii * np.sin(angles),
+            )
+        )
+        points[1] = (64.0, 62.0)
+        px = (points[:, 0] - 64.0) / 40.0
+        py = (points[:, 1] - 64.0) / 51.0
+        landmark_shape = 0.62 * np.exp(-(px**2 + py**2) / 0.62)
+        landmark_shape += 0.38 * np.exp(-(px / 0.18) ** 2 - ((py + 0.02) / 0.28) ** 2)
+        relative_z = -landmark_shape
+
+        nose = np.exp(-((xx - 64.0) / 8.0) ** 2 - ((yy - 62.0) / 14.0) ** 2)
+        global_depth = 0.34 + xx * 0.00015 + nose * 0.012
+        refined, weight, stats = fuse_face_landmark_shape_prior(
+            global_depth,
+            face_mask,
+            feature_mask,
+            points,
+            relative_z,
+            max_correction_ratio=0.40,
+            minimum_abs_correlation=0.08,
+        )
+        correction = refined - global_depth
+
+        self.assertTrue(stats["enabled"])
+        self.assertGreater(abs(stats["correlation"]), stats["minimum_abs_correlation"])
+        self.assertGreater(float(np.max(np.abs(correction))), 1e-4)
+        self.assertEqual(float(np.max(np.abs(correction[face_mask == 0]))), 0.0)
+        self.assertLessEqual(stats["boundary_max_abs_correction"], 1e-7)
+        self.assertLessEqual(float(np.max(np.abs(correction))), stats["correction_limit"] + 1e-6)
+        self.assertGreater(float(weight[64, 64]), float(weight[10, 64]))
+
+    def test_landmark_shape_prior_rejects_large_yaw_proxy(self):
+        shape = (96, 96)
+        face_mask, feature_mask = face_masks_from_box(shape, (16, 6, 80, 90))
+        angles = np.linspace(0.0, 2.0 * np.pi, 468, endpoint=False)
+        points = np.column_stack((48.0 + 28.0 * np.cos(angles), 48.0 + 38.0 * np.sin(angles)))
+        points[1, 0] = 74.0
+        relative_z = -np.cos(angles)
+        global_depth = np.linspace(0.2, 0.8, shape[1], dtype=np.float32)[None, :]
+        global_depth = np.repeat(global_depth, shape[0], axis=0)
+
+        refined, weight, stats = fuse_face_landmark_shape_prior(
+            global_depth,
+            face_mask,
+            feature_mask,
+            points,
+            relative_z,
+        )
+
+        self.assertFalse(stats["enabled"])
+        self.assertEqual(stats["reason"], "yaw_gate")
+        np.testing.assert_array_equal(refined, global_depth)
+        self.assertEqual(float(np.max(weight)), 0.0)
+
+    def test_box_fallback_builds_separate_face_and_feature_masks(self):
+        face_mask, feature_mask = face_masks_from_box((120, 100), (20, 10, 80, 110))
+
+        self.assertEqual(face_mask.shape, (120, 100))
+        self.assertEqual(feature_mask.shape, face_mask.shape)
+        self.assertEqual(int(face_mask[60, 50]), 255)
+        self.assertEqual(int(face_mask[0, 0]), 0)
+        self.assertGreater(np.count_nonzero(face_mask), np.count_nonzero(feature_mask))
+        self.assertEqual(np.count_nonzero((feature_mask > 0) & (face_mask == 0)), 0)
+        self.assertEqual(int(face_mask[65, 15]), 255)
+        self.assertEqual(int(feature_mask[65, 15]), 255)
+
+    def test_face_detail_fusion_preserves_features_without_a_boundary_ridge(self):
+        shape = (128, 128)
+        yy, xx = np.indices(shape, dtype=np.float32)
+        global_depth = 0.35 + xx * 0.0012 + yy * 0.0004
+        local_depth = global_depth.copy()
+        local_depth += gaussian_peak(shape, (72, 64), sigma=3.0, amplitude=0.10)
+        local_depth -= gaussian_peak(shape, (50, 48), sigma=2.5, amplitude=0.04)
+        local_depth -= gaussian_peak(shape, (50, 80), sigma=2.5, amplitude=0.04)
+        face_mask, feature_mask = face_masks_from_box(shape, (20, 8, 108, 120))
+
+        refined, weight, stats = fuse_face_depth(
+            global_depth,
+            local_depth,
+            face_mask,
+            feature_mask,
+            detail_strength=1.25,
+            feather_ratio=0.20,
+            max_correction_ratio=0.50,
+        )
+        correction = refined - global_depth
+
+        self.assertGreater(float(abs(correction[72, 64])), 0.01)
+        self.assertEqual(float(np.max(np.abs(correction[face_mask == 0]))), 0.0)
+        self.assertLessEqual(stats["boundary_max_abs_correction"], 1e-7)
+        self.assertLessEqual(float(np.max(np.abs(correction))), stats["correction_limit"] + 1e-6)
+        self.assertGreater(float(weight[72, 64]), float(weight[16, 64]))
+
+    def test_face_oval_is_a_safety_envelope_not_a_crop_blend_region(self):
+        shape = (160, 160)
+        face_mask, feature_mask = face_masks_from_box(shape, (28, 12, 132, 150))
+        weight, _distance, feather_px = face_blend_weight(
+            face_mask,
+            feature_mask,
+            feather_ratio=0.20,
+        )
+
+        distance_from_feature = cv2.distanceTransform(
+            (feature_mask == 0).astype(np.uint8),
+            cv2.DIST_L2,
+            5,
+        )
+        oval_only = (face_mask > 0) & (distance_from_feature > feather_px)
+
+        self.assertTrue(np.any(oval_only))
+        self.assertEqual(float(np.max(weight[oval_only])), 0.0)
+        self.assertGreater(float(np.max(weight[feature_mask > 0])), 0.5)
+
+    def test_crop_detail_cannot_change_head_shape_away_from_features(self):
+        shape = (160, 160)
+        yy, xx = np.indices(shape, dtype=np.float32)
+        global_depth = 0.3 + xx * 0.001 + yy * 0.0003
+        local_depth = global_depth + 0.04 * np.sin(xx * 0.7) * np.cos(yy * 0.6)
+        face_mask, feature_mask = face_masks_from_box(shape, (28, 12, 132, 150))
+
+        refined, weight, stats = fuse_face_depth(
+            global_depth,
+            local_depth,
+            face_mask,
+            feature_mask,
+            detail_strength=1.0,
+            max_correction_ratio=0.5,
+        )
+        correction = refined - global_depth
+
+        self.assertEqual(stats["blend_strategy"], "feature-supported-shape-preserving")
+        self.assertEqual(float(np.max(np.abs(correction[weight == 0]))), 0.0)
+        self.assertGreater(float(np.max(np.abs(correction[weight > 0.5]))), 0.0)
+
+    def test_smoother_face_crop_cannot_erase_existing_global_detail(self):
+        shape = (96, 96)
+        global_depth = np.full(shape, 0.4, dtype=np.float32)
+        global_depth += gaussian_peak(shape, (54, 48), sigma=2.0, amplitude=0.12)
+        local_depth = gaussian_filter(global_depth, sigma=4.0)
+        face_mask, feature_mask = face_masks_from_box(shape, (16, 6, 80, 90))
+
+        refined, _weight, stats = fuse_face_depth(
+            global_depth,
+            local_depth,
+            face_mask,
+            feature_mask,
+            max_correction_ratio=0.50,
+        )
+
+        self.assertEqual(stats["detail_fusion"], "monotonic-excess")
+        self.assertGreaterEqual(float(refined[54, 48]), float(global_depth[54, 48]) - 1e-7)
+        self.assertLess(float(np.max(np.abs(refined - global_depth))), 1e-3)
+
+    def test_file_pipeline_writes_refined_depth_and_auditable_masks(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = root / "portrait.png"
+            depth_path = root / "output_depth_data.npy"
+            image = np.full((128, 128, 3), 210, dtype=np.uint8)
+            Image.fromarray(image).save(image_path)
+            yy, xx = np.indices((64, 64), dtype=np.float32)
+            global_depth = 0.25 + xx * 0.003 + yy * 0.001
+            np.save(depth_path, global_depth)
+            face_mask, feature_mask = face_masks_from_box(image.shape, (32, 18, 96, 114))
+            landmark_indices = np.arange(478, dtype=np.float64)
+            landmark_angles = landmark_indices * (np.pi * (3.0 - np.sqrt(5.0)))
+            landmark_radii = 0.90 * np.sqrt((landmark_indices + 0.5) / 478.0)
+            landmark_x = 64.0 + 28.0 * landmark_radii * np.cos(landmark_angles)
+            landmark_y = 66.0 + 40.0 * landmark_radii * np.sin(landmark_angles)
+            landmarks_xyz = np.column_stack(
+                (
+                    landmark_x / 127.0,
+                    landmark_y / 127.0,
+                    -(0.75 * landmark_x / 127.0 + 0.25 * landmark_y / 127.0),
+                )
+            ).astype(np.float32)
+            landmarks_xyz[1, 0] = 64.0 / 127.0
+
+            def detector(_image):
+                return [
+                    {
+                        "bbox": [32, 18, 96, 114],
+                        "face_mask": face_mask,
+                        "feature_mask": feature_mask,
+                        "detector": "test-landmarks",
+                        "landmark_count": 478,
+                        "landmarks_xyz": landmarks_xyz,
+                    }
+                ]
+
+            def infer_depth(crop_path, output_dir):
+                crop = Image.open(crop_path)
+                height, width = crop.height, crop.width
+                crop_y, crop_x = np.indices((height, width), dtype=np.float32)
+                values = 1.8 + crop_x * 0.004 + crop_y * 0.001
+                values += gaussian_peak((height, width), (height * 0.58, width * 0.50), 4.0, 0.12)
+                output_path = Path(output_dir) / "output_depth_data.npy"
+                np.save(output_path, values.astype(np.float32))
+                return output_path
+
+            refined_path, metadata = refine_depth_for_faces(
+                image_path,
+                depth_path,
+                root,
+                infer_depth=infer_depth,
+                mode="on",
+                detector=detector,
+                detail_strength=1.2,
+                max_correction_ratio=0.30,
+            )
+
+            refined = np.load(refined_path)
+            self.assertTrue(metadata["applied"])
+            self.assertEqual(metadata["detected_faces"], 1)
+            self.assertEqual(metadata["refined_faces"], 1)
+            self.assertEqual(metadata["faces"][0]["landmark_count"], 478)
+            self.assertTrue(metadata["faces"][0]["landmark_shape_prior"]["enabled"])
+            self.assertGreater(float(np.max(np.abs(refined - global_depth))), 0.0)
+            self.assertTrue((root / "output_depth_face_refined_preview.png").is_file())
+            self.assertTrue((root / "output_face_refinement_weight.png").is_file())
+            self.assertTrue((root / "output_face_refinement_region.png").is_file())
+            self.assertTrue((root / "output_face_refinement_metadata.json").is_file())
+            self.assertEqual(metadata["region_file"], "output_face_refinement_region.png")
+
+    def test_auto_mode_keeps_original_depth_when_no_face_is_found(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = root / "image.png"
+            depth_path = root / "depth.npy"
+            Image.new("RGB", (32, 32), "white").save(image_path)
+            np.save(depth_path, np.ones((16, 16), dtype=np.float32))
+
+            output_path, metadata = refine_depth_for_faces(
+                image_path,
+                depth_path,
+                root,
+                infer_depth=lambda *_args: self.fail("Depth inference must not run without a detected face"),
+                mode="auto",
+                detector=lambda _image: [],
+            )
+
+            self.assertEqual(Path(output_path), depth_path)
+            self.assertFalse(metadata["applied"])
+            self.assertEqual(metadata["reason"], "no_face_detected")
+
+    def test_required_mode_raises_when_all_detector_backends_fail(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = root / "image.png"
+            depth_path = root / "depth.npy"
+            Image.new("RGB", (32, 32), "white").save(image_path)
+            np.save(depth_path, np.ones((16, 16), dtype=np.float32))
+
+            with self.assertRaisesRegex(RuntimeError, "Face detection failed"):
+                refine_depth_for_faces(
+                    image_path,
+                    depth_path,
+                    root,
+                    infer_depth=lambda *_args: self.fail("Depth inference must not run"),
+                    mode="on",
+                    detector=lambda _image: (
+                        [],
+                        ["mediapipe:RuntimeError:failed", "opencv:RuntimeError:failed"],
+                    ),
+                )
+
+    def test_process_image_passes_face_controls_and_returns_refinement_audit(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "output"
+
+            def fake_complete(input_path, **_kwargs):
+                return input_path, None
+
+            def fake_depth(_image_path, output_dir, **_kwargs):
+                depth_path = Path(output_dir) / "output_depth_data.npy"
+                np.save(depth_path, np.array([[0.1, 0.3], [0.2, 0.6]], dtype=np.float32))
+                return str(depth_path)
+
+            refinement_audit = {
+                "mode": "on",
+                "applied": True,
+                "detected_faces": 1,
+                "refined_faces": 1,
+                "faces": [{"boundary_max_abs_correction": 0.0}],
+            }
+            with (
+                patch.object(main_module, "OUTPUT_DIR", output_root),
+                patch.object(main_module, "complete_image", side_effect=fake_complete),
+                patch.object(main_module, "process_image_get_depth_data", side_effect=fake_depth),
+                patch.object(
+                    main_module,
+                    "refine_depth_for_faces",
+                    side_effect=lambda _image, depth, _output, **_kwargs: (depth, refinement_audit),
+                ) as refine_mock,
+            ):
+                response = TestClient(main_module.app).post(
+                    "/process_image",
+                    files={"file": ("portrait.png", b"portrait", "image/png")},
+                    data={
+                        "target_dimension": "8",
+                        "z_scale": "2",
+                        "sigma": "0",
+                        "base_border_px": "0",
+                        "face_refinement_mode": "on",
+                        "face_detail_strength": "1.4",
+                        "face_feather_ratio": "0.25",
+                        "face_max_correction_ratio": "0.05",
+                    },
+                )
+
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            call = refine_mock.call_args
+            self.assertEqual(call.kwargs["mode"], "on")
+            self.assertAlmostEqual(call.kwargs["detail_strength"], 1.4)
+            self.assertAlmostEqual(call.kwargs["feather_ratio"], 0.25)
+            self.assertAlmostEqual(call.kwargs["max_correction_ratio"], 0.05)
+            self.assertEqual(payload["face_refinement"], refinement_audit)
+            self.assertIn("face_refinement_seconds", payload["timings"])
+
+
+if __name__ == "__main__":
+    unittest.main()
