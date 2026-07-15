@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import trimesh
 from scipy.ndimage import laplace, zoom
 from stl import mesh
 from PIL import Image
@@ -30,6 +31,7 @@ from backend.pic_to_3d import (
     _inject_photo_relief_detail,
     _limit_positive_relief_slope,
     _prepare_relief_for_printing,
+    _relax_selection_attachment_conflicts,
     _restore_background_from_reference,
     _restore_stabilized_face_surface,
     _resize_nan_aware,
@@ -478,6 +480,37 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertFalse(stats["attachment_constraints_passed"])
         self.assertFalse(stats["passed"])
         self.assertGreater(stats["attachment_constraint_conflicts"], 0)
+
+        capped, _ = _cap_selection_background_relief(
+            values,
+            selected,
+            relief_height_mm=30.0,
+            sample_pitch_mm=0.5,
+            max_slope_mm_per_mm=2.0,
+            background_depth_ratio=0.45,
+        )
+        relaxed, relaxation = _relax_selection_attachment_conflicts(
+            capped,
+            selected,
+            sample_pitch_mm=0.5,
+            max_slope_mm_per_mm=2.0,
+            feather_pixels=1,
+        )
+        _, relaxed_stats = _cap_selection_background_relief(
+            relaxed,
+            selected,
+            relief_height_mm=30.0,
+            sample_pitch_mm=0.5,
+            max_slope_mm_per_mm=2.0,
+            background_depth_ratio=0.45,
+        )
+
+        self.assertTrue(relaxation["enabled"])
+        self.assertGreater(relaxation["seed_pixels"], 0)
+        self.assertLess(
+            relaxed_stats["attachment_jump_max_mm"],
+            stats["attachment_jump_max_mm"],
+        )
 
     def test_context_selection_depth_supports_metric_far_high_values(self):
         depth = np.full((31, 31), 8.0, dtype=np.float32)
@@ -1849,7 +1882,7 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertTrue(physical_cap["emission_passed"])
         self.assertEqual(
             physical_cap["reference_cap"]["foreground_geometry_source"],
-            "final_processed_selection",
+            "final_conflict_relaxed_selection",
         )
 
     def test_high_face_relief_also_preserves_nonface_selection_depth(self):
@@ -2138,6 +2171,99 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertTrue(np.all(flattened[:, :2] == 0))
         self.assertTrue(np.all(flattened[:, -2:] == 0))
         self.assertTrue(np.all(flattened[2:-2, 2:-2] == 1))
+
+    def test_flatten_border_can_preserve_selected_edge_pixels(self):
+        values = np.ones((8, 10), dtype=np.float32)
+        selected = np.zeros(values.shape, dtype=bool)
+        selected[:4, :3] = True
+
+        flattened = _flatten_border(values, 1, preserve_mask=selected)
+
+        self.assertTrue(np.all(flattened[0, :3] == 1))
+        self.assertTrue(np.all(flattened[:4, 0] == 1))
+        self.assertTrue(np.all(flattened[0, 3:] == 0))
+        self.assertTrue(np.all(flattened[4:, 0] == 0))
+        self.assertTrue(np.all(flattened[-1, :] == 0))
+        self.assertTrue(np.all(flattened[:, -1] == 0))
+
+    def test_positive_context_preserves_cropped_selection_border_only(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            rows, cols = np.indices((48, 64), dtype=np.float32)
+            face = (
+                np.square((rows - 20.0) / 14.0)
+                + np.square((cols - 5.0) / 13.0)
+                <= 1.0
+            )
+            torso = (rows >= 31.0) & (cols <= 20.0)
+            selected = face | torso
+            depth = 0.08 + 0.0012 * rows + 0.0018 * cols
+            depth += selected * (
+                0.48
+                + 0.05 * np.cos(rows / 5.0)
+                + 0.04 * np.sin(cols / 4.0)
+            )
+            depth_path = root / "depth.npy"
+            np.save(depth_path, depth.astype(np.float32))
+
+            positive_surface = root / "positive-surface.npy"
+            depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(root / "positive.stl"),
+                target_dimension=-1,
+                z_scale=30.0,
+                max_xy_size=25.6,
+                sigma=0.0,
+                relief_gamma=1.0,
+                detail_boost=0.0,
+                low_percentile=0.0,
+                high_percentile=100.0,
+                base_border_px=1,
+                minimum_feature_mm=0.8,
+                max_relief_slope=2.0,
+                face_region_mask=face,
+                selection_region_mask=selected,
+                selection_background_depth_ratio=0.65,
+                surface_output_path=positive_surface,
+            )
+            legacy_surface = root / "legacy-surface.npy"
+            depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(root / "legacy.stl"),
+                target_dimension=-1,
+                z_scale=30.0,
+                max_xy_size=25.6,
+                sigma=0.0,
+                relief_gamma=1.0,
+                detail_boost=0.0,
+                low_percentile=0.0,
+                high_percentile=100.0,
+                base_border_px=1,
+                minimum_feature_mm=0.8,
+                max_relief_slope=2.0,
+                face_region_mask=face,
+                selection_region_mask=selected,
+                selection_background_depth_ratio=0.0,
+                surface_output_path=legacy_surface,
+            )
+
+            positive = np.load(positive_surface)
+            legacy = np.load(legacy_surface)
+            positive_mesh = trimesh.load_mesh(root / "positive.stl", process=True)
+            legacy_mesh = trimesh.load_mesh(root / "legacy.stl", process=True)
+
+        positive_face_border_max = float(np.max(positive[6:35, -1]))
+        legacy_face_border_max = float(np.max(legacy[6:35, -1]))
+        self.assertGreater(positive_face_border_max, legacy_face_border_max + 1.0)
+        self.assertTrue(np.allclose(positive[36:, -1], 0.01))
+        self.assertAlmostEqual(float(positive[0, -1]), 0.01, places=5)
+        self.assertTrue(np.allclose(legacy[36:, -1], 0.01))
+        for emitted in (positive_mesh, legacy_mesh):
+            self.assertTrue(emitted.is_watertight)
+            self.assertTrue(emitted.is_volume)
+            self.assertTrue(emitted.is_winding_consistent)
+            self.assertEqual(len(emitted.split(only_watertight=False)), 1)
+            self.assertGreater(float(emitted.volume), 0.0)
 
     def test_max_xy_size_decouples_detail_resolution_from_physical_size(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

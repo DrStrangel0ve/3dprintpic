@@ -25,8 +25,9 @@ from scipy.ndimage import (
 
 from backend.benchmark.run_relief_scene_regression import (
     SceneSpec,
-    _finite_metric,
     _background_surface,
+    _boundary_shape_metrics,
+    _finite_metric,
     _git_provenance,
     _mesh_topology,
     _scene_checks,
@@ -1493,6 +1494,10 @@ def run(
         face_appearance = appearance["face"]
         selection_appearance = appearance["selection_nonface"]
         background_appearance = appearance["background"]
+        boundary_shape = _boundary_shape_metrics(
+            postprocess["background_depth_preservation"],
+            postprocess["selection_background_physical_cap"],
+        )
         selection_solver = _selection_solver_record(
             postprocess.get("selection_gradient_compression", {})
         )
@@ -1583,6 +1588,7 @@ def run(
                         "gradient_correlation",
                     ),
                 },
+                "boundary_shape": boundary_shape,
                 "physical_cap": {
                     "far_background_max_mm": _finite_metric(
                         postprocess["selection_background_physical_cap"],
@@ -1597,6 +1603,16 @@ def run(
                             "emission_passed",
                             False,
                         )
+                    ),
+                    "attachment_constraint_conflicts": int(
+                        postprocess["selection_background_physical_cap"].get(
+                            "attachment_constraint_conflicts",
+                            0,
+                        )
+                    ),
+                    "attachment_constraint_conflict_max_mm": _finite_metric(
+                        postprocess["selection_background_physical_cap"],
+                        "attachment_constraint_conflict_max_mm",
                     ),
                 },
                 "topology": topology,

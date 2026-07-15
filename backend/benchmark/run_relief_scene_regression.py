@@ -104,7 +104,7 @@ def _scene_specs() -> tuple[SceneSpec, ...]:
             "left_clipped_diagonal",
             "diagonal_layers",
             center_col=8.0,
-            center_row=36.0,
+            center_row=42.0,
             yaw=-0.62,
             expression=0.1,
             face_half_width=30.0,
@@ -308,8 +308,18 @@ def _boundary_shape_metrics(background: dict, cap: dict) -> dict:
         attachment_step = 0.8
     if not np.isfinite(attachment_step) or attachment_step <= 0.0:
         attachment_step = 0.8
-    p99_limit = max(attachment_step * 2.0, (reference_p99 or 0.0) * 1.25)
-    max_limit = max(attachment_step * 4.0, (reference_max or 0.0) * 1.25)
+    source_relative_p99_limit = max(
+        attachment_step * 2.0,
+        (reference_p99 or 0.0) * 1.25,
+    )
+    source_relative_max_limit = max(
+        attachment_step * 4.0,
+        (reference_max or 0.0) * 1.25,
+    )
+    absolute_p99_limit = 3.2
+    absolute_max_limit = 4.0
+    p99_limit = min(source_relative_p99_limit, absolute_p99_limit)
+    max_limit = min(source_relative_max_limit, absolute_max_limit)
     available = all(
         value is not None
         for value in (reference_p99, reference_max, output_p99, output_max)
@@ -328,6 +338,10 @@ def _boundary_shape_metrics(background: dict, cap: dict) -> dict:
         "output_max_mm": output_max,
         "p99_limit_mm": float(p99_limit),
         "max_limit_mm": float(max_limit),
+        "source_relative_p99_limit_mm": float(source_relative_p99_limit),
+        "source_relative_max_limit_mm": float(source_relative_max_limit),
+        "absolute_p99_limit_mm": float(absolute_p99_limit),
+        "absolute_max_limit_mm": float(absolute_max_limit),
         "output_p99_to_limit_ratio": (
             float(output_p99 / p99_limit) if output_p99 is not None else None
         ),
@@ -578,6 +592,7 @@ def _certification_checks(
     *,
     expected_scene_count: int,
     full_scene_count: int,
+    expected_scene_ids: tuple[str, ...],
     provenance: dict,
     negative_controls: dict,
 ) -> dict[str, bool]:
@@ -595,6 +610,9 @@ def _certification_checks(
     return {
         "full_scene_matrix_complete": len(rows) == int(full_scene_count),
         "expected_scene_count": len(rows) == int(expected_scene_count),
+        "expected_scene_ids": tuple(row.get("scene_id") for row in rows)
+        == tuple(expected_scene_ids)
+        and len({row.get("scene_id") for row in rows}) == len(rows),
         "implementation_provenance_clean": bool(
             provenance.get("available") and provenance.get("clean")
         ),
@@ -760,6 +778,10 @@ def run(
                     "attachment_constraint_conflicts": int(
                         cap.get("attachment_constraint_conflicts", 0)
                     ),
+                    "attachment_constraint_conflict_max_mm": _finite_metric(
+                        cap,
+                        "attachment_constraint_conflict_max_mm",
+                    ),
                     "strict_passed": bool(cap.get("passed", False)),
                     "emission_passed": bool(cap.get("emission_passed", False)),
                 },
@@ -773,6 +795,7 @@ def run(
         rows,
         expected_scene_count=len(specs),
         full_scene_count=len(all_specs),
+        expected_scene_ids=tuple(spec.scene_id for spec in specs),
         provenance=provenance,
         negative_controls=negative_controls,
     )

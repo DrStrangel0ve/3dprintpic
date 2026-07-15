@@ -90,6 +90,20 @@ class ReliefSceneRegressionTest(unittest.TestCase):
         rejected = _boundary_shape_metrics(background, cap)
         self.assertFalse(rejected["passed"])
 
+        high_reference = {
+            "reference_boundary_jump_p99_mm": 10.0,
+            "reference_boundary_jump_max_mm": 12.0,
+            "output_boundary_jump_p99_mm": 3.21,
+            "output_boundary_jump_max_mm": 4.01,
+        }
+        absolute_rejection = _boundary_shape_metrics(
+            high_reference,
+            {"attachment_step_limit_mm": 1.2},
+        )
+        self.assertEqual(absolute_rejection["p99_limit_mm"], 3.2)
+        self.assertEqual(absolute_rejection["max_limit_mm"], 4.0)
+        self.assertFalse(absolute_rejection["passed"])
+
     def test_source_context_signal_is_a_hard_scene_gate(self):
         compose = {
             "background_context_enabled": True,
@@ -170,6 +184,7 @@ class ReliefSceneRegressionTest(unittest.TestCase):
             [],
             expected_scene_count=0,
             full_scene_count=10,
+            expected_scene_ids=(),
             provenance=provenance,
             negative_controls=controls,
         )
@@ -178,6 +193,72 @@ class ReliefSceneRegressionTest(unittest.TestCase):
         self.assertFalse(checks["required_telemetry_complete"])
         self.assertFalse(all(checks.values()))
         self.assertIsNone(_extreme([], "background", "correlation", min))
+
+    def test_certification_rejects_duplicate_or_substituted_scene_ids(self):
+        rows = [
+            {
+                "scene_id": "scene-a",
+                "checks": {
+                    "passed": True,
+                    "background_preservation": True,
+                    "selection_boundary_shape": True,
+                    "face_detail": True,
+                    "physical_emission": True,
+                    "printable_mesh": True,
+                },
+                "compose": {
+                    "normalized_context_correlation": 1.0,
+                    "normalized_context_rms_retention": 1.0,
+                    "recoverable_context_coverage_ratio": 1.0,
+                },
+                "background": {"correlation": 1.0, "gradient_correlation": 1.0},
+                "boundary_shape": {"output_p99_mm": 0.8, "output_max_mm": 0.8},
+                "face": {"correlation": 1.0},
+                "physical_cap": {"far_background_max_mm": 10.0},
+                "geometry": {
+                    "face_scale_ratio": 0.5,
+                    "subject_coverage_ratio": 0.2,
+                    "face_touches_frame": True,
+                },
+            },
+            {
+                "scene_id": "scene-a",
+                "checks": {
+                    "passed": True,
+                    "background_preservation": True,
+                    "selection_boundary_shape": True,
+                    "face_detail": True,
+                    "physical_emission": True,
+                    "printable_mesh": True,
+                },
+                "compose": {
+                    "normalized_context_correlation": 1.0,
+                    "normalized_context_rms_retention": 1.0,
+                    "recoverable_context_coverage_ratio": 1.0,
+                },
+                "background": {"correlation": 1.0, "gradient_correlation": 1.0},
+                "boundary_shape": {"output_p99_mm": 0.8, "output_max_mm": 0.8},
+                "face": {"correlation": 1.0},
+                "physical_cap": {"far_background_max_mm": 10.0},
+                "geometry": {
+                    "face_scale_ratio": 1.6,
+                    "subject_coverage_ratio": 0.7,
+                    "face_touches_frame": True,
+                },
+            },
+        ]
+
+        checks = _certification_checks(
+            rows,
+            expected_scene_count=2,
+            full_scene_count=2,
+            expected_scene_ids=("scene-a", "scene-b"),
+            provenance={"available": True, "clean": True},
+            negative_controls={"checks": {"passed": True}},
+        )
+
+        self.assertFalse(checks["expected_scene_ids"])
+        self.assertFalse(all(checks.values()))
 
     def test_negative_controls_reject_global_local_and_unavailable_context(self):
         controls = _negative_controls()

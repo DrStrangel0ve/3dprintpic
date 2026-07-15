@@ -2683,7 +2683,7 @@ def _resolve_relief_value_transform(npy_file, value_transform):
     return RELIEF_VALUE_TRANSFORM_LINEAR
 
 
-def _flatten_border(values, border_px):
+def _flatten_border(values, border_px, preserve_mask=None):
     border_px = int(border_px or 0)
     if border_px <= 0:
         return values
@@ -2691,10 +2691,15 @@ def _flatten_border(values, border_px):
     if border_px <= 0:
         return values
     values = values.copy()
-    values[:border_px, :] = 0.0
-    values[-border_px:, :] = 0.0
-    values[:, :border_px] = 0.0
-    values[:, -border_px:] = 0.0
+    border = np.zeros(values.shape, dtype=bool)
+    border[:border_px, :] = True
+    border[-border_px:, :] = True
+    border[:, :border_px] = True
+    border[:, -border_px:] = True
+    if preserve_mask is not None:
+        preserve = _resize_binary_mask(preserve_mask, values.shape)
+        border &= ~preserve
+    values[border] = 0.0
     return values
 
 
@@ -3297,6 +3302,122 @@ def _cap_selection_background_relief(
         }
     )
     return capped, stats
+
+
+def _relax_selection_attachment_conflicts(
+    values,
+    selection_mask,
+    *,
+    sample_pitch_mm,
+    max_slope_mm_per_mm,
+    feather_pixels=1,
+):
+    """Resolve concave one-pixel attachment conflicts without broad smoothing."""
+    source = np.asarray(values, dtype=np.float32)
+    valid = np.isfinite(source)
+    selected = _resize_binary_mask(selection_mask, source.shape) & valid
+    background = valid & ~selected
+    try:
+        max_step = float(sample_pitch_mm) * float(max_slope_mm_per_mm)
+    except (TypeError, ValueError):
+        max_step = 0.0
+    stats = {
+        "enabled": False,
+        "method": "localized_concave_attachment_projection",
+        "feather_pixels": int(max(0, feather_pixels)),
+        "max_step_mm": float(max_step),
+    }
+    if (
+        not np.isfinite(max_step)
+        or max_step <= 0.0
+        or np.count_nonzero(selected) < 4
+        or np.count_nonzero(background) < 4
+    ):
+        stats["reason"] = "insufficient_geometry_or_invalid_step"
+        return values, stats
+
+    neighbor_min = np.full(source.shape, np.inf, dtype=np.float32)
+    neighbor_max = np.full(source.shape, -np.inf, dtype=np.float32)
+    neighbor_count = np.zeros(source.shape, dtype=np.int16)
+    boundary_views = (
+        ((slice(None), slice(1, None)), (slice(None), slice(None, -1))),
+        ((slice(None), slice(None, -1)), (slice(None), slice(1, None))),
+        ((slice(1, None), slice(None)), (slice(None, -1), slice(None))),
+        ((slice(None, -1), slice(None)), (slice(1, None), slice(None))),
+    )
+    for background_slice, selected_slice in boundary_views:
+        touches = background[background_slice] & selected[selected_slice]
+        local_min = neighbor_min[background_slice]
+        local_max = neighbor_max[background_slice]
+        local_count = neighbor_count[background_slice]
+        selected_values = source[selected_slice]
+        local_min[touches] = np.minimum(
+            local_min[touches],
+            selected_values[touches],
+        )
+        local_max[touches] = np.maximum(
+            local_max[touches],
+            selected_values[touches],
+        )
+        local_count[touches] += 1
+
+    conflicting = (
+        background
+        & (neighbor_count >= 2)
+        & ((neighbor_max - neighbor_min) > 2.0 * max_step + 1e-6)
+    )
+    conflict_count = int(np.count_nonzero(conflicting))
+    stats["input_conflict_pixels"] = conflict_count
+    if not conflict_count:
+        stats["reason"] = "no_attachment_conflicts"
+        return values, stats
+
+    correction_sum = np.zeros(source.shape, dtype=np.float64)
+    correction_count = np.zeros(source.shape, dtype=np.int16)
+    for background_slice, selected_slice in boundary_views:
+        touches = conflicting[background_slice] & selected[selected_slice]
+        if not np.any(touches):
+            continue
+        background_values = source[background_slice]
+        selected_values = source[selected_slice]
+        target = background_values + np.clip(
+            selected_values - background_values,
+            -max_step,
+            max_step,
+        )
+        local_sum = correction_sum[selected_slice]
+        local_count = correction_count[selected_slice]
+        local_sum[touches] += (target - selected_values)[touches]
+        local_count[touches] += 1
+
+    seeds = correction_count > 0
+    seed_correction = np.zeros(source.shape, dtype=np.float64)
+    seed_correction[seeds] = (
+        correction_sum[seeds] / correction_count[seeds]
+    )
+    feather = int(max(0, feather_pixels))
+    if feather:
+        distance, nearest = distance_transform_edt(~seeds, return_indices=True)
+        correction_field = seed_correction[tuple(nearest)]
+        weight = np.clip(1.0 - distance / float(feather + 1), 0.0, 1.0)
+        correction = correction_field * weight * selected
+    else:
+        correction = seed_correction
+
+    relaxed = source.astype(np.float64, copy=True)
+    relaxed[selected] += correction[selected]
+    absolute = np.abs(correction[selected])
+    changed = selected & (np.abs(correction) > 1e-6)
+    stats.update(
+        {
+            "enabled": True,
+            "seed_pixels": int(np.count_nonzero(seeds)),
+            "adjusted_pixels": int(np.count_nonzero(changed)),
+            "correction_p95_mm": float(np.percentile(absolute, 95.0)),
+            "correction_max_mm": float(np.max(absolute, initial=0.0)),
+        }
+    )
+    return relaxed.astype(source.dtype, copy=False), stats
 
 
 def _restore_background_from_reference(
@@ -5107,7 +5228,18 @@ def depth_data_to_3d_model(
         protection_mask=detail_protection_mask,
     )
     relief = np.where(top_silhouette_mask, relief, np.nan)
-    relief = _flatten_border(relief, base_border_px)
+    border_detail_region = region_mask if region_mask is not None else selected_region
+    preserve_detail_border = (
+        border_detail_region
+        if selected_region is not None
+        and float(selection_background_depth_ratio) > 0
+        else None
+    )
+    relief = _flatten_border(
+        relief,
+        base_border_px,
+        preserve_mask=preserve_detail_border,
+    )
     relief = np.where(top_silhouette_mask, relief, np.nan)
     relief, print_filter_stats = _prepare_relief_for_printing(
         relief,
@@ -5126,9 +5258,20 @@ def depth_data_to_3d_model(
         region_mask = _resize_binary_mask(region_mask, relief.shape)
     if selected_region is not None:
         selected_region = _resize_binary_mask(selected_region, relief.shape)
+    border_detail_region = region_mask if region_mask is not None else selected_region
+    preserve_detail_border = (
+        border_detail_region
+        if selected_region is not None
+        and float(selection_background_depth_ratio) > 0
+        else None
+    )
     top_silhouette_mask = _resize_binary_mask(top_silhouette_mask, relief.shape)
     relief = np.where(top_silhouette_mask, relief, np.nan)
-    relief = _flatten_border(relief, base_border_px)
+    relief = _flatten_border(
+        relief,
+        base_border_px,
+        preserve_mask=preserve_detail_border,
+    )
     relief = np.where(top_silhouette_mask, relief, np.nan)
     z = relief * z_scale
     
@@ -5139,7 +5282,11 @@ def depth_data_to_3d_model(
     z = _smooth_nan_aware(z, sigma=sigma)
     z = np.where(top_silhouette_mask, z, np.nan)
     if base_border_px:
-        z = _flatten_border(np.maximum(z - 0.01, 0.0), base_border_px) + 0.01
+        z = _flatten_border(
+            np.maximum(z - 0.01, 0.0),
+            base_border_px,
+            preserve_mask=preserve_detail_border,
+        ) + 0.01
         z = np.where(top_silhouette_mask, z, np.nan)
     reference_face_height_mm = 12.0
     face_reference_surface = np.where(
@@ -5754,7 +5901,11 @@ def depth_data_to_3d_model(
             selection_gradient_compression_stats["reason"] = "face_protection_gate"
     z = np.where(top_silhouette_mask, z, np.nan)
     if base_border_px:
-        z = _flatten_border(np.maximum(z - 0.01, 0.0), base_border_px) + 0.01
+        z = _flatten_border(
+            np.maximum(z - 0.01, 0.0),
+            base_border_px,
+            preserve_mask=preserve_detail_border,
+        ) + 0.01
         z = np.where(top_silhouette_mask, z, np.nan)
     background_reference_surface = unstabilized_scene
     selection_background_cap_stats = {
@@ -5769,6 +5920,47 @@ def depth_data_to_3d_model(
             z,
             background_reference_surface,
         )
+        z, initial_selection_background_cap_stats = _cap_selection_background_relief(
+            z,
+            selected_region,
+            relief_height_mm=z_scale,
+            sample_pitch_mm=gradient_sample_pitch_mm,
+            max_slope_mm_per_mm=max_relief_slope,
+            background_depth_ratio=selection_background_depth_ratio,
+        )
+        attachment_conflict_relaxation_stats = {
+            "enabled": False,
+            "reason": "background_context_disabled",
+        }
+        if float(selection_background_depth_ratio) > 0:
+            z, attachment_conflict_relaxation_stats = (
+                _relax_selection_attachment_conflicts(
+                    z,
+                    selected_region,
+                    sample_pitch_mm=gradient_sample_pitch_mm,
+                    max_slope_mm_per_mm=max_relief_slope,
+                    feather_pixels=1,
+                )
+            )
+        z, selection_background_cap_stats = _cap_selection_background_relief(
+            z,
+            selected_region,
+            relief_height_mm=z_scale,
+            sample_pitch_mm=gradient_sample_pitch_mm,
+            max_slope_mm_per_mm=max_relief_slope,
+            background_depth_ratio=selection_background_depth_ratio,
+        )
+        selection_background_cap_stats["pre_relaxation"] = (
+            initial_selection_background_cap_stats
+        )
+        selection_background_cap_stats["attachment_conflict_relaxation"] = (
+            attachment_conflict_relaxation_stats
+        )
+        background_reference_surface = np.where(
+            selected_region,
+            z,
+            unstabilized_scene,
+        )
         background_reference_surface, reference_background_cap_stats = (
             _cap_selection_background_relief(
                 background_reference_surface,
@@ -5780,15 +5972,7 @@ def depth_data_to_3d_model(
             )
         )
         reference_background_cap_stats["foreground_geometry_source"] = (
-            "final_processed_selection"
-        )
-        z, selection_background_cap_stats = _cap_selection_background_relief(
-            z,
-            selected_region,
-            relief_height_mm=z_scale,
-            sample_pitch_mm=gradient_sample_pitch_mm,
-            max_slope_mm_per_mm=max_relief_slope,
-            background_depth_ratio=selection_background_depth_ratio,
+            "final_conflict_relaxed_selection"
         )
         selection_background_cap_stats["reference_cap"] = reference_background_cap_stats
         if not reference_background_cap_stats.get("emission_passed", False):
