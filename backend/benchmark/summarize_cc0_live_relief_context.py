@@ -54,6 +54,35 @@ REQUIRED_FULL_CHECKS = {
     "server_revision_unchanged",
     "server_runtime_matches_checkout",
 }
+EXPECTED_ROW_CHECKS = {
+    "baseline",
+    "candidate",
+    "input_background_depth_span",
+    "paired_background_detail",
+    "passed",
+}
+COMMON_QUALITY_CHECKS = {
+    "background_appearance",
+    "background_depth",
+    "boundary_shape",
+    "exact_stl_shell",
+    "exact_subject_depth",
+    "finite_surface_contract",
+    "occlusion_deoccluded",
+    "passed",
+    "physical_cap",
+    "refinement_applied",
+    "semantic_appearance",
+    "subject_refinement_route",
+    "topology",
+}
+FACE_QUALITY_CHECKS = COMMON_QUALITY_CHECKS | {"validated_human_face_refined"}
+OBJECT_QUALITY_CHECKS = COMMON_QUALITY_CHECKS | {
+    "generic_fallback_accounted",
+    "generic_selection_refined",
+    "no_false_human_face",
+    "refined_region_total",
+}
 
 
 def _load_json(path: str | Path) -> dict:
@@ -302,36 +331,54 @@ def _strict_checks(summary: dict, *, expected_passed: bool) -> dict:
     return strict
 
 
-def _strict_check_mapping(record: object, label: str) -> dict:
+def _strict_check_mapping(record: object, label: str, expected_keys: set[str]) -> dict:
     if not isinstance(record, dict) or not record:
         raise ValueError(f"Missing {label}")
+    if set(record) != expected_keys:
+        raise ValueError(f"{label} does not contain the exact required gates")
     return {key: _strict_bool(value, f"{label}.{key}") for key, value in record.items()}
 
 
 def _validate_final_row_checks(row: dict) -> None:
-    row_checks = _strict_check_mapping(row.get("checks"), "final row checks")
+    row_checks = _strict_check_mapping(
+        row.get("checks"), "final row checks", EXPECTED_ROW_CHECKS
+    )
     if not all(row_checks.values()):
         raise ValueError("Final row contains a failed nested check")
     for variant in ("baseline", "candidate"):
+        quality_keys = (
+            OBJECT_QUALITY_CHECKS
+            if row.get("render", {}).get("scene_kind") == "object"
+            else FACE_QUALITY_CHECKS
+        )
         quality_checks = _strict_check_mapping(
             row.get("variants", {}).get(variant, {}).get("quality", {}).get("checks"),
             f"final {variant} quality checks",
+            quality_keys,
         )
         if not all(quality_checks.values()):
             raise ValueError("Final row contains a failed nested check")
 
 
 def _validate_initial_row_checks(row: dict, *, eyewear_failure: bool) -> None:
-    row_checks = _strict_check_mapping(row.get("checks"), "initial row checks")
+    row_checks = _strict_check_mapping(
+        row.get("checks"), "initial row checks", EXPECTED_ROW_CHECKS
+    )
     expected_row_failures = (
         {"baseline", "candidate", "passed"} if eyewear_failure else set()
     )
     if {key for key, value in row_checks.items() if not value} != expected_row_failures:
         raise ValueError("Initial row failure is not isolated to eyewear")
     for variant in ("baseline", "candidate"):
+        quality_keys = (
+            OBJECT_QUALITY_CHECKS
+            if row.get("render", {}).get("scene_kind") == "object"
+            else FACE_QUALITY_CHECKS
+        )
         quality_checks = _strict_check_mapping(
             row.get("variants", {}).get(variant, {}).get("quality", {}).get("checks"),
             f"initial {variant} quality checks",
+            quality_keys,
         )
         expected_quality_failures = (
             {"occlusion_deoccluded", "passed"} if eyewear_failure else set()

@@ -65,8 +65,8 @@ All four exact-current rows pass at 30 mm.
   detections and zero refined faces. Its fallback and total-region counters
   agree, so it cannot pass by being misclassified as a face.
 
-The varied-scene matrix, face-refinement, and compact-evidence suites pass `67`
-focused tests. The evidence generator's seventeen cases cover checksum,
+The varied-scene matrix, face-refinement, and compact-evidence suites pass `69`
+focused tests. The evidence generator's nineteen cases cover checksum,
 failure-isolation, detector-gate, initial/final provenance, exact public-source
 allowlists, measured API configuration, scene drift, malformed booleans, and
 privacy behavior.
@@ -78,7 +78,7 @@ privacy behavior.
 identifiers, request records, raw model outputs, or local artifact paths.
 
 - Compact summary SHA256:
-  `ebd8d9c1707779ca55a1f2a2ca2752c645c6f6b1e447bb5f88e4a8ee49ddd692`
+  `b73fbef6afb5d497ff8fda6b231676c639d3a24f45f6835fafdb2a89b25312ab`
 - Final ignored full-summary SHA256:
   `bd18cb4594b32fe40e0e4e44093b22cd5209507ff2121aa6657e963e85e03167`
 - Initial ignored failure-summary SHA256:

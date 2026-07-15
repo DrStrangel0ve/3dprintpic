@@ -54,7 +54,7 @@
   "full_summary_sha256": "bd18cb4594b32fe40e0e4e44093b22cd5209507ff2121aa6657e963e85e03167",
   "generator": {
     "path": "backend/benchmark/summarize_cc0_live_relief_context.py",
-    "sha256": "ad1aab581cd69743c85313f78fd2eb4f38d3da12061024b70091ea28ed105d35"
+    "sha256": "2b36e1360b1d8b25240d286325a43bedd6a9901a5b2250373c6d0b22be277bde"
   },
   "measured_fixture_correction": {
     "failed_row_id": "eyewear_overhead_panel_384",

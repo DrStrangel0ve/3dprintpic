@@ -43,7 +43,15 @@ def _response(*, detected: bool, gate: float = 0.4, detail_mm: float = 0.6) -> d
     }
 
 
-def _quality(*, passed: bool, occluded: bool) -> dict:
+def _quality(*, passed: bool, occluded: bool, object_scene: bool) -> dict:
+    quality_keys = (
+        summarizer.OBJECT_QUALITY_CHECKS
+        if object_scene
+        else summarizer.FACE_QUALITY_CHECKS
+    )
+    quality_checks = {key: True for key in quality_keys}
+    quality_checks["occlusion_deoccluded"] = passed if occluded else True
+    quality_checks["passed"] = passed
     return {
         "detected_faces": 1,
         "refined_faces": 1,
@@ -78,11 +86,7 @@ def _quality(*, passed: bool, occluded: bool) -> dict:
             "eyewear_detected": passed if occluded else False,
             "deoccluded_faces": int(passed and occluded),
         },
-        "checks": {
-            "exact_subject_depth": True,
-            "occlusion_deoccluded": passed if occluded else True,
-            "passed": passed,
-        },
+        "checks": quality_checks,
     }
 
 
@@ -94,7 +98,8 @@ def _row(
     opacity: float | None = None,
 ) -> dict:
     occluded = row_id == summarizer.EYEWEAR_ROW_ID
-    quality = _quality(passed=passed, occluded=occluded)
+    object_scene = row_id.startswith("multilobe")
+    quality = _quality(passed=passed, occluded=occluded, object_scene=object_scene)
     scene = {
         "target_dimension": 384,
         "camera_yaw_deg": -17.0,
@@ -436,6 +441,24 @@ class SummarizeCc0LiveReliefContextTests(unittest.TestCase):
         self.final_summary.write_text(json.dumps(final), encoding="utf-8")
 
         with self.assertRaisesRegex(ValueError, "hexadecimal digest"):
+            self._summarize()
+
+    def test_rejects_deleted_final_quality_gate(self):
+        final = json.loads(self.final_summary.read_text(encoding="utf-8"))
+        del self._eyewear_row(final)["variants"]["candidate"]["quality"]["checks"][
+            "exact_subject_depth"
+        ]
+        self.final_summary.write_text(json.dumps(final), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "exact required gates"):
+            self._summarize()
+
+    def test_rejects_deleted_initial_row_gate(self):
+        initial = json.loads(self.initial_summary.read_text(encoding="utf-8"))
+        del self._eyewear_row(initial)["checks"]["paired_background_detail"]
+        self.initial_summary.write_text(json.dumps(initial), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "exact required gates"):
             self._summarize()
 
 
