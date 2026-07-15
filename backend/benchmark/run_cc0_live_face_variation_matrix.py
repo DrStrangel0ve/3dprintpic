@@ -87,6 +87,7 @@ class OccluderSpec:
     right: float
     bottom: float
     rgb: tuple[int, int, int] = (47, 71, 83)
+    anchor: str = "image"
 
 
 @dataclass(frozen=True)
@@ -126,7 +127,7 @@ DEFAULT_MATRIX = (
         camera_distance=4.0,
         camera_scale=1.05,
         horizontal_offset=-0.13,
-        occluder=OccluderSpec(0.39, 0.49, 0.61, 0.62),
+        occluder=OccluderSpec(0.39, 0.49, 0.61, 0.62, anchor="eye_band"),
     ),
     FaceSceneSpec(
         row_id="close_positive_turn_384",
@@ -176,6 +177,8 @@ def _validate_scene_spec(spec: FaceSceneSpec) -> None:
             raise ValueError("Occluder exceeds the bounded foreground allowance")
         if len(occ.rgb) != 3 or any(not 0 <= int(value) <= 255 for value in occ.rgb):
             raise ValueError("Occluder RGB values must be bytes")
+        if occ.anchor not in {"image", "eye_band"}:
+            raise ValueError("Occluder anchor must be image or eye_band")
 
 
 def _translate(values: np.ndarray, columns: int, fill) -> np.ndarray:
@@ -248,10 +251,32 @@ def _render_scene_arrays(
     if spec.occluder is not None:
         occ = spec.occluder
         size = int(spec.target_dimension)
-        left = max(0, min(size - 1, int(math.floor(occ.left * size))))
-        top = max(0, min(size - 1, int(math.floor(occ.top * size))))
-        right = max(left + 1, min(size, int(math.ceil(occ.right * size))))
-        bottom = max(top + 1, min(size, int(math.ceil(occ.bottom * size))))
+        if occ.anchor == "eye_band":
+            eye_mask = np.zeros_like(face_mask)
+            for name in ("left_eye", "right_eye"):
+                eye_mask |= _translate(
+                    np.asarray(rendered.part_masks[name], dtype=bool),
+                    offset_columns,
+                    False,
+                )
+            eye_rows, eye_columns = np.where(eye_mask & face_mask)
+            face_rows, face_columns = np.where(face_mask)
+            if not len(eye_rows) or not len(face_rows):
+                raise ValueError("Eye-band occluder requires visible rendered eyes")
+            face_width = int(face_columns.max() - face_columns.min() + 1)
+            face_height = int(face_rows.max() - face_rows.min() + 1)
+            center_y = 0.5 * float(eye_rows.min() + eye_rows.max() + 1)
+            half_height = max(3, int(round(face_height * 0.05)))
+            horizontal_margin = max(2, int(round(face_width * 0.05)))
+            left = max(0, int(eye_columns.min()) - horizontal_margin)
+            right = min(size, int(eye_columns.max() + 1) + horizontal_margin)
+            top = max(0, int(round(center_y)) - half_height)
+            bottom = min(size, int(round(center_y)) + half_height)
+        else:
+            left = max(0, min(size - 1, int(math.floor(occ.left * size))))
+            top = max(0, min(size - 1, int(math.floor(occ.top * size))))
+            right = max(left + 1, min(size, int(math.ceil(occ.right * size))))
+            bottom = max(top + 1, min(size, int(math.ceil(occ.bottom * size))))
         occluder_pixels = int((right - left) * (bottom - top))
         occluder_bounds = (top, bottom, left, right)
 
@@ -296,6 +321,12 @@ def _render_scene_arrays(
             "face_bbox_width_ratio": float(face_width / spec.target_dimension),
             "face_bbox_height_ratio": float(face_height / spec.target_dimension),
             "occluder_pixels": occluder_pixels,
+            "occluder_anchor": (
+                spec.occluder.anchor if spec.occluder is not None else None
+            ),
+            "occluder_bounds_tblr": (
+                list(occluder_bounds) if occluder_bounds is not None else None
+            ),
         },
     )
 

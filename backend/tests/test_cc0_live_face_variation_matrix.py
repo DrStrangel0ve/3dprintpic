@@ -187,6 +187,60 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "bounded foreground"):
             matrix._validate_scene_spec(spec)
 
+    def test_eye_band_occluder_is_anchored_to_rendered_eyes(self):
+        size = 64
+        silhouette = np.zeros((size, size), dtype=bool)
+        silhouette[10:54, 8:56] = True
+        left_eye = np.zeros_like(silhouette)
+        right_eye = np.zeros_like(silhouette)
+        left_eye[22:32, 32:45] = True
+        right_eye[22:32, 18:31] = True
+        rendered = SimpleNamespace(
+            silhouette=silhouette,
+            rgb=np.full((size, size, 3), 0.7, dtype=np.float32),
+            depth=np.full((size, size), 0.4, dtype=np.float32),
+            part_masks={"left_eye": left_eye, "right_eye": right_eye},
+        )
+        fixture = {
+            "profiles": {
+                "profile": {
+                    "mesh": SimpleNamespace(
+                        vertices=np.zeros((3, 3), dtype=np.float64)
+                    ),
+                    "skin_tone": (0.5, 0.4, 0.3),
+                }
+            },
+            "part_weights": {},
+            "surface_weights": {},
+        }
+        spec = matrix.FaceSceneSpec(
+            row_id="eye_band",
+            profile_name="profile",
+            target_dimension=size,
+            camera_yaw_deg=0.0,
+            camera_distance=4.0,
+            occluder=matrix.OccluderSpec(0.39, 0.49, 0.61, 0.62, anchor="eye_band"),
+        )
+
+        with (
+            patch.object(
+                matrix, "make_profile_vertex_colors", return_value=np.zeros((3, 3))
+            ),
+            patch.object(matrix, "render_mesh", return_value=rendered),
+        ):
+            source, mask, _exact_depth, record = matrix._render_scene_arrays(
+                spec, fixture
+            )
+
+        top, bottom, left, right = record["occluder_bounds_tblr"]
+        self.assertEqual(record["occluder_anchor"], "eye_band")
+        self.assertLessEqual(top, 27)
+        self.assertGreaterEqual(bottom, 27)
+        self.assertLess(left, 18)
+        self.assertGreater(right, 45)
+        self.assertTrue(np.all(mask[top:bottom, left:right] > 0))
+        self.assertTrue(np.all(source[top:bottom, left:right] == (47, 71, 83)))
+
     def test_one_row_run_records_hashes_fields_status_and_provenance(self):
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary) / "server"
