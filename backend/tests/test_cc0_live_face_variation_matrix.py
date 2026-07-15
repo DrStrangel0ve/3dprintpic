@@ -955,6 +955,25 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
             },
             required=True,
         )
+        safely_rejected = matrix._occlusion_handling(
+            {
+                "eyewear_deoccluded_faces": 0,
+                "faces": [
+                    {
+                        "eyewear_deocclusion": {
+                            "enabled": False,
+                            "reason": "quality_gate_failed",
+                            "detection": {"enabled": True},
+                            "quality_gates": {
+                                "failures": ["bilateral_eye_detail_retention"]
+                            },
+                            "bilateral_eye_detail_retention": {"passed": False},
+                        }
+                    }
+                ],
+            },
+            required=True,
+        )
         missed = matrix._occlusion_handling(
             {"eyewear_deoccluded_faces": 0, "faces": []}, required=True
         )
@@ -962,6 +981,8 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
         self.assertTrue(consistent["passed"])
         self.assertEqual(consistent["already_consistent_faces"], 1)
         self.assertTrue(corrected["passed"])
+        self.assertTrue(safely_rejected["passed"])
+        self.assertEqual(safely_rejected["safely_rejected_corrections"], 1)
         self.assertFalse(missed["passed"])
 
     def test_output_outside_server_ignored_root_is_rejected(self):

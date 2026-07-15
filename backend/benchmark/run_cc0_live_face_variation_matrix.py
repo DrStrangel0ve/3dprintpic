@@ -1285,13 +1285,26 @@ def _occlusion_handling(refinement: dict, *, required: bool) -> dict:
         for record in detected
         if record.get("reason") == "source_depth_already_consistent"
     ]
+    safely_rejected = [
+        record
+        for record in detected
+        if record.get("reason") == "quality_gate_failed"
+        and "bilateral_eye_detail_retention"
+        in record.get("quality_gates", {}).get("failures", [])
+        and not bool(
+            record.get("bilateral_eye_detail_retention", {}).get("passed", True)
+        )
+    ]
     deoccluded = int(refinement.get("eyewear_deoccluded_faces", 0))
     return {
         "required": True,
         "eyewear_detected": bool(detected),
         "deoccluded_faces": deoccluded,
         "already_consistent_faces": len(consistent),
-        "passed": bool(detected and (deoccluded > 0 or consistent)),
+        "safely_rejected_corrections": len(safely_rejected),
+        "passed": bool(
+            detected and (deoccluded > 0 or consistent or safely_rejected)
+        ),
     }
 
 
