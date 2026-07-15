@@ -50,6 +50,30 @@ class PrivateBackgroundPhotoDetailReplayTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "scene-NN"):
             replay._validate_scene({"label": "portrait"}, repository)
 
+    def test_private_checksum_contract_rejects_artifact_tampering(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "artifact.bin"
+            path.write_bytes(b"original")
+            expected = {"depth_npy": replay._sha256(path)}
+            replay._verify_private_checksums(
+                "scene-01", {"depth_npy": path}, expected
+            )
+            path.write_bytes(b"tampered")
+            with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                replay._verify_private_checksums(
+                    "scene-01", {"depth_npy": path}, expected
+                )
+
+    def test_replay_rejects_unapproved_control_overrides(self):
+        with tempfile.TemporaryDirectory() as temporary, self.assertRaisesRegex(
+            ValueError, "fixed to 30 mm"
+        ):
+            replay.run(
+                Path(temporary) / "missing.json",
+                Path(temporary) / "output",
+                relief_height_mm=29.0,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

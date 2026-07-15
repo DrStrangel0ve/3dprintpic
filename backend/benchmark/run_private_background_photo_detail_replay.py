@@ -137,6 +137,19 @@ def _require_ignored(path: Path, repository: Path) -> None:
         raise ValueError("Private replay output must be covered by .gitignore")
 
 
+def _verify_private_checksums(
+    label: str, paths: dict[str, Path], expected_hashes: object
+) -> None:
+    if not isinstance(expected_hashes, dict) or set(expected_hashes) != set(paths):
+        raise ValueError(f"Scene {label!r} must checksum-pin every private input path")
+    for key, path in paths.items():
+        expected = expected_hashes[key]
+        if not isinstance(expected, str) or not re.fullmatch(r"[a-f0-9]{64}", expected):
+            raise ValueError(f"Scene {label!r} has an invalid checksum for {key}")
+        if _sha256(path) != expected:
+            raise ValueError(f"Scene {label!r} checksum mismatch for {key}")
+
+
 def _validate_scene(scene: dict, repository: Path) -> dict:
     allowed = {
         "label",
@@ -180,19 +193,7 @@ def _validate_scene(scene: dict, repository: Path) -> dict:
     }
     for path in present_paths.values():
         _require_ignored(path, repository)
-    expected_hashes = scene.get("input_sha256")
-    if not isinstance(expected_hashes, dict) or set(expected_hashes) != set(
-        present_paths
-    ):
-        raise ValueError(
-            f"Scene {label!r} must checksum-pin every private input path"
-        )
-    for key, path in present_paths.items():
-        expected = expected_hashes[key]
-        if not isinstance(expected, str) or not re.fullmatch(r"[a-f0-9]{64}", expected):
-            raise ValueError(f"Scene {label!r} has an invalid checksum for {key}")
-        if _sha256(path) != expected:
-            raise ValueError(f"Scene {label!r} checksum mismatch for {key}")
+    _verify_private_checksums(label, present_paths, scene.get("input_sha256"))
 
     source_path = present_paths["source_image"]
     selection_path = present_paths["selection_mask"]
@@ -204,10 +205,17 @@ def _validate_scene(scene: dict, repository: Path) -> dict:
     )
     source_fingerprint = _selection_source_fingerprint(source_path)
     request_context = request_metadata.get("selection_depth_context", {})
+    selection_job_id = selection_metadata.get("job_id")
+    recorded_mask = str(request_context.get("selection_mask", "")).replace("\\", "/")
+    expected_mask_suffix = f"selection/{selection_job_id}/selection_mask.png"
     if (
         selection_metadata.get("model_status") != "composed-clicked-masks"
         or selection_metadata.get("source_fingerprint") != source_fingerprint
         or request_context.get("source_fingerprint") != source_fingerprint
+        or not isinstance(selection_job_id, str)
+        or not re.fullmatch(r"[a-f0-9]{32}", selection_job_id)
+        or request_context.get("selection_job_id") != selection_job_id
+        or recorded_mask != expected_mask_suffix
     ):
         raise ValueError(f"Scene {label!r} selection provenance does not match")
     expected_depth_model = scene.get("expected_depth_model")
@@ -218,6 +226,23 @@ def _validate_scene(scene: dict, repository: Path) -> dict:
         != expected_depth_model
     ):
         raise ValueError(f"Scene {label!r} depth-model provenance does not match")
+    historical_controls = {
+        "target_dimension": 512,
+        "sigma": 0.35,
+        "z_scale": 30.0,
+        "max_xy_size": 128.0,
+        "relief_gamma": 0.75,
+        "detail_boost": 0.8,
+        "background_detail_boost": 2.4,
+        "selection_background_depth_ratio": 0.45,
+        "background_photo_detail_mm": 0.12,
+    }
+    if any(
+        request_metadata.get(key) is None
+        or abs(float(request_metadata[key]) - expected) > 1e-9
+        for key, expected in historical_controls.items()
+    ):
+        raise ValueError(f"Scene {label!r} historical request controls do not match")
     with Image.open(source_path) as source_image, Image.open(selection_path) as mask_image:
         source_shape = (source_image.height, source_image.width)
         if source_image.size != mask_image.size:
@@ -371,6 +396,14 @@ def run(
     allow_failures: bool = False,
 ) -> dict:
     repository = Path(__file__).resolve().parents[2]
+    if (
+        abs(float(relief_height_mm) - 30.0) > 1e-9
+        or abs(float(physical_size_mm) - 128.0) > 1e-9
+        or abs(float(background_depth_ratio) - 0.65) > 1e-9
+    ):
+        raise ValueError(
+            "Retained-artifact replay is fixed to 30 mm, 128 mm, and ratio 0.65"
+        )
     output_dir = Path(output_dir)
     _require_ignored(output_dir, repository)
     _require_ignored(Path(scene_config), repository)
@@ -539,7 +572,7 @@ def run(
         )
         row_checks = {
             "same_composed_depth": bool(same_composed_depth),
-            "private_input_provenance": True,
+            "retained_artifact_bundle_verified": True,
             "surface_grid_match": bool(transform_match),
             "selection_mask_match": bool(selection_match),
             "detail_metrics": bool(metrics["checks"]["passed"]),
@@ -631,7 +664,7 @@ def run(
     }
     summary = {
         "schema_version": 1,
-        "run_kind": "private_background_photo_detail_replay",
+        "run_kind": "retained_private_artifact_background_photo_detail_replay",
         "privacy": (
             "aggregate metrics only; source images, masks, paths, hashes, surfaces, "
             "and meshes remain in gitignored output"
@@ -647,6 +680,29 @@ def run(
             "relief_height_mm": float(relief_height_mm),
             "physical_size_mm": float(physical_size_mm),
             "background_depth_ratio": float(background_depth_ratio),
+            "replay_semantics": (
+                "locally pinned retained artifacts with current detail/context "
+                "overrides; not an authenticated historical-request reproduction"
+            ),
+            "historical_controls_verified": {
+                "target_dimension": 512,
+                "sigma": 0.35,
+                "relief_height_mm": 30.0,
+                "physical_size_mm": 128.0,
+                "relief_gamma": 0.75,
+                "detail_boost": 0.8,
+                "background_detail_boost": 2.4,
+            },
+            "intentional_overrides": {
+                "selection_background_depth_ratio": {
+                    "historical": 0.45,
+                    "replay": 0.65,
+                },
+                "background_photo_detail_mm": {
+                    "historical": 0.12,
+                    "replay_pair": list(DETAIL_LEVELS_MM),
+                },
+            },
         },
         "records": records,
         "checks": {
