@@ -1273,7 +1273,7 @@ async def process_image(
     relief_gamma: float = Form(0.75),
     detail_boost: float = Form(0.8),
     background_detail_boost: float = Form(2.4),
-    background_photo_detail_mm: float = Form(0.12),
+    background_photo_detail_mm: float = Form(0.60),
     selection_background_depth_ratio: float = Form(0.65),
     selection_background_feather_mm: float = Form(1.5),
     selection_background_smoothing_mm: float = Form(0.6),
