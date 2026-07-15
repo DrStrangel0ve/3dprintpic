@@ -1535,6 +1535,8 @@ async def process_image(
             ),
             selection_region_mask=selection_region_mask_path,
             selection_background_depth_ratio=selection_background_depth_ratio,
+            surface_output_path=job_dir / "output_surface.npy",
+            reference_surface_output_path=job_dir / "output_reference_surface.npy",
         )
         record_timing("stl_seconds", stage_started)
         logger.info(f"3D model saved as: {stl_path}")

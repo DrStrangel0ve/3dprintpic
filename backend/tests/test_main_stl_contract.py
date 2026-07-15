@@ -151,6 +151,19 @@ class MainStlContractTest(unittest.TestCase):
                 self.assertAlmostEqual(payload["minimum_feature_mm"], 1.2)
                 self.assertAlmostEqual(payload["max_relief_slope"], 1.5)
                 self.assertTrue(payload["relief_postprocess"]["enabled"])
+                self.assertTrue(
+                    payload["relief_postprocess"]["reference_surface"]["emitted"]
+                )
+                self.assertTrue(
+                    (output_root / payload["job_id"] / "output_surface.npy").is_file()
+                )
+                self.assertTrue(
+                    (
+                        output_root
+                        / payload["job_id"]
+                        / "output_reference_surface.npy"
+                    ).is_file()
+                )
                 self.assertAlmostEqual(payload["printer"]["nozzle_diameter_mm"], 0.6)
 
                 diagnostics_response = client.get(payload["diagnostics_url"])
