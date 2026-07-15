@@ -236,6 +236,7 @@ class MainStlContractTest(unittest.TestCase):
             mask.save(mask_path)
             inferred_pixels = []
             refined_pixels = []
+            mesh_source_pixels = []
 
             def fake_complete_image(input_path, **_kwargs):
                 return input_path, None
@@ -277,6 +278,16 @@ class MainStlContractTest(unittest.TestCase):
                     refined_pixels.append((rgb.getpixel((1, 1)), rgb.getpixel((16, 13))))
                 return depth, no_faces
 
+            real_depth_to_model = main_module.depth_data_to_3d_model
+
+            def capture_mesh_source(*args, **kwargs):
+                with Image.open(kwargs["source_image"]) as image:
+                    rgb = image.convert("RGB")
+                    mesh_source_pixels.append(
+                        (rgb.getpixel((1, 1)), rgb.getpixel((16, 13)))
+                    )
+                return real_depth_to_model(*args, **kwargs)
+
             with (
                 patch.object(main_module, "OUTPUT_DIR", output_root),
                 patch.object(main_module, "complete_image", side_effect=fake_complete_image),
@@ -286,6 +297,11 @@ class MainStlContractTest(unittest.TestCase):
                     "refine_depth_for_faces",
                     side_effect=fake_face_refinement,
                 ),
+                patch.object(
+                    main_module,
+                    "depth_data_to_3d_model",
+                    side_effect=capture_mesh_source,
+                ),
             ):
                 client = TestClient(main_module.app)
                 compose_response = client.post(
@@ -293,7 +309,10 @@ class MainStlContractTest(unittest.TestCase):
                     files={
                         "file": (
                             "original.png",
-                            self.png_bytes(accent=(200, 40, 20)),
+                            self.png_bytes(
+                                color=(70, 80, 90),
+                                accent=(200, 40, 20),
+                            ),
                             "image/png",
                         )
                     },
@@ -328,6 +347,7 @@ class MainStlContractTest(unittest.TestCase):
             payload = response.json()
             self.assertEqual(inferred_pixels, [(200, 40, 20)])
             self.assertEqual(refined_pixels, [((245, 245, 245), (200, 40, 20))])
+            self.assertEqual(mesh_source_pixels, [((70, 80, 90), (200, 40, 20))])
             self.assertTrue(payload["selection_depth_context"]["enabled"])
             self.assertEqual(payload["selection_depth_context"]["selection_job_id"], selection_job_id)
             self.assertEqual(

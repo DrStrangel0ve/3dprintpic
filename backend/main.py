@@ -1505,7 +1505,7 @@ async def process_image(
             relief_gamma=relief_gamma,
             detail_boost=detail_boost,
             background_detail_boost=background_detail_boost,
-            source_image=image_for_depth,
+            source_image=depth_inference_source,
             background_photo_detail_mm=background_photo_detail_mm,
             trim_top_background=effective_trim_top_background,
             feature_weight_mask=(
