@@ -260,13 +260,15 @@ def _infer_depth_anything(
     output_dir: Path,
     *,
     device: str,
+    model_name: str = DEPTH_ANYTHING_V2_LARGE,
 ) -> tuple[np.ndarray, dict]:
     started = time.perf_counter()
     depth_path = process_image_get_depth_data_transformers(
         image_path,
         output_dir=output_dir,
-        model_name=DEPTH_ANYTHING_V2_LARGE,
+        model_name=model_name,
         device=device,
+        requested_model_name=DEPTH_ANYTHING_V2_LARGE,
     )
     elapsed = time.perf_counter() - started
     metadata_path = output_dir / "output_depth_metadata.json"
@@ -274,7 +276,7 @@ def _infer_depth_anything(
     metadata.update(
         {
             "provider": "depth-anything-v2",
-            "model": DEPTH_ANYTHING_V2_LARGE,
+            "model": model_name,
             "depth_semantics": "relative-near-high",
             "relief_transform": "linear",
             "inference_seconds": float(elapsed),

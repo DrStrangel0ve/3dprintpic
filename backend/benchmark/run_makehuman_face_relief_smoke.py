@@ -224,12 +224,20 @@ def _emit_row(
     crop_size: int,
     physical_size_mm: float,
     background_depth_ratio: float,
+    provider_name: str = "oracle",
+    input_depth: np.ndarray | None = None,
+    value_transform: str = "linear",
+    invert: bool = True,
+    low_percentile: float = 0.0,
+    high_percentile: float = 100.0,
+    use_part_feature_weight: bool = True,
 ) -> tuple[dict, dict]:
     started = time.perf_counter()
-    row_id = (
+    base_row_id = (
         f"{spec.profile_name}_{spec.framing}_{relief_height_mm:04.1f}mm"
         .replace(".", "p")
     )
+    row_id = base_row_id if provider_name == "oracle" else f"{provider_name}_{base_row_id}"
     row_dir = output_dir / row_id
     row_dir.mkdir(parents=True, exist_ok=True)
     rendered, framing = _render_scene(
@@ -255,10 +263,21 @@ def _emit_row(
     np.save(exact_path, exact_depth.astype(np.float32, copy=False))
     mask_metadata_path = _save_masks(row_dir, face_mask, part_masks)
 
+    relief_depth = exact_depth if input_depth is None else np.asarray(input_depth, dtype=np.float32)
+    if relief_depth.shape != exact_depth.shape:
+        raise ValueError(
+            f"Provider depth shape {relief_depth.shape} does not match scene {exact_depth.shape}"
+        )
+    input_depth_path = None
+    if input_depth is not None:
+        input_depth_path = row_dir / "provider_depth.npy"
+        np.save(input_depth_path, relief_depth.astype(np.float32, copy=False))
+
     input_pitch_mm = float(physical_size_mm) / max(int(crop_size) - 1, 1)
     composed, compose_stats = compose_selection_depth_with_context(
-        exact_depth,
+        relief_depth,
         face_mask,
+        value_transform=value_transform,
         relief_height_mm=float(relief_height_mm),
         sample_pitch_mm=input_pitch_mm,
         max_slope_mm_per_mm=2.0,
@@ -271,23 +290,25 @@ def _emit_row(
     reference_path = row_dir / "reference_surface.npy"
     stl_path = row_dir / "relief.stl"
     np.save(depth_path, composed.astype(np.float32, copy=False))
-    feature_weight = np.maximum.reduce(
-        [np.asarray(mask, dtype=np.float32) for mask in part_masks.values()]
-    )
+    feature_weight = None
+    if use_part_feature_weight:
+        feature_weight = np.maximum.reduce(
+            [np.asarray(mask, dtype=np.float32) for mask in part_masks.values()]
+        )
     postprocess = depth_data_to_3d_model(
         depth_path,
         output_stl_path=str(stl_path),
         target_dimension=-1,
         z_scale=float(relief_height_mm),
-        invert=True,
+        invert=bool(invert),
         sigma=0.0,
         max_xy_size=float(physical_size_mm),
         relief_gamma=1.0,
         detail_boost=0.0,
-        low_percentile=0.0,
-        high_percentile=100.0,
+        low_percentile=float(low_percentile),
+        high_percentile=float(high_percentile),
         base_border_px=1,
-        value_transform="linear",
+        value_transform=value_transform,
         minimum_feature_mm=0.8,
         max_relief_slope=2.0,
         face_region_mask=face_mask,
@@ -389,9 +410,18 @@ def _emit_row(
         postprocess_path,
         mask_metadata_path,
         *sorted((row_dir / "face_parts").glob("*.png")),
+        *((input_depth_path,) if input_depth_path is not None else ()),
     )
     row = {
         "row_id": row_id,
+        "provider": provider_name,
+        "provider_depth_semantics": {
+            "value_transform": value_transform,
+            "invert": bool(invert),
+            "uses_oracle_depth": input_depth is None,
+            "uses_oracle_part_feature_weight": bool(use_part_feature_weight),
+            "normalization_percentiles": [float(low_percentile), float(high_percentile)],
+        },
         "profile_name": spec.profile_name,
         "framing": framing,
         "relief_height_mm": float(relief_height_mm),
@@ -458,6 +488,7 @@ def _emit_row(
         "face_mask": masks["face_mask"],
         "part_masks": masks["part_masks"],
         "sample_pitch_mm": pitch_mm,
+        "surface_grid_transform": postprocess["surface_grid_transform"],
     }
     return row, metric_context
 
