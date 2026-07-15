@@ -49,6 +49,7 @@ MIN_FACE_IMAGE_RATIO = 0.25
 SELECTION_ROI_DETECTION_DIMENSION = 384
 SELECTION_ROI_PADDING_RATIO = 0.45
 SELECTION_ROI_MINIMUM_COVERAGE = 0.001
+SELECTION_ROI_MIN_FACE_COMPONENT_RATIO = 0.35
 FACE_OVAL_INDICES = [
     10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378,
     400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21,
@@ -803,7 +804,20 @@ def detect_face_regions_in_roi(
         target_width = max(1, int(round(crop.shape[1] * scale)))
         target_height = max(1, int(round(crop.shape[0] * scale)))
         resized = cv2.resize(crop, (target_width, target_height), interpolation=cv2.INTER_CUBIC)
-        effective_minimum = _effective_min_face_pixels(resized.shape, min_face_pixels)
+        component_width = component_box[2] - component_box[0]
+        component_height = component_box[3] - component_box[1]
+        component_minimum = min(
+            component_width * target_width / float(crop.shape[1]),
+            component_height * target_height / float(crop.shape[0]),
+        )
+        roi_component_cap = max(
+            MIN_FACE_PIXELS_FLOOR,
+            int(round(component_minimum * SELECTION_ROI_MIN_FACE_COMPONENT_RATIO)),
+        )
+        effective_minimum = min(
+            _effective_min_face_pixels(resized.shape, min_face_pixels),
+            roi_component_cap,
+        )
         detection_result = (
             detector(resized, max_faces, effective_minimum)
             if detector is not None

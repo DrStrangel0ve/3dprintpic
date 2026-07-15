@@ -638,6 +638,8 @@ def _exact_face_depth_quality(
     refined_depth_path: Path,
     exact_depth_path: Path,
     mask_path: Path,
+    *,
+    expected_scale_sign: float,
 ) -> dict:
     predicted = np.load(refined_depth_path).astype(np.float32)
     exact = np.load(exact_depth_path).astype(np.float32)
@@ -702,7 +704,9 @@ def _exact_face_depth_quality(
     }
     checks = {
         "coverage": coverage >= EXACT_FACE_DEPTH_GATES["minimum_coverage_ratio"],
-        "positive_orientation": bool(np.isfinite(scale) and scale > 0),
+        "depth_semantics_orientation": bool(
+            np.isfinite(scale) and scale * float(expected_scale_sign) > 0
+        ),
         "shape_correlation": metrics["shape_correlation"]
         >= EXACT_FACE_DEPTH_GATES["minimum_shape_correlation"],
         "gradient_correlation": metrics["gradient_correlation"]
@@ -765,7 +769,10 @@ def _score_variant(
     )
     exact_face_depth = (
         _exact_face_depth_quality(
-            artifacts["refined_depth"], exact_depth_path, mask_path
+            artifacts["refined_depth"],
+            exact_depth_path,
+            mask_path,
+            expected_scale_sign=1.0 if bool(response.get("invert", False)) else -1.0,
         )
         if "refined_depth" in artifacts
         else {

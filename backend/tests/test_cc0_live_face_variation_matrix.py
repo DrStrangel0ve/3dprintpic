@@ -394,14 +394,20 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
             Image.fromarray(mask, mode="L").save(mask_path)
 
             matched = matrix._exact_face_depth_quality(
-                predicted_path, exact_path, mask_path
+                predicted_path,
+                exact_path,
+                mask_path,
+                expected_scale_sign=1.0,
             )
             reversed_result = matrix._exact_face_depth_quality(
-                reversed_path, exact_path, mask_path
+                reversed_path,
+                exact_path,
+                mask_path,
+                expected_scale_sign=1.0,
             )
 
             self.assertTrue(matched["checks"]["passed"])
-            self.assertFalse(reversed_result["checks"]["positive_orientation"])
+            self.assertFalse(reversed_result["checks"]["depth_semantics_orientation"])
             self.assertFalse(reversed_result["checks"]["passed"])
 
     def test_output_outside_server_ignored_root_is_rejected(self):
