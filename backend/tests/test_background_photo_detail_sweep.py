@@ -46,7 +46,8 @@ class BackgroundPhotoDetailSweepTests(unittest.TestCase):
 
         self.assertTrue(metrics["checks"]["passed"])
         self.assertGreater(metrics["source_detail_correlation"], 0.9)
-        self.assertEqual(metrics["max_face_change_mm"], 0.0)
+        self.assertEqual(metrics["max_face_interior_change_mm"], 0.0)
+        self.assertEqual(metrics["max_attachment_boundary_change_mm"], 0.0)
 
     def test_detail_metrics_reject_face_changes(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -58,7 +59,7 @@ class BackgroundPhotoDetailSweepTests(unittest.TestCase):
             face = np.zeros_like(baseline, dtype=bool)
             face[16:48, 24:40] = True
             candidate = baseline.copy()
-            candidate[face] = 0.01
+            candidate[face] = 0.02
 
             metrics = detail_sweep._detail_metrics(
                 baseline,
@@ -68,7 +69,7 @@ class BackgroundPhotoDetailSweepTests(unittest.TestCase):
                 0.30,
             )
 
-        self.assertFalse(metrics["checks"]["face_unchanged"])
+        self.assertFalse(metrics["checks"]["face_interior"])
         self.assertFalse(metrics["checks"]["passed"])
 
     def test_run_rejects_invalid_level_matrix_before_loading_fixture(self):

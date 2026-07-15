@@ -1587,7 +1587,14 @@ def _inject_photo_relief_detail(
         protected = np.asarray(protection_mask) > 0
         if protected.shape != relief.shape:
             protected = _resize_binary_mask(protected, relief.shape)
-        feather = gaussian_filter(maximum_filter(protected.astype(np.float32), size=9), sigma=3.0)
+        # Leave a broad quiet halo around selected subjects. Background texture
+        # close to the attachment boundary can otherwise make the later physical
+        # cap move the outermost selected pixels even though detail injection did
+        # not write inside the mask itself.
+        feather = gaussian_filter(
+            maximum_filter(protected.astype(np.float32), size=17),
+            sigma=5.0,
+        )
         feather[protected] = 1.0
         background_gate *= 1.0 - np.clip(feather, 0.0, 1.0)
 
