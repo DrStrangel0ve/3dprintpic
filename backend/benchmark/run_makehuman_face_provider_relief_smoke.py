@@ -24,6 +24,7 @@ from backend.benchmark.run_makehuman_face_depth_smoke import (
     DEFAULT_ASSET_DIR,
     DEPTH_ANYTHING_V2_LARGE,
     _background_metrics,
+    _correlation,
     _infer_depth_anything,
     _make_scene,
 )
@@ -50,10 +51,24 @@ from backend.pic_to_3d import (
 
 DA2_PROVIDER = "depth-anything-v2-large"
 DA2_MODEL_REVISION = "7581137eff8d4e94f6e796d3baea0e9fa79b22d2"
-DA3_PROVIDER = "da3mono-large"
-PROVIDER_NAMES = (DA2_PROVIDER, DA3_PROVIDER)
-DA3_MODEL_ID = "depth-anything/DA3MONO-LARGE"
-DA3_MODEL_REVISION = "f465978e618db8cc79c83b8bbf24964857db1875"
+DA3_MONO_PROVIDER = "da3mono-large"
+DA3_METRIC_PROVIDER = "da3metric-large"
+DA3_PROVIDER = DA3_MONO_PROVIDER
+PROVIDER_NAMES = (DA2_PROVIDER, DA3_MONO_PROVIDER, DA3_METRIC_PROVIDER)
+DA3_MODEL_SPECS = {
+    DA3_MONO_PROVIDER: {
+        "model_id": "depth-anything/DA3MONO-LARGE",
+        "model_revision": "f465978e618db8cc79c83b8bbf24964857db1875",
+        "depth_semantics": "relative-distance-far-high",
+    },
+    DA3_METRIC_PROVIDER: {
+        "model_id": "depth-anything/DA3METRIC-LARGE",
+        "model_revision": "4010e39f3634a45bc60553321fb49fb760bd594e",
+        "depth_semantics": "canonical-metric-distance-far-high",
+    },
+}
+DA3_MODEL_ID = DA3_MODEL_SPECS[DA3_MONO_PROVIDER]["model_id"]
+DA3_MODEL_REVISION = DA3_MODEL_SPECS[DA3_MONO_PROVIDER]["model_revision"]
 DA3_SOURCE_REPOSITORY = "https://github.com/ByteDance-Seed/Depth-Anything-3"
 DA3_SOURCE_COMMIT = "3fe327a6abe2e5db95b54444ea95463dbfef5610"
 DA3_MAX_PEAK_VRAM_GB = 10.5
@@ -63,6 +78,45 @@ PREDICTED_PROVENANCE_PATHS = (
     "backend/benchmark/run_makehuman_face_provider_relief_smoke.py",
 )
 _DA3_MODEL_CACHE: dict[tuple[str, str], object] = {}
+
+
+def _raw_depth_ordering_diagnostics(
+    exact_depth: np.ndarray,
+    candidate_depth: np.ndarray,
+    face_mask: np.ndarray,
+    *,
+    depth_semantics: str,
+) -> dict:
+    exact = np.asarray(exact_depth, dtype=np.float32)
+    candidate = np.asarray(candidate_depth, dtype=np.float32)
+    face = np.asarray(face_mask, dtype=bool)
+    if exact.shape != candidate.shape or face.shape != exact.shape:
+        raise ValueError("Ordering diagnostics require matching exact, candidate, and mask grids")
+    expected_far_sign = -1.0 if depth_semantics == "relative-near-high" else 1.0
+    regions = {}
+    for name, region in (("face", face), ("background", ~face)):
+        measured = region & np.isfinite(exact) & np.isfinite(candidate)
+        correlation = (
+            _correlation(exact[measured], candidate[measured])
+            if np.count_nonzero(measured) >= 64
+            else None
+        )
+        regions[name] = {
+            "samples": int(np.count_nonzero(measured)),
+            "far_high_correlation": correlation,
+            "expected_far_high_sign": int(expected_far_sign),
+            "provider_contract_sign_consistent": bool(
+                correlation is not None and correlation * expected_far_sign > 0
+            ),
+        }
+    return {
+        "diagnostic_only": True,
+        "oracle_used_for_stl": False,
+        "regions": regions,
+        "provider_contract_consistent_across_regions": bool(
+            all(region["provider_contract_sign_consistent"] for region in regions.values())
+        ),
+    }
 
 
 def _validate_da3_source(module_file: str | Path) -> dict:
@@ -137,7 +191,15 @@ def _prepare_inference_scene(
     }
 
 
-def _infer_da3mono(source_path: Path, *, device: str) -> tuple[np.ndarray, dict]:
+def _infer_da3(
+    source_path: Path,
+    *,
+    provider: str,
+    device: str,
+) -> tuple[np.ndarray, dict]:
+    if provider not in DA3_MODEL_SPECS:
+        raise ValueError(f"Unsupported DA3 provider: {provider}")
+    model_spec = DA3_MODEL_SPECS[provider]
     try:
         import torch
         import depth_anything_3.api as da3_api
@@ -145,15 +207,15 @@ def _infer_da3mono(source_path: Path, *, device: str) -> tuple[np.ndarray, dict]
         from huggingface_hub import snapshot_download
     except ImportError as exc:
         raise RuntimeError(
-            "DA3Mono requires the pinned official depth-anything-3 package"
+            "DA3 requires the pinned official depth-anything-3 package"
         ) from exc
     source_checkout = _validate_da3_source(da3_api.__file__)
     resolved_device = "cuda" if device == "auto" and torch.cuda.is_available() else device
     if resolved_device == "auto":
         resolved_device = "cpu"
     snapshot = snapshot_download(
-        DA3_MODEL_ID,
-        revision=DA3_MODEL_REVISION,
+        model_spec["model_id"],
+        revision=model_spec["model_revision"],
         allow_patterns=("config.json", "model.safetensors"),
     )
     cache_key = (str(snapshot), str(resolved_device))
@@ -174,15 +236,22 @@ def _infer_da3mono(source_path: Path, *, device: str) -> tuple[np.ndarray, dict]
         else None
     )
     metadata = {
-        "provider": DA3_PROVIDER,
-        "model": DA3_MODEL_ID,
-        "model_revision": DA3_MODEL_REVISION,
+        "provider": provider,
+        "model": model_spec["model_id"],
+        "model_revision": model_spec["model_revision"],
         "source_repository": DA3_SOURCE_REPOSITORY,
         "source_commit": DA3_SOURCE_COMMIT,
         "source_checkout": source_checkout,
         "license": "Apache-2.0",
-        "depth_semantics": "relative-distance-far-high",
+        "depth_semantics": model_spec["depth_semantics"],
         "relief_transform": "inverse-depth",
+        "prediction_is_metric": bool(getattr(prediction, "is_metric", False)),
+        "metric_scaling": (
+            "focal_px * canonical_depth / 300; omitted because this global multiplier "
+            "cancels under selection-only relief normalization"
+            if provider == DA3_METRIC_PROVIDER
+            else None
+        ),
         "process_res": 504,
         "model_load_seconds": float(load_seconds),
         "inference_seconds": float(inference_seconds),
@@ -196,7 +265,33 @@ def _infer_da3mono(source_path: Path, *, device: str) -> tuple[np.ndarray, dict]
         }
     else:
         metadata["confidence"] = {"available": False}
+    intrinsics = (
+        np.asarray(prediction.intrinsics[0], dtype=np.float32)
+        if getattr(prediction, "intrinsics", None) is not None
+        else None
+    )
+    metadata["intrinsics"] = {
+        "available": intrinsics is not None,
+        "focal_px": (
+            float((intrinsics[0, 0] + intrinsics[1, 1]) * 0.5)
+            if intrinsics is not None
+            else None
+        ),
+    }
+    sky = (
+        np.asarray(prediction.sky[0], dtype=bool)
+        if getattr(prediction, "sky", None) is not None
+        else None
+    )
+    metadata["sky"] = {
+        "available": sky is not None,
+        "fraction": float(np.mean(sky)) if sky is not None else None,
+    }
     return depth, metadata
+
+
+def _infer_da3mono(source_path: Path, *, device: str) -> tuple[np.ndarray, dict]:
+    return _infer_da3(source_path, provider=DA3_MONO_PROVIDER, device=device)
 
 
 def _infer_cached_provider(
@@ -211,13 +306,23 @@ def _infer_cached_provider(
     provider_dir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     peak_vram_gb = None
+    incremental_peak_vram_gb = None
     resident_vram_gb = None
+    cuda_device = None
     try:
         import torch
 
         if device != "cpu" and torch.cuda.is_available():
-            resident_vram_gb = float(torch.cuda.memory_allocated() / (1024**3))
-            torch.cuda.reset_peak_memory_stats()
+            if device == "auto" or device == "cuda":
+                cuda_device = torch.device("cuda:0")
+            elif isinstance(device, str) and device.isdigit():
+                cuda_device = torch.device(f"cuda:{device}")
+            else:
+                cuda_device = torch.device(device)
+            resident_vram_gb = float(
+                torch.cuda.memory_allocated(cuda_device) / (1024**3)
+            )
+            torch.cuda.reset_peak_memory_stats(cuda_device)
     except ImportError:
         torch = None
     if provider == DA2_PROVIDER:
@@ -238,14 +343,21 @@ def _infer_cached_provider(
         model_id = DEPTH_ANYTHING_V2_LARGE
         model_revision = DA2_MODEL_REVISION
     else:
-        raw_depth, metadata = _infer_da3mono(scene["source_path"], device=device)
+        raw_depth, metadata = _infer_da3(
+            scene["source_path"],
+            provider=provider,
+            device=device,
+        )
         value_transform = "inverse-depth"
-        depth_semantics = "relative-distance-far-high"
-        model_id = DA3_MODEL_ID
-        model_revision = DA3_MODEL_REVISION
-    if torch is not None and device != "cpu" and torch.cuda.is_available():
+        depth_semantics = DA3_MODEL_SPECS[provider]["depth_semantics"]
+        model_id = DA3_MODEL_SPECS[provider]["model_id"]
+        model_revision = DA3_MODEL_SPECS[provider]["model_revision"]
+    if cuda_device is not None:
         peak_vram_gb = float(
-            max(torch.cuda.max_memory_allocated() / (1024**3) - (resident_vram_gb or 0.0), 0.0)
+            torch.cuda.max_memory_allocated(cuda_device) / (1024**3)
+        )
+        incremental_peak_vram_gb = float(
+            max(peak_vram_gb - (resident_vram_gb or 0.0), 0.0)
         )
     native = np.asarray(raw_depth, dtype=np.float32)
     resized = (
@@ -259,7 +371,7 @@ def _infer_cached_provider(
     np.save(native_path, native)
     np.save(resized_path, resized.astype(np.float32, copy=False))
     if (
-        provider == DA3_PROVIDER
+        provider in DA3_MODEL_SPECS
         and peak_vram_gb is not None
         and peak_vram_gb > DA3_MAX_PEAK_VRAM_GB
     ):
@@ -281,9 +393,16 @@ def _infer_cached_provider(
         "resized_sha256": _sha256(resized_path),
         "inference_seconds": float(time.perf_counter() - started),
         "peak_vram_gb": peak_vram_gb,
+        "incremental_peak_vram_gb": incremental_peak_vram_gb,
         "resident_vram_before_inference_gb": resident_vram_gb,
         "python": platform.python_version(),
         "provider_metadata": metadata,
+        "ordering_diagnostics": _raw_depth_ordering_diagnostics(
+            scene["exact_depth"],
+            resized,
+            scene["face_mask"],
+            depth_semantics=depth_semantics,
+        ),
     }
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return resized.astype(np.float32, copy=False), manifest
