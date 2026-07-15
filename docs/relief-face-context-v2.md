@@ -688,6 +688,37 @@ excluded from detector errors.
 Aggregate telemetry and reproduction details are in
 `docs/benchmark-evidence/cc0_live_api_face_background_30mm_n3/`.
 
+## Face-local reconstruction and eyewear safety
+
+The varied-context matrix now retains the renderer's exact eye, eyebrow, nose,
+and mouth masks instead of discarding them after scene generation. It applies
+the fixed six-part shape and affine millimeter gates to reconstructed depth,
+then repeats the same checks between the pre-postprocess reference surface and
+the emitted surface. Broad forehead, cheek, jaw, and silhouette regions remain
+diagnostic-only so a smooth region cannot overrule the fixed facial features.
+
+The first exact replay found that the landmark-prior eyewear replacement
+reduced high-frequency eye detail asymmetrically. A bilateral gate now measures
+pre/post gradient q95 at a one-pixel physical scale and accepts the correction
+only when both eyes retain `0.65-1.60x`. The motivating correction retained
+only `0.3739x/0.2831x`, so it fails closed to the stronger pre-deocclusion
+surface. Exact raw-gradient correlation improves from `0.6569` to `0.7545` in
+the left eye and from `0.0715` to `0.2943` in the right eye.
+
+On the clean four-row 30 mm replay at revision `beaa8192`, every background,
+cap, attachment, topology, exact-shell, and emitted six-part retention check
+passes. Minimum background depth/gradient correlation is
+`0.9999876/0.9985982`, with `7.9599-19.4983 mm` p02-p98 background span. The
+selector remains a hold because the current monocular model still misses named
+parts before relief shaping, especially the small right eye and both eyes at
+strong yaw.
+
+Official 3DDFA-V3 was also tested as a checksum-pinned geometry-only face-mesh
+prior. It fits comfortably on the 3080 Ti but fails all six parts on all three
+rows after official five-point alignment, so it is not fused into production.
+Measured evidence is in
+`docs/benchmark-evidence/cc0_face_local_gate_beaa819_n4/`.
+
 ## Validation
 
 ```powershell
@@ -700,7 +731,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 578 passed, 72 subtests passed (2 existing warnings).
+- Backend: 629 passed, 72 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
