@@ -1563,6 +1563,7 @@ def _effective_background_photo_detail_mm(requested_detail_mm, protection_mask):
 
 
 BACKGROUND_PHOTO_DETAIL_PROTECTION_HALO_MM = 5.0
+BACKGROUND_PHOTO_DETAIL_ZERO_GUARD_MM = 2.0
 
 
 def _photo_detail_sampling(
@@ -1578,6 +1579,36 @@ def _photo_detail_sampling(
     )
     halo_px = max(0.0, float(protection_halo_mm)) / max(sample_pitch_mm, 1e-6)
     return sample_pitch_mm, halo_px
+
+
+def _photo_detail_background_gate(
+    protection_mask,
+    protection_halo_px,
+    zero_guard_px=0.0,
+):
+    """Feather from a protected boundary to full detail over a physical halo."""
+    protected = np.asarray(protection_mask, dtype=bool)
+    try:
+        radius_px = float(protection_halo_px)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Photo-detail protection halo must be finite") from exc
+    if not np.isfinite(radius_px) or radius_px <= 0:
+        raise ValueError("Photo-detail protection halo must be positive")
+    try:
+        inner_px = float(zero_guard_px)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Photo-detail zero guard must be finite") from exc
+    if not np.isfinite(inner_px) or inner_px < 0 or inner_px >= radius_px:
+        raise ValueError("Photo-detail zero guard must be within the halo")
+    distance_px = distance_transform_edt(~protected)
+    normalized = np.clip(
+        (distance_px - inner_px) / (radius_px - inner_px),
+        0.0,
+        1.0,
+    )
+    gate = normalized * normalized * (3.0 - 2.0 * normalized)
+    gate[protected] = 0.0
+    return gate.astype(np.float32, copy=False)
 
 
 def _inject_photo_relief_detail(
@@ -1633,23 +1664,23 @@ def _inject_photo_relief_detail(
         if np.any(candidate_protection):
             protected = candidate_protection
     if protected is not None:
-        # Leave a broad quiet halo around selected subjects. Background texture
-        # close to the attachment boundary can otherwise make the later physical
-        # cap move the outermost selected pixels even though detail injection did
-        # not write inside the mask itself.
-        halo_radius_px = max(1, int(np.ceil(float(protection_halo_px))))
-        feather = gaussian_filter(
-            maximum_filter(
-                protected.astype(np.float32),
-                size=2 * halo_radius_px + 1,
+        # Use a physical Euclidean feather rather than square dilation followed
+        # by a Gaussian. The old composition extended the nominal 5 mm halo to
+        # about 7.1 mm diagonally and attenuated legitimate scenery beyond it.
+        # Protected pixels stay exact while background detail reaches full gain
+        # at the declared physical distance in every direction.
+        background_gate = _photo_detail_background_gate(
+            protected,
+            max(1.0, float(protection_halo_px)),
+            zero_guard_px=(
+                max(1.0, float(protection_halo_px))
+                * BACKGROUND_PHOTO_DETAIL_ZERO_GUARD_MM
+                / BACKGROUND_PHOTO_DETAIL_PROTECTION_HALO_MM
             ),
-            sigma=max(1.0, 0.625 * halo_radius_px),
         )
-        feather[protected] = 1.0
         # A semantic mask tells us which pixels are truly background. Preserve
         # raised architecture and scenery instead of suppressing it merely
         # because its monocular depth happens to resemble the foreground.
-        background_gate = 1.0 - np.clip(feather, 0.0, 1.0)
 
     usable = finite & (background_gate > 0.5)
     if not np.any(usable):
@@ -1677,6 +1708,14 @@ def _inject_photo_relief_detail(
         "face_protected": protected is not None,
         "protection_halo_px": (
             float(max(1.0, protection_halo_px)) if protected is not None else 0.0
+        ),
+        "protection_method": (
+            "euclidean_inner_guard_smoothstep_to_full_gain"
+            if protected is not None
+            else "none"
+        ),
+        "protection_zero_guard_mm": (
+            BACKGROUND_PHOTO_DETAIL_ZERO_GUARD_MM if protected is not None else 0.0
         ),
     }
 

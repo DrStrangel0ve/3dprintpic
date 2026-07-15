@@ -30,6 +30,7 @@ from backend.pic_to_3d import (
     _face_detail_preservation_metrics,
     _guard_face_detail_updates,
     _inject_photo_relief_detail,
+    _photo_detail_background_gate,
     _limit_positive_relief_slope,
     _prepare_relief_for_printing,
     _relax_selection_attachment_conflicts,
@@ -1171,6 +1172,19 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertGreater(raised_change, 0.002)
         self.assertGreater(low_change, 0.002)
         np.testing.assert_array_equal(fused[face_region], relief[face_region])
+
+    def test_photo_detail_protection_reaches_full_gain_isotropically(self):
+        protected = np.zeros((41, 41), dtype=bool)
+        protected[20, 20] = True
+
+        gate = _photo_detail_background_gate(protected, 10.0, zero_guard_px=4.0)
+
+        self.assertEqual(float(gate[20, 20]), 0.0)
+        self.assertEqual(float(gate[20, 24]), 0.0)
+        self.assertAlmostEqual(float(gate[20, 27]), 0.5, places=6)
+        self.assertEqual(float(gate[20, 30]), 1.0)
+        self.assertEqual(float(gate[26, 28]), 1.0)
+        self.assertLess(float(gate[26, 27]), 1.0)
 
     def test_photo_detail_fusion_treats_empty_mask_as_unprotected(self):
         relief = np.full((24, 24), 0.3, dtype=np.float32)
