@@ -554,7 +554,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 536 passed, 69 subtests passed (2 existing warnings).
+- Backend: 537 passed, 69 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
