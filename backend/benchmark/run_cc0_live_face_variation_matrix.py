@@ -88,6 +88,7 @@ class OccluderSpec:
     bottom: float
     rgb: tuple[int, int, int] = (47, 71, 83)
     anchor: str = "image"
+    opacity: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -127,7 +128,7 @@ DEFAULT_MATRIX = (
         camera_distance=4.0,
         camera_scale=1.05,
         horizontal_offset=-0.13,
-        occluder=OccluderSpec(0.39, 0.49, 0.61, 0.62, anchor="eye_band"),
+        occluder=OccluderSpec(0.39, 0.49, 0.61, 0.62, anchor="eye_band", opacity=0.40),
     ),
     FaceSceneSpec(
         row_id="close_positive_turn_384",
@@ -179,6 +180,8 @@ def _validate_scene_spec(spec: FaceSceneSpec) -> None:
             raise ValueError("Occluder RGB values must be bytes")
         if occ.anchor not in {"image", "eye_band"}:
             raise ValueError("Occluder anchor must be image or eye_band")
+        if not 0.0 < float(occ.opacity) <= 1.0:
+            raise ValueError("Occluder opacity must be in (0, 1]")
 
 
 def _translate(values: np.ndarray, columns: int, fill) -> np.ndarray:
@@ -288,9 +291,11 @@ def _render_scene_arrays(
     )
     if occluder_bounds is not None:
         top, bottom, left, right = occluder_bounds
-        source_rgb[top:bottom, left:right] = (
-            np.asarray(spec.occluder.rgb, dtype=np.float32) / 255.0
-        )
+        opacity = float(spec.occluder.opacity)
+        ink = np.asarray(spec.occluder.rgb, dtype=np.float32) / 255.0
+        source_rgb[top:bottom, left:right] = (1.0 - opacity) * source_rgb[
+            top:bottom, left:right
+        ] + opacity * ink
 
     mask_pixels = int(np.count_nonzero(face_mask))
     if mask_pixels == 0:

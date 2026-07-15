@@ -169,6 +169,62 @@ class FaceDepthRefinementTest(unittest.TestCase):
         self.assertEqual(errors, [])
         haar_detector.assert_not_called()
 
+    def test_yunet_guide_recovers_mediapipe_landmarks_from_upscaled_crop(self):
+        image = np.zeros((256, 256, 3), dtype=np.uint8)
+        guide_face, guide_features = face_masks_from_box(
+            image.shape, (72, 52, 184, 210)
+        )
+        guide = {
+            "bbox": [72, 52, 184, 210],
+            "face_mask": guide_face,
+            "feature_mask": guide_features,
+            "detector": "opencv-yunet-2023mar",
+            "confidence": 0.92,
+        }
+
+        def landmarker(crop, _max_faces, minimum):
+            self.assertEqual(max(crop.shape[:2]), 384)
+            self.assertEqual(minimum, face_module.MIN_FACE_PIXELS_FLOOR)
+            height, width = crop.shape[:2]
+            face_mask, feature_mask = face_masks_from_box(
+                crop.shape, (width * 0.22, height * 0.16, width * 0.78, height * 0.86)
+            )
+            landmarks = np.zeros((478, 3), dtype=np.float32)
+            landmarks[:, 0] = 0.50
+            landmarks[:, 1] = 0.51
+            return [
+                {
+                    "bbox": [
+                        int(width * 0.22),
+                        int(height * 0.16),
+                        int(width * 0.78),
+                        int(height * 0.86),
+                    ],
+                    "face_mask": face_mask,
+                    "feature_mask": feature_mask,
+                    "part_masks": {},
+                    "detector": "mediapipe-face-landmarker",
+                    "landmark_count": 478,
+                    "landmarks_xyz": landmarks,
+                }
+            ]
+
+        with patch.object(
+            face_module, "_detect_faces_mediapipe", side_effect=landmarker
+        ):
+            upgraded = face_module._upgrade_yunet_regions_with_mediapipe(
+                image, [guide], max_faces=3
+            )
+
+        self.assertEqual(len(upgraded), 1)
+        self.assertEqual(
+            upgraded[0]["detector"],
+            "yunet-guided:mediapipe-face-landmarker",
+        )
+        self.assertEqual(upgraded[0]["detection_scope"], "yunet-face-upscaled")
+        self.assertEqual(upgraded[0]["landmark_count"], 478)
+        self.assertGreaterEqual(upgraded[0]["selection_overlap_ratio"], 0.5)
+
     def test_detect_face_regions_falls_back_to_haar_when_yunet_is_unavailable(self):
         image = np.zeros((256, 256, 3), dtype=np.uint8)
         expected_region = {"bbox": [90, 60, 165, 161], "detector": "opencv-haar"}

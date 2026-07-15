@@ -657,7 +657,12 @@ def detect_face_regions(
     try:
         regions = _detect_faces_yunet(image_rgb, max_faces, min_face_pixels)
         if regions:
-            return regions, errors
+            upgraded = _upgrade_yunet_regions_with_mediapipe(
+                image_rgb,
+                regions,
+                max_faces=max_faces,
+            )
+            return upgraded or regions, errors
     except Exception as exc:
         errors.append(_detector_error_record("yunet", exc))
     try:
@@ -762,6 +767,61 @@ def _map_roi_face_region(
         keypoints[:, 1] = y0 + keypoints[:, 1] / scale_y
         mapped["keypoints"] = keypoints.round(3).tolist()
     return mapped
+
+
+def _upgrade_yunet_regions_with_mediapipe(
+    image_rgb: np.ndarray,
+    regions: list[dict],
+    *,
+    max_faces: int,
+) -> list[dict]:
+    image_height, image_width = image_rgb.shape[:2]
+    upgraded = []
+    for guide in regions[: max(1, int(max_faces))]:
+        if guide.get("face_mask") is None:
+            continue
+        roi_box = _square_padded_component_box(
+            guide["bbox"], image_width, image_height
+        )
+        x0, y0, x1, y1 = roi_box
+        crop = image_rgb[y0:y1, x0:x1]
+        if not crop.size:
+            continue
+        scale = SELECTION_ROI_DETECTION_DIMENSION / float(max(crop.shape[:2]))
+        target_width = max(1, int(round(crop.shape[1] * scale)))
+        target_height = max(1, int(round(crop.shape[0] * scale)))
+        resized = cv2.resize(
+            crop, (target_width, target_height), interpolation=cv2.INTER_CUBIC
+        )
+        try:
+            local_regions = _detect_faces_mediapipe(
+                resized,
+                1,
+                MIN_FACE_PIXELS_FLOOR,
+            )
+        except Exception:
+            continue
+        guide_mask = np.asarray(guide.get("face_mask"), dtype=np.uint8) > 0
+        for local in local_regions[:1]:
+            mapped = _map_roi_face_region(
+                local,
+                roi_box=roi_box,
+                roi_shape=crop.shape[:2],
+                image_shape=image_rgb.shape,
+                scale_x=target_width / float(crop.shape[1]),
+                scale_y=target_height / float(crop.shape[0]),
+                component_mask=guide_mask,
+            )
+            if mapped is None:
+                continue
+            mapped["detector"] = (
+                "yunet-guided:" + str(local.get("detector") or "mediapipe")
+            )
+            mapped["detection_scope"] = "yunet-face-upscaled"
+            mapped["guide_detector"] = guide.get("detector")
+            mapped["guide_confidence"] = guide.get("confidence")
+            upgraded.append(mapped)
+    return upgraded[: max(1, int(max_faces))]
 
 
 def detect_face_regions_in_roi(
