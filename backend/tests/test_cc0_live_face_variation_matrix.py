@@ -464,6 +464,45 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
             self.assertFalse(reversed_result["checks"]["depth_semantics_orientation"])
             self.assertFalse(reversed_result["checks"]["passed"])
 
+    def test_occlusion_gate_accepts_correction_or_measured_consistency(self):
+        consistent = matrix._occlusion_handling(
+            {
+                "eyewear_deoccluded_faces": 0,
+                "faces": [
+                    {
+                        "eyewear_deocclusion": {
+                            "enabled": False,
+                            "reason": "source_depth_already_consistent",
+                            "detection": {"enabled": True},
+                        }
+                    }
+                ],
+            },
+            required=True,
+        )
+        corrected = matrix._occlusion_handling(
+            {
+                "eyewear_deoccluded_faces": 1,
+                "faces": [
+                    {
+                        "eyewear_deocclusion": {
+                            "enabled": True,
+                            "detection": {"enabled": True},
+                        }
+                    }
+                ],
+            },
+            required=True,
+        )
+        missed = matrix._occlusion_handling(
+            {"eyewear_deoccluded_faces": 0, "faces": []}, required=True
+        )
+
+        self.assertTrue(consistent["passed"])
+        self.assertEqual(consistent["already_consistent_faces"], 1)
+        self.assertTrue(corrected["passed"])
+        self.assertFalse(missed["passed"])
+
     def test_output_outside_server_ignored_root_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary) / "server"

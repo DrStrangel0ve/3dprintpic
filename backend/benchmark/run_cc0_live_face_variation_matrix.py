@@ -762,6 +762,40 @@ def _exact_face_depth_quality(
     return {**metrics, "checks": checks}
 
 
+def _occlusion_handling(refinement: dict, *, required: bool) -> dict:
+    if not required:
+        return {
+            "required": False,
+            "eyewear_detected": False,
+            "deoccluded_faces": int(refinement.get("eyewear_deoccluded_faces", 0)),
+            "already_consistent_faces": 0,
+            "passed": True,
+        }
+    records = [
+        face.get("eyewear_deocclusion", {})
+        for face in refinement.get("faces", [])
+        if isinstance(face, dict)
+    ]
+    detected = [
+        record
+        for record in records
+        if bool(record.get("detection", {}).get("enabled", False))
+    ]
+    consistent = [
+        record
+        for record in detected
+        if record.get("reason") == "source_depth_already_consistent"
+    ]
+    deoccluded = int(refinement.get("eyewear_deoccluded_faces", 0))
+    return {
+        "required": True,
+        "eyewear_detected": bool(detected),
+        "deoccluded_faces": deoccluded,
+        "already_consistent_faces": len(consistent),
+        "passed": bool(detected and (deoccluded > 0 or consistent)),
+    }
+
+
 def _score_variant(
     response: dict,
     *,
@@ -826,13 +860,11 @@ def _score_variant(
             "checks": {"passed": False},
         }
     )
-    occlusion_passed = bool(
-        not require_occlusion
-        or (
-            validated_faces > 0
-            and int(refinement.get("eyewear_deoccluded_faces", 0)) >= 1
-        )
+    occlusion = _occlusion_handling(
+        refinement,
+        required=require_occlusion,
     )
+    occlusion_passed = bool(validated_faces > 0 and occlusion["passed"])
     checks = {
         "finite_surface_contract": surfaces_valid,
         "refinement_applied": bool(refinement.get("applied", False)),
@@ -854,6 +886,7 @@ def _score_variant(
         "validated_face_regions": validated_faces,
         "selected_detail_regions": selected_detail,
         "eyewear_deoccluded_faces": int(refinement.get("eyewear_deoccluded_faces", 0)),
+        "occlusion_handling": occlusion,
         "appearance": appearance,
         "appearance_checks": appearance_checks,
         "background_appearance": background_appearance,
