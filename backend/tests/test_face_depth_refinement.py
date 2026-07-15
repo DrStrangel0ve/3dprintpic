@@ -10,11 +10,14 @@ from PIL import Image
 from scipy.ndimage import gaussian_filter
 
 import backend.main as main_module
+import backend.face_depth_refinement as face_module
 from backend.face_depth_refinement import (
     EYEWEAR_LANDMARK_INDICES,
     FACE_PART_NAMES,
     _detect_eyewear_occlusion_weight,
+    _effective_min_face_pixels,
     _reconstruct_eyewear_occlusion,
+    detect_face_regions,
     face_blend_weight,
     face_masks_from_box,
     fuse_face_depth,
@@ -30,6 +33,60 @@ def gaussian_peak(shape, center, sigma, amplitude):
 
 
 class FaceDepthRefinementTest(unittest.TestCase):
+    def test_face_minimum_adapts_to_standard_256_pixel_workflow(self):
+        self.assertEqual(_effective_min_face_pixels((256, 256, 3), 96), 64)
+        self.assertEqual(_effective_min_face_pixels((512, 512, 3), 96), 96)
+        self.assertEqual(_effective_min_face_pixels((256, 256, 3), 32), 32)
+
+    def test_detect_face_regions_passes_adaptive_minimum_to_mediapipe(self):
+        image = np.zeros((256, 256, 3), dtype=np.uint8)
+        expected_region = {"bbox": [90, 60, 165, 161]}
+        with (
+            patch.object(
+                face_module,
+                "_detect_faces_mediapipe",
+                return_value=[expected_region],
+            ) as mediapipe_detector,
+            patch.object(face_module, "_detect_faces_yunet") as yunet_detector,
+        ):
+            regions, errors = detect_face_regions(image)
+
+        self.assertEqual(regions, [expected_region])
+        self.assertEqual(errors, [])
+        mediapipe_detector.assert_called_once_with(image, 3, 64)
+        yunet_detector.assert_not_called()
+
+    def test_detect_face_regions_uses_yunet_before_haar(self):
+        image = np.zeros((256, 256, 3), dtype=np.uint8)
+        expected_region = {"bbox": [90, 60, 165, 161], "detector": "opencv-yunet-2023mar"}
+        with (
+            patch.object(face_module, "_detect_faces_mediapipe", return_value=[]),
+            patch.object(face_module, "_detect_faces_yunet", return_value=[expected_region]),
+            patch.object(face_module, "_detect_faces_opencv") as haar_detector,
+        ):
+            regions, errors = detect_face_regions(image)
+
+        self.assertEqual(regions, [expected_region])
+        self.assertEqual(errors, [])
+        haar_detector.assert_not_called()
+
+    def test_detect_face_regions_falls_back_to_haar_when_yunet_is_unavailable(self):
+        image = np.zeros((256, 256, 3), dtype=np.uint8)
+        expected_region = {"bbox": [90, 60, 165, 161], "detector": "opencv-haar"}
+        with (
+            patch.object(face_module, "_detect_faces_mediapipe", return_value=[]),
+            patch.object(
+                face_module,
+                "_detect_faces_yunet",
+                side_effect=RuntimeError("model unavailable"),
+            ),
+            patch.object(face_module, "_detect_faces_opencv", return_value=[expected_region]),
+        ):
+            regions, errors = detect_face_regions(image)
+
+        self.assertEqual(regions, [expected_region])
+        self.assertEqual(errors, ["yunet:RuntimeError:model unavailable"])
+
     @staticmethod
     def _synthetic_eyewear_landmarks():
         indices = np.arange(478, dtype=np.float64)

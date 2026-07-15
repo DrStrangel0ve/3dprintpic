@@ -5,6 +5,7 @@ import json
 import math
 import os
 from pathlib import Path
+import tempfile
 from typing import Callable
 import urllib.request
 
@@ -26,6 +27,20 @@ FACE_LANDMARKER_MODEL_URL = (
     "face_landmarker/float16/latest/face_landmarker.task"
 )
 FACE_LANDMARKER_MODEL_SHA256 = "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+FACE_LANDMARKER_MODEL_MAX_BYTES = 16 * 1024 * 1024
+YUNET_MODEL_REVISION = "47534e27c9851bb1128ccc0102f1145e27f23f98"
+YUNET_MODEL_URL = (
+    "https://media.githubusercontent.com/media/opencv/opencv_zoo/"
+    f"{YUNET_MODEL_REVISION}/models/face_detection_yunet/"
+    "face_detection_yunet_2023mar.onnx"
+)
+YUNET_MODEL_SHA256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
+YUNET_MODEL_MAX_BYTES = 1024 * 1024
+YUNET_SCORE_THRESHOLD = 0.90
+YUNET_MAX_INPUT_DIMENSION = 1024
+DEFAULT_MIN_FACE_PIXELS = 96
+MIN_FACE_PIXELS_FLOOR = 48
+MIN_FACE_IMAGE_RATIO = 0.25
 FACE_OVAL_INDICES = [
     10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378,
     400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21,
@@ -207,32 +222,76 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _resolve_face_landmarker_model() -> Path:
-    configured = str(os.getenv("FACE_LANDMARKER_MODEL_PATH") or "").strip()
+def _resolve_verified_model(
+    *,
+    environment_name: str,
+    cache_name: str,
+    url: str,
+    expected_sha256: str,
+    maximum_bytes: int,
+) -> Path:
+    configured = str(os.getenv(environment_name) or "").strip()
     if configured:
         configured_path = Path(configured).expanduser()
         if not configured_path.is_file():
-            raise FileNotFoundError(f"FACE_LANDMARKER_MODEL_PATH does not exist: {configured_path}")
+            raise FileNotFoundError(f"{environment_name} does not exist: {configured_path}")
         return configured_path
 
-    cache_path = Path.home() / ".cache" / "3dprintpic" / "face_landmarker.task"
-    if cache_path.is_file() and _sha256_file(cache_path) == FACE_LANDMARKER_MODEL_SHA256:
+    cache_path = Path.home() / ".cache" / "3dprintpic" / cache_name
+    if cache_path.is_file() and _sha256_file(cache_path) == expected_sha256:
         return cache_path
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    partial_path = cache_path.with_suffix(".task.part")
+    partial_path = None
     try:
-        with urllib.request.urlopen(FACE_LANDMARKER_MODEL_URL, timeout=30) as response:
-            partial_path.write_bytes(response.read())
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=cache_path.parent,
+            prefix=f"{cache_path.name}.",
+            suffix=".part",
+            delete=False,
+        ) as partial_file:
+            partial_path = Path(partial_file.name)
+            total_bytes = 0
+            with urllib.request.urlopen(url, timeout=30) as response:
+                for block in iter(lambda: response.read(1024 * 1024), b""):
+                    total_bytes += len(block)
+                    if total_bytes > int(maximum_bytes):
+                        raise RuntimeError(
+                            f"Model download exceeded {int(maximum_bytes)} bytes: {url}"
+                        )
+                    partial_file.write(block)
         actual_sha256 = _sha256_file(partial_path)
-        if actual_sha256 != FACE_LANDMARKER_MODEL_SHA256:
+        if actual_sha256 != expected_sha256:
             raise RuntimeError(
-                "Face Landmarker model checksum mismatch: "
-                f"expected={FACE_LANDMARKER_MODEL_SHA256}, actual={actual_sha256}"
+                "Face model checksum mismatch: "
+                f"expected={expected_sha256}, actual={actual_sha256}"
             )
-        partial_path.replace(cache_path)
+        os.replace(partial_path, cache_path)
+        partial_path = None
     finally:
-        partial_path.unlink(missing_ok=True)
+        if partial_path is not None:
+            partial_path.unlink(missing_ok=True)
     return cache_path
+
+
+def _resolve_face_landmarker_model() -> Path:
+    return _resolve_verified_model(
+        environment_name="FACE_LANDMARKER_MODEL_PATH",
+        cache_name="face_landmarker.task",
+        url=FACE_LANDMARKER_MODEL_URL,
+        expected_sha256=FACE_LANDMARKER_MODEL_SHA256,
+        maximum_bytes=FACE_LANDMARKER_MODEL_MAX_BYTES,
+    )
+
+
+def _resolve_yunet_model() -> Path:
+    return _resolve_verified_model(
+        environment_name="YUNET_FACE_DETECTOR_MODEL_PATH",
+        cache_name="face_detection_yunet_2023mar.onnx",
+        url=YUNET_MODEL_URL,
+        expected_sha256=YUNET_MODEL_SHA256,
+        maximum_bytes=YUNET_MODEL_MAX_BYTES,
+    )
 
 
 def _landmark_region(
@@ -385,6 +444,119 @@ def _detect_faces_mediapipe(image_rgb: np.ndarray, max_faces: int, min_face_pixe
     return regions
 
 
+def _effective_min_face_pixels(image_shape, requested: int) -> int:
+    height, width = int(image_shape[0]), int(image_shape[1])
+    short_edge = max(1, min(height, width))
+    adaptive_cap = max(
+        MIN_FACE_PIXELS_FLOOR,
+        int(round(short_edge * MIN_FACE_IMAGE_RATIO)),
+    )
+    return max(1, min(int(requested), adaptive_cap))
+
+
+def _yunet_keypoints_are_face_like(keypoints: np.ndarray, box) -> bool:
+    points = np.asarray(keypoints, dtype=np.float64).reshape(-1, 2)
+    if points.shape != (5, 2) or not np.all(np.isfinite(points)):
+        return False
+    x0, y0, x1, y1 = (float(value) for value in box)
+    width = max(x1 - x0, 1.0)
+    height = max(y1 - y0, 1.0)
+    margin_x = width * 0.15
+    margin_y = height * 0.15
+    if np.any(points[:, 0] < x0 - margin_x) or np.any(points[:, 0] > x1 + margin_x):
+        return False
+    if np.any(points[:, 1] < y0 - margin_y) or np.any(points[:, 1] > y1 + margin_y):
+        return False
+
+    eyes = points[:2]
+    nose = points[2]
+    mouth = points[3:]
+    if abs(float(eyes[1, 0] - eyes[0, 0])) < width * 0.18:
+        return False
+    if abs(float(mouth[1, 0] - mouth[0, 0])) < width * 0.12:
+        return False
+    eye_y = float(np.mean(eyes[:, 1]))
+    mouth_y = float(np.mean(mouth[:, 1]))
+    if mouth_y <= eye_y + height * 0.12:
+        return False
+    if float(nose[1]) < eye_y - height * 0.10:
+        return False
+    if float(nose[1]) > mouth_y + height * 0.10:
+        return False
+    return True
+
+
+def _detect_faces_yunet(image_rgb: np.ndarray, max_faces: int, min_face_pixels: int) -> list[dict]:
+    if not hasattr(cv2, "FaceDetectorYN"):
+        raise RuntimeError("OpenCV FaceDetectorYN is unavailable")
+    height, width = image_rgb.shape[:2]
+    scale = min(1.0, float(YUNET_MAX_INPUT_DIMENSION) / max(height, width))
+    if scale < 1.0:
+        probe_width = max(1, int(round(width * scale)))
+        probe_height = max(1, int(round(height * scale)))
+        probe_rgb = cv2.resize(
+            image_rgb,
+            (probe_width, probe_height),
+            interpolation=cv2.INTER_AREA,
+        )
+    else:
+        probe_rgb = image_rgb
+        probe_height, probe_width = height, width
+
+    detector = cv2.FaceDetectorYN.create(
+        str(_resolve_yunet_model()),
+        "",
+        (probe_width, probe_height),
+        YUNET_SCORE_THRESHOLD,
+        0.3,
+        5000,
+    )
+    detector.setInputSize((probe_width, probe_height))
+    _, detections = detector.detect(cv2.cvtColor(probe_rgb, cv2.COLOR_RGB2BGR))
+    if detections is None:
+        return []
+
+    inverse_scale = 1.0 / scale
+    regions = []
+    for detection in np.asarray(detections, dtype=np.float64):
+        if detection.size < 15 or not np.all(np.isfinite(detection[:15])):
+            continue
+        confidence = float(detection[14])
+        if confidence < YUNET_SCORE_THRESHOLD:
+            continue
+        x, y, box_width, box_height = detection[:4] * inverse_scale
+        box = _clamp_box((x, y, x + box_width, y + box_height), width, height)
+        x0, y0, x1, y1 = box
+        if min(x1 - x0, y1 - y0) < int(min_face_pixels):
+            continue
+        keypoints = detection[4:14].reshape(5, 2) * inverse_scale
+        if not _yunet_keypoints_are_face_like(keypoints, box):
+            continue
+        face_mask, feature_mask = face_masks_from_box(image_rgb.shape, box)
+        regions.append(
+            {
+                "bbox": list(box),
+                "face_mask": face_mask,
+                "feature_mask": feature_mask,
+                "detector": "opencv-yunet-2023mar",
+                "landmark_count": 5,
+                "confidence": confidence,
+                "keypoints": keypoints.round(3).tolist(),
+                "model_revision": YUNET_MODEL_REVISION,
+                "model_sha256": YUNET_MODEL_SHA256,
+            }
+        )
+    regions.sort(
+        key=lambda region: (
+            float(region["confidence"]),
+            (region["bbox"][2] - region["bbox"][0])
+            * (region["bbox"][3] - region["bbox"][1]),
+        ),
+        reverse=True,
+    )
+    return regions[: max(1, int(max_faces))]
+
+
 def _detect_faces_opencv(image_rgb: np.ndarray, max_faces: int, min_face_pixels: int) -> list[dict]:
     gray = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2GRAY)
     cascade_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
@@ -419,8 +591,9 @@ def detect_face_regions(
     image_rgb: np.ndarray,
     *,
     max_faces: int = 3,
-    min_face_pixels: int = 96,
+    min_face_pixels: int = DEFAULT_MIN_FACE_PIXELS,
 ) -> tuple[list[dict], list[str]]:
+    min_face_pixels = _effective_min_face_pixels(image_rgb.shape, min_face_pixels)
     errors = []
     try:
         regions = _detect_faces_mediapipe(image_rgb, max_faces, min_face_pixels)
@@ -429,9 +602,13 @@ def detect_face_regions(
     except Exception as exc:
         errors.append(f"mediapipe:{type(exc).__name__}:{exc}")
     try:
+        return _detect_faces_yunet(image_rgb, max_faces, min_face_pixels), errors
+    except Exception as exc:
+        errors.append(f"yunet:{type(exc).__name__}:{exc}")
+    try:
         return _detect_faces_opencv(image_rgb, max_faces, min_face_pixels), errors
     except Exception as exc:
-        errors.append(f"opencv:{type(exc).__name__}:{exc}")
+        errors.append(f"opencv-haar:{type(exc).__name__}:{exc}")
         return [], errors
 
 
@@ -1151,7 +1328,7 @@ def refine_depth_for_faces(
     feather_ratio: float = DEFAULT_FACE_FEATHER_RATIO,
     max_correction_ratio: float = DEFAULT_FACE_MAX_CORRECTION_RATIO,
     max_faces: int = 3,
-    min_face_pixels: int = 96,
+    min_face_pixels: int = DEFAULT_MIN_FACE_PIXELS,
     detector: Callable[[np.ndarray], tuple[list[dict], list[str]] | list[dict]] | None = None,
 ) -> tuple[str, dict]:
     mode = str(mode or "auto").strip().lower()
@@ -1168,6 +1345,10 @@ def refine_depth_for_faces(
         "part_mask_schema_version": 1,
         "part_names": list(FACE_PART_NAMES),
         "part_mask_faces": 0,
+        "minimum_face_pixels": {
+            "requested": int(min_face_pixels),
+            "effective": None,
+        },
     }
     if mode == "off":
         metadata["reason"] = "disabled"
@@ -1184,10 +1365,12 @@ def refine_depth_for_faces(
         metadata["reason"] = f"input_unavailable:{type(exc).__name__}:{exc}"
         return str(depth_path), metadata
 
+    effective_min_face_pixels = _effective_min_face_pixels(image_rgb.shape, min_face_pixels)
+    metadata["minimum_face_pixels"]["effective"] = int(effective_min_face_pixels)
     detection_result = detector(image_rgb) if detector else detect_face_regions(
         image_rgb,
         max_faces=max_faces,
-        min_face_pixels=min_face_pixels,
+        min_face_pixels=effective_min_face_pixels,
     )
     if isinstance(detection_result, tuple):
         regions, detector_errors = detection_result
@@ -1222,6 +1405,9 @@ def refine_depth_for_faces(
             "bbox": [int(value) for value in region["bbox"]],
             "status": "pending",
         }
+        for audit_key in ("confidence", "keypoints", "model_revision", "model_sha256"):
+            if audit_key in region:
+                face_record[audit_key] = region[audit_key]
         try:
             crop_box = _padded_box(
                 region["bbox"],
