@@ -1405,6 +1405,9 @@ async def process_image(
                 device=device,
             )
 
+        selection_region_mask_path = (
+            selection_job["mask_path"] if selection_job is not None else None
+        )
         depth_data_path, face_refinement = refine_depth_for_faces(
             image_for_depth,
             depth_data_path,
@@ -1414,14 +1417,13 @@ async def process_image(
             detail_strength=face_detail_strength,
             feather_ratio=face_feather_ratio,
             max_correction_ratio=face_max_correction_ratio,
+            detection_roi_mask=selection_region_mask_path,
         )
         record_timing("face_refinement_seconds", stage_started)
         depth_metadata["face_refinement"] = face_refinement
         selection_depth_context = {"enabled": False, "reason": "not_requested"}
-        selection_region_mask_path = None
         if selection_job is not None:
             stage_started = time.perf_counter()
-            selection_region_mask_path = selection_job["mask_path"]
             with Image.open(selection_region_mask_path) as selection_mask_image:
                 selection_mask = np.asarray(selection_mask_image.convert("L")) > 0
             context_depth = np.load(depth_data_path).astype(np.float32)

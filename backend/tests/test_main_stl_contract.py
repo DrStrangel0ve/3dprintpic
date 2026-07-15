@@ -255,6 +255,7 @@ class MainStlContractTest(unittest.TestCase):
             inferred_pixels = []
             refined_pixels = []
             mesh_source_pixels = []
+            refinement_roi_masks = []
 
             def fake_complete_image(input_path, **_kwargs):
                 return input_path, None
@@ -294,6 +295,7 @@ class MainStlContractTest(unittest.TestCase):
                 with Image.open(image_path) as image:
                     rgb = image.convert("RGB")
                     refined_pixels.append((rgb.getpixel((1, 1)), rgb.getpixel((16, 13))))
+                refinement_roi_masks.append(Path(_kwargs["detection_roi_mask"]))
                 return depth, no_faces
 
             real_depth_to_model = main_module.depth_data_to_3d_model
@@ -366,6 +368,10 @@ class MainStlContractTest(unittest.TestCase):
             self.assertEqual(inferred_pixels, [(200, 40, 20)])
             self.assertEqual(refined_pixels, [((245, 245, 245), (200, 40, 20))])
             self.assertEqual(mesh_source_pixels, [((70, 80, 90), (200, 40, 20))])
+            self.assertEqual(
+                refinement_roi_masks,
+                [output_root / "selection" / selection_job_id / "selection_mask.png"],
+            )
             self.assertTrue(payload["selection_depth_context"]["enabled"])
             self.assertEqual(payload["selection_depth_context"]["selection_job_id"], selection_job_id)
             self.assertEqual(

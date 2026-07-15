@@ -17,6 +17,7 @@ from backend.face_depth_refinement import (
     EYEWEAR_LANDMARK_INDICES,
     FACE_PART_NAMES,
     _detect_eyewear_occlusion_weight,
+    detect_face_regions_in_roi,
     _effective_min_face_pixels,
     _reconstruct_eyewear_occlusion,
     _resolve_verified_model,
@@ -233,6 +234,97 @@ class FaceDepthRefinementTest(unittest.TestCase):
 
         self.assertEqual(regions, [expected_region])
         self.assertEqual(errors, [])
+
+    def test_selection_roi_detection_upscales_and_maps_landmarks(self):
+        image = np.zeros((256, 256, 3), dtype=np.uint8)
+        roi_mask = np.zeros((256, 256), dtype=np.uint8)
+        roi_mask[90:166, 36:118] = 255
+        observed = {}
+
+        def detector(crop, max_faces, min_face_pixels):
+            observed["shape"] = crop.shape
+            observed["minimum"] = min_face_pixels
+            height, width = crop.shape[:2]
+            face_mask, feature_mask = face_masks_from_box(
+                crop.shape,
+                (width * 0.20, height * 0.18, width * 0.80, height * 0.84),
+            )
+            landmarks = np.zeros((478, 3), dtype=np.float32)
+            landmarks[:, 0] = 0.50
+            landmarks[:, 1] = 0.51
+            return [
+                {
+                    "bbox": [
+                        int(width * 0.20),
+                        int(height * 0.18),
+                        int(width * 0.80),
+                        int(height * 0.84),
+                    ],
+                    "face_mask": face_mask,
+                    "feature_mask": feature_mask,
+                    "part_masks": {},
+                    "detector": "fixture",
+                    "landmark_count": 478,
+                    "landmarks_xyz": landmarks,
+                }
+            ], []
+
+        regions, errors, stats = detect_face_regions_in_roi(
+            image,
+            roi_mask,
+            detector=detector,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(regions), 1)
+        self.assertGreaterEqual(max(observed["shape"][:2]), 384)
+        self.assertEqual(observed["minimum"], 96)
+        self.assertEqual(regions[0]["face_mask"].shape, image.shape[:2])
+        self.assertEqual(regions[0]["landmark_count"], 478)
+        self.assertTrue(regions[0]["detector"].startswith("selection-roi:"))
+        self.assertGreater(float(regions[0]["landmarks_xyz"][0, 0]), 0.0)
+        self.assertLess(float(regions[0]["landmarks_xyz"][0, 0]), 1.0)
+        self.assertEqual(stats["detected_faces"], 1)
+        self.assertEqual(stats["selection_detail_fallback_regions"], 0)
+        self.assertGreaterEqual(regions[0]["selection_overlap_ratio"], 0.5)
+
+    def test_selection_roi_can_emit_labeled_generic_detail_fallback(self):
+        image = np.zeros((256, 256, 3), dtype=np.uint8)
+        roi_mask = np.zeros((256, 256), dtype=np.uint8)
+        roi_mask[90:166, 36:118] = 255
+
+        regions, errors, stats = detect_face_regions_in_roi(
+            image,
+            roi_mask,
+            detector=lambda *_args: ([], []),
+            allow_selection_detail_fallback=True,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(regions[0]["detector"], "selection-detail-fallback")
+        self.assertEqual(regions[0]["semantic_scope"], "selected-component-detail")
+        self.assertEqual(regions[0]["landmark_count"], 0)
+        self.assertEqual(regions[0]["face_mask"].shape, image.shape[:2])
+        self.assertEqual(stats["validated_face_regions"], 0)
+        self.assertEqual(stats["selection_detail_fallback_regions"], 1)
+
+    def test_selection_detail_fallback_is_suppressed_on_detector_error(self):
+        image = np.zeros((256, 256, 3), dtype=np.uint8)
+        roi_mask = np.zeros((256, 256), dtype=np.uint8)
+        roi_mask[90:166, 36:118] = 255
+
+        regions, errors, stats = detect_face_regions_in_roi(
+            image,
+            roi_mask,
+            detector=lambda *_args: ([], ["mediapipe:RuntimeError:model failed"]),
+            allow_selection_detail_fallback=True,
+        )
+
+        self.assertEqual(regions, [])
+        self.assertTrue(errors)
+        self.assertFalse(stats["fallback_errors_clean"])
+        self.assertEqual(stats["selection_detail_fallback_regions"], 0)
 
     @staticmethod
     def _synthetic_eyewear_landmarks():
@@ -613,6 +705,61 @@ class FaceDepthRefinementTest(unittest.TestCase):
             self.assertFalse(metadata["applied"])
             self.assertEqual(metadata["reason"], "no_face_detected")
 
+    def test_selected_component_detail_fallback_refines_without_landmark_prior(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = root / "selected.png"
+            depth_path = root / "depth.npy"
+            image = np.full((128, 128, 3), 245, dtype=np.uint8)
+            image[28:108, 30:98] = (165, 118, 96)
+            Image.fromarray(image).save(image_path)
+            yy, xx = np.indices((64, 64), dtype=np.float32)
+            global_depth = 0.3 + 0.001 * xx + 0.0005 * yy
+            np.save(depth_path, global_depth)
+            roi_mask = np.zeros((128, 128), dtype=np.uint8)
+            roi_mask[28:108, 30:98] = 255
+
+            def infer_depth(crop_path, output_dir):
+                crop = Image.open(crop_path)
+                rows, cols = np.indices((crop.height, crop.width), dtype=np.float32)
+                local = 0.6 + 0.002 * cols + 0.001 * rows
+                local += 0.06 * np.sin(cols * 0.35) * np.cos(rows * 0.31)
+                output = Path(output_dir) / "output_depth_data.npy"
+                np.save(output, local.astype(np.float32))
+                return output
+
+            refined_path, metadata = refine_depth_for_faces(
+                image_path,
+                depth_path,
+                root,
+                infer_depth=infer_depth,
+                mode="auto",
+                detector=lambda _image: [],
+                detection_roi_mask=roi_mask,
+            )
+
+            refined = np.load(refined_path)
+            self.assertTrue(metadata["applied"])
+            self.assertEqual(metadata["selection_detail_fallback_regions"], 1)
+            self.assertEqual(metadata["refined_faces"], 0)
+            self.assertEqual(metadata["detected_faces"], 0)
+            self.assertEqual(metadata["refined_selection_detail_regions"], 1)
+            self.assertEqual(metadata["refined_regions_total"], 1)
+            self.assertEqual(
+                metadata["faces"][0]["detector"],
+                "selection-detail-fallback",
+            )
+            self.assertEqual(
+                metadata["faces"][0]["semantic_scope"],
+                "selected-component-detail",
+            )
+            self.assertFalse(metadata["faces"][0]["landmark_shape_prior"]["enabled"])
+            self.assertGreater(float(np.max(np.abs(refined - global_depth))), 0.0)
+            region_mask = np.asarray(Image.open(root / metadata["region_file"]))
+            weight_mask = np.asarray(Image.open(root / metadata["weight_file"]))
+            self.assertEqual(int(np.max(region_mask)), 0)
+            self.assertGreater(int(np.max(weight_mask)), 0)
+
     def test_required_mode_raises_when_all_detector_backends_fail(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -691,6 +838,7 @@ class FaceDepthRefinementTest(unittest.TestCase):
             self.assertAlmostEqual(call.kwargs["detail_strength"], 1.4)
             self.assertAlmostEqual(call.kwargs["feather_ratio"], 0.25)
             self.assertAlmostEqual(call.kwargs["max_correction_ratio"], 0.05)
+            self.assertIsNone(call.kwargs["detection_roi_mask"])
             self.assertEqual(payload["face_refinement"], refinement_audit)
             self.assertIn("face_refinement_seconds", payload["timings"])
 

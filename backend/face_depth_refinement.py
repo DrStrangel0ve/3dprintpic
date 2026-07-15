@@ -46,6 +46,9 @@ DETECTOR_MODEL_PATH_ENVIRONMENT_NAMES = (
 DEFAULT_MIN_FACE_PIXELS = 96
 MIN_FACE_PIXELS_FLOOR = 48
 MIN_FACE_IMAGE_RATIO = 0.25
+SELECTION_ROI_DETECTION_DIMENSION = 384
+SELECTION_ROI_PADDING_RATIO = 0.45
+SELECTION_ROI_MINIMUM_COVERAGE = 0.001
 FACE_OVAL_INDICES = [
     10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378,
     400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21,
@@ -610,7 +613,7 @@ def _detect_faces_opencv(image_rgb: np.ndarray, max_faces: int, min_face_pixels:
     cascade_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
     detector = cv2.CascadeClassifier(str(cascade_path))
     if detector.empty():
-        raise RuntimeError(f"OpenCV face detector could not load {cascade_path}")
+        raise RuntimeError("OpenCV face detector cascade is unavailable")
     detections = detector.detectMultiScale(
         gray,
         scaleFactor=1.08,
@@ -660,6 +663,240 @@ def detect_face_regions(
     except Exception as exc:
         errors.append(_detector_error_record("opencv-haar", exc))
         return [], errors
+
+
+def _square_padded_component_box(box, width: int, height: int) -> tuple[int, int, int, int]:
+    x0, y0, x1, y1 = _clamp_box(box, width, height)
+    center_x = 0.5 * (x0 + x1)
+    center_y = 0.5 * (y0 + y1)
+    side = max(x1 - x0, y1 - y0) * (1.0 + 2.0 * SELECTION_ROI_PADDING_RATIO)
+    return _clamp_box(
+        (
+            center_x - 0.5 * side,
+            center_y - 0.5 * side,
+            center_x + 0.5 * side,
+            center_y + 0.5 * side,
+        ),
+        width,
+        height,
+    )
+
+
+def _map_roi_face_region(
+    region: dict,
+    *,
+    roi_box: tuple[int, int, int, int],
+    roi_shape: tuple[int, int],
+    image_shape: tuple[int, int, int],
+    scale_x: float,
+    scale_y: float,
+    component_mask: np.ndarray,
+) -> dict | None:
+    image_height, image_width = int(image_shape[0]), int(image_shape[1])
+    x0, y0, x1, y1 = roi_box
+    roi_height, roi_width = int(roi_shape[0]), int(roi_shape[1])
+    bx0, by0, bx1, by1 = region["bbox"]
+    mapped_box = _clamp_box(
+        (
+            x0 + float(bx0) / scale_x,
+            y0 + float(by0) / scale_y,
+            x0 + float(bx1) / scale_x,
+            y0 + float(by1) / scale_y,
+        ),
+        image_width,
+        image_height,
+    )
+    if min(mapped_box[2] - mapped_box[0], mapped_box[3] - mapped_box[1]) < MIN_FACE_PIXELS_FLOOR:
+        return None
+
+    mapped = dict(region)
+    mapped["bbox"] = list(mapped_box)
+    mapped["detector"] = f"selection-roi:{region.get('detector') or 'unknown'}"
+    mapped["detection_scope"] = "selection-component-upscaled"
+    mapped["detection_roi_bbox"] = list(roi_box)
+    mapped["detection_roi_scale"] = [float(scale_x), float(scale_y)]
+    for mask_name in ("face_mask", "feature_mask"):
+        source_mask = np.asarray(region[mask_name], dtype=np.uint8)
+        resized = cv2.resize(source_mask, (roi_width, roi_height), interpolation=cv2.INTER_NEAREST)
+        full = np.zeros((image_height, image_width), dtype=np.uint8)
+        full[y0:y1, x0:x1] = resized
+        mapped[mask_name] = full
+    selected = np.asarray(component_mask, dtype=bool)
+    mapped_face = mapped["face_mask"] > 0
+    selected_overlap_ratio = float(
+        np.count_nonzero(mapped_face & selected)
+        / max(np.count_nonzero(mapped_face), 1)
+    )
+    if selected_overlap_ratio < 0.50:
+        return None
+    mapped["selection_overlap_ratio"] = selected_overlap_ratio
+    mapped_parts = {}
+    for name, source_mask in (region.get("part_masks") or {}).items():
+        resized = cv2.resize(
+            np.asarray(source_mask, dtype=np.uint8),
+            (roi_width, roi_height),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        full = np.zeros((image_height, image_width), dtype=np.uint8)
+        full[y0:y1, x0:x1] = resized
+        mapped_parts[name] = full
+    mapped["part_masks"] = mapped_parts
+
+    if region.get("landmarks_xyz") is not None:
+        landmarks = np.asarray(region["landmarks_xyz"], dtype=np.float32).copy()
+        landmarks[:, 0] = (
+            x0 + landmarks[:, 0] * max(roi_width - 1, 1)
+        ) / max(image_width - 1, 1)
+        landmarks[:, 1] = (
+            y0 + landmarks[:, 1] * max(roi_height - 1, 1)
+        ) / max(image_height - 1, 1)
+        mapped["landmarks_xyz"] = landmarks
+    if region.get("keypoints") is not None:
+        keypoints = np.asarray(region["keypoints"], dtype=np.float32).reshape(-1, 2)
+        keypoints[:, 0] = x0 + keypoints[:, 0] / scale_x
+        keypoints[:, 1] = y0 + keypoints[:, 1] / scale_y
+        mapped["keypoints"] = keypoints.round(3).tolist()
+    return mapped
+
+
+def detect_face_regions_in_roi(
+    image_rgb: np.ndarray,
+    roi_mask: np.ndarray,
+    *,
+    max_faces: int = 3,
+    min_face_pixels: int = DEFAULT_MIN_FACE_PIXELS,
+    detector: Callable[[np.ndarray, int, int], tuple[list[dict], list[str]] | list[dict]] | None = None,
+    allow_selection_detail_fallback: bool = False,
+) -> tuple[list[dict], list[str], dict]:
+    image_height, image_width = image_rgb.shape[:2]
+    mask = np.asarray(roi_mask, dtype=np.uint8)
+    if mask.shape != (image_height, image_width):
+        mask = cv2.resize(mask, (image_width, image_height), interpolation=cv2.INTER_NEAREST)
+    binary = (mask > 0).astype(np.uint8)
+    component_count, labels, stats, _centroids = cv2.connectedComponentsWithStats(binary, 8)
+    minimum_area = max(
+        64,
+        int(round(image_height * image_width * SELECTION_ROI_MINIMUM_COVERAGE)),
+    )
+    components = []
+    for component in range(1, component_count):
+        x, y, width, height, area = (int(value) for value in stats[component])
+        if area < minimum_area or min(width, height) < MIN_FACE_PIXELS_FLOOR:
+            continue
+        components.append((area, component, (x, y, x + width, y + height)))
+    components.sort(reverse=True)
+
+    regions = []
+    errors = []
+    attempts = []
+    for _area, _component, component_box in components[: max(1, int(max_faces))]:
+        roi_box = _square_padded_component_box(
+            component_box,
+            image_width,
+            image_height,
+        )
+        x0, y0, x1, y1 = roi_box
+        crop = image_rgb[y0:y1, x0:x1]
+        if not crop.size:
+            continue
+        scale = SELECTION_ROI_DETECTION_DIMENSION / float(max(crop.shape[:2]))
+        target_width = max(1, int(round(crop.shape[1] * scale)))
+        target_height = max(1, int(round(crop.shape[0] * scale)))
+        resized = cv2.resize(crop, (target_width, target_height), interpolation=cv2.INTER_CUBIC)
+        effective_minimum = _effective_min_face_pixels(resized.shape, min_face_pixels)
+        detection_result = (
+            detector(resized, max_faces, effective_minimum)
+            if detector is not None
+            else detect_face_regions(
+                resized,
+                max_faces=max_faces,
+                min_face_pixels=effective_minimum,
+            )
+        )
+        if isinstance(detection_result, tuple):
+            local_regions, local_errors = detection_result
+        else:
+            local_regions, local_errors = detection_result, []
+        errors.extend(f"selection-roi:{error}" for error in local_errors)
+        mapped_count = 0
+        for region in local_regions:
+            mapped = _map_roi_face_region(
+                region,
+                roi_box=roi_box,
+                roi_shape=crop.shape[:2],
+                image_shape=image_rgb.shape,
+                scale_x=target_width / float(crop.shape[1]),
+                scale_y=target_height / float(crop.shape[0]),
+                component_mask=labels == _component,
+            )
+            if mapped is not None:
+                mx0, my0, mx1, my1 = mapped["bbox"]
+                duplicate = False
+                for existing in regions:
+                    ex0, ey0, ex1, ey1 = existing["bbox"]
+                    intersection = max(0, min(mx1, ex1) - max(mx0, ex0)) * max(
+                        0,
+                        min(my1, ey1) - max(my0, ey0),
+                    )
+                    union = (
+                        max(0, mx1 - mx0) * max(0, my1 - my0)
+                        + max(0, ex1 - ex0) * max(0, ey1 - ey0)
+                        - intersection
+                    )
+                    if union > 0 and intersection / union >= 0.50:
+                        duplicate = True
+                        break
+                if not duplicate:
+                    regions.append(mapped)
+                    mapped_count += 1
+        attempts.append(
+            {
+                "component_bbox": list(component_box),
+                "roi_bbox": list(roi_box),
+                "input_shape": [target_height, target_width],
+                "effective_minimum_face_pixels": int(effective_minimum),
+                "detected_faces": int(mapped_count),
+            }
+        )
+        if len(regions) >= max_faces:
+            break
+    fallback_regions = 0
+    fallback_errors_are_clean = all(
+        str(error).endswith(
+            "opencv-haar:RuntimeError:OpenCV face detector cascade is unavailable"
+        )
+        for error in errors
+    )
+    if not regions and allow_selection_detail_fallback and fallback_errors_are_clean:
+        for _area, component, component_box in components[: max(1, int(max_faces))]:
+            x0, y0, x1, y1 = component_box
+            if min(x1 - x0, y1 - y0) < max(MIN_FACE_PIXELS_FLOOR, 64):
+                continue
+            component_mask = (labels == component).astype(np.uint8) * 255
+            regions.append(
+                {
+                    "bbox": list(component_box),
+                    "face_mask": component_mask,
+                    "feature_mask": component_mask.copy(),
+                    "part_masks": {},
+                    "detector": "selection-detail-fallback",
+                    "landmark_count": 0,
+                    "semantic_scope": "selected-component-detail",
+                    "fallback_reason": "no_validated_face_in_selection_roi",
+                }
+            )
+            fallback_regions += 1
+            if len(regions) >= max_faces:
+                break
+    return regions[:max_faces], errors, {
+        "enabled": True,
+        "eligible_components": int(len(components)),
+        "attempts": attempts,
+        "detected_faces": int(min(len(regions), max_faces)),
+        "validated_face_regions": int(max(0, len(regions) - fallback_regions)),
+        "selection_detail_fallback_regions": int(fallback_regions),
+        "fallback_errors_clean": bool(fallback_errors_are_clean),
+    }
 
 
 def _resize_float(values: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
@@ -1380,6 +1617,7 @@ def refine_depth_for_faces(
     max_faces: int = 3,
     min_face_pixels: int = DEFAULT_MIN_FACE_PIXELS,
     detector: Callable[[np.ndarray], tuple[list[dict], list[str]] | list[dict]] | None = None,
+    detection_roi_mask: str | Path | np.ndarray | None = None,
 ) -> tuple[str, dict]:
     mode = str(mode or "auto").strip().lower()
     if mode not in FACE_REFINEMENT_MODES:
@@ -1395,10 +1633,14 @@ def refine_depth_for_faces(
         "part_mask_schema_version": 1,
         "part_names": list(FACE_PART_NAMES),
         "part_mask_faces": 0,
+        "selection_detail_fallback_regions": 0,
+        "refined_selection_detail_regions": 0,
+        "refined_regions_total": 0,
         "minimum_face_pixels": {
             "requested": int(min_face_pixels),
             "effective": None,
         },
+        "selection_roi_detection": {"enabled": False, "reason": "not_provided"},
     }
     if mode == "off":
         metadata["reason"] = "disabled"
@@ -1417,17 +1659,49 @@ def refine_depth_for_faces(
 
     effective_min_face_pixels = _effective_min_face_pixels(image_rgb.shape, min_face_pixels)
     metadata["minimum_face_pixels"]["effective"] = int(effective_min_face_pixels)
-    detection_result = detector(image_rgb) if detector else detect_face_regions(
-        image_rgb,
-        max_faces=max_faces,
-        min_face_pixels=effective_min_face_pixels,
-    )
+    def run_detector(values: np.ndarray, requested_faces: int, requested_minimum: int):
+        if detector is not None:
+            return detector(values)
+        return detect_face_regions(
+            values,
+            max_faces=requested_faces,
+            min_face_pixels=requested_minimum,
+        )
+
+    detection_result = run_detector(image_rgb, max_faces, effective_min_face_pixels)
     if isinstance(detection_result, tuple):
         regions, detector_errors = detection_result
     else:
         regions, detector_errors = detection_result, []
     metadata["detector_errors"] = [str(error) for error in detector_errors]
-    metadata["detected_faces"] = int(len(regions))
+    if not regions and detection_roi_mask is not None:
+        try:
+            if isinstance(detection_roi_mask, (str, Path)):
+                roi_mask = np.asarray(Image.open(detection_roi_mask).convert("L"))
+            else:
+                roi_mask = np.asarray(detection_roi_mask)
+            regions, roi_errors, roi_stats = detect_face_regions_in_roi(
+                image_rgb,
+                roi_mask,
+                max_faces=max_faces,
+                min_face_pixels=min_face_pixels,
+                detector=run_detector,
+                allow_selection_detail_fallback=mode == "auto",
+            )
+            metadata["detector_errors"].extend(str(error) for error in roi_errors)
+            metadata["selection_roi_detection"] = roi_stats
+            metadata["selection_detail_fallback_regions"] = int(
+                roi_stats.get("selection_detail_fallback_regions", 0)
+            )
+        except Exception as exc:
+            metadata["selection_roi_detection"] = {
+                "enabled": True,
+                "reason": "roi_detection_error",
+                "error": f"{type(exc).__name__}:selection_roi_detection_failed",
+            }
+    metadata["detected_faces"] = int(
+        len(regions) - metadata["selection_detail_fallback_regions"]
+    )
     if not regions:
         if mode == "on" and detector_errors:
             raise RuntimeError(
@@ -1455,7 +1729,20 @@ def refine_depth_for_faces(
             "bbox": [int(value) for value in region["bbox"]],
             "status": "pending",
         }
-        for audit_key in ("confidence", "keypoints", "model_revision", "model_sha256"):
+        is_selection_detail = (
+            region.get("semantic_scope") == "selected-component-detail"
+        )
+        for audit_key in (
+            "confidence",
+            "keypoints",
+            "model_revision",
+            "model_sha256",
+            "semantic_scope",
+            "fallback_reason",
+            "detection_scope",
+            "detection_roi_bbox",
+            "detection_roi_scale",
+        ):
             if audit_key in region:
                 face_record[audit_key] = region[audit_key]
         try:
@@ -1611,12 +1898,15 @@ def refine_depth_for_faces(
                 combined_weight[dy0:dy1, dx0:dx1],
                 detail_weight,
             )
-            combined_region[dy0:dy1, dx0:dx1] = np.maximum(
-                combined_region[dy0:dy1, dx0:dx1],
-                (face_mask > 0).astype(np.uint8) * 255,
-            )
+            if not is_selection_detail:
+                combined_region[dy0:dy1, dx0:dx1] = np.maximum(
+                    combined_region[dy0:dy1, dx0:dx1],
+                    (face_mask > 0).astype(np.uint8) * 255,
+                )
             part_mask_files = {}
-            if all(np.any(local_part_masks.get(name, 0)) for name in FACE_PART_NAMES):
+            if not is_selection_detail and all(
+                np.any(local_part_masks.get(name, 0)) for name in FACE_PART_NAMES
+            ):
                 part_dir = artifact_dir / f"face_{index:02d}_parts"
                 part_dir.mkdir(parents=True, exist_ok=True)
                 full_face_mask = np.zeros(global_depth.shape, dtype=np.uint8)
@@ -1650,7 +1940,11 @@ def refine_depth_for_faces(
                     **stats,
                 }
             )
-            metadata["refined_faces"] += 1
+            if is_selection_detail:
+                metadata["refined_selection_detail_regions"] += 1
+            else:
+                metadata["refined_faces"] += 1
+            metadata["refined_regions_total"] += 1
         except Exception as exc:
             face_record.update(
                 {
@@ -1660,8 +1954,8 @@ def refine_depth_for_faces(
             )
         metadata["faces"].append(face_record)
 
-    if not metadata["refined_faces"]:
-        metadata["reason"] = "face_depth_inference_failed"
+    if not metadata["refined_regions_total"]:
+        metadata["reason"] = "detail_depth_inference_failed"
         if mode == "on":
             errors = "; ".join(face.get("error", "unknown") for face in metadata["faces"])
             raise RuntimeError(f"Face refinement was required but no face could be refined: {errors}")
