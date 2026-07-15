@@ -492,6 +492,41 @@ and choosing the flip from oracle scores would leak evaluation into emission.
 Clean evidence at implementation revision `5738972` is in
 `docs/benchmark-evidence/makehuman_da3metric_relief_centered_n1/`.
 
+## Learned background correction and modern geometry cues
+
+A bounded `106,225`-parameter residual U-Net was trained on 16 deterministic
+CC0/procedural scenes with four validation scenes and two sealed final scenes.
+The selected face is masked from the network input and restored byte-for-byte;
+exact depth is training/evaluation-only. The run is a hold. It improves sealed
+background gradient correlation from `0.5346/0.5427` to `0.8318/0.8767`, but
+broad correlation remains wrong at `-0.4449/-0.4719`. Every target was reachable
+and incremental training VRAM was only `0.4615 GB`, so more gain or capacity is
+not justified by this failure.
+
+The May 2026 HyDen-MoGeV2 normal model was researched next. Its official model
+is manually gated under the FAIR noncommercial research license and the local
+token cannot access it, so no weights were downloaded. The official Apache-2.0
+Lotus-2 Normal and Depth public demos were each smoked on one CC0 row. Both
+preserved the person while flattening the analytic background, so neither was
+integrated. Pins, output checksums, measured holds, and reproduction are in
+`docs/benchmark-evidence/background_residual_da2_n20_s1/`.
+
+## Stronger face-protected photo relief
+
+The deterministic photo-detail path was then swept at `0`, `0.12`, `0.30`, and
+`0.60 mm` through eight complete 30 mm STLs. The first pass exposed that texture
+near the selection boundary could make later attachment capping move the first
+two selected pixels. A wider quiet halo now suppresses photo detail around the
+subject before physical capping; face-interior shape remains effectively exact.
+
+The clean final sweep promotes `0.60 mm`. Active source-detail correlation is
+`0.4774` centered and `0.7051` right-cropped. Background detail RMS reaches
+`0.1204/0.0585 mm`, while face-interior p99 movement stays below `0.0005 mm`
+and worst interior movement is `0.0027 mm`. All eight STLs pass background,
+cap, attachment, topology, and shell gates. The backend API default is now
+`0.60 mm`; the local UI default and range match it. Compact evidence is in
+`docs/benchmark-evidence/background_photo_detail_sweep_30mm_n2_v3/`.
+
 ## Validation
 
 ```powershell
