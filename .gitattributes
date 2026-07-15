@@ -1,0 +1,5 @@
+# These externally pinned assets are validated by byte-exact SHA256 checks.
+backend/benchmark/assets/mediapipe_canonical_face/canonical_face_model.obj -text
+backend/benchmark/assets/mediapipe_canonical_face/LICENSE -text
+backend/benchmark/summarize_cc0_live_relief_context.py -text
+docs/benchmark-evidence/cc0_live_relief_context_varied_s40_n4/summary.json -text
