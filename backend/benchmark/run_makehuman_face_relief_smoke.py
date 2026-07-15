@@ -231,6 +231,7 @@ def _emit_row(
     low_percentile: float = 0.0,
     high_percentile: float = 100.0,
     use_part_feature_weight: bool = True,
+    background_photo_detail_mm: float = 0.0,
 ) -> tuple[dict, dict]:
     started = time.perf_counter()
     base_row_id = (
@@ -315,7 +316,7 @@ def _emit_row(
         selection_region_mask=face_mask,
         selection_background_depth_ratio=float(background_depth_ratio),
         source_image=source_path,
-        background_photo_detail_mm=0.0,
+        background_photo_detail_mm=float(background_photo_detail_mm),
         feature_weight_mask=feature_weight,
         printable_feature_depth_mm=0.8,
         feature_bridge_depth_mm=0.8,
@@ -425,6 +426,7 @@ def _emit_row(
         "profile_name": spec.profile_name,
         "framing": framing,
         "relief_height_mm": float(relief_height_mm),
+        "background_photo_detail_mm": float(background_photo_detail_mm),
         "runtime_seconds": float(time.perf_counter() - started),
         "checks": {**checks, "passed": bool(all(checks.values()))},
         "absolute_face": {**_compact_appearance(appearance), "checks": appearance_checks},
