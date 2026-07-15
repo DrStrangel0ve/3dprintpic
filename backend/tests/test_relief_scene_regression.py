@@ -4,10 +4,12 @@ from inspect import signature
 import numpy as np
 
 from backend.benchmark.run_relief_scene_regression import (
+    _boundary_shape_metrics,
     _certification_checks,
     _extreme,
     _negative_controls,
     _scene_checks,
+    _scene_geometry,
     _scene_specs,
     _synthetic_scene,
     run,
@@ -25,11 +27,12 @@ class ReliefSceneRegressionTest(unittest.TestCase):
     def test_scene_matrix_is_varied_and_deterministic(self):
         specs = _scene_specs()
 
-        self.assertEqual(len(specs), 6)
-        self.assertEqual(len({spec.scene_id for spec in specs}), 6)
-        self.assertEqual(len({spec.background for spec in specs}), 6)
+        self.assertEqual(len(specs), 10)
+        self.assertEqual(len({spec.scene_id for spec in specs}), 10)
+        self.assertEqual(len({spec.background for spec in specs}), 10)
 
         signatures = []
+        geometry = []
         for spec in specs:
             with self.subTest(scene=spec.scene_id):
                 source, face, subject = _synthetic_scene(spec)
@@ -39,7 +42,7 @@ class ReliefSceneRegressionTest(unittest.TestCase):
                 self.assertEqual(face.shape, source.shape)
                 self.assertEqual(subject.shape, source.shape)
                 self.assertTrue(np.all(subject[face]))
-                self.assertGreater(np.count_nonzero(face), 1000)
+                self.assertGreater(np.count_nonzero(face), 700)
                 self.assertGreater(np.count_nonzero(~subject), 4000)
                 self.assertTrue(np.all(np.isfinite(source)))
                 self.assertGreater(float(np.ptp(source[~subject])), 0.05)
@@ -53,8 +56,39 @@ class ReliefSceneRegressionTest(unittest.TestCase):
                         int(np.count_nonzero(subject)),
                     )
                 )
+                geometry.append(_scene_geometry(spec, face, subject))
 
         self.assertEqual(len(set(signatures)), len(specs))
+        self.assertLessEqual(min(item["face_scale_ratio"] for item in geometry), 0.65)
+        self.assertGreaterEqual(max(item["face_scale_ratio"] for item in geometry), 1.5)
+        self.assertLessEqual(
+            min(item["subject_coverage_ratio"] for item in geometry), 0.25
+        )
+        self.assertGreaterEqual(
+            max(item["subject_coverage_ratio"] for item in geometry), 0.6
+        )
+        self.assertGreaterEqual(sum(item["face_touches_frame"] for item in geometry), 2)
+        clipped = [item for item in geometry if item["framing"].endswith("clipped")]
+        self.assertEqual(len(clipped), 2)
+        self.assertTrue(all(item["visible_face_fraction"] < 0.8 for item in clipped))
+
+    def test_boundary_shape_gate_is_source_relative_and_stricter_than_global_gate(self):
+        background = {
+            "reference_boundary_jump_p99_mm": 0.9,
+            "reference_boundary_jump_max_mm": 1.7,
+            "output_boundary_jump_p99_mm": 1.55,
+            "output_boundary_jump_max_mm": 3.1,
+        }
+        cap = {"attachment_step_limit_mm": 0.8}
+
+        accepted = _boundary_shape_metrics(background, cap)
+        self.assertTrue(accepted["passed"])
+        self.assertEqual(accepted["p99_limit_mm"], 1.6)
+        self.assertEqual(accepted["max_limit_mm"], 3.2)
+
+        background["output_boundary_jump_p99_mm"] = 1.61
+        rejected = _boundary_shape_metrics(background, cap)
+        self.assertFalse(rejected["passed"])
 
     def test_source_context_signal_is_a_hard_scene_gate(self):
         compose = {
@@ -135,7 +169,7 @@ class ReliefSceneRegressionTest(unittest.TestCase):
         checks = _certification_checks(
             [],
             expected_scene_count=0,
-            full_scene_count=6,
+            full_scene_count=10,
             provenance=provenance,
             negative_controls=controls,
         )

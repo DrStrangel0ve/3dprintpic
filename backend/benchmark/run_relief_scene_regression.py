@@ -35,6 +35,9 @@ class SceneSpec:
     center_row: float = 44.0
     yaw: float = 0.0
     expression: float = 0.0
+    face_half_width: float = 24.0
+    face_half_height: float = 30.0
+    framing: str = "standard"
 
 
 def _scene_specs() -> tuple[SceneSpec, ...]:
@@ -74,6 +77,50 @@ def _scene_specs() -> tuple[SceneSpec, ...]:
             center_row=41.0,
             yaw=-0.18,
             expression=-0.55,
+        ),
+        SceneSpec(
+            "small_face_fine_grid",
+            "fine_grid",
+            center_col=88.0,
+            center_row=30.0,
+            yaw=0.42,
+            expression=0.25,
+            face_half_width=14.0,
+            face_half_height=18.0,
+            framing="small_face",
+        ),
+        SceneSpec(
+            "near_full_frame_radial",
+            "radial_arch",
+            center_col=60.0,
+            center_row=39.0,
+            yaw=-0.12,
+            expression=0.5,
+            face_half_width=40.0,
+            face_half_height=48.0,
+            framing="near_full_frame",
+        ),
+        SceneSpec(
+            "left_clipped_diagonal",
+            "diagonal_layers",
+            center_col=8.0,
+            center_row=36.0,
+            yaw=-0.62,
+            expression=0.1,
+            face_half_width=30.0,
+            face_half_height=36.0,
+            framing="left_clipped",
+        ),
+        SceneSpec(
+            "right_clipped_boundary_steps",
+            "boundary_steps",
+            center_col=113.0,
+            center_row=43.0,
+            yaw=0.58,
+            expression=-0.35,
+            face_half_width=25.0,
+            face_half_height=31.0,
+            framing="right_clipped",
         ),
     )
 
@@ -118,27 +165,54 @@ def _background_surface(kind: str, rows: np.ndarray, cols: np.ndarray) -> np.nda
         surface = 0.315 + 0.055 * np.sin(cols / 15.0) + 0.035 * np.cos(rows / 17.0)
         surface += 0.070 * np.exp(-((rows - 29.0) ** 2 + (cols - 93.0) ** 2) / 500.0)
         return surface
+    if kind == "fine_grid":
+        surface = 0.105 + 0.00055 * rows + 0.00035 * cols
+        surface += 0.026 * np.sin(cols / 3.5) * np.cos(rows / 4.5)
+        surface += 0.038 * np.exp(-((rows - 77.0) ** 2 + (cols - 23.0) ** 2) / 180.0)
+        return surface
+    if kind == "radial_arch":
+        radius = np.sqrt(np.square(rows - 60.0) + np.square(cols - 60.0))
+        surface = 0.090 + 0.00105 * rows + 0.022 * np.cos(radius / 5.5)
+        surface += 0.080 * np.exp(-np.square((radius - 43.0) / 6.0))
+        return surface
+    if kind == "diagonal_layers":
+        diagonal = rows + 0.82 * cols
+        near_plane = 1.0 / (1.0 + np.exp(-(diagonal - 116.0) / 4.5))
+        surface = 0.060 + 0.170 * near_plane
+        surface += 0.018 * np.sin(diagonal / 7.0) + 0.00035 * cols
+        return surface
+    if kind == "boundary_steps":
+        surface = 0.070 + 0.00055 * rows + 0.00025 * cols
+        surface += 0.090 * ((cols > 78.0) & (cols < 86.0))
+        surface += 0.065 * ((rows > 24.0) & (rows < 33.0))
+        surface += 0.035 * np.sin((rows + cols) / 5.0)
+        return surface
     raise ValueError(f"Unknown synthetic background: {kind}")
 
 
 def _synthetic_scene(spec: SceneSpec) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     shape = (121, 121)
     rows, cols = np.indices(shape, dtype=np.float64)
-    x = (cols - spec.center_col) / 24.0
-    y = (rows - spec.center_row) / 30.0
+    scale_x = float(spec.face_half_width) / 24.0
+    scale_y = float(spec.face_half_height) / 30.0
+    x = (cols - spec.center_col) / float(spec.face_half_width)
+    y = (rows - spec.center_row) / float(spec.face_half_height)
     face = np.square(x) + np.square(y) <= 1.0
 
-    neck_start = spec.center_row + 22.0
-    neck_end = spec.center_row + 48.0
-    neck_half_width = 11.0 - 0.10 * np.clip(rows - neck_start, 0.0, 22.0)
+    neck_start = spec.center_row + 22.0 * scale_y
+    neck_end = spec.center_row + 48.0 * scale_y
+    neck_local_row = np.clip((rows - neck_start) / max(scale_y, 1e-6), 0.0, 22.0)
+    neck_half_width = (11.0 - 0.10 * neck_local_row) * scale_x
     neck = (
         (rows >= neck_start)
         & (rows <= neck_end)
         & (np.abs(cols - spec.center_col) <= neck_half_width)
     )
     torso = (
-        np.square((cols - spec.center_col) / 47.0)
-        + np.square((rows - (spec.center_row + 69.0)) / 38.0)
+        np.square((cols - spec.center_col) / (47.0 * scale_x))
+        + np.square(
+            (rows - (spec.center_row + 69.0 * scale_y)) / (38.0 * scale_y)
+        )
         <= 1.0
     )
     subject = face | neck | torso
@@ -171,9 +245,102 @@ def _synthetic_scene(spec: SceneSpec) -> tuple[np.ndarray, np.ndarray, np.ndarra
     return relief.astype(np.float32), face, subject
 
 
+def _scene_geometry(spec: SceneSpec, face: np.ndarray, subject: np.ndarray) -> dict:
+    row_values = np.arange(
+        int(np.floor(spec.center_row - spec.face_half_height)),
+        int(np.ceil(spec.center_row + spec.face_half_height)) + 1,
+        dtype=np.float64,
+    )
+    col_values = np.arange(
+        int(np.floor(spec.center_col - spec.face_half_width)),
+        int(np.ceil(spec.center_col + spec.face_half_width)) + 1,
+        dtype=np.float64,
+    )
+    full_rows, full_cols = np.meshgrid(row_values, col_values, indexing="ij")
+    full_face = (
+        np.square((full_cols - spec.center_col) / spec.face_half_width)
+        + np.square((full_rows - spec.center_row) / spec.face_half_height)
+        <= 1.0
+    )
+    face_pixels = int(np.count_nonzero(face))
+    full_face_pixels = int(np.count_nonzero(full_face))
+    touched_edges = []
+    if np.any(face[0]):
+        touched_edges.append("top")
+    if np.any(face[-1]):
+        touched_edges.append("bottom")
+    if np.any(face[:, 0]):
+        touched_edges.append("left")
+    if np.any(face[:, -1]):
+        touched_edges.append("right")
+    return {
+        "framing": spec.framing,
+        "face_half_width_px": float(spec.face_half_width),
+        "face_half_height_px": float(spec.face_half_height),
+        "face_scale_ratio": float(
+            np.sqrt((spec.face_half_width / 24.0) * (spec.face_half_height / 30.0))
+        ),
+        "face_pixels": face_pixels,
+        "face_coverage_ratio": float(face_pixels / face.size),
+        "visible_face_fraction": float(face_pixels / max(full_face_pixels, 1)),
+        "subject_pixels": int(np.count_nonzero(subject)),
+        "subject_coverage_ratio": float(np.count_nonzero(subject) / subject.size),
+        "face_touches_frame": bool(touched_edges),
+        "touched_edges": touched_edges,
+    }
+
+
+def _boundary_shape_metrics(background: dict, cap: dict) -> dict:
+    def finite(key: str) -> float | None:
+        try:
+            value = float(background.get(key))
+        except (TypeError, ValueError):
+            return None
+        return value if np.isfinite(value) else None
+
+    reference_p99 = finite("reference_boundary_jump_p99_mm")
+    reference_max = finite("reference_boundary_jump_max_mm")
+    output_p99 = finite("output_boundary_jump_p99_mm")
+    output_max = finite("output_boundary_jump_max_mm")
+    try:
+        attachment_step = float(cap.get("attachment_step_limit_mm", 0.8))
+    except (TypeError, ValueError):
+        attachment_step = 0.8
+    if not np.isfinite(attachment_step) or attachment_step <= 0.0:
+        attachment_step = 0.8
+    p99_limit = max(attachment_step * 2.0, (reference_p99 or 0.0) * 1.25)
+    max_limit = max(attachment_step * 4.0, (reference_max or 0.0) * 1.25)
+    available = all(
+        value is not None
+        for value in (reference_p99, reference_max, output_p99, output_max)
+    )
+    passed = bool(
+        available
+        and output_p99 <= p99_limit + 1e-6
+        and output_max <= max_limit + 1e-6
+    )
+    return {
+        "available": available,
+        "passed": passed,
+        "reference_p99_mm": reference_p99,
+        "reference_max_mm": reference_max,
+        "output_p99_mm": output_p99,
+        "output_max_mm": output_max,
+        "p99_limit_mm": float(p99_limit),
+        "max_limit_mm": float(max_limit),
+        "output_p99_to_limit_ratio": (
+            float(output_p99 / p99_limit) if output_p99 is not None else None
+        ),
+        "output_max_to_limit_ratio": (
+            float(output_max / max_limit) if output_max is not None else None
+        ),
+    }
+
+
 def _scene_checks(compose: dict, postprocess: dict, topology: dict) -> dict[str, bool]:
     background = postprocess["background_depth_preservation"]
     cap = postprocess["selection_background_physical_cap"]
+    boundary_shape = _boundary_shape_metrics(background, cap)
     face = postprocess["face_detail_guard"].get("final", {})
     far_max = cap.get("far_background_max_mm")
     far_ceiling = cap.get("far_background_ceiling_mm")
@@ -206,10 +373,13 @@ def _scene_checks(compose: dict, postprocess: dict, topology: dict) -> dict[str,
             background.get("available", False)
             and background.get("passed", False)
         ),
-        "background_coverage": float(background.get("candidate_coverage_ratio", 0.0)) >= 1.0,
+        "background_coverage": (
+            float(background.get("candidate_coverage_ratio", 0.0)) >= 1.0
+        ),
         "localized_background_structure": bool(
             background.get("localized_structure", {}).get("passed", False)
         ),
+        "selection_boundary_shape": bool(boundary_shape["passed"]),
         "face_detail": bool(
             face.get("available", False)
             and float(face.get("correlation", 0.0)) >= 0.8
@@ -417,6 +587,8 @@ def _certification_checks(
         ("compose", "recoverable_context_coverage_ratio"),
         ("background", "correlation"),
         ("background", "gradient_correlation"),
+        ("boundary_shape", "output_p99_mm"),
+        ("boundary_shape", "output_max_mm"),
         ("face", "correlation"),
         ("physical_cap", "far_background_max_mm"),
     )
@@ -440,19 +612,27 @@ def _certification_checks(
         and all(row["checks"]["passed"] for row in rows),
         "all_background_gates_passed": bool(rows)
         and all(row["checks"]["background_preservation"] for row in rows),
+        "all_boundary_shape_gates_passed": bool(rows)
+        and all(row["checks"]["selection_boundary_shape"] for row in rows),
         "all_face_gates_passed": bool(rows)
         and all(row["checks"]["face_detail"] for row in rows),
         "all_physical_emission_gates_passed": bool(rows)
         and all(row["checks"]["physical_emission"] for row in rows),
         "all_meshes_printable": bool(rows)
         and all(row["checks"]["printable_mesh"] for row in rows),
+        "framing_matrix_complete": bool(rows)
+        and min(row["geometry"]["face_scale_ratio"] for row in rows) <= 0.65
+        and max(row["geometry"]["face_scale_ratio"] for row in rows) >= 1.5
+        and min(row["geometry"]["subject_coverage_ratio"] for row in rows) <= 0.25
+        and max(row["geometry"]["subject_coverage_ratio"] for row in rows) >= 0.6
+        and sum(row["geometry"]["face_touches_frame"] for row in rows) >= 2,
     }
 
 
 def run(
     output_dir: str | Path,
     summary_path: str | Path | None = None,
-    limit: int = 6,
+    limit: int = 10,
     allow_dirty: bool = False,
     background_depth_ratio: float = DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
 ) -> dict:
@@ -470,6 +650,7 @@ def run(
         scene_dir = output_dir / spec.scene_id
         scene_dir.mkdir(parents=True, exist_ok=True)
         source, face_mask, subject_mask = _synthetic_scene(spec)
+        geometry = _scene_geometry(spec, face_mask, subject_mask)
         composed, compose_stats = compose_selection_depth_with_context(
             source,
             subject_mask,
@@ -508,12 +689,14 @@ def run(
         background = postprocess["background_depth_preservation"]
         cap = postprocess["selection_background_physical_cap"]
         face = postprocess["face_detail_guard"].get("final", {})
+        boundary_shape = _boundary_shape_metrics(background, cap)
         checks = _scene_checks(compose_stats, postprocess, topology)
         rows.append(
             {
                 "scene_id": spec.scene_id,
                 "background_archetype": spec.background,
                 "runtime_seconds": float(time.perf_counter() - scene_started),
+                "geometry": geometry,
                 "checks": {**checks, "passed": all(checks.values())},
                 "compose": {
                     "context_pixels": int(compose_stats["background_context_pixels"]),
@@ -555,6 +738,7 @@ def run(
                     "fallback_used": "fallback" in background,
                     "localized_structure": background.get("localized_structure"),
                 },
+                "boundary_shape": boundary_shape,
                 "face": {
                     "correlation": _finite_metric(face, "correlation"),
                     "rms_retention": _finite_metric(face, "rms_retention"),
@@ -593,9 +777,12 @@ def run(
         negative_controls=negative_controls,
     )
     summary = {
-        "schema_version": 2,
+        "schema_version": 3,
         "run_kind": "deterministic_privacy_safe_relief_scene_regression",
-        "privacy": "all inputs are analytic arrays; no photos, masks, or private meshes are used",
+        "privacy": (
+            "all inputs are analytic arrays; no photos, masks, or private meshes "
+            "are used"
+        ),
         "implementation_provenance": provenance,
         "allow_dirty": bool(allow_dirty),
         "relief_height_mm": 30.0,
@@ -627,6 +814,27 @@ def run(
             "minimum_face_rms_retention": _extreme(
                 rows, "face", "rms_retention", min
             ),
+            "minimum_face_scale_ratio": _extreme(
+                rows, "geometry", "face_scale_ratio", min
+            ),
+            "maximum_face_scale_ratio": _extreme(
+                rows, "geometry", "face_scale_ratio", max
+            ),
+            "minimum_subject_coverage_ratio": _extreme(
+                rows, "geometry", "subject_coverage_ratio", min
+            ),
+            "maximum_subject_coverage_ratio": _extreme(
+                rows, "geometry", "subject_coverage_ratio", max
+            ),
+            "frame_touching_face_count": sum(
+                row["geometry"]["face_touches_frame"] for row in rows
+            ),
+            "maximum_boundary_p99_to_limit_ratio": _extreme(
+                rows, "boundary_shape", "output_p99_to_limit_ratio", max
+            ),
+            "maximum_boundary_max_to_limit_ratio": _extreme(
+                rows, "boundary_shape", "output_max_to_limit_ratio", max
+            ),
             "maximum_far_background_mm": _extreme(
                 rows, "physical_cap", "far_background_max_mm", max
             ),
@@ -655,10 +863,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--output-dir",
-        default="backend/output/relief-scene-regression-local-n6",
+        default="backend/output/relief-scene-regression-local-n10",
     )
     parser.add_argument("--summary-path")
-    parser.add_argument("--limit", type=int, default=6)
+    parser.add_argument("--limit", type=int, default=10)
     parser.add_argument(
         "--background-depth-ratio",
         type=float,
