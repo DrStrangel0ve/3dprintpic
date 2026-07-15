@@ -144,6 +144,10 @@ class MainStlContractTest(unittest.TestCase):
                 self.assertTrue(payload["stl_diagnostics"]["stl_is_watertight"])
                 self.assertTrue(payload["stl_diagnostics"]["stl_is_volume"])
                 self.assertTrue(payload["stl_diagnostics"]["stl_is_manifold"])
+                provenance = payload["runtime"]["implementation_provenance"]
+                self.assertTrue(provenance["available"])
+                self.assertRegex(provenance["revision"], r"^[a-f0-9]{40}$")
+                self.assertIn(provenance["clean"], (True, False))
                 self.assertEqual(payload["requested_target_dimension"], 80)
                 self.assertEqual(payload["target_dimension"], 512)
                 self.assertAlmostEqual(payload["relief_sample_pitch_mm"], 40 / 511)
@@ -175,6 +179,7 @@ class MainStlContractTest(unittest.TestCase):
                 self.assertEqual(metadata["target_dimension"], payload["target_dimension"])
                 self.assertEqual(metadata["requested_target_dimension"], payload["requested_target_dimension"])
                 self.assertEqual(metadata["relief_postprocess"], payload["relief_postprocess"])
+                self.assertEqual(metadata["runtime"], payload["runtime"])
 
     def test_process_image_forwards_background_photo_detail_default_and_override(self):
         with tempfile.TemporaryDirectory() as temp_dir:

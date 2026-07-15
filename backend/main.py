@@ -57,6 +57,12 @@ except ImportError:  # pragma: no cover - supports running uvicorn from backend/
     if __package__:
         raise
     from stl_diagnostics import json_safe_stl_diagnostics, stl_diagnostics
+try:
+    from .runtime_provenance import runtime_source_provenance
+except ImportError:  # pragma: no cover - supports running uvicorn from backend/
+    if __package__:
+        raise
+    from runtime_provenance import runtime_source_provenance
 import numpy as np
 from PIL import Image, ImageFilter, ImageOps
 
@@ -902,6 +908,7 @@ def get_runtime_info() -> dict:
             "cuda_available": cuda_available,
             "cuda_version": torch.version.cuda,
             "device": torch.cuda.get_device_name(0) if cuda_available else "cpu",
+            "implementation_provenance": runtime_source_provenance(),
         }
     except Exception as exc:
         return {
@@ -910,6 +917,7 @@ def get_runtime_info() -> dict:
             "cuda_version": None,
             "device": "unknown",
             "error": str(exc),
+            "implementation_provenance": runtime_source_provenance(),
         }
 
 
