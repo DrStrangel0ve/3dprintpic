@@ -4995,6 +4995,7 @@ def _compress_selected_relief_surface(
         minimum_detail_rms_retention=0.15,
         detail_gradient_retention=HIGH_RELIEF_SELECTION_DETAIL_GRADIENT_RETENTION,
         maximum_detail_gradient_ratio=8.0,
+        allow_edge_only_candidate=True,
     )
     stats["sample_pitch_source"] = sample_pitch_source
     stats["selected_pixels"] = int(np.count_nonzero(selected))
@@ -5046,7 +5047,31 @@ def _compress_selected_relief_surface(
             feather_pixels=max(2.0, 1.5 / max(float(sample_pitch_mm), 1e-6)),
         )
         stats["selected_region_blend"] = localization_stats
-        return selection_surface, stats, stats
+        pre_blend_quality_gates = dict(stats.get("quality_gates", {}))
+        post_blend_audit = _audit_bounded_compression_surface(
+            values,
+            selection_surface,
+            detail_region,
+            sample_pitch_mm=sample_pitch_mm,
+            max_slope_mm_per_mm=max_slope_mm_per_mm,
+            quality_gates=pre_blend_quality_gates,
+        )
+        stats["pre_blend_quality_gates"] = pre_blend_quality_gates
+        stats["post_blend_quality_audit"] = post_blend_audit
+        if post_blend_audit.get("enabled", False):
+            stats["enabled"] = True
+            stats["reason"] = None
+            stats["quality_gates"] = post_blend_audit["quality_gates"]
+            stats["provisional_edge_only_candidate_accepted"] = bool(
+                stats.get("provisional_edge_only_candidate", False)
+            )
+            return selection_surface, stats, stats
+        stats["enabled"] = False
+        stats["reason"] = "post_blend_quality_gate"
+        stats["quality_gates"] = post_blend_audit.get(
+            "quality_gates",
+            pre_blend_quality_gates,
+        )
 
     if np.any(protected):
         return values, stats, None

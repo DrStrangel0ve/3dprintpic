@@ -25,6 +25,7 @@ from backend.pic_to_3d import (
     _cap_selection_background_relief,
     _bridge_weighted_face_features,
     _compress_relief_gradients,
+    _compress_selected_relief_surface,
     _expand_face_region_to_depth_connected_head,
     _face_detail_preservation_metrics,
     _guard_face_detail_updates,
@@ -1369,6 +1370,146 @@ class ReliefStlControlsTest(unittest.TestCase):
             }
         )
         self.assertFalse(np.array_equal(compressed, values))
+
+    def test_selected_relief_accepts_edge_only_candidate_after_exact_surface_audit(self):
+        rows, cols = np.indices((48, 56), dtype=np.float32)
+        selected = ((rows - 25.0) ** 2 / 260.0 + (cols - 28.0) ** 2 / 360.0) <= 1.0
+        values = 0.02 * rows + 0.01 * cols
+        candidate = values.copy()
+        candidate[selected] += 0.12 * np.sin(cols[selected] * 0.4)
+        provisional = {
+            "enabled": True,
+            "reason": "pending_baseline_aware_post_blend_audit",
+            "provisional_edge_only_candidate": True,
+            "max_neighbor_step_mm": 0.8,
+            "detail_preservation": {
+                "available": True,
+                "components": [],
+            },
+            "quality_gates": {
+                "passed": False,
+                "failures": ["cardinal_edge_max"],
+                "minimum_detail_correlation": 0.65,
+                "minimum_detail_rms_retention": 0.15,
+                "maximum_detail_rms_retention": 2.0,
+                "maximum_output_edge_p99_ratio": 12.0,
+                "maximum_output_edge_ratio": 24.0,
+                "minimum_height_span_ratio": 0.5,
+                "maximum_height_span_ratio": 1.15,
+                "maximum_correction_span_ratio": 0.9,
+            },
+        }
+        accepted_audit = {
+            "enabled": True,
+            "quality_gates": {
+                **provisional["quality_gates"],
+                "passed": True,
+                "failures": [],
+            },
+        }
+        with (
+            patch.object(
+                pic_to_3d,
+                "_compress_relief_gradients",
+                return_value=(candidate, provisional),
+            ) as compress_mock,
+            patch.object(
+                pic_to_3d,
+                "_restore_face_laplacian_detail",
+                return_value=(candidate, {"enabled": False}),
+            ),
+            patch.object(
+                pic_to_3d,
+                "_audit_bounded_compression_surface",
+                return_value=accepted_audit,
+            ) as audit_mock,
+        ):
+            output, stats, slope_stats = _compress_selected_relief_surface(
+                values,
+                selected,
+                sample_pitch_mm=0.4,
+                max_slope_mm_per_mm=2.0,
+                sample_pitch_source="physical_size",
+            )
+
+        self.assertTrue(compress_mock.call_args.kwargs["allow_edge_only_candidate"])
+        audit_mock.assert_called_once()
+        self.assertTrue(stats["enabled"])
+        self.assertTrue(stats["quality_gates"]["passed"])
+        self.assertTrue(stats["provisional_edge_only_candidate_accepted"])
+        self.assertFalse(stats["pre_blend_quality_gates"]["passed"])
+        self.assertIs(slope_stats, stats)
+        self.assertFalse(np.array_equal(output, values))
+
+    def test_selected_relief_rejects_edge_only_candidate_when_exact_surface_audit_fails(self):
+        rows, cols = np.indices((40, 48), dtype=np.float32)
+        selected = ((rows - 21.0) ** 2 / 210.0 + (cols - 24.0) ** 2 / 280.0) <= 1.0
+        values = 0.02 * rows + 0.01 * cols
+        candidate = values + selected * 0.2
+        provisional = {
+            "enabled": True,
+            "reason": "pending_baseline_aware_post_blend_audit",
+            "provisional_edge_only_candidate": True,
+            "max_neighbor_step_mm": 0.8,
+            "detail_preservation": {"available": True, "components": []},
+            "quality_gates": {
+                "passed": False,
+                "failures": ["cardinal_edge_max"],
+                "minimum_detail_correlation": 0.65,
+                "minimum_detail_rms_retention": 0.15,
+                "maximum_detail_rms_retention": 2.0,
+                "maximum_output_edge_p99_ratio": 12.0,
+                "maximum_output_edge_ratio": 24.0,
+                "minimum_height_span_ratio": 0.5,
+                "maximum_height_span_ratio": 1.15,
+                "maximum_correction_span_ratio": 0.9,
+            },
+        }
+        rejected_audit = {
+            "enabled": False,
+            "reason": "quality_gate",
+            "quality_gates": {
+                **provisional["quality_gates"],
+                "passed": False,
+                "failures": ["cardinal_edge_max"],
+            },
+        }
+        fallback_stats = {"enabled": True, "method": "test_fallback"}
+        with (
+            patch.object(
+                pic_to_3d,
+                "_compress_relief_gradients",
+                return_value=(candidate, provisional),
+            ),
+            patch.object(
+                pic_to_3d,
+                "_restore_face_laplacian_detail",
+                return_value=(candidate, {"enabled": False}),
+            ),
+            patch.object(
+                pic_to_3d,
+                "_audit_bounded_compression_surface",
+                return_value=rejected_audit,
+            ),
+            patch.object(
+                pic_to_3d,
+                "_limit_positive_relief_slope",
+                return_value=(values, fallback_stats),
+            ),
+        ):
+            output, stats, slope_stats = _compress_selected_relief_surface(
+                values,
+                selected,
+                sample_pitch_mm=0.4,
+                max_slope_mm_per_mm=2.0,
+                sample_pitch_source="physical_size",
+            )
+
+        self.assertFalse(stats["enabled"])
+        self.assertEqual(stats["reason"], "post_blend_quality_gate")
+        self.assertFalse(stats["quality_gates"]["passed"])
+        self.assertIs(slope_stats, fallback_stats)
+        np.testing.assert_array_equal(output, values)
 
     def test_gradient_compression_rejects_a_detail_destroying_solution(self):
         rows, cols = np.indices((32, 32), dtype=np.float32)
