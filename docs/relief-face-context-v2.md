@@ -435,6 +435,38 @@ Research notes, CC0 previews, before/after aggregate telemetry, checksums, and
 reproduction commands are in
 `docs/benchmark-evidence/makehuman_face_relief_reversal_projection_n6/`.
 
+## Predicted depth through the physical STL path
+
+The next bounded lane replaces exact depth with real monocular predictions on
+the centered smile and the hardest right-cropped asymmetric scene. Each model
+runs once per scene, then its unchanged cached depth is emitted at 30 and 40 mm.
+The exact silhouette is a declared selection control; exact depth and named
+facial-part masks are metric-only and cannot affect challenger normalization,
+feature weighting, or STL generation.
+
+Depth Anything V2 Large keeps every generated mesh printable and passes its own
+context, cap, attachment, shell, and 30-to-40 consistency checks. On the
+centered face it also passes physical normal/relighting and scale-free
+named-part shape. The remaining eye/eyebrow millimeter misses are upstream model
+error. The cropped face retains scale-free part shape but misses the stricter
+physical appearance and millimeter gates.
+
+This run also separates background suppression from background estimation
+error. At 30/40 mm, the centered Depth Anything meshes retain
+`18.5118`/`24.6825` mm of background span, so the compositor is not flattening
+the scene. Against the exact scene, however, broad background correlation is
+`-0.1226` and gradient correlation is `0.0506` at 30 mm. Increasing background
+gain would amplify incorrect ordering rather than recover depth.
+
+The current Apache-2.0 DA3Mono-Large checkpoint was tested from exact official
+source/model revisions. It fit easily on the local 3080 Ti (`1.5414` GB peak)
+but regressed facial shape and did not repair broad background ordering, so it
+was not expanded past the centered control. Implementation, measured telemetry,
+and reproduction commands are in
+`docs/benchmark-evidence/makehuman_predicted_relief_providers_n2/`.
+Both provider runs have clean implementation provenance at exact revision
+`d0528a7df0036750b687d9b4cf388cbe9b3d5c2b`.
+
 ## Validation
 
 ```powershell
@@ -447,7 +479,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 504 passed, 48 subtests passed (3 existing warnings).
+- Backend: 510 passed, 54 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
