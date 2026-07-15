@@ -5,6 +5,28 @@ from backend.benchmark import run_background_photo_detail_provider_smoke as prov
 
 
 class BackgroundPhotoDetailProviderSmokeTests(unittest.TestCase):
+    def test_portable_manifest_removes_local_model_paths(self):
+        manifest = {
+            "model_id": "depth-anything/example",
+            "provider_metadata": {
+                "model": "C:/Users/example/.cache/model",
+                "effective_model": "C:/Users/example/.cache/model",
+                "revision": "abc123",
+            },
+        }
+
+        portable = provider_smoke._portable_inference_manifest(manifest)
+
+        self.assertEqual(
+            portable["provider_metadata"]["model"], "depth-anything/example"
+        )
+        self.assertEqual(
+            portable["provider_metadata"]["effective_model"],
+            "depth-anything/example",
+        )
+        self.assertEqual(portable["provider_metadata"]["revision"], "abc123")
+        self.assertIn(".cache", manifest["provider_metadata"]["model"])
+
     def test_detail_telemetry_requires_protected_exact_effective_value(self):
         valid = {
             "enabled": True,

@@ -45,6 +45,17 @@ PROVENANCE_PATHS = (
 )
 
 
+def _portable_inference_manifest(manifest: dict) -> dict:
+    portable = json.loads(json.dumps(manifest))
+    metadata = portable.get("provider_metadata")
+    model_id = portable.get("model_id")
+    if isinstance(metadata, dict) and isinstance(model_id, str):
+        for key in ("model", "effective_model"):
+            if key in metadata:
+                metadata[key] = model_id
+    return portable
+
+
 def _detail_telemetry_checks(stats: dict, expected_detail_mm: float) -> dict:
     requested = stats.get("requested_detail_mm")
     effective = stats.get("effective_detail_mm")
@@ -106,7 +117,9 @@ def run(
             provider=DA2_PROVIDER,
             device=device,
         )
-        inference_manifests.append({"scene": spec.__dict__, **manifest})
+        inference_manifests.append(
+            {"scene": spec.__dict__, **_portable_inference_manifest(manifest)}
+        )
         emitted = []
         for detail_mm in levels:
             provider_name = f"{DA2_PROVIDER}_photo_detail_{detail_mm:.2f}mm".replace(
