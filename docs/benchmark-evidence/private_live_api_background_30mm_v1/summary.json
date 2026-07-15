@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "run_kind": "retained_private_exact_input_live_api_background_replay",
+  "privacy": "aggregate metrics only; source images, masks, paths, hashes, job identifiers, surfaces, and meshes remain in gitignored output",
+  "implementation_provenance": {
+    "available": true,
+    "clean": true,
+    "revision": "7c9c7fe962bea2c99ba1c9f75d6fe810c04435fe",
+    "paths": [
+      "backend/main.py",
+      "backend/pic_to_3d.py",
+      "backend/face_depth_refinement.py"
+    ],
+    "status": []
+  },
+  "matrix": {
+    "scene_label": "scene-01",
+    "relief_height_mm": 30.0,
+    "physical_size_mm": 128.0,
+    "target_dimension": 512,
+    "sigma": 0.35,
+    "background_fields_omitted_by_launcher": true,
+    "observed_background_photo_detail_mm": 0.6,
+    "observed_selection_background_depth_ratio": 0.65,
+    "runtime_seconds": 59.859
+  },
+  "request_checks": {
+    "target_dimension": true,
+    "z_scale": true,
+    "max_xy_size": true,
+    "sigma": true,
+    "background_photo_detail_mm": true,
+    "selection_background_depth_ratio": true,
+    "response_metadata_match": true,
+    "passed": true
+  },
+  "request_record_checks": {
+    "schema": true,
+    "endpoint": true,
+    "http_status": true,
+    "response_hash": true,
+    "response_job": true,
+    "exact_posted_fields": true,
+    "background_fields_omitted": true,
+    "omitted_not_posted": true,
+    "passed": true
+  },
+  "runtime_provenance_checks": {
+    "available": true,
+    "clean": true,
+    "revision": true,
+    "source": true,
+    "empty_status": true,
+    "passed": true
+  },
+  "exact_input_checks": {
+    "pinned_private_bundle_verified": true,
+    "source_exact": true,
+    "selection_mask_exact": true,
+    "refined_depth_exact": true,
+    "composed_context_depth_exact": true,
+    "reference_surface_exact": true,
+    "face_region_exact": true,
+    "feature_weight_exact": true,
+    "effective_model_exact": true,
+    "passed": true
+  },
+  "photo_detail": {
+    "enabled": true,
+    "method": "euclidean_inner_guard_smoothstep_to_full_gain",
+    "requested_detail_mm": 0.6,
+    "effective_detail_mm": 0.6,
+    "protection_halo_mm": 5.0,
+    "protection_zero_guard_mm": 2.0,
+    "input_sample_pitch_mm": 0.25048923679060664,
+    "detail_scale": 0.03293640539050102,
+    "background_coverage_ratio": 0.2175445556640625,
+    "checks": {
+      "enabled": true,
+      "face_protected": true,
+      "method": true,
+      "requested_detail": true,
+      "effective_detail": true,
+      "halo": true,
+      "zero_guard": true,
+      "finite_positive_scale": true,
+      "nonempty_background": true,
+      "passed": true
+    }
+  },
+  "face_quality": {
+    "normal_mean_cosine": 0.9910525041384934,
+    "normal_p05_cosine": 0.9904468863987128,
+    "normal_angle_p95_deg": 7.926041007102881,
+    "minimum_lighting_correlation": 0.9166571685634115,
+    "maximum_lighting_mae": 0.016038087676542367,
+    "minimum_lighting_rms_retention": 1.0148164382275369,
+    "maximum_lighting_rms_retention": 1.0940401091748553,
+    "candidate_coverage_ratio": 1.0,
+    "component_count": 2,
+    "measured_component_count": 2,
+    "detail_correlation": 0.9655614328879569,
+    "detail_rms_retention": 0.9475935812946222,
+    "minimum_component_detail_correlation": 0.9593418379392863,
+    "minimum_component_detail_rms_retention": 0.9309355748944411,
+    "height_span_ratio": 0.9972984546584132,
+    "appearance_gates": {
+      "minimum_normal_mean_cosine": 0.95,
+      "minimum_normal_p05_cosine": 0.85,
+      "maximum_normal_angle_p95_deg": 30.0,
+      "minimum_lighting_correlation": 0.8,
+      "maximum_lighting_mae": 0.08,
+      "minimum_lighting_rms_retention": 0.75,
+      "maximum_lighting_rms_retention": 1.4
+    },
+    "height_checks": {
+      "detail_correlation": true,
+      "detail_rms_retention": true,
+      "component_detail_correlation": true,
+      "component_detail_rms_retention": true,
+      "height_span_ratio": true,
+      "correction_span_ratio": true,
+      "edge_p99_ratio": true,
+      "edge_max_ratio": true,
+      "producer_quality_agrees": true,
+      "passed": true
+    },
+    "checks": {
+      "appearance": true,
+      "height_quality": true,
+      "all_components_measured": true,
+      "full_coverage": true,
+      "passed": true
+    }
+  },
+  "background_preservation": {
+    "passed": true,
+    "correlation": 0.9999944707013965,
+    "rms_retention": 1.0000509917616505,
+    "gradient_correlation": 0.9992600005311548,
+    "candidate_coverage_ratio": 1.0,
+    "checks": {
+      "available": true,
+      "coverage": true,
+      "correlation": true,
+      "rms_retention": true,
+      "span_retention": true,
+      "gradient_correlation": true,
+      "gradient_rms_retention": true,
+      "mean_shift": true,
+      "boundary_p99": true,
+      "boundary_max": true,
+      "localized_structure": true,
+      "no_reported_failures": true,
+      "producer_quality_agrees": true,
+      "passed": true
+    }
+  },
+  "physical_cap": {
+    "strict_passed": false,
+    "emission_passed": true,
+    "far_background_cap_passed": true,
+    "feasible_attachment_constraints_passed": true,
+    "far_background_max_mm": 19.510000228881836,
+    "far_background_ceiling_mm": 19.509999999776483,
+    "feasible_attachment_jump_max_mm": 0.8000001907348633,
+    "attachment_constraint_conflicts": 12,
+    "far_background_cap_violation_mm": 0.0,
+    "checks": {
+      "emission": true,
+      "far_background_flag": true,
+      "feasible_attachment_flag": true,
+      "zero_far_violation": true,
+      "far_height_within_ceiling": true,
+      "feasible_jump_within_limit": true,
+      "passed": true
+    }
+  },
+  "topology": {
+    "face_count": 309440,
+    "vertex_count": 154722,
+    "component_count": 1,
+    "nonmanifold_edge_count": 0,
+    "degenerate_face_count": 0,
+    "volume_fill_ratio": 0.33725657137636234,
+    "z_range_mm": 29.9090633392334,
+    "checks": {
+      "exists": true,
+      "watertight": true,
+      "volume": true,
+      "manifold": true,
+      "winding": true,
+      "single_component": true,
+      "zero_degenerates": true,
+      "positive_volume": true,
+      "bbox_has_volume": true,
+      "passed": true
+    }
+  },
+  "surface_checks": {
+    "same_shape": true,
+    "finite_surface": true,
+    "finite_reference": true,
+    "reference_emitted": true,
+    "passed": true
+  },
+  "serialized_shell": {
+    "passed": true,
+    "complete_shell_verified": true,
+    "facet_geometry_passed": true,
+    "coverage_ratio": 1.0,
+    "max_abs_error_mm": 0.0,
+    "rms_error_mm": 0.0,
+    "expected_shell_triangle_count": 309440,
+    "actual_shell_triangle_count": 309440,
+    "invalid_shell_triangle_count": 0
+  },
+  "checks": {
+    "request_contract": true,
+    "request_record": true,
+    "exact_input": true,
+    "photo_detail": true,
+    "face_quality": true,
+    "background_preservation": true,
+    "physical_cap": true,
+    "topology": true,
+    "surface_arrays": true,
+    "serialized_shell": true,
+    "implementation_provenance_clean": true,
+    "runtime_provenance_bound": true,
+    "passed": true
+  }
+}

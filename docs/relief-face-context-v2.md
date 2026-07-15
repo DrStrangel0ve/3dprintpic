@@ -616,6 +616,33 @@ Evidence and reproduction contracts are in
 `docs/benchmark-evidence/background_photo_detail_cc0_euclidean_guard_n3/`, and
 `docs/benchmark-evidence/private_background_photo_detail_30mm_v2_euclidean_guard/`.
 
+## Exact live API confirmation
+
+The first exact-input HTTP replay found that the validated direct-core
+background algorithm was not active in selection mode. Full-scene depth was
+inferred correctly, but the mesh call received the neutral subject-only image;
+photo relief consequently failed closed with `reason=no_photo_detail`. The API
+now uses the original full-scene source for photographic relief while retaining
+the neutral image for face refinement. Endpoint jobs also retain emitted and
+reference heightfields under ignored output for exact shell verification.
+
+The clean 30 mm replay at revision `7c9c7fe` omits both background form fields
+and observes the current `0.60 mm` / `0.65` defaults. Its refined depth,
+composed context, source, selection, face region, and feature-weight inputs all
+match the pinned direct-core artifacts, as does the retained pre-high-relief
+reference surface. The private request record binds the response hash and exact
+posted-field set, while the response binds the loaded clean revision. Photo
+relief is enabled with the 2 mm Euclidean guard and full recovery at 5 mm.
+
+Face normal mean cosine is `0.9911`, p95 normal error is `7.9260` degrees, and
+minimum relighting correlation is `0.9167`; all frozen appearance gates pass.
+Background depth/gradient correlation is `0.999994/0.999260` with `1.000051`
+RMS retention and complete coverage. The STL is one watertight manifold volume
+with zero degenerates. Its complete serialized shell matches all `309,440`
+expected facets with zero coordinate or RMS error. Aggregate telemetry and the
+privacy-safe reproduction contract are in
+`docs/benchmark-evidence/private_live_api_background_30mm_v1/`.
+
 ## Validation
 
 ```powershell
@@ -628,7 +655,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 556 passed, 72 subtests passed (2 existing warnings).
+- Backend: 564 passed, 72 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
