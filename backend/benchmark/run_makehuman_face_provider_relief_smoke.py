@@ -308,21 +308,25 @@ def _infer_cached_provider(
     peak_vram_gb = None
     incremental_peak_vram_gb = None
     resident_vram_gb = None
-    cuda_device = None
+    cuda_device_index = None
     try:
         import torch
 
         if device != "cpu" and torch.cuda.is_available():
             if device == "auto" or device == "cuda":
-                cuda_device = torch.device("cuda:0")
+                cuda_device_index = 0
             elif isinstance(device, str) and device.isdigit():
-                cuda_device = torch.device(f"cuda:{device}")
+                cuda_device_index = int(device)
             else:
-                cuda_device = torch.device(device)
-            resident_vram_gb = float(
-                torch.cuda.memory_allocated(cuda_device) / (1024**3)
-            )
-            torch.cuda.reset_peak_memory_stats(cuda_device)
+                resolved_cuda_device = torch.device(device)
+                cuda_device_index = (
+                    int(resolved_cuda_device.index)
+                    if resolved_cuda_device.index is not None
+                    else 0
+                )
+            with torch.cuda.device(cuda_device_index):
+                resident_vram_gb = float(torch.cuda.memory_allocated() / (1024**3))
+                torch.cuda.reset_peak_memory_stats()
     except ImportError:
         torch = None
     if provider == DA2_PROVIDER:
@@ -352,10 +356,9 @@ def _infer_cached_provider(
         depth_semantics = DA3_MODEL_SPECS[provider]["depth_semantics"]
         model_id = DA3_MODEL_SPECS[provider]["model_id"]
         model_revision = DA3_MODEL_SPECS[provider]["model_revision"]
-    if cuda_device is not None:
-        peak_vram_gb = float(
-            torch.cuda.max_memory_allocated(cuda_device) / (1024**3)
-        )
+    if cuda_device_index is not None:
+        with torch.cuda.device(cuda_device_index):
+            peak_vram_gb = float(torch.cuda.max_memory_allocated() / (1024**3))
         incremental_peak_vram_gb = float(
             max(peak_vram_gb - (resident_vram_gb or 0.0), 0.0)
         )
@@ -395,6 +398,7 @@ def _infer_cached_provider(
         "peak_vram_gb": peak_vram_gb,
         "incremental_peak_vram_gb": incremental_peak_vram_gb,
         "resident_vram_before_inference_gb": resident_vram_gb,
+        "cuda_device_index": cuda_device_index,
         "python": platform.python_version(),
         "provider_metadata": metadata,
         "ordering_diagnostics": _raw_depth_ordering_diagnostics(
