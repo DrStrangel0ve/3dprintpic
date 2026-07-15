@@ -5,6 +5,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import tempfile
 from typing import Callable
 import urllib.request
@@ -38,6 +39,10 @@ YUNET_MODEL_SHA256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2
 YUNET_MODEL_MAX_BYTES = 1024 * 1024
 YUNET_SCORE_THRESHOLD = 0.90
 YUNET_MAX_INPUT_DIMENSION = 1024
+DETECTOR_MODEL_PATH_ENVIRONMENT_NAMES = (
+    "FACE_LANDMARKER_MODEL_PATH",
+    "YUNET_FACE_DETECTOR_MODEL_PATH",
+)
 DEFAULT_MIN_FACE_PIXELS = 96
 MIN_FACE_PIXELS_FLOOR = 48
 MIN_FACE_IMAGE_RATIO = 0.25
@@ -309,6 +314,32 @@ def _resolve_yunet_model() -> Path:
         expected_sha256=YUNET_MODEL_SHA256,
         maximum_bytes=YUNET_MODEL_MAX_BYTES,
     )
+
+
+def _detector_error_record(detector: str, exc: Exception) -> str:
+    """Keep detector diagnostics useful without exposing configured model paths."""
+    message = str(exc)
+    for environment_name in DETECTOR_MODEL_PATH_ENVIRONMENT_NAMES:
+        configured = str(os.getenv(environment_name) or "").strip()
+        if not configured:
+            continue
+        configured_path = Path(configured).expanduser()
+        variants = {
+            configured,
+            str(configured_path),
+            str(configured_path.absolute()),
+        }
+        variants.update(value.replace("\\", "/") for value in tuple(variants))
+        for value in sorted(variants, key=len, reverse=True):
+            if value:
+                message = re.sub(
+                    re.escape(value),
+                    "<configured-model-path>",
+                    message,
+                    flags=re.IGNORECASE,
+                )
+    suffix = f":{message}" if message else ""
+    return f"{detector}:{type(exc).__name__}{suffix}"
 
 
 def _landmark_region(
@@ -617,17 +648,17 @@ def detect_face_regions(
         if regions:
             return regions, errors
     except Exception as exc:
-        errors.append(f"mediapipe:{type(exc).__name__}:{exc}")
+        errors.append(_detector_error_record("mediapipe", exc))
     try:
         regions = _detect_faces_yunet(image_rgb, max_faces, min_face_pixels)
         if regions:
             return regions, errors
     except Exception as exc:
-        errors.append(f"yunet:{type(exc).__name__}:{exc}")
+        errors.append(_detector_error_record("yunet", exc))
     try:
         return _detect_faces_opencv(image_rgb, max_faces, min_face_pixels), errors
     except Exception as exc:
-        errors.append(f"opencv-haar:{type(exc).__name__}:{exc}")
+        errors.append(_detector_error_record("opencv-haar", exc))
         return [], errors
 
 

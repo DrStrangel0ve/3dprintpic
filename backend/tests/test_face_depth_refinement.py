@@ -185,6 +185,42 @@ class FaceDepthRefinementTest(unittest.TestCase):
         self.assertEqual(regions, [expected_region])
         self.assertEqual(errors, ["yunet:RuntimeError:model unavailable"])
 
+    def test_detect_face_regions_redacts_configured_model_paths_from_errors(self):
+        image = np.zeros((256, 256, 3), dtype=np.uint8)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mediapipe_path = Path(temp_dir) / "private-mediapipe" / "model.task"
+            yunet_path = Path(temp_dir) / "private-yunet" / "model.onnx"
+            with (
+                patch.dict(
+                    face_module.os.environ,
+                    {
+                        "FACE_LANDMARKER_MODEL_PATH": str(mediapipe_path),
+                        "YUNET_FACE_DETECTOR_MODEL_PATH": str(yunet_path),
+                    },
+                ),
+                patch.object(
+                    face_module,
+                    "_detect_faces_mediapipe",
+                    side_effect=RuntimeError(
+                        f"could not load {str(mediapipe_path).upper()}"
+                    ),
+                ),
+                patch.object(
+                    face_module,
+                    "_detect_faces_yunet",
+                    side_effect=RuntimeError(f"could not load {yunet_path}"),
+                ),
+                patch.object(face_module, "_detect_faces_opencv", return_value=[]),
+            ):
+                regions, errors = detect_face_regions(image)
+
+        self.assertEqual(regions, [])
+        self.assertEqual(len(errors), 2)
+        self.assertTrue(all("<configured-model-path>" in error for error in errors))
+        self.assertTrue(all(str(mediapipe_path) not in error for error in errors))
+        self.assertTrue(all(str(mediapipe_path).upper() not in error for error in errors))
+        self.assertTrue(all(str(yunet_path) not in error for error in errors))
+
     def test_detect_face_regions_falls_back_to_haar_when_yunet_finds_no_face(self):
         image = np.zeros((256, 256, 3), dtype=np.uint8)
         expected_region = {"bbox": [90, 60, 165, 161], "detector": "opencv-haar"}

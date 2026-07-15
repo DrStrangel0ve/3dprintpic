@@ -70,15 +70,16 @@ component with zero degenerate faces. The exact shell check finds
 All frozen face appearance, background appearance, source-detail, background
 depth, physical cap, topology, request-binding, runtime-provenance, and exact
 shell gates pass. The tracked summary includes every frozen threshold and every
-numeric input used by the independent checks, rather than pass booleans alone.
+numeric input used by the independent checks, including per-component relighting
+records and explicit shell tolerances, rather than pass booleans alone.
 
-The clean detector-control run at revision `569d25c` detects the centered CC0
+The clean detector-control run at revision `162907c` detects the centered CC0
 face with YuNet confidence `0.9266`. MediaPipe, YuNet, the official OpenCV 4.10
 Haar cascade, and the complete production chain all emit zero detections and no
 errors on eight 256 px negative controls: the three subject-removed analytic
 backgrounds, three procedural 3D objects, a high-contrast checkerboard, and a
 blank neutral image. Every control records its exact RGB SHA256. The full
-tracked backend suite passes with 576 tests and 72 subtests; the two warnings
+tracked backend suite passes with 578 tests and 72 subtests; the two warnings
 are pre-existing.
 
 ## Reproduction
