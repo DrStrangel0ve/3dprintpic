@@ -663,6 +663,121 @@ class ReliefStlControlsTest(unittest.TestCase):
         )
         json.dumps(audit, allow_nan=False)
 
+    def test_post_blend_audit_rejects_large_changed_edge_excess(self):
+        rows, cols = np.indices((40, 40), dtype=np.float32)
+        source = 0.02 * rows + 0.01 * cols
+        source[:, 30:] += 10.0
+        candidate = source.copy()
+        candidate[10:30, 10:30] += 45.0
+        gates = {
+            "maximum_output_edge_p99_ratio": 12.0,
+            "maximum_output_edge_ratio": 24.0,
+            "minimum_height_span_ratio": 0.5,
+            "maximum_height_span_ratio": 6.0,
+            "maximum_correction_span_ratio": 6.0,
+        }
+
+        audit = _audit_bounded_compression_surface(
+            source,
+            candidate,
+            None,
+            sample_pitch_mm=0.4,
+            max_slope_mm_per_mm=2.0,
+            quality_gates=gates,
+        )
+
+        self.assertFalse(audit["enabled"])
+        self.assertGreater(audit["output_edge_excess_ratio_max"], 24.0)
+        self.assertIn(
+            "cardinal_edge_excess_max",
+            audit["quality_gates"]["failures"],
+        )
+
+    def test_post_blend_audit_requires_identical_finite_coverage(self):
+        rows, cols = np.indices((40, 40), dtype=np.float32)
+        source = 0.02 * rows + 0.01 * cols
+        candidate = source.copy()
+        candidate[20:, :] = np.nan
+
+        audit = _audit_bounded_compression_surface(
+            source,
+            candidate,
+            None,
+            sample_pitch_mm=0.4,
+            max_slope_mm_per_mm=2.0,
+            quality_gates={},
+        )
+
+        self.assertFalse(audit["enabled"])
+        self.assertEqual(audit["reason"], "finite_coverage_mismatch")
+        self.assertFalse(audit["finite_mask_match"])
+        self.assertEqual(
+            audit["quality_gates"]["failures"],
+            ["finite_coverage_mismatch"],
+        )
+
+    def test_post_blend_audit_rejects_material_edge_direction_reversal(self):
+        rows, cols = np.indices((40, 40), dtype=np.float32)
+        source = 2.5 * rows + 0.01 * cols
+        source[:, 20:] += 5.0
+        candidate = source.copy()
+        candidate[:, 20:] -= 10.0
+        gates = {
+            "maximum_output_edge_p99_ratio": 12.0,
+            "maximum_output_edge_ratio": 24.0,
+            "minimum_height_span_ratio": 0.5,
+            "maximum_height_span_ratio": 1.15,
+            "maximum_correction_span_ratio": 0.9,
+        }
+
+        audit = _audit_bounded_compression_surface(
+            source,
+            candidate,
+            None,
+            sample_pitch_mm=0.4,
+            max_slope_mm_per_mm=2.0,
+            quality_gates=gates,
+            reject_direction_reversals=True,
+        )
+
+        self.assertFalse(audit["enabled"])
+        self.assertGreater(audit["cardinal_edge_direction_reversal_count"], 0)
+        self.assertIn(
+            "cardinal_edge_direction_reversal",
+            audit["quality_gates"]["failures"],
+        )
+
+    def test_post_blend_audit_rejects_substep_source_edge_reversed_into_cliff(self):
+        rows, cols = np.indices((40, 40), dtype=np.float32)
+        source = 2.5 * rows + 0.01 * cols
+        source[:, 20:] += 0.7
+        candidate = source.copy()
+        candidate[:, 20:] -= 8.0
+        gates = {
+            "maximum_output_edge_p99_ratio": 12.0,
+            "maximum_output_edge_ratio": 24.0,
+            "minimum_height_span_ratio": 0.5,
+            "maximum_height_span_ratio": 1.15,
+            "maximum_correction_span_ratio": 0.9,
+        }
+
+        audit = _audit_bounded_compression_surface(
+            source,
+            candidate,
+            None,
+            sample_pitch_mm=0.4,
+            max_slope_mm_per_mm=2.0,
+            quality_gates=gates,
+            reject_direction_reversals=True,
+        )
+
+        self.assertFalse(audit["enabled"])
+        self.assertGreater(audit["cardinal_edge_direction_reversal_count"], 0)
+        self.assertIn(
+            "cardinal_edge_direction_reversal",
+            audit["quality_gates"]["failures"],
+        )
+
     def test_face_detail_metrics_fail_closed_for_tiny_detected_component(self):
         rows, cols = np.indices((48, 64), dtype=np.float32)
         reference = 0.02 * rows + 0.03 * cols + 0.2 * np.sin(cols * 0.4)
@@ -1506,7 +1621,11 @@ class ReliefStlControlsTest(unittest.TestCase):
             )
 
         self.assertFalse(stats["enabled"])
-        self.assertEqual(stats["reason"], "post_blend_quality_gate")
+        self.assertEqual(stats["reason"], "quality_gate")
+        self.assertEqual(
+            stats["post_blend_rejection_reason"],
+            "post_blend_quality_gate",
+        )
         self.assertFalse(stats["quality_gates"]["passed"])
         self.assertIs(slope_stats, fallback_stats)
         np.testing.assert_array_equal(output, values)

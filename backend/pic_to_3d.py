@@ -4646,6 +4646,7 @@ def _audit_bounded_compression_surface(
     sample_pitch_mm,
     max_slope_mm_per_mm,
     quality_gates,
+    reject_direction_reversals=False,
 ):
     """Recheck the exact post-blend surface, exempting unchanged baseline edges."""
     source = np.asarray(source_values, dtype=np.float32)
@@ -4662,7 +4663,25 @@ def _audit_bounded_compression_surface(
     if source.shape != candidate.shape:
         stats["reason"] = "shape_mismatch"
         return stats
-    valid = np.isfinite(source) & np.isfinite(candidate)
+    source_valid = np.isfinite(source)
+    candidate_valid = np.isfinite(candidate)
+    source_finite_count = int(np.count_nonzero(source_valid))
+    candidate_finite_count = int(np.count_nonzero(candidate_valid))
+    stats.update(
+        {
+            "source_finite_samples": source_finite_count,
+            "candidate_finite_samples": candidate_finite_count,
+            "finite_mask_match": bool(np.array_equal(source_valid, candidate_valid)),
+            "candidate_finite_coverage_ratio": float(
+                candidate_finite_count / max(source_finite_count, 1)
+            ),
+        }
+    )
+    if not stats["finite_mask_match"]:
+        stats["reason"] = "finite_coverage_mismatch"
+        stats["quality_gates"]["failures"] = ["finite_coverage_mismatch"]
+        return stats
+    valid = source_valid
     if np.count_nonzero(valid) < 4:
         stats["reason"] = "insufficient_finite_samples"
         return stats
@@ -4676,34 +4695,38 @@ def _audit_bounded_compression_surface(
     vertical_all = valid[:-1, :] & valid[1:, :]
     horizontal = horizontal_all & (changed[:, :-1] | changed[:, 1:])
     vertical = vertical_all & (changed[:-1, :] | changed[1:, :])
-    output_edges = np.concatenate(
+    output_signed_edges = np.concatenate(
         (
-            np.abs(candidate[:, 1:] - candidate[:, :-1])[horizontal],
-            np.abs(candidate[1:, :] - candidate[:-1, :])[vertical],
+            (candidate[:, 1:] - candidate[:, :-1])[horizontal],
+            (candidate[1:, :] - candidate[:-1, :])[vertical],
         )
     ).astype(np.float64)
-    source_edges = np.concatenate(
+    source_signed_edges = np.concatenate(
         (
-            np.abs(source[:, 1:] - source[:, :-1])[horizontal],
-            np.abs(source[1:, :] - source[:-1, :])[vertical],
+            (source[:, 1:] - source[:, :-1])[horizontal],
+            (source[1:, :] - source[:-1, :])[vertical],
         )
     ).astype(np.float64)
+    output_edges = np.abs(output_signed_edges)
+    source_edges = np.abs(source_signed_edges)
     diagonal_down_all = valid[1:, 1:] & valid[:-1, :-1]
     diagonal_up_all = valid[1:, :-1] & valid[:-1, 1:]
     diagonal_down = diagonal_down_all & (changed[1:, 1:] | changed[:-1, :-1])
     diagonal_up = diagonal_up_all & (changed[1:, :-1] | changed[:-1, 1:])
-    diagonal_edges = np.concatenate(
+    output_signed_diagonal_edges = np.concatenate(
         (
-            np.abs(candidate[1:, 1:] - candidate[:-1, :-1])[diagonal_down],
-            np.abs(candidate[1:, :-1] - candidate[:-1, 1:])[diagonal_up],
+            (candidate[1:, 1:] - candidate[:-1, :-1])[diagonal_down],
+            (candidate[1:, :-1] - candidate[:-1, 1:])[diagonal_up],
         )
     ).astype(np.float64)
-    source_diagonal_edges = np.concatenate(
+    source_signed_diagonal_edges = np.concatenate(
         (
-            np.abs(source[1:, 1:] - source[:-1, :-1])[diagonal_down],
-            np.abs(source[1:, :-1] - source[:-1, 1:])[diagonal_up],
+            (source[1:, 1:] - source[:-1, :-1])[diagonal_down],
+            (source[1:, :-1] - source[:-1, 1:])[diagonal_up],
         )
     ).astype(np.float64)
+    diagonal_edges = np.abs(output_signed_diagonal_edges)
+    source_diagonal_edges = np.abs(source_signed_diagonal_edges)
     if not output_edges.size:
         stats["reason"] = "no_updated_cardinal_edges"
         return stats
@@ -4717,11 +4740,25 @@ def _audit_bounded_compression_surface(
     correction_span_ratio = float(np.max(correction)) / max(input_span, 1e-12)
     physical_cardinal_ratio = output_edges / max(max_step, 1e-12)
     cardinal_ratio = output_edges / np.maximum(source_edges, max_step)
+    cardinal_excess_ratio = np.maximum(output_edges - source_edges, 0.0) / max_step
+    cardinal_direction_reversal = (
+        (source_signed_edges * output_signed_edges < 0.0)
+        & (source_edges > max_step * 0.25)
+        & (output_edges > max_step)
+    )
     diagonal_step = max_step * np.sqrt(2.0)
     physical_diagonal_ratio = diagonal_edges / max(diagonal_step, 1e-12)
     diagonal_ratio = diagonal_edges / np.maximum(
         source_diagonal_edges,
         diagonal_step,
+    )
+    diagonal_excess_ratio = (
+        np.maximum(diagonal_edges - source_diagonal_edges, 0.0) / diagonal_step
+    )
+    diagonal_direction_reversal = (
+        (source_signed_diagonal_edges * output_signed_diagonal_edges < 0.0)
+        & (source_diagonal_edges > diagonal_step * 0.25)
+        & (diagonal_edges > diagonal_step)
     )
     detail_stats = _face_detail_preservation_metrics(
         source,
@@ -4749,19 +4786,41 @@ def _audit_bounded_compression_surface(
     )
     cardinal_p99 = float(np.percentile(cardinal_ratio, 99.0))
     cardinal_max = float(np.max(cardinal_ratio))
+    cardinal_excess_p99 = float(np.percentile(cardinal_excess_ratio, 99.0))
+    cardinal_excess_max = float(np.max(cardinal_excess_ratio))
     diagonal_p99 = (
         float(np.percentile(diagonal_ratio, 99.0)) if diagonal_ratio.size else None
     )
     diagonal_max = float(np.max(diagonal_ratio)) if diagonal_ratio.size else None
+    diagonal_excess_p99 = (
+        float(np.percentile(diagonal_excess_ratio, 99.0))
+        if diagonal_excess_ratio.size
+        else None
+    )
+    diagonal_excess_max = (
+        float(np.max(diagonal_excess_ratio)) if diagonal_excess_ratio.size else None
+    )
     failures = []
     if cardinal_p99 > maximum_edge_p99:
         failures.append("cardinal_edge_p99")
     if cardinal_max > maximum_edge:
         failures.append("cardinal_edge_max")
+    if cardinal_excess_p99 > maximum_edge_p99:
+        failures.append("cardinal_edge_excess_p99")
+    if cardinal_excess_max > maximum_edge:
+        failures.append("cardinal_edge_excess_max")
+    if reject_direction_reversals and np.any(cardinal_direction_reversal):
+        failures.append("cardinal_edge_direction_reversal")
     if diagonal_p99 is not None and diagonal_p99 > maximum_edge_p99:
         failures.append("diagonal_edge_p99")
     if diagonal_max is not None and diagonal_max > maximum_edge:
         failures.append("diagonal_edge_max")
+    if diagonal_excess_p99 is not None and diagonal_excess_p99 > maximum_edge_p99:
+        failures.append("diagonal_edge_excess_p99")
+    if diagonal_excess_max is not None and diagonal_excess_max > maximum_edge:
+        failures.append("diagonal_edge_excess_max")
+    if reject_direction_reversals and np.any(diagonal_direction_reversal):
+        failures.append("diagonal_edge_direction_reversal")
     if not minimum_span <= height_span_ratio <= maximum_span:
         failures.append("height_span_ratio")
     if correction_span_ratio > maximum_correction:
@@ -4813,6 +4872,11 @@ def _audit_bounded_compression_surface(
             "diagonal_edge_count": int(diagonal_edges.size),
             "output_edge_ratio_p99": cardinal_p99,
             "output_edge_ratio_max": cardinal_max,
+            "output_edge_excess_ratio_p99": cardinal_excess_p99,
+            "output_edge_excess_ratio_max": cardinal_excess_max,
+            "cardinal_edge_direction_reversal_count": int(
+                np.count_nonzero(cardinal_direction_reversal)
+            ),
             "physical_output_edge_ratio_p99": float(
                 np.percentile(physical_cardinal_ratio, 99.0)
             ),
@@ -4821,6 +4885,11 @@ def _audit_bounded_compression_surface(
             ),
             "diagonal_edge_ratio_p99": diagonal_p99,
             "diagonal_edge_ratio_max": diagonal_max,
+            "diagonal_edge_excess_ratio_p99": diagonal_excess_p99,
+            "diagonal_edge_excess_ratio_max": diagonal_excess_max,
+            "diagonal_edge_direction_reversal_count": int(
+                np.count_nonzero(diagonal_direction_reversal)
+            ),
             "physical_diagonal_edge_ratio_p99": (
                 float(np.percentile(physical_diagonal_ratio, 99.0))
                 if physical_diagonal_ratio.size
@@ -5055,6 +5124,9 @@ def _compress_selected_relief_surface(
             sample_pitch_mm=sample_pitch_mm,
             max_slope_mm_per_mm=max_slope_mm_per_mm,
             quality_gates=pre_blend_quality_gates,
+            reject_direction_reversals=bool(
+                stats.get("provisional_edge_only_candidate", False)
+            ),
         )
         stats["pre_blend_quality_gates"] = pre_blend_quality_gates
         stats["post_blend_quality_audit"] = post_blend_audit
@@ -5062,12 +5134,42 @@ def _compress_selected_relief_surface(
             stats["enabled"] = True
             stats["reason"] = None
             stats["quality_gates"] = post_blend_audit["quality_gates"]
+            for metric_name in (
+                "changed_pixels",
+                "cardinal_edge_count",
+                "baseline_exempt_cardinal_edge_count",
+                "diagonal_edge_count",
+                "output_edge_ratio_p99",
+                "output_edge_ratio_max",
+                "output_edge_excess_ratio_p99",
+                "output_edge_excess_ratio_max",
+                "cardinal_edge_direction_reversal_count",
+                "physical_output_edge_ratio_p99",
+                "physical_output_edge_ratio_max",
+                "diagonal_edge_ratio_p99",
+                "diagonal_edge_ratio_max",
+                "diagonal_edge_excess_ratio_p99",
+                "diagonal_edge_excess_ratio_max",
+                "diagonal_edge_direction_reversal_count",
+                "physical_diagonal_edge_ratio_p99",
+                "physical_diagonal_edge_ratio_max",
+                "height_span_ratio",
+                "correction_span_ratio",
+                "detail_preservation",
+                "source_finite_samples",
+                "candidate_finite_samples",
+                "finite_mask_match",
+                "candidate_finite_coverage_ratio",
+            ):
+                if metric_name in post_blend_audit:
+                    stats[metric_name] = post_blend_audit[metric_name]
             stats["provisional_edge_only_candidate_accepted"] = bool(
                 stats.get("provisional_edge_only_candidate", False)
             )
             return selection_surface, stats, stats
         stats["enabled"] = False
-        stats["reason"] = "post_blend_quality_gate"
+        stats["reason"] = "quality_gate"
+        stats["post_blend_rejection_reason"] = "post_blend_quality_gate"
         stats["quality_gates"] = post_blend_audit.get(
             "quality_gates",
             pre_blend_quality_gates,
