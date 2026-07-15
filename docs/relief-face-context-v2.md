@@ -348,6 +348,8 @@ mm. Minimum face relighting correlation is `0.9961052`, worst named-part p95
 error is `1.2985969` mm, and all 54 STLs remain printable. The companion
 six-scene matrix also passes. Compact evidence is in
 `docs/benchmark-evidence/relief_background_prominence_v4/`.
+Both matrices were rerun with clean implementation provenance at exact revision
+`2dea653881460a6b4b39d67fe1c2d2ce8ae62f7d`.
 
 ## Validation
 

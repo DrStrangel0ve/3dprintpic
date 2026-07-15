@@ -2,6 +2,11 @@
   "schema_version": 1,
   "run": "relief_background_prominence_v4",
   "privacy": "checksum-pinned canonical face plus deterministic analytic backgrounds only",
+  "implementation_provenance": {
+    "revision": "2dea653881460a6b4b39d67fe1c2d2ce8ae62f7d",
+    "canonical_face_paths_clean": true,
+    "varied_scene_paths_clean": true
+  },
   "settings": {
     "background_depth_ratio_previous": 0.5,
     "background_depth_ratio_selected": 0.65,
@@ -13,6 +18,14 @@
     "varied_scene_rows": 6
   },
   "background_comparison": {
+    "baseline_artifact": {
+      "background_depth_ratio": 0.5,
+      "path": "docs/benchmark-evidence/canonical_face_variants_height_v3_n54/canonical-variant-summary.json",
+      "implementation_revision": "c0bc7ccb81ac724e6cdb3a99b7d406f9dbb2d36a",
+      "implementation_paths_clean": true,
+      "size_bytes": 1107212,
+      "sha256": "9a3502fee5af8a7cff55891d21c88e8ed514967a21aab8bc60720c908fc8e2fc"
+    },
     "previous_median_height_above_base_mm": 15.0,
     "selected_median_height_above_base_mm": 19.5,
     "height_gain_ratio": 1.3,
@@ -33,8 +46,8 @@
     "primary_face_solve_rows": 44,
     "high_detail_retry_rows": 10,
     "all_printable": true,
-    "local_summary_size_bytes": 1109563,
-    "local_summary_sha256": "5de5d9dc44a120a584b22100375bb7bd7e42170e326bad2ebfd5b94bb757088d"
+    "local_summary_size_bytes": 1109357,
+    "local_summary_sha256": "3fcb89ad0d78ed45d9d8f262fcbb673e31667d88b7bfbc247e53a412ed831f52"
   },
   "varied_scene_matrix": {
     "completed_rows": 6,
@@ -46,7 +59,7 @@
     "maximum_far_background_mm": 19.510000228881836,
     "maximum_feasible_attachment_jump_mm": 0.8000001907348633,
     "all_printable": true,
-    "local_summary_size_bytes": 21682,
-    "local_summary_sha256": "69cb33098d6de5da733f44db06c65474fa5cbe0be87d75726acfc6852b78d908"
+    "local_summary_size_bytes": 21530,
+    "local_summary_sha256": "ca90e1d91f7202b759c65a0bbab9b2bc4a91137626d45cce25a7156557bcc836"
   }
 }

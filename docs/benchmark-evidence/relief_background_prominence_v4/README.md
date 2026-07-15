@@ -15,6 +15,10 @@ complete-shell, and topology gates.
 
 ## Result
 
+The confirmation was rerun from clean exact revision
+`2dea653881460a6b4b39d67fe1c2d2ce8ae62f7d`; both harnesses report clean
+provenance for every implementation path they certify.
+
 - All 54 canonical face rows pass at 20, 30, and 40 mm, yaw
   `-45`/`0`/`+45`, and background ratio `0.65`.
 - Median background height above the plate rises from `15.0` to `19.5` mm.
@@ -28,6 +32,11 @@ complete-shell, and topology gates.
 - Final background depth and gradient correlations are at least effectively
   `1.0`; the maximum far-background height is `26.0100002` mm in a 40 mm row.
 - All 54 STLs are printable complete shells.
+
+The `0.50` comparison is bound to the tracked clean 54-row v3 summary at
+`../canonical_face_variants_height_v3_n54/canonical-variant-summary.json`;
+its revision, size, and SHA-256 are recorded in this directory's
+`summary.json`.
 
 The companion six-scene analytic matrix also passes every face, background,
 localized-structure, cap, attachment, negative-control, and printability gate.
