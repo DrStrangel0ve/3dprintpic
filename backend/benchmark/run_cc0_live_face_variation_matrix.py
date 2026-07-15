@@ -128,7 +128,15 @@ DEFAULT_MATRIX = (
         camera_distance=4.0,
         camera_scale=1.05,
         horizontal_offset=-0.13,
-        occluder=OccluderSpec(0.39, 0.49, 0.61, 0.62, anchor="eye_band", opacity=0.40),
+        occluder=OccluderSpec(
+            0.39,
+            0.49,
+            0.61,
+            0.62,
+            rgb=(0, 0, 0),
+            anchor="eye_band",
+            opacity=0.40,
+        ),
     ),
     FaceSceneSpec(
         row_id="close_positive_turn_384",
