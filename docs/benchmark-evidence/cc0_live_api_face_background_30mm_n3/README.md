@@ -73,7 +73,7 @@ shell gates pass. The tracked summary includes every frozen threshold and every
 numeric input used by the independent checks, including per-component relighting
 records and explicit shell tolerances, rather than pass booleans alone.
 
-The clean detector-control run at revision `162907c` detects the centered CC0
+The clean detector-control run at revision `1a2bfe7` detects the centered CC0
 face with YuNet confidence `0.9266`. MediaPipe, YuNet, the official OpenCV 4.10
 Haar cascade, and the complete production chain all emit zero detections and no
 errors on eight 256 px negative controls: the three subject-removed analytic

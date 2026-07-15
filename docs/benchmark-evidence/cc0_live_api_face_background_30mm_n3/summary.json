@@ -2512,7 +2512,7 @@
     "implementation_provenance": {
       "available": true,
       "clean": true,
-      "revision": "162907ccc4ab04d4cda5a952709c7a81f1df8d65",
+      "revision": "1a2bfe7a590a6901846a2dc3b9171cb4447b9847",
       "paths": [
         "backend/face_depth_refinement.py",
         "backend/benchmark/run_face_detector_controls.py"

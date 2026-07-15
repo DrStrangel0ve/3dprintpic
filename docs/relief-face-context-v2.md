@@ -676,7 +676,7 @@ manifold volumes with zero degenerates. Exact shell verification matches
 `232,320/232,320` facets with zero heightfield sample error.
 
 The pinned YuNet model detects the centered positive control at confidence
-`0.9266`. On clean control revision `162907c`, MediaPipe, YuNet, the official
+`0.9266`. On clean control revision `1a2bfe7`, MediaPipe, YuNet, the official
 OpenCV 4.10 Haar cascade, and the complete production chain all produce zero
 detections and no errors on eight 256 px negative controls covering
 subject-removed analytic backgrounds, procedural 3D objects, a high-contrast
