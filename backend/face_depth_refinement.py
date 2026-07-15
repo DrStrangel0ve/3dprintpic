@@ -892,7 +892,7 @@ def detect_face_regions_in_roi(
         "enabled": True,
         "eligible_components": int(len(components)),
         "attempts": attempts,
-        "detected_faces": int(min(len(regions), max_faces)),
+        "detected_faces": int(max(0, len(regions) - fallback_regions)),
         "validated_face_regions": int(max(0, len(regions) - fallback_regions)),
         "selection_detail_fallback_regions": int(fallback_regions),
         "fallback_errors_clean": bool(fallback_errors_are_clean),

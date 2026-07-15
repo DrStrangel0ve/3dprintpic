@@ -306,6 +306,7 @@ class FaceDepthRefinementTest(unittest.TestCase):
         self.assertEqual(regions[0]["semantic_scope"], "selected-component-detail")
         self.assertEqual(regions[0]["landmark_count"], 0)
         self.assertEqual(regions[0]["face_mask"].shape, image.shape[:2])
+        self.assertEqual(stats["detected_faces"], 0)
         self.assertEqual(stats["validated_face_regions"], 0)
         self.assertEqual(stats["selection_detail_fallback_regions"], 1)
 

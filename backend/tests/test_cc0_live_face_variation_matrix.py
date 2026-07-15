@@ -310,6 +310,7 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
             values[:, :2] = 255
             Image.fromarray(values, mode="L").save(mask_path)
             transform = {
+                "input_depth_shape": [2, 4],
                 "target_depth_shape": [2, 4],
                 "mesh_shape_before_crop": [4, 8],
                 "crop_bbox_rc": [1, 2, 3, 6],
@@ -350,6 +351,7 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
                         "surface": surface,
                         "reference_surface": reference,
                         "stl": stl,
+                        "refined_depth": surface,
                     },
                 ),
                 patch.object(
@@ -357,17 +359,50 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
                     "_stl_heightfield_agreement",
                     return_value={"passed": True},
                 ),
+                patch.object(
+                    matrix,
+                    "_exact_face_depth_quality",
+                    return_value={"checks": {"passed": True}},
+                ),
             ):
                 quality = matrix._score_variant(
                     response,
                     server_output=root,
-                    run_output=root,
+                    exact_depth_path=reference,
+                    mask_path=stl,
                     require_occlusion=False,
                 )
 
             self.assertFalse(quality["checks"]["refinement_applied"])
-            self.assertFalse(quality["checks"]["human_face_or_selected_detail_refined"])
+            self.assertFalse(quality["checks"]["validated_human_face_refined"])
             self.assertFalse(quality["checks"]["passed"])
+
+    def test_exact_face_depth_quality_accepts_affine_match_and_rejects_reversal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            yy, xx = np.mgrid[:32, :32]
+            exact = (0.1 * xx + 0.03 * yy + 0.002 * xx * yy).astype(np.float32)
+            mask = np.zeros((32, 32), dtype=np.uint8)
+            mask[4:28, 4:28] = 255
+            exact_path = root / "exact.npy"
+            predicted_path = root / "predicted.npy"
+            reversed_path = root / "reversed.npy"
+            mask_path = root / "mask.png"
+            np.save(exact_path, exact)
+            np.save(predicted_path, exact * 2.0 + 3.0)
+            np.save(reversed_path, -exact)
+            Image.fromarray(mask, mode="L").save(mask_path)
+
+            matched = matrix._exact_face_depth_quality(
+                predicted_path, exact_path, mask_path
+            )
+            reversed_result = matrix._exact_face_depth_quality(
+                reversed_path, exact_path, mask_path
+            )
+
+            self.assertTrue(matched["checks"]["passed"])
+            self.assertFalse(reversed_result["checks"]["positive_orientation"])
+            self.assertFalse(reversed_result["checks"]["passed"])
 
     def test_output_outside_server_ignored_root_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:

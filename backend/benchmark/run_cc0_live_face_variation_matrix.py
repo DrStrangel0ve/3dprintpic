@@ -27,7 +27,11 @@ from backend.benchmark.makehuman_face_fixture import (
     make_profile_vertex_colors,
 )
 from backend.benchmark.mesh_rendering import CameraSpec, RenderConfig, render_mesh
-from backend.benchmark.run_makehuman_face_depth_smoke import _make_scene
+from backend.benchmark.run_makehuman_face_depth_smoke import (
+    _correlation,
+    _make_scene,
+    _resize_nan_aware,
+)
 from backend.benchmark.run_background_photo_detail_sweep import _detail_metrics
 from backend.benchmark.run_private_background_photo_detail_replay import (
     _require_ignored,
@@ -58,6 +62,12 @@ CANDIDATE_DEFAULT_DETAIL_MM = 0.60
 DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO = 0.65
 RELIEF_HEIGHT_MM = 30.0
 MAX_XY_SIZE_MM = 96.0
+EXACT_FACE_DEPTH_GATES = {
+    "minimum_coverage_ratio": 0.98,
+    "minimum_shape_correlation": 0.60,
+    "minimum_gradient_correlation": 0.20,
+    "maximum_normalized_rmse": 0.35,
+}
 _JOB_ID = re.compile(r"^[a-f0-9]{32}$")
 PRODUCER_PATHS = (
     "backend/benchmark/run_cc0_live_face_variation_matrix.py",
@@ -542,6 +552,10 @@ def _job_artifacts(server_output: Path, response: dict) -> dict[str, Path]:
         "reference_surface": job_dir / "output_reference_surface.npy",
         "stl": job_dir / "output_model.stl",
     }
+    depth_name = str(response.get("face_refinement", {}).get("depth_file", ""))
+    if not depth_name or Path(depth_name).name != depth_name:
+        raise RuntimeError("Live face refinement has no safe depth artifact name")
+    artifacts["refined_depth"] = job_dir / depth_name
     missing = [name for name, path in artifacts.items() if not path.is_file()]
     if missing:
         raise RuntimeError("Live job is missing artifacts: " + ", ".join(missing))
@@ -554,6 +568,7 @@ def _mask_on_emitted_grid(
     emitted_shape: tuple[int, int],
 ) -> np.ndarray:
     required = {
+        "input_depth_shape",
         "target_depth_shape",
         "mesh_shape_before_crop",
         "crop_bbox_rc",
@@ -564,6 +579,9 @@ def _mask_on_emitted_grid(
     if missing:
         raise ValueError("Surface-grid transform is missing: " + ", ".join(missing))
 
+    input_rows, input_columns = (
+        int(value) for value in surface_grid_transform["input_depth_shape"]
+    )
     target_rows, target_columns = (
         int(value) for value in surface_grid_transform["target_depth_shape"]
     )
@@ -571,11 +589,19 @@ def _mask_on_emitted_grid(
         mask = (
             np.asarray(
                 loaded.convert("L").resize(
-                    (target_columns, target_rows), Image.Resampling.NEAREST
+                    (input_columns, input_rows), Image.Resampling.NEAREST
                 )
             )
             >= 128
         )
+    mask = (
+        np.asarray(
+            Image.fromarray(mask.astype(np.uint8) * 255, mode="L").resize(
+                (target_columns, target_rows), Image.Resampling.NEAREST
+            )
+        )
+        >= 128
+    )
     if bool(surface_grid_transform["flip_x"]):
         mask = np.flip(mask, axis=1)
 
@@ -604,11 +630,92 @@ def _mask_on_emitted_grid(
     return mask
 
 
+def _exact_face_depth_quality(
+    refined_depth_path: Path,
+    exact_depth_path: Path,
+    mask_path: Path,
+) -> dict:
+    predicted = np.load(refined_depth_path).astype(np.float32)
+    exact = np.load(exact_depth_path).astype(np.float32)
+    with Image.open(mask_path) as loaded:
+        face = (
+            np.asarray(
+                loaded.convert("L").resize(
+                    (exact.shape[1], exact.shape[0]), Image.Resampling.NEAREST
+                )
+            )
+            >= 128
+        )
+    if predicted.shape != exact.shape:
+        predicted = _resize_nan_aware(predicted, exact.shape)
+    valid = face & np.isfinite(exact) & np.isfinite(predicted)
+    coverage = float(np.count_nonzero(valid) / max(np.count_nonzero(face), 1))
+    if np.count_nonzero(valid) < 64:
+        return {
+            "available": False,
+            "coverage_ratio": coverage,
+            "gates": dict(EXACT_FACE_DEPTH_GATES),
+            "checks": {"passed": False},
+        }
+
+    reference = exact.astype(np.float64)
+    candidate = predicted.astype(np.float64)
+    design = np.column_stack((candidate[valid], np.ones(np.count_nonzero(valid))))
+    scale, shift = np.linalg.lstsq(design, reference[valid], rcond=None)[0]
+    aligned = candidate * float(scale) + float(shift)
+    reference_span = float(
+        np.percentile(reference[valid], 95.0) - np.percentile(reference[valid], 5.0)
+    )
+    normalized_rmse = float(
+        np.sqrt(np.mean(np.square(aligned[valid] - reference[valid])))
+        / max(reference_span, 1e-8)
+    )
+
+    interior = valid.copy()
+    interior[0, :] = False
+    interior[-1, :] = False
+    interior[:, 0] = False
+    interior[:, -1] = False
+    interior[1:-1, 1:-1] &= (
+        valid[:-2, 1:-1] & valid[2:, 1:-1] & valid[1:-1, :-2] & valid[1:-1, 2:]
+    )
+    reference_gradients = np.gradient(reference)
+    candidate_gradients = np.gradient(aligned)
+    gradient_correlation = min(
+        _correlation(ref[interior], cand[interior])
+        for ref, cand in zip(reference_gradients, candidate_gradients)
+    )
+    metrics = {
+        "available": True,
+        "coverage_ratio": coverage,
+        "shape_correlation": _correlation(reference[valid], aligned[valid]),
+        "gradient_correlation": float(gradient_correlation),
+        "normalized_rmse": normalized_rmse,
+        "affine_scale": float(scale),
+        "affine_shift": float(shift),
+        "samples": int(np.count_nonzero(valid)),
+        "gates": dict(EXACT_FACE_DEPTH_GATES),
+    }
+    checks = {
+        "coverage": coverage >= EXACT_FACE_DEPTH_GATES["minimum_coverage_ratio"],
+        "positive_orientation": bool(np.isfinite(scale) and scale > 0),
+        "shape_correlation": metrics["shape_correlation"]
+        >= EXACT_FACE_DEPTH_GATES["minimum_shape_correlation"],
+        "gradient_correlation": metrics["gradient_correlation"]
+        >= EXACT_FACE_DEPTH_GATES["minimum_gradient_correlation"],
+        "normalized_rmse": normalized_rmse
+        <= EXACT_FACE_DEPTH_GATES["maximum_normalized_rmse"],
+    }
+    checks["passed"] = bool(all(checks.values()))
+    return {**metrics, "checks": checks}
+
+
 def _score_variant(
     response: dict,
     *,
     server_output: Path,
-    run_output: Path,
+    exact_depth_path: Path,
+    mask_path: Path,
     require_occlusion: bool,
 ) -> dict:
     artifacts = _job_artifacts(server_output, response)
@@ -628,7 +735,7 @@ def _score_variant(
         int(refinement.get("refined_faces", 0)),
     )
     selected_detail = int(refinement.get("refined_selection_detail_regions", 0))
-    semantic_key = "face" if validated_faces > 0 else "selection_nonface"
+    semantic_key = "face"
     postprocess = response.get("relief_postprocess", {})
     appearance = postprocess.get("surface_appearance_agreement", {}).get(
         semantic_key, {}
@@ -652,6 +759,9 @@ def _score_variant(
         artifacts["surface"],
         expected_max_xy_size_mm=MAX_XY_SIZE_MM,
     )
+    exact_face_depth = _exact_face_depth_quality(
+        artifacts["refined_depth"], exact_depth_path, mask_path
+    )
     occlusion_passed = bool(
         not require_occlusion
         or (
@@ -662,9 +772,8 @@ def _score_variant(
     checks = {
         "finite_surface_contract": surfaces_valid,
         "refinement_applied": bool(refinement.get("applied", False)),
-        "human_face_or_selected_detail_refined": bool(
-            validated_faces > 0 or selected_detail > 0
-        ),
+        "validated_human_face_refined": validated_faces > 0,
+        "exact_face_depth": bool(exact_face_depth["checks"].get("passed", False)),
         "semantic_appearance": bool(appearance_checks.get("passed", False)),
         "background_appearance": bool(
             background_appearance_checks.get("passed", False)
@@ -691,8 +800,10 @@ def _score_variant(
         "physical_cap_checks": cap_checks,
         "topology": topology,
         "stl_heightfield_agreement": shell,
+        "exact_face_depth": exact_face_depth,
         "artifacts": {
-            name: _artifact_record(path, run_output) for name, path in artifacts.items()
+            name: _artifact_record(path, server_output)
+            for name, path in artifacts.items()
         },
         "checks": checks,
     }
@@ -713,6 +824,10 @@ def _score_pair(
     transform = candidate_response.get("relief_postprocess", {}).get(
         "surface_grid_transform", {}
     )
+    baseline_transform = baseline_response.get("relief_postprocess", {}).get(
+        "surface_grid_transform", {}
+    )
+    transforms_match = baseline_transform == transform
     face_mask = _mask_on_emitted_grid(mask_path, transform, candidate_surface.shape)
     detail_telemetry = candidate_response.get("relief_postprocess", {}).get(
         "background_photo_detail", {}
@@ -729,6 +844,7 @@ def _score_pair(
     )
     checks = {
         "shared_surface_shape": baseline_surface.shape == candidate_surface.shape,
+        "shared_surface_grid_transform": transforms_match,
         "background_photo_detail": bool(detail["checks"].get("passed", False)),
     }
     checks["passed"] = bool(all(checks.values()))
@@ -897,7 +1013,8 @@ def run(
                 variants[variant]["quality"] = _score_variant(
                     response,
                     server_output=server_output,
-                    run_output=run_output,
+                    exact_depth_path=exact_depth_path,
+                    mask_path=mask_path,
                     require_occlusion=spec.occluder is not None,
                 )
             pair_quality = _score_pair(
@@ -944,6 +1061,9 @@ def run(
     final_provenance = _clean_server_provenance(clean_repository)
     if final_provenance["revision"] != expected_provenance["revision"]:
         raise RuntimeError("Clean server repository changed revision during the run")
+    final_producer_provenance = _producer_provenance()
+    if final_producer_provenance != producer_provenance:
+        raise RuntimeError("Matrix producer provenance changed during the run")
     coverage = _matrix_coverage(selected_specs)
     all_rows_passed = bool(rows) and all(row["checks"]["passed"] for row in rows)
     summary = {
@@ -953,6 +1073,7 @@ def run(
         "server_provenance": expected_provenance,
         "server_runtime_provenance": runtime_provenance,
         "producer_provenance": producer_provenance,
+        "final_producer_provenance": final_producer_provenance,
         "runtime": {
             "python": sys.version.split()[0],
             "platform": platform.platform(),
@@ -982,6 +1103,7 @@ def run(
             "server_revision_unchanged": True,
             "server_runtime_matches_checkout": True,
             "producer_matches_server_revision": True,
+            "producer_unchanged_during_run": True,
             "raw_artifacts_beneath_ignored_output": True,
             "requested_rows_executed_once": bool(
                 coverage["unique_rows"]
