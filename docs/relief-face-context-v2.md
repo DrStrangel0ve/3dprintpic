@@ -362,6 +362,51 @@ improve, and both STLs remain printable. Compact aggregate-only evidence is in
 `docs/benchmark-evidence/relief_background_prominence_exact_v5/`; no private
 image, mask, depth, response, preview, or mesh is tracked.
 
+## Framing, attachment, and selected-surface follow-up
+
+The next ten-scene framing expansion added small faces, near-full-frame faces,
+left/right clipping, and four new background structures. It exposed an
+independent border failure: `base_border_px` flattened selected face pixels that
+touched the image frame, creating 7-8.5 mm one-pixel cliffs. Positive-context
+selections now preserve only the detected face at the frame border; non-face and
+ratio-zero borders retain their historical flattening behavior. An exact
+ratio-zero replay keeps identical emitted-surface and loaded-triangle-vector
+hashes.
+
+Concave selection corners could also leave a background pixel adjacent to two
+incompatible selected heights. A one-pixel localized projection now adjusts only
+the conflicting selected boundary and one inward feather pixel, then reapplies
+the unchanged physical cap. The clean ten-scene matrix passes on revision
+`1a3cfc9efd8649e460c4aeba1a93f46fa2214297`: minimum face correlation is
+`0.8691`, the largest actual boundary max is `1.5167` mm, every background
+structure is retained, and every STL is one printable watertight volume.
+
+The exact llama replay then found a different failure hidden by background-only
+metrics. Its selected-object gradient candidate preserved component shape but
+was rejected solely because an unchanged source discontinuity exceeded the raw
+cardinal maximum. The selected-object path now uses the same fail-closed
+baseline-aware post-blend audit as the guarded face path. Only edges touched by
+the candidate are exempted from unchanged source jumps; exact finite coverage,
+changed-edge excess, detail, height span, correction span, cardinal/diagonal
+edges, background, cap, and topology gates remain active. Signed reversals also
+fail when they form four combined edges or one sparse reversal exceeds four
+physical steps.
+
+On the paired cached-depth llama input, the old fallback's selected-surface
+lighting correlation is `0.1201` with `80.79` degrees p95 normal error. The
+audited candidate reaches `0.9507` and `10.73` degrees, with a weakest meaningful
+component of `0.8848`. Changed-edge p99/max ratios are `1.553`/`4.906` against
+`12`/`24`; background RMS/span are `7.8597`/`22.0333` mm and depth/gradient
+correlations are `0.999921`/`0.988976`. Its two cardinal and one diagonal
+reversals remain bounded at `1.951`/`1.044` physical steps. The exact portrait
+face metrics are unchanged. Both outputs remain printable, while incompatible attachment
+constraints remain explicitly counted rather than called strict successes.
+
+The clean 12-row 20/30/40 mm sweep also passes with minimum face and selected
+lighting correlations `0.9896` and `0.9228`. Evidence, checksums, exact aggregate
+telemetry, and reproduction commands are in
+`docs/benchmark-evidence/relief_framing_boundary_selection_v6/`.
+
 ## Validation
 
 ```powershell
@@ -374,7 +419,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 484 passed, 44 subtests passed (2 existing warnings).
+- Backend: 497 passed, 48 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
