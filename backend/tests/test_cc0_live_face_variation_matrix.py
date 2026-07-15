@@ -698,6 +698,16 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
                     require_occlusion=False,
                     spec=spec,
                 )
+                detected_only_response = json.loads(json.dumps(base_response))
+                detected_only_response["face_refinement"]["detected_faces"] = 1
+                detected_only = matrix._score_variant(
+                    detected_only_response,
+                    server_output=root,
+                    exact_depth_path=reference,
+                    mask_path=stl,
+                    require_occlusion=False,
+                    spec=spec,
+                )
 
             self.assertTrue(accepted["checks"]["passed"])
             self.assertTrue(accepted["checks"]["generic_selection_refined"])
@@ -705,6 +715,9 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
             self.assertFalse(rejected["checks"]["subject_refinement_route"])
             self.assertFalse(rejected["checks"]["no_false_human_face"])
             self.assertFalse(rejected["checks"]["passed"])
+            self.assertFalse(detected_only["checks"]["subject_refinement_route"])
+            self.assertFalse(detected_only["checks"]["no_false_human_face"])
+            self.assertFalse(detected_only["checks"]["passed"])
 
     def test_exact_face_depth_quality_accepts_affine_match_and_rejects_reversal(self):
         with tempfile.TemporaryDirectory() as temporary:

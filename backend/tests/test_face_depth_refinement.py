@@ -457,7 +457,7 @@ class FaceDepthRefinementTest(unittest.TestCase):
         self.assertGreater(stats["core_pixels"], 32)
         self.assertGreater(float(np.max(weight)), 0.99)
 
-    def test_low_luminance_broad_eyewear_with_small_gaps_is_detected(self):
+    def test_low_luminance_connected_shadow_does_not_trigger_eyewear(self):
         image = np.full((128, 128, 3), 44, dtype=np.uint8)
         face_mask, _ = face_masks_from_box(image.shape, (20, 8, 108, 120))
         points = self._synthetic_eyewear_landmarks()
@@ -466,13 +466,14 @@ class FaceDepthRefinementTest(unittest.TestCase):
 
         weight, stats = _detect_eyewear_occlusion_weight(image, face_mask, points)
 
-        self.assertTrue(stats["enabled"])
-        self.assertGreaterEqual(stats["dark_coverage_ratio"], 0.33)
+        self.assertFalse(stats["enabled"])
+        self.assertEqual(stats["reason"], "eyewear_detection_gate")
+        self.assertIn("dark_coverage", stats["failures"])
+        self.assertIn("component_coverage", stats["failures"])
         self.assertLess(stats["dark_coverage_ratio"], 0.40)
-        self.assertGreaterEqual(stats["component_coverage_ratio"], 0.40)
+        self.assertLess(stats["component_coverage_ratio"], 0.45)
         self.assertGreaterEqual(stats["component_width_ratio"], 0.60)
-        self.assertGreater(stats["core_pixels"], 32)
-        self.assertGreater(float(np.max(weight)), 0.99)
+        self.assertEqual(float(np.max(weight)), 0.0)
 
     def test_separate_eye_shadows_do_not_trigger_eyewear_reconstruction(self):
         image = np.full((128, 128, 3), 210, dtype=np.uint8)

@@ -239,7 +239,7 @@ VARIED_CONTEXT_MATRIX = (
             0.62,
             rgb=(8, 13, 18),
             anchor="eye_band",
-            opacity=0.42,
+            opacity=0.60,
         ),
     ),
     FaceSceneSpec(
