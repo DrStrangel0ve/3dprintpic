@@ -50,6 +50,7 @@ SELECTION_ROI_DETECTION_DIMENSION = 384
 SELECTION_ROI_PADDING_RATIO = 0.45
 SELECTION_ROI_MINIMUM_COVERAGE = 0.001
 SELECTION_ROI_MIN_FACE_COMPONENT_RATIO = 0.35
+SELECTION_ROI_MAPPED_FACE_PIXELS_FLOOR = 24
 FACE_OVAL_INDICES = [
     10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378,
     400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21,
@@ -707,7 +708,10 @@ def _map_roi_face_region(
         image_width,
         image_height,
     )
-    if min(mapped_box[2] - mapped_box[0], mapped_box[3] - mapped_box[1]) < MIN_FACE_PIXELS_FLOOR:
+    if (
+        min(mapped_box[2] - mapped_box[0], mapped_box[3] - mapped_box[1])
+        < SELECTION_ROI_MAPPED_FACE_PIXELS_FLOOR
+    ):
         return None
 
     mapped = dict(region)

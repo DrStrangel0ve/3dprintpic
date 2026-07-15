@@ -288,6 +288,13 @@ class FaceDepthRefinementTest(unittest.TestCase):
         self.assertEqual(stats["detected_faces"], 1)
         self.assertEqual(stats["selection_detail_fallback_regions"], 0)
         self.assertGreaterEqual(regions[0]["selection_overlap_ratio"], 0.5)
+        self.assertGreaterEqual(
+            min(
+                regions[0]["bbox"][2] - regions[0]["bbox"][0],
+                regions[0]["bbox"][3] - regions[0]["bbox"][1],
+            ),
+            24,
+        )
 
     def test_selection_roi_can_emit_labeled_generic_detail_fallback(self):
         image = np.zeros((256, 256, 3), dtype=np.uint8)
@@ -310,6 +317,36 @@ class FaceDepthRefinementTest(unittest.TestCase):
         self.assertEqual(stats["detected_faces"], 0)
         self.assertEqual(stats["validated_face_regions"], 0)
         self.assertEqual(stats["selection_detail_fallback_regions"], 1)
+
+    def test_selection_roi_mapping_accepts_valid_landmarks_below_global_floor(self):
+        component = np.zeros((256, 256), dtype=bool)
+        component[92:165, 126:205] = True
+        face_mask = np.zeros((384, 384), dtype=np.uint8)
+        face_mask[160:240, 160:240] = 255
+        region = {
+            "bbox": [160, 160, 240, 240],
+            "face_mask": face_mask,
+            "feature_mask": face_mask.copy(),
+            "part_masks": {},
+            "detector": "mediapipe-face-landmarker",
+            "landmark_count": 478,
+        }
+
+        mapped = face_module._map_roi_face_region(
+            region,
+            roi_box=(90, 53, 241, 204),
+            roi_shape=(151, 151),
+            image_shape=(256, 256, 3),
+            scale_x=384 / 151,
+            scale_y=384 / 151,
+            component_mask=component,
+        )
+
+        self.assertIsNotNone(mapped)
+        mapped_width = mapped["bbox"][2] - mapped["bbox"][0]
+        self.assertGreaterEqual(mapped_width, 24)
+        self.assertLess(mapped_width, face_module.MIN_FACE_PIXELS_FLOOR)
+        self.assertGreaterEqual(mapped["selection_overlap_ratio"], 0.5)
 
     def test_selection_detail_fallback_is_suppressed_on_detector_error(self):
         image = np.zeros((256, 256, 3), dtype=np.uint8)
