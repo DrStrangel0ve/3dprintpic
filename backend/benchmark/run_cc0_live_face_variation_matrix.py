@@ -552,10 +552,14 @@ def _job_artifacts(server_output: Path, response: dict) -> dict[str, Path]:
         "reference_surface": job_dir / "output_reference_surface.npy",
         "stl": job_dir / "output_model.stl",
     }
-    depth_name = str(response.get("face_refinement", {}).get("depth_file", ""))
-    if not depth_name or Path(depth_name).name != depth_name:
-        raise RuntimeError("Live face refinement has no safe depth artifact name")
-    artifacts["refined_depth"] = job_dir / depth_name
+    refinement = response.get("face_refinement", {})
+    depth_name = str(refinement.get("depth_file") or "")
+    if depth_name:
+        if Path(depth_name).name != depth_name:
+            raise RuntimeError("Live face refinement has an unsafe depth artifact name")
+        artifacts["refined_depth"] = job_dir / depth_name
+    elif bool(refinement.get("applied", False)):
+        raise RuntimeError("Applied live face refinement has no depth artifact name")
     missing = [name for name, path in artifacts.items() if not path.is_file()]
     if missing:
         raise RuntimeError("Live job is missing artifacts: " + ", ".join(missing))
@@ -759,8 +763,17 @@ def _score_variant(
         artifacts["surface"],
         expected_max_xy_size_mm=MAX_XY_SIZE_MM,
     )
-    exact_face_depth = _exact_face_depth_quality(
-        artifacts["refined_depth"], exact_depth_path, mask_path
+    exact_face_depth = (
+        _exact_face_depth_quality(
+            artifacts["refined_depth"], exact_depth_path, mask_path
+        )
+        if "refined_depth" in artifacts
+        else {
+            "available": False,
+            "reason": "no_refined_depth_artifact",
+            "gates": dict(EXACT_FACE_DEPTH_GATES),
+            "checks": {"passed": False},
+        }
     )
     occlusion_passed = bool(
         not require_occlusion
