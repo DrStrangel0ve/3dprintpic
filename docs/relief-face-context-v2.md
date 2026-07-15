@@ -643,6 +643,51 @@ expected facets with zero coordinate or RMS error. Aggregate telemetry and the
 privacy-safe reproduction contract are in
 `docs/benchmark-evidence/private_live_api_background_30mm_v1/`.
 
+## Standard-grid face detection and varied CC0 live replay
+
+The next privacy-safe live replay exposed a scale bug before relief shaping:
+the centered 256 px fixture produced a valid 70 px-wide MediaPipe face with 478
+landmarks, but the fixed 96 px minimum discarded it. The detector threshold now
+adapts down to 25% of the short edge for small images, with a 48 px floor, while
+preserving the historical 96 px limit from a 384 px short edge upward. The
+measured effective threshold is 64 px for the standard 256-grid workflow.
+
+The fallback path is also modernized from missing-package-dependent Haar to
+official OpenCV YuNet before Haar. The OpenCV 4.x-compatible `2023mar` model is
+pinned by repository revision and SHA256, downloaded through a size-bounded
+atomic cache, and accepted only at confidence 0.90 with valid five-point face
+geometry. A real-model smoke detects the centered CC0 face at 0.9266 while the
+normal production path retains MediaPipe's 478-landmark masks.
+
+The clean live HTTP matrix at revision `15a3a25` covers centered, left-framed,
+and right-framed CC0 heads at 30 mm. All three faces are detected and refined.
+Worst face normal mean cosine is `0.9973`, worst p95 normal error is `4.4443`
+degrees, and worst minimum relighting correlation is `0.9904`. The default
+0.60 mm background detail adds `0.163-0.240 mm` RMS and `0.236-0.440 mm` p95
+source-aligned relief; intended-background source correlation is
+`0.5528-0.7307`. Face-interior p99 movement remains at most `0.000110 mm`.
+
+Background depth correlation remains at least `0.999988`, gradient correlation
+at least `0.998704`, and coverage is complete. Every emission has zero
+far-background cap violation, all feasible attachment jumps are at most
+`0.80000019 mm`, and the 20-27 incompatible one-pixel constraints remain
+explicit. All six baseline/candidate STLs are single-component watertight
+manifold volumes with zero degenerates. Exact shell verification matches
+`232,320/232,320` facets with zero heightfield sample error.
+
+The pinned YuNet model detects the centered positive control at confidence
+`0.9266`. On clean control revision `569d25c`, MediaPipe, YuNet, the official
+OpenCV 4.10 Haar cascade, and the complete production chain all produce zero
+detections and no errors on eight 256 px negative controls covering
+subject-removed analytic backgrounds, procedural 3D objects, a high-contrast
+checkerboard, and a blank image. Every input is RGB-checksum-bound by the
+checked-in producer. Environment-supplied models are checksum-verified, an
+empty YuNet result continues to Haar, and configured filesystem paths are
+excluded from detector errors.
+
+Aggregate telemetry and reproduction details are in
+`docs/benchmark-evidence/cc0_live_api_face_background_30mm_n3/`.
+
 ## Validation
 
 ```powershell
@@ -655,7 +700,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 564 passed, 72 subtests passed (2 existing warnings).
+- Backend: 576 passed, 72 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.

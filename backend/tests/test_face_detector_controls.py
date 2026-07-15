@@ -10,6 +10,15 @@ import backend.benchmark.run_face_detector_controls as controls
 
 
 class FaceDetectorControlsTest(unittest.TestCase):
+    def test_dirty_provenance_fails_closed_unless_explicitly_allowed(self):
+        checks = {
+            "implementation_provenance_clean": False,
+            "detectors": True,
+        }
+
+        self.assertFalse(controls._checks_pass(checks, allow_dirty=False))
+        self.assertTrue(controls._checks_pass(checks, allow_dirty=True))
+
     def test_checkerboard_is_deterministic_rgb(self):
         first = controls._checkerboard(64)
         second = controls._checkerboard(64)

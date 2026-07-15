@@ -97,6 +97,14 @@ def _detector_record(name: str, image_rgb: np.ndarray, minimum_face_pixels: int)
     }
 
 
+def _checks_pass(checks: dict[str, bool], *, allow_dirty: bool) -> bool:
+    return all(
+        value
+        for name, value in checks.items()
+        if not (allow_dirty and name == "implementation_provenance_clean")
+    )
+
+
 def run(
     *,
     fixture_root: str | Path,
@@ -168,11 +176,7 @@ def run(
         "all_final_chain_negative": all(row["final_chain_count"] == 0 for row in negatives),
         "all_final_chain_clean": all(not row["final_chain_errors"] for row in negatives),
     }
-    checks["passed"] = all(
-        value
-        for name, value in checks.items()
-        if allow_dirty or name != "implementation_provenance_clean"
-    )
+    checks["passed"] = _checks_pass(checks, allow_dirty=allow_dirty)
     summary = {
         "schema_version": 1,
         "run_kind": "face_detector_positive_and_negative_controls",
