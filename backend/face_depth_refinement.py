@@ -234,7 +234,24 @@ def _resolve_verified_model(
     if configured:
         configured_path = Path(configured).expanduser()
         if not configured_path.is_file():
-            raise FileNotFoundError(f"{environment_name} does not exist: {configured_path}")
+            raise FileNotFoundError(
+                f"Configured face model is unavailable: {environment_name}"
+            )
+        try:
+            configured_size = configured_path.stat().st_size
+            configured_sha256 = _sha256_file(configured_path)
+        except OSError as exc:
+            raise RuntimeError(
+                f"Configured face model could not be verified: {environment_name}"
+            ) from exc
+        if configured_size > int(maximum_bytes):
+            raise RuntimeError(
+                f"Configured face model exceeds the size limit: {environment_name}"
+            )
+        if configured_sha256 != expected_sha256:
+            raise RuntimeError(
+                f"Configured face model checksum mismatch: {environment_name}"
+            )
         return configured_path
 
     cache_path = Path.home() / ".cache" / "3dprintpic" / cache_name
@@ -602,7 +619,9 @@ def detect_face_regions(
     except Exception as exc:
         errors.append(f"mediapipe:{type(exc).__name__}:{exc}")
     try:
-        return _detect_faces_yunet(image_rgb, max_faces, min_face_pixels), errors
+        regions = _detect_faces_yunet(image_rgb, max_faces, min_face_pixels)
+        if regions:
+            return regions, errors
     except Exception as exc:
         errors.append(f"yunet:{type(exc).__name__}:{exc}")
     try:

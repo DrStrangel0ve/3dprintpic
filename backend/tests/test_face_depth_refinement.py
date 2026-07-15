@@ -1,3 +1,5 @@
+import hashlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,6 +19,8 @@ from backend.face_depth_refinement import (
     _detect_eyewear_occlusion_weight,
     _effective_min_face_pixels,
     _reconstruct_eyewear_occlusion,
+    _resolve_verified_model,
+    _yunet_keypoints_are_face_like,
     detect_face_regions,
     face_blend_weight,
     face_masks_from_box,
@@ -33,6 +37,100 @@ def gaussian_peak(shape, center, sigma, amplitude):
 
 
 class FaceDepthRefinementTest(unittest.TestCase):
+    def test_yunet_keypoint_gate_rejects_non_face_geometry(self):
+        box = (20, 10, 120, 150)
+        face_like = np.asarray(
+            [[45, 55], [95, 54], [70, 82], [50, 115], [91, 114]],
+            dtype=np.float32,
+        )
+        collapsed = face_like.copy()
+        collapsed[1] = collapsed[0]
+        inverted = face_like.copy()
+        inverted[3:, 1] = 45
+
+        self.assertTrue(_yunet_keypoints_are_face_like(face_like, box))
+        self.assertFalse(_yunet_keypoints_are_face_like(collapsed, box))
+        self.assertFalse(_yunet_keypoints_are_face_like(inverted, box))
+
+    def test_verified_model_download_is_atomic_and_size_bounded(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir)
+            with (
+                patch.object(face_module.Path, "home", return_value=home),
+                patch.object(
+                    face_module.urllib.request,
+                    "urlopen",
+                    return_value=io.BytesIO(b"oversized"),
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "exceeded 4 bytes"):
+                    _resolve_verified_model(
+                        environment_name="UNSET_TEST_FACE_MODEL",
+                        cache_name="test-model.bin",
+                        url="https://example.invalid/test-model.bin",
+                        expected_sha256="0" * 64,
+                        maximum_bytes=4,
+                    )
+
+            cache_dir = home / ".cache" / "3dprintpic"
+            self.assertFalse((cache_dir / "test-model.bin").exists())
+            self.assertEqual(list(cache_dir.glob("*.part")), [])
+
+    def test_verified_model_reuses_checksum_valid_cache(self):
+        payload = b"small verified model"
+        expected_sha256 = hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir)
+            with (
+                patch.object(face_module.Path, "home", return_value=home),
+                patch.object(
+                    face_module.urllib.request,
+                    "urlopen",
+                    return_value=io.BytesIO(payload),
+                ) as download,
+            ):
+                first = _resolve_verified_model(
+                    environment_name="UNSET_TEST_FACE_MODEL",
+                    cache_name="test-model.bin",
+                    url="https://example.invalid/test-model.bin",
+                    expected_sha256=expected_sha256,
+                    maximum_bytes=1024,
+                )
+                second = _resolve_verified_model(
+                    environment_name="UNSET_TEST_FACE_MODEL",
+                    cache_name="test-model.bin",
+                    url="https://example.invalid/test-model.bin",
+                    expected_sha256=expected_sha256,
+                    maximum_bytes=1024,
+                )
+
+            self.assertEqual(first, second)
+            self.assertEqual(first.read_bytes(), payload)
+            self.assertEqual(download.call_count, 1)
+
+    def test_verified_model_rejects_unverified_configured_override_without_path_leak(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            configured = Path(temp_dir) / "private-server-path" / "model.onnx"
+            configured.parent.mkdir()
+            configured.write_bytes(b"unverified")
+            with patch.dict(
+                face_module.os.environ,
+                {"TEST_FACE_MODEL_PATH": str(configured)},
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "Configured face model checksum mismatch: TEST_FACE_MODEL_PATH",
+                ) as raised:
+                    _resolve_verified_model(
+                        environment_name="TEST_FACE_MODEL_PATH",
+                        cache_name="test-model.bin",
+                        url="https://example.invalid/test-model.bin",
+                        expected_sha256="0" * 64,
+                        maximum_bytes=1024,
+                    )
+
+            self.assertNotIn(str(configured), str(raised.exception))
+
     def test_face_minimum_adapts_to_standard_256_pixel_workflow(self):
         self.assertEqual(_effective_min_face_pixels((256, 256, 3), 96), 64)
         self.assertEqual(_effective_min_face_pixels((512, 512, 3), 96), 96)
@@ -86,6 +184,19 @@ class FaceDepthRefinementTest(unittest.TestCase):
 
         self.assertEqual(regions, [expected_region])
         self.assertEqual(errors, ["yunet:RuntimeError:model unavailable"])
+
+    def test_detect_face_regions_falls_back_to_haar_when_yunet_finds_no_face(self):
+        image = np.zeros((256, 256, 3), dtype=np.uint8)
+        expected_region = {"bbox": [90, 60, 165, 161], "detector": "opencv-haar"}
+        with (
+            patch.object(face_module, "_detect_faces_mediapipe", return_value=[]),
+            patch.object(face_module, "_detect_faces_yunet", return_value=[]),
+            patch.object(face_module, "_detect_faces_opencv", return_value=[expected_region]),
+        ):
+            regions, errors = detect_face_regions(image)
+
+        self.assertEqual(regions, [expected_region])
+        self.assertEqual(errors, [])
 
     @staticmethod
     def _synthetic_eyewear_landmarks():
