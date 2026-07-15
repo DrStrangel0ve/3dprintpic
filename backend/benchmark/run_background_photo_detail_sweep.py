@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from scipy.ndimage import binary_erosion, gaussian_filter, maximum_filter
+from scipy.ndimage import binary_erosion, gaussian_filter, maximum_filter, zoom
 
 from backend.benchmark.makehuman_face_fixture import load_makehuman_face_fixture
 from backend.benchmark.run_makehuman_face_depth_smoke import DEFAULT_ASSET_DIR, _correlation
@@ -48,14 +48,71 @@ DETAIL_GATES = {
 }
 
 
-def _photo_detail_signal(source_path: Path, shape: tuple[int, int]) -> np.ndarray:
+def _resize_signal(signal: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    target = (int(shape[0]), int(shape[1]))
+    if signal.shape == target:
+        return signal
+    factors = (target[0] / signal.shape[0], target[1] / signal.shape[1])
+    resized = zoom(np.asarray(signal, dtype=np.float32), factors, order=1)
+    resized = resized[: target[0], : target[1]]
+    padding = (target[0] - resized.shape[0], target[1] - resized.shape[1])
+    if padding[0] > 0 or padding[1] > 0:
+        resized = np.pad(
+            resized,
+            ((0, max(0, padding[0])), (0, max(0, padding[1]))),
+            mode="edge",
+        )
+    return resized.astype(np.float32, copy=False)
+
+
+def _photo_detail_signal(
+    source_path: Path,
+    shape: tuple[int, int],
+    *,
+    surface_grid_transform: dict | None = None,
+) -> np.ndarray:
     image = Image.open(source_path).convert("RGB")
-    image = image.resize((shape[1], shape[0]), Image.Resampling.LANCZOS)
+    signal_shape = shape
+    if surface_grid_transform is not None:
+        required = {
+            "target_depth_shape",
+            "mesh_shape_before_crop",
+            "crop_bbox_rc",
+            "emitted_shape",
+        }
+        missing = sorted(required - set(surface_grid_transform))
+        if missing:
+            raise ValueError(
+                "Surface-grid transform is missing: " + ", ".join(missing)
+            )
+        signal_shape = tuple(
+            int(value) for value in surface_grid_transform["target_depth_shape"]
+        )
+    image = image.resize(
+        (signal_shape[1], signal_shape[0]), Image.Resampling.LANCZOS
+    )
     rgb = np.flip(np.asarray(image, dtype=np.float32) / 255.0, axis=1)
     gray = 0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]
     fine = gray - gaussian_filter(gray, sigma=1.1)
     medium = gray - gaussian_filter(gray, sigma=3.5)
-    return (0.72 * fine + 0.28 * medium).astype(np.float32)
+    signal = (0.72 * fine + 0.28 * medium).astype(np.float32)
+    if surface_grid_transform is not None:
+        signal = _resize_signal(
+            signal, tuple(surface_grid_transform["mesh_shape_before_crop"])
+        )
+        top, left, bottom, right = (
+            int(value) for value in surface_grid_transform["crop_bbox_rc"]
+        )
+        signal = signal[top:bottom, left:right]
+        emitted_shape = tuple(
+            int(value) for value in surface_grid_transform["emitted_shape"]
+        )
+        if signal.shape != emitted_shape or signal.shape != tuple(shape):
+            raise ValueError(
+                f"Transformed photo signal has shape {signal.shape}, "
+                f"expected emitted shape {emitted_shape} and metric shape {shape}"
+            )
+    return signal
 
 
 def _detail_metrics(
@@ -65,6 +122,8 @@ def _detail_metrics(
     source_path: Path,
     requested_detail_mm: float,
     protection_halo_px: float = 13.0,
+    *,
+    surface_grid_transform: dict | None = None,
 ) -> dict:
     baseline = np.asarray(baseline_surface, dtype=np.float64)
     candidate = np.asarray(candidate_surface, dtype=np.float64)
@@ -72,7 +131,11 @@ def _detail_metrics(
     if baseline.shape != candidate.shape or face.shape != baseline.shape:
         raise ValueError("Detail sweep surfaces and face mask must share one grid")
     delta = candidate - baseline
-    source_detail = _photo_detail_signal(source_path, baseline.shape)
+    source_detail = _photo_detail_signal(
+        source_path,
+        baseline.shape,
+        surface_grid_transform=surface_grid_transform,
+    )
     background = ~face
     halo_radius_px = max(1, int(np.ceil(float(protection_halo_px))))
     protection_feather = gaussian_filter(

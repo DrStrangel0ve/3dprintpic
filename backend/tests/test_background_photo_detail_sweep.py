@@ -54,6 +54,27 @@ class BackgroundPhotoDetailSweepTests(unittest.TestCase):
         np.testing.assert_array_equal(first, second)
         self.assertGreater(float(np.std(first)), 0.05)
 
+    def test_detail_signal_replays_surface_grid_transform(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "source.png"
+            image = np.zeros((48, 64, 3), dtype=np.uint8)
+            image[::3, :, :] = 255
+            Image.fromarray(image).save(path)
+            transform = {
+                "target_depth_shape": [36, 48],
+                "mesh_shape_before_crop": [24, 32],
+                "crop_bbox_rc": [2, 3, 22, 29],
+                "emitted_shape": [20, 26],
+            }
+            signal = detail_sweep._photo_detail_signal(
+                path,
+                (20, 26),
+                surface_grid_transform=transform,
+            )
+
+        self.assertEqual(signal.shape, (20, 26))
+        self.assertGreater(float(np.std(signal)), 0.01)
+
     def test_detail_metrics_accept_correlated_background_and_exact_face(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "source.png"
