@@ -512,6 +512,41 @@ class FaceDepthRefinementTest(unittest.TestCase):
         self.assertLessEqual(stats["saturated_core_ratio"], 0.05)
         np.testing.assert_array_equal(candidate[occlusion == 0], source[occlusion == 0])
 
+    def test_eyewear_reconstruction_rejects_bilateral_eye_detail_loss(self):
+        shape = (96, 96)
+        yy, xx = np.indices(shape, dtype=np.float32)
+        prior = 0.35 + xx * 0.001 + yy * 0.0004
+        source = prior.copy()
+        occlusion = np.zeros(shape, dtype=np.float32)
+        occlusion[28:54, 16:80] = 1.0
+        source[occlusion > 0] += 0.08
+        refined = source.copy()
+        left_eye = np.zeros(shape, dtype=np.uint8)
+        right_eye = np.zeros(shape, dtype=np.uint8)
+        left_eye[34:48, 24:43] = 255
+        right_eye[34:48, 53:72] = 255
+        texture = 0.012 * np.sin(xx * 1.8) * np.cos(yy * 1.4)
+        refined[left_eye > 0] += texture[left_eye > 0]
+        refined[right_eye > 0] += texture[right_eye > 0]
+
+        candidate, stats = _reconstruct_eyewear_occlusion(
+            refined,
+            source,
+            prior,
+            occlusion,
+            reference_span=0.50,
+            eye_masks={"left_eye": left_eye, "right_eye": right_eye},
+        )
+
+        self.assertFalse(stats["enabled"])
+        self.assertEqual(stats["reason"], "quality_gate_failed")
+        self.assertIn(
+            "bilateral_eye_detail_retention",
+            stats["quality_gates"]["failures"],
+        )
+        self.assertFalse(stats["bilateral_eye_detail_retention"]["passed"])
+        np.testing.assert_array_equal(candidate, refined)
+
     def test_eyewear_reconstruction_fails_closed_when_correction_cap_saturates(self):
         prior = np.full((64, 64), 0.35, dtype=np.float32)
         source = prior.copy()

@@ -101,6 +101,13 @@ class FakeLiveClient:
 
 
 class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
+    @staticmethod
+    def _complete_part_masks(silhouette: np.ndarray) -> dict[str, np.ndarray]:
+        return {
+            name: np.asarray(silhouette, dtype=bool).copy()
+            for name in matrix.FACE_PART_NAMES
+        }
+
     def test_recommended_smoke_row_is_first(self):
         first = matrix.DEFAULT_MATRIX[0]
         self.assertEqual(first.row_id, "small_off_axis_yaw_256")
@@ -171,6 +178,7 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
             silhouette=silhouette,
             rgb=np.full((size, size, 3), 0.5, dtype=np.float32),
             depth=np.full((size, size), 0.4, dtype=np.float32),
+            part_masks=self._complete_part_masks(silhouette),
         )
         mesh = SimpleNamespace(vertices=np.zeros((3, 3), dtype=np.float64))
         fixture = {
@@ -200,7 +208,7 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
             ),
             patch.object(matrix, "render_mesh", return_value=rendered) as render,
         ):
-            source, mask, exact_depth, record = matrix._render_scene_arrays(
+            source, mask, exact_depth, part_masks, record = matrix._render_scene_arrays(
                 spec,
                 fixture,
             )
@@ -217,6 +225,8 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
         self.assertGreater(record["face_bbox_width_pixels"], 0)
         self.assertEqual(source.shape, (size, size, 3))
         self.assertEqual(exact_depth.shape, (size, size))
+        self.assertEqual(set(part_masks), set(matrix.FACE_PART_NAMES))
+        self.assertTrue(all(np.any(values) for values in part_masks.values()))
 
     def test_procedural_object_render_records_nonface_selection_and_background(self):
         size = 64
@@ -241,7 +251,9 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
             patch.object(matrix, "make_procedural_mesh", return_value=object()),
             patch.object(matrix, "render_mesh", return_value=rendered) as render,
         ):
-            source, mask, exact_depth, record = matrix._render_scene_arrays(spec, {})
+            source, mask, exact_depth, part_masks, record = matrix._render_scene_arrays(
+                spec, {}
+            )
 
         camera = render.call_args.args[1]
         self.assertEqual(camera.azimuth_deg, 27.0)
@@ -253,6 +265,7 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
         self.assertEqual(source.shape, (size, size, 3))
         self.assertEqual(mask.shape, (size, size))
         self.assertEqual(exact_depth.shape, (size, size))
+        self.assertIsNone(part_masks)
 
     def test_procedural_object_fixture_is_bit_deterministic(self):
         spec = matrix.OBJECT_SMOKE_MATRIX[0]
@@ -262,13 +275,14 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
 
         for first_array, second_array in zip(first[:3], second[:3]):
             np.testing.assert_array_equal(first_array, second_array)
-        self.assertEqual(first[3], second[3])
+        self.assertIsNone(first[3])
+        self.assertEqual(first[4], second[4])
         mask = first[1] >= 128
         selected_span = float(
             np.percentile(first[2][mask], 98) - np.percentile(first[2][mask], 2)
         )
         self.assertGreater(selected_span, 0.30)
-        self.assertGreater(first[3]["background_depth_span"], 0.20)
+        self.assertGreater(first[4]["background_depth_span"], 0.20)
 
     def test_object_only_run_skips_makehuman_assets(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -313,6 +327,7 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
                         source,
                         mask_values,
                         np.ones((16, 16), dtype=np.float32),
+                        None,
                         render_record,
                     ),
                 ),
@@ -362,11 +377,13 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
         right_eye = np.zeros_like(silhouette)
         left_eye[22:32, 32:45] = True
         right_eye[22:32, 18:31] = True
+        rendered_parts = self._complete_part_masks(silhouette)
+        rendered_parts.update({"left_eye": left_eye, "right_eye": right_eye})
         rendered = SimpleNamespace(
             silhouette=silhouette,
             rgb=np.full((size, size, 3), 0.7, dtype=np.float32),
             depth=np.full((size, size), 0.4, dtype=np.float32),
-            part_masks={"left_eye": left_eye, "right_eye": right_eye},
+            part_masks=rendered_parts,
         )
         fixture = {
             "profiles": {
@@ -395,7 +412,7 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
             ),
             patch.object(matrix, "render_mesh", return_value=rendered),
         ):
-            source, mask, _exact_depth, record = matrix._render_scene_arrays(
+            source, mask, _exact_depth, part_masks, record = matrix._render_scene_arrays(
                 spec, fixture
             )
 
@@ -407,6 +424,7 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
         self.assertGreater(right, 45)
         self.assertTrue(np.all(mask[top:bottom, left:right] > 0))
         self.assertTrue(np.all(source[top:bottom, left:right] == (47, 71, 83)))
+        self.assertEqual(set(part_masks), set(matrix.FACE_PART_NAMES))
 
     def test_one_row_run_records_hashes_fields_status_and_provenance(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -459,6 +477,7 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
                         source,
                         mask_values,
                         np.ones((16, 16), dtype=np.float32),
+                        self._complete_part_masks(mask_values > 0),
                         render_record,
                     ),
                 ),
@@ -492,7 +511,16 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
             self.assertTrue((row_dir / "source.png").is_file())
             self.assertTrue((row_dir / "selection_mask.png").is_file())
             self.assertTrue((row_dir / "exact_depth.npy").is_file())
+            for name in matrix.FACE_PART_NAMES:
+                self.assertTrue(
+                    (row_dir / "exact_face_parts" / f"{name}.png").is_file()
+                )
             self.assertRegex(summary["rows"][0]["source"]["sha256"], r"^[a-f0-9]{64}$")
+            self.assertTrue(summary["rows"][0]["exact_face_part_masks"]["complete"])
+            self.assertEqual(
+                set(summary["rows"][0]["exact_face_part_masks"]["files"]),
+                set(matrix.FACE_PART_NAMES),
+            )
 
             posts = [call for call in client.calls if call[0] == "POST"]
             self.assertEqual(
@@ -584,6 +612,11 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
                 patch.object(
                     matrix,
                     "_exact_face_depth_quality",
+                    return_value={"checks": {"passed": True}},
+                ),
+                patch.object(
+                    matrix,
+                    "_emitted_face_part_retention",
                     return_value={"checks": {"passed": True}},
                 ),
             ):
@@ -740,17 +773,157 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
                 exact_path,
                 mask_path,
                 expected_scale_sign=1.0,
+                require_face_parts=False,
             )
             reversed_result = matrix._exact_face_depth_quality(
                 reversed_path,
                 exact_path,
                 mask_path,
                 expected_scale_sign=1.0,
+                require_face_parts=False,
             )
 
             self.assertTrue(matched["checks"]["passed"])
             self.assertFalse(reversed_result["checks"]["depth_semantics_orientation"])
             self.assertFalse(reversed_result["checks"]["passed"])
+
+    def test_exact_face_parts_reject_one_flattened_eye(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            size = 96
+            yy, xx = np.mgrid[:size, :size]
+            face = ((xx - 48.0) / 34.0) ** 2 + ((yy - 48.0) / 42.0) ** 2 <= 1.0
+            signal = (
+                0.20
+                + 0.002 * xx
+                + 0.001 * yy
+                + 0.45 * np.exp(-((xx - 48.0) ** 2 + (yy - 49.0) ** 2) / 180.0)
+                + 0.06 * np.sin(xx / 4.0) * np.cos(yy / 5.0)
+            )
+            signal = (signal - signal.min()) / (signal.max() - signal.min())
+            exact = (1.0 - signal).astype(np.float32)
+            predicted = (exact * 1.7 + 0.2).astype(np.float32)
+
+            def region(x0, y0, x1, y1):
+                values = np.zeros((size, size), dtype=bool)
+                values[y0:y1, x0:x1] = True
+                return values & face
+
+            parts = {
+                "left_eye": region(28, 34, 43, 45),
+                "right_eye": region(53, 34, 68, 45),
+                "left_eyebrow": region(27, 27, 44, 34),
+                "right_eyebrow": region(52, 27, 69, 34),
+                "nose": region(42, 39, 55, 63),
+                "mouth": region(36, 65, 61, 76),
+            }
+            mask_path = root / "face.png"
+            exact_path = root / "exact.npy"
+            predicted_path = root / "predicted.npy"
+            damaged_path = root / "damaged.npy"
+            Image.fromarray(face.astype(np.uint8) * 255, mode="L").save(mask_path)
+            np.save(exact_path, exact)
+            np.save(predicted_path, predicted)
+            damaged = predicted.copy()
+            damaged[parts["left_eye"]] = float(np.median(predicted[face]))
+            np.save(damaged_path, damaged)
+            part_paths = {}
+            for name, values in parts.items():
+                path = root / f"{name}.png"
+                Image.fromarray(values.astype(np.uint8) * 255, mode="L").save(path)
+                part_paths[name] = path
+
+            matched = matrix._exact_face_depth_quality(
+                predicted_path,
+                exact_path,
+                mask_path,
+                expected_scale_sign=1.0,
+                part_mask_paths=part_paths,
+            )
+            damaged_result = matrix._exact_face_depth_quality(
+                damaged_path,
+                exact_path,
+                mask_path,
+                expected_scale_sign=1.0,
+                part_mask_paths=part_paths,
+            )
+
+            self.assertTrue(matched["checks"]["passed"])
+            self.assertFalse(damaged_result["checks"]["named_part_shape"])
+            self.assertIn(
+                "left_eye",
+                damaged_result["named_part_shape"]["failed_parts"],
+            )
+            self.assertFalse(damaged_result["checks"]["passed"])
+
+    def test_emitted_face_part_retention_rejects_local_flattening(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            size = 64
+            yy, xx = np.mgrid[:size, :size]
+            face = np.zeros((size, size), dtype=bool)
+            face[6:58, 7:57] = True
+            reference = (
+                3.0
+                + 0.03 * xx
+                + 0.02 * yy
+                + 2.5 * np.exp(-((xx - 32.0) ** 2 + (yy - 32.0) ** 2) / 130.0)
+                + 0.4 * np.sin(xx / 4.0) * np.cos(yy / 6.0)
+            ).astype(np.float64)
+            boxes = {
+                "left_eye": (15, 20, 28, 29),
+                "right_eye": (36, 20, 49, 29),
+                "left_eyebrow": (14, 14, 29, 20),
+                "right_eyebrow": (35, 14, 50, 20),
+                "nose": (27, 27, 38, 43),
+                "mouth": (23, 45, 42, 53),
+            }
+            mask_path = root / "face.png"
+            Image.fromarray(face.astype(np.uint8) * 255, mode="L").save(mask_path)
+            part_paths = {}
+            part_values = {}
+            for name, (x0, y0, x1, y1) in boxes.items():
+                values = np.zeros_like(face)
+                values[y0:y1, x0:x1] = True
+                values &= face
+                path = root / f"{name}.png"
+                Image.fromarray(values.astype(np.uint8) * 255, mode="L").save(path)
+                part_paths[name] = path
+                part_values[name] = values
+            transform = {
+                "input_depth_shape": [size, size],
+                "target_depth_shape": [size, size],
+                "mesh_shape_before_crop": [size, size],
+                "crop_bbox_rc": [0, 0, size, size],
+                "emitted_shape": [size, size],
+                "flip_x": False,
+            }
+            postprocess = {
+                "surface_grid_transform": transform,
+                "mesh_sample_pitch_mm": 0.5,
+            }
+            perfect = matrix._emitted_face_part_retention(
+                reference,
+                reference.copy(),
+                mask_path,
+                part_paths,
+                postprocess,
+                required=True,
+            )
+            damaged = reference.copy()
+            damaged[part_values["left_eye"]] = float(np.median(reference[face]))
+            rejected = matrix._emitted_face_part_retention(
+                reference,
+                damaged,
+                mask_path,
+                part_paths,
+                postprocess,
+                required=True,
+            )
+
+            self.assertTrue(perfect["checks"]["passed"])
+            self.assertFalse(rejected["checks"]["passed"])
+            self.assertIn("left_eye", rejected["named_part_shape"]["failed_parts"])
 
     def test_occlusion_gate_accepts_correction_or_measured_consistency(self):
         consistent = matrix._occlusion_handling(

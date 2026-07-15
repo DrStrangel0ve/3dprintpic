@@ -22,6 +22,10 @@ import httpx
 import numpy as np
 from PIL import Image
 
+from backend.benchmark.face_part_metrics import (
+    face_part_affine_surface_error_metrics,
+    face_part_cross_height_metrics,
+)
 from backend.benchmark.makehuman_face_fixture import (
     load_makehuman_face_fixture,
     make_profile_vertex_colors,
@@ -56,6 +60,7 @@ from backend.benchmark.summarize_private_live_api_background_replay import (
     _independent_cap_checks,
     _topology_record,
 )
+from backend.face_depth_refinement import FACE_PART_NAMES
 
 
 DEFAULT_ASSET_DIR = Path(__file__).parent / "assets" / "makehuman_cc0_heads"
@@ -106,6 +111,7 @@ LIGHTING_PROFILES = {
 _JOB_ID = re.compile(r"^[a-f0-9]{32}$")
 PRODUCER_PATHS = (
     "backend/benchmark/run_cc0_live_face_variation_matrix.py",
+    "backend/benchmark/face_part_metrics.py",
     "backend/benchmark/makehuman_face_fixture.py",
     "backend/benchmark/mesh_rendering.py",
     "backend/benchmark/run_makehuman_face_depth_smoke.py",
@@ -114,6 +120,7 @@ PRODUCER_PATHS = (
     "backend/benchmark/run_relief_scene_regression.py",
     "backend/benchmark/run_relief_visual_sweep.py",
     "backend/benchmark/summarize_private_live_api_background_replay.py",
+    "backend/face_depth_refinement.py",
     "backend/benchmark/assets/makehuman_cc0_heads/asset.json",
 )
 
@@ -473,7 +480,7 @@ def _selection_geometry_record(mask: np.ndarray) -> dict:
 
 def _render_scene_arrays(
     spec: SceneSpec, fixture: dict
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, np.ndarray] | None, dict]:
     _validate_scene_spec(spec)
     if isinstance(spec, ObjectSceneSpec):
         return _render_object_scene_arrays(spec)
@@ -509,6 +516,27 @@ def _render_scene_arrays(
     rendered_depth = _translate(
         np.asarray(rendered.depth, dtype=np.float32), offset_columns, 1.0
     )
+    rendered_part_masks = rendered.part_masks or {}
+    required_part_names = set(FACE_PART_NAMES)
+    if set(rendered_part_masks) != required_part_names:
+        missing = sorted(required_part_names - set(rendered_part_masks))
+        unexpected = sorted(set(rendered_part_masks) - required_part_names)
+        raise ValueError(
+            "Rendered face-part masks must contain exactly the required parts; "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+    exact_part_masks = {}
+    for name in FACE_PART_NAMES:
+        raw_part = np.asarray(rendered_part_masks[name], dtype=bool)
+        if raw_part.shape != face_mask.shape:
+            raise ValueError(
+                f"Rendered face-part mask {name!r} has shape {raw_part.shape}, "
+                f"expected {face_mask.shape}"
+            )
+        translated = _translate(raw_part, offset_columns, False) & face_mask
+        if not np.any(translated):
+            raise ValueError(f"Rendered face-part mask {name!r} is empty")
+        exact_part_masks[name] = translated
     occluder_pixels = 0
     occluder_bounds = None
     if spec.occluder is not None:
@@ -517,11 +545,7 @@ def _render_scene_arrays(
         if occ.anchor == "eye_band":
             eye_mask = np.zeros_like(face_mask)
             for name in ("left_eye", "right_eye"):
-                eye_mask |= _translate(
-                    np.asarray(rendered.part_masks[name], dtype=bool),
-                    offset_columns,
-                    False,
-                )
+                eye_mask |= exact_part_masks[name]
             eye_rows, eye_columns = np.where(eye_mask & face_mask)
             face_rows, face_columns = np.where(face_mask)
             if not len(eye_rows) or not len(face_rows):
@@ -570,6 +594,7 @@ def _render_scene_arrays(
         source,
         mask,
         exact_depth.astype(np.float32, copy=False),
+        exact_part_masks,
         {
             "scene_kind": "face",
             "background_profile": spec.background_profile,
@@ -603,7 +628,7 @@ def _render_scene_arrays(
 
 def _render_object_scene_arrays(
     spec: ObjectSceneSpec,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, None, dict]:
     effective_distance = float(spec.camera_distance) / float(spec.camera_scale)
     rendered = render_mesh(
         make_procedural_mesh(int(spec.procedural_index)),
@@ -638,6 +663,7 @@ def _render_object_scene_arrays(
         np.clip(source_rgb * 255.0, 0, 255).astype(np.uint8),
         selection_mask.astype(np.uint8) * 255,
         exact_depth.astype(np.float32, copy=False),
+        None,
         {
             "scene_kind": "object",
             "procedural_index": int(spec.procedural_index),
@@ -872,15 +898,31 @@ def _assert_process_contract(
 
 def _stage_scene(
     row_dir: Path, spec: SceneSpec, fixture: dict
-) -> tuple[Path, Path, Path, dict]:
-    source, mask, exact_depth, render_record = _render_scene_arrays(spec, fixture)
+) -> tuple[Path, Path, Path, dict[str, Path] | None, dict]:
+    source, mask, exact_depth, exact_part_masks, render_record = _render_scene_arrays(
+        spec, fixture
+    )
     source_path = row_dir / "source.png"
     mask_path = row_dir / "selection_mask.png"
     exact_depth_path = row_dir / "exact_depth.npy"
     Image.fromarray(source, mode="RGB").save(source_path)
     Image.fromarray(mask, mode="L").save(mask_path)
     np.save(exact_depth_path, exact_depth)
-    return source_path, mask_path, exact_depth_path, render_record
+    part_paths = None
+    if exact_part_masks is not None:
+        if set(exact_part_masks) != set(FACE_PART_NAMES):
+            raise ValueError("Staged face row has incomplete exact face-part masks")
+        part_dir = row_dir / "exact_face_parts"
+        part_dir.mkdir(parents=True, exist_ok=True)
+        part_paths = {}
+        for name in FACE_PART_NAMES:
+            path = part_dir / f"{name}.png"
+            Image.fromarray(
+                np.asarray(exact_part_masks[name], dtype=np.uint8) * 255,
+                mode="L",
+            ).save(path)
+            part_paths[name] = path
+    return source_path, mask_path, exact_depth_path, part_paths, render_record
 
 
 def _process_form(
@@ -999,6 +1041,8 @@ def _exact_face_depth_quality(
     mask_path: Path,
     *,
     expected_scale_sign: float,
+    part_mask_paths: dict[str, Path] | None = None,
+    require_face_parts: bool = True,
 ) -> dict:
     predicted = np.load(refined_depth_path).astype(np.float32)
     exact = np.load(exact_depth_path).astype(np.float32)
@@ -1061,6 +1105,77 @@ def _exact_face_depth_quality(
         "samples": int(np.count_nonzero(valid)),
         "gates": dict(EXACT_FACE_DEPTH_GATES),
     }
+    named_part_shape = None
+    named_part_affine_mm = None
+    if require_face_parts:
+        if part_mask_paths is None or set(part_mask_paths) != set(FACE_PART_NAMES):
+            metrics["face_part_reason"] = "missing_exact_face_part_masks"
+        else:
+            part_masks = {}
+            for name in FACE_PART_NAMES:
+                with Image.open(part_mask_paths[name]) as loaded:
+                    part = np.asarray(
+                        loaded.convert("L").resize(
+                            (exact.shape[1], exact.shape[0]),
+                            Image.Resampling.NEAREST,
+                        )
+                    ) >= 128
+                if not np.any(part & face):
+                    raise ValueError(f"Exact face-part mask {name!r} is empty")
+                part_masks[name] = part & face
+
+            exact_signal = 1.0 - reference
+            exact_min = float(np.nanmin(exact_signal))
+            exact_span = float(np.nanmax(exact_signal) - exact_min)
+            if not np.isfinite(exact_span) or exact_span <= 1e-8:
+                raise ValueError("Exact depth has no usable global span")
+            reference_surface_mm = (exact_signal - exact_min) * (
+                RELIEF_HEIGHT_MM / exact_span
+            )
+            predicted_signal = (
+                1.0 - candidate if float(expected_scale_sign) > 0 else candidate
+            )
+            design = np.column_stack(
+                (predicted_signal[valid], np.ones(np.count_nonzero(valid)))
+            )
+            part_scale, part_shift = np.linalg.lstsq(
+                design, reference_surface_mm[valid], rcond=None
+            )[0]
+            aligned_surface_mm = (
+                predicted_signal * float(part_scale) + float(part_shift)
+            )
+            pitch_mm = float(MAX_XY_SIZE_MM / max(exact.shape[1] - 1, 1))
+            named_part_shape = face_part_cross_height_metrics(
+                reference_surface_mm,
+                aligned_surface_mm,
+                face,
+                part_masks,
+                sample_pitch_mm=pitch_mm,
+            )
+            named_part_affine_mm = face_part_affine_surface_error_metrics(
+                reference_surface_mm,
+                aligned_surface_mm,
+                face,
+                part_masks,
+            )
+            metrics.update(
+                {
+                    "exact_reference_mapping": {
+                        "method": "one-minus-depth-global-span-to-relief-mm",
+                        "relief_height_mm": float(RELIEF_HEIGHT_MM),
+                        "exact_signal_min": exact_min,
+                        "exact_signal_span": exact_span,
+                    },
+                    "named_part_alignment": {
+                        "method": "single-global-face-affine-fit",
+                        "scale": float(part_scale),
+                        "shift": float(part_shift),
+                        "sample_pitch_mm": pitch_mm,
+                    },
+                    "named_part_shape": named_part_shape,
+                    "named_part_affine_mm": named_part_affine_mm,
+                }
+            )
     checks = {
         "coverage": coverage >= EXACT_FACE_DEPTH_GATES["minimum_coverage_ratio"],
         "depth_semantics_orientation": bool(
@@ -1073,8 +1188,77 @@ def _exact_face_depth_quality(
         "normalized_rmse": normalized_rmse
         <= EXACT_FACE_DEPTH_GATES["maximum_normalized_rmse"],
     }
+    if require_face_parts:
+        checks["named_part_shape"] = bool(
+            named_part_shape and named_part_shape.get("passed", False)
+        )
+        checks["named_part_affine_mm"] = bool(
+            named_part_affine_mm and named_part_affine_mm.get("passed", False)
+        )
     checks["passed"] = bool(all(checks.values()))
     return {**metrics, "checks": checks}
+
+
+def _emitted_face_part_retention(
+    reference_surface: np.ndarray,
+    emitted_surface: np.ndarray,
+    mask_path: Path,
+    part_mask_paths: dict[str, Path] | None,
+    postprocess: dict,
+    *,
+    required: bool,
+) -> dict:
+    if not required:
+        return {"required": False, "available": False, "checks": {"passed": True}}
+    if part_mask_paths is None or set(part_mask_paths) != set(FACE_PART_NAMES):
+        return {
+            "required": True,
+            "available": False,
+            "reason": "missing_exact_face_part_masks",
+            "checks": {"passed": False},
+        }
+    transform = postprocess.get("surface_grid_transform", {})
+    emitted_shape = tuple(int(value) for value in emitted_surface.shape)
+    face = _mask_on_emitted_grid(mask_path, transform, emitted_shape)
+    parts = {
+        name: _mask_on_emitted_grid(part_mask_paths[name], transform, emitted_shape)
+        & face
+        for name in FACE_PART_NAMES
+    }
+    if any(not np.any(mask) for mask in parts.values()):
+        raise ValueError("An emitted exact face-part mask is empty")
+    try:
+        pitch_mm = float(postprocess["mesh_sample_pitch_mm"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Missing or invalid emitted mesh sample pitch") from exc
+    if not np.isfinite(pitch_mm) or pitch_mm <= 0:
+        raise ValueError("Emitted mesh sample pitch must be positive and finite")
+    shape = face_part_cross_height_metrics(
+        reference_surface,
+        emitted_surface,
+        face,
+        parts,
+        sample_pitch_mm=pitch_mm,
+    )
+    affine_mm = face_part_affine_surface_error_metrics(
+        reference_surface,
+        emitted_surface,
+        face,
+        parts,
+    )
+    checks = {
+        "named_part_shape": bool(shape.get("passed", False)),
+        "named_part_affine_mm": bool(affine_mm.get("passed", False)),
+    }
+    checks["passed"] = bool(all(checks.values()))
+    return {
+        "required": True,
+        "available": True,
+        "sample_pitch_mm": pitch_mm,
+        "named_part_shape": shape,
+        "named_part_affine_mm": affine_mm,
+        "checks": checks,
+    }
 
 
 def _occlusion_handling(refinement: dict, *, required: bool) -> dict:
@@ -1118,6 +1302,7 @@ def _score_variant(
     exact_depth_path: Path,
     mask_path: Path,
     require_occlusion: bool,
+    part_mask_paths: dict[str, Path] | None = None,
     spec: SceneSpec | None = None,
 ) -> dict:
     artifacts = _job_artifacts(server_output, response)
@@ -1174,6 +1359,8 @@ def _score_variant(
             exact_depth_path,
             mask_path,
             expected_scale_sign=1.0 if bool(response.get("invert", False)) else -1.0,
+            part_mask_paths=part_mask_paths,
+            require_face_parts=is_face,
         )
         if "refined_depth" in artifacts
         else {
@@ -1182,6 +1369,14 @@ def _score_variant(
             "gates": dict(EXACT_FACE_DEPTH_GATES),
             "checks": {"passed": False},
         }
+    )
+    emitted_face_part_retention = _emitted_face_part_retention(
+        reference,
+        surface,
+        mask_path,
+        part_mask_paths,
+        postprocess,
+        required=is_face,
     )
     occlusion = _occlusion_handling(
         refinement,
@@ -1214,6 +1409,9 @@ def _score_variant(
         "topology": bool(topology["checks"].get("passed", False)),
         "exact_stl_shell": bool(shell.get("passed", False)),
         "occlusion_deoccluded": occlusion_passed,
+        "emitted_face_part_retention": bool(
+            emitted_face_part_retention["checks"].get("passed", False)
+        ),
     }
     if is_face:
         checks["validated_human_face_refined"] = validated_faces > 0
@@ -1244,6 +1442,7 @@ def _score_variant(
         "boundary_shape": boundary_shape,
         "topology": topology,
         "stl_heightfield_agreement": shell,
+        "emitted_face_part_retention": emitted_face_part_retention,
         "exact_subject_depth": exact_subject_depth,
         (
             "exact_face_depth" if is_face else "exact_selection_depth"
@@ -1410,11 +1609,13 @@ def run(
         for spec in selected_specs:
             row_dir = run_output / "rows" / spec.row_id
             row_dir.mkdir(parents=True, exist_ok=True)
-            source_path, mask_path, exact_depth_path, render_record = _stage_scene(
-                row_dir,
-                spec,
-                fixture,
-            )
+            (
+                source_path,
+                mask_path,
+                exact_depth_path,
+                part_mask_paths,
+                render_record,
+            ) = _stage_scene(row_dir, spec, fixture)
             mask_reference = mask_path.resolve().relative_to(server_output).as_posix()
             compose_form = {
                 "mask_paths_json": json.dumps([mask_reference], separators=(",", ":")),
@@ -1490,6 +1691,7 @@ def run(
                     server_output=server_output,
                     exact_depth_path=exact_depth_path,
                     mask_path=mask_path,
+                    part_mask_paths=part_mask_paths,
                     require_occlusion=getattr(spec, "occluder", None) is not None,
                     spec=spec,
                 )
@@ -1519,6 +1721,17 @@ def run(
                     "source": _artifact_record(source_path, run_output),
                     "selection_mask": _artifact_record(mask_path, run_output),
                     "exact_depth": _artifact_record(exact_depth_path, run_output),
+                    "exact_face_part_masks": {
+                        "applicable": part_mask_paths is not None,
+                        "complete": bool(
+                            part_mask_paths is not None
+                            and set(part_mask_paths) == set(FACE_PART_NAMES)
+                        ),
+                        "files": {
+                            name: _artifact_record(path, run_output)
+                            for name, path in sorted((part_mask_paths or {}).items())
+                        },
+                    },
                     "compose": {
                         "request": compose_record,
                         "request_artifact": _artifact_record(

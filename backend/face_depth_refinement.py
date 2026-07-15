@@ -1411,12 +1411,15 @@ def _reconstruct_eyewear_occlusion(
     occlusion_weight: np.ndarray,
     *,
     reference_span: float,
+    eye_masks: dict[str, np.ndarray] | None = None,
     accessory_residual_ratio: float = EYEWEAR_ACCESSORY_RESIDUAL_RATIO,
     maximum_correction_ratio: float = EYEWEAR_MAXIMUM_CORRECTION_RATIO,
     minimum_input_residual_ratio: float = 0.05,
     maximum_output_residual_ratio: float = 0.05,
     minimum_residual_reduction_ratio: float = 0.35,
     maximum_saturated_core_ratio: float = 0.05,
+    minimum_eye_detail_retention: float = 0.65,
+    maximum_eye_detail_retention: float = 1.60,
 ) -> tuple[np.ndarray, dict]:
     """Replace an eyewear sheet with a bounded face-prior surface."""
     refined = np.asarray(refined_depth, dtype=np.float32)
@@ -1475,6 +1478,50 @@ def _reconstruct_eyewear_occlusion(
         if np.any(transition)
         else 0.0
     )
+    eye_detail_retention = []
+    if eye_masks is not None:
+        detail_sigma_px = 1.0
+        refined_detail = refined - _smooth_nan_aware(refined, detail_sigma_px)
+        candidate_detail = candidate - _smooth_nan_aware(candidate, detail_sigma_px)
+        refined_detail_gradient = np.hypot(*np.gradient(refined_detail))
+        candidate_detail_gradient = np.hypot(*np.gradient(candidate_detail))
+        for name in ("left_eye", "right_eye"):
+            raw_mask = eye_masks.get(name)
+            if raw_mask is None:
+                eye_detail_retention.append(
+                    {"name": name, "available": False, "passed": False}
+                )
+                continue
+            eye = np.asarray(raw_mask) > 0
+            if eye.shape != refined.shape:
+                eye = _resize_mask(eye.astype(np.uint8) * 255, refined.shape) > 0
+            eye = cv2.erode(eye.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+            support = eye & finite & (weight > 0.05)
+            samples = int(np.count_nonzero(support))
+            record = {"name": name, "available": False, "passed": False, "samples": samples}
+            if samples < 12:
+                eye_detail_retention.append(record)
+                continue
+            before_q95 = float(np.percentile(refined_detail_gradient[support], 95.0))
+            after_q95 = float(np.percentile(candidate_detail_gradient[support], 95.0))
+            retention = after_q95 / max(before_q95, span * 1e-6)
+            passed = bool(
+                np.isfinite(retention)
+                and float(minimum_eye_detail_retention)
+                <= retention
+                <= float(maximum_eye_detail_retention)
+            )
+            record.update(
+                {
+                    "available": True,
+                    "detail_sigma_px": detail_sigma_px,
+                    "before_gradient_q95": before_q95,
+                    "after_gradient_q95": after_q95,
+                    "gradient_q95_retention": float(retention),
+                    "passed": passed,
+                }
+            )
+            eye_detail_retention.append(record)
     failures = []
     if not np.all(np.isfinite(candidate[finite])):
         failures.append("non_finite_candidate")
@@ -1486,6 +1533,11 @@ def _reconstruct_eyewear_occlusion(
         failures.append("maximum_correction")
     if saturated_core_ratio > float(maximum_saturated_core_ratio):
         failures.append("correction_saturation")
+    if eye_masks is not None and (
+        len(eye_detail_retention) != 2
+        or any(not record["passed"] for record in eye_detail_retention)
+    ):
+        failures.append("bilateral_eye_detail_retention")
     stats = {
         "method": "landmark-prior-eyewear-deocclusion",
         "core_pixels": core_pixels,
@@ -1498,6 +1550,15 @@ def _reconstruct_eyewear_occlusion(
         "maximum_correction_observed_ratio": maximum_correction_observed_ratio,
         "saturated_core_ratio": saturated_core_ratio,
         "transition_correction_p95_ratio": transition_correction_p95_ratio,
+        "bilateral_eye_detail_retention": {
+            "parts": eye_detail_retention,
+            "minimum_gradient_q95_retention": float(minimum_eye_detail_retention),
+            "maximum_gradient_q95_retention": float(maximum_eye_detail_retention),
+            "passed": bool(
+                len(eye_detail_retention) == 2
+                and all(record["passed"] for record in eye_detail_retention)
+            ),
+        },
         "quality_gates": {
             "passed": not failures,
             "failures": failures,
@@ -1958,6 +2019,11 @@ def refine_depth_for_faces(
                         shape_context["aligned_prior"],
                         eyewear_weight,
                         reference_span=shape_context["reference_span"],
+                        eye_masks={
+                            name: local_part_masks[name]
+                            for name in ("left_eye", "right_eye")
+                            if name in local_part_masks
+                        },
                     )
                     eyewear_deocclusion_stats = {
                         **reconstruction_stats,
