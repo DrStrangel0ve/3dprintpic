@@ -778,6 +778,125 @@ class ReliefStlControlsTest(unittest.TestCase):
             audit["quality_gates"]["failures"],
         )
 
+    def test_post_blend_audit_allows_sparse_bounded_direction_reversals(self):
+        rows, cols = np.indices((2, 40), dtype=np.float32)
+        source = 2.5 * rows + 0.01 * cols
+        source[:, 20:] += 1.5
+        candidate = source.copy()
+        candidate[:, 20:] -= 3.0
+        gates = {
+            "maximum_output_edge_p99_ratio": 12.0,
+            "maximum_output_edge_ratio": 24.0,
+            "minimum_height_span_ratio": 0.5,
+            "maximum_height_span_ratio": 1.15,
+            "maximum_correction_span_ratio": 2.0,
+        }
+
+        audit = _audit_bounded_compression_surface(
+            source,
+            candidate,
+            None,
+            sample_pitch_mm=0.4,
+            max_slope_mm_per_mm=2.0,
+            quality_gates=gates,
+            reject_direction_reversals=True,
+        )
+
+        self.assertTrue(audit["enabled"])
+        self.assertEqual(audit["cardinal_edge_direction_reversal_count"], 2)
+        self.assertLess(
+            audit["total_edge_direction_reversal_count"],
+            audit["minimum_direction_reversal_support_edges"],
+        )
+
+    def test_post_blend_audit_rejects_sparse_severe_direction_reversal(self):
+        rows, cols = np.indices((2, 40), dtype=np.float32)
+        source = 2.5 * rows + 0.01 * cols
+        source[:, 20:] += 7.4
+        candidate = source.copy()
+        candidate[:, 20:] -= 14.8
+        gates = {
+            "maximum_output_edge_p99_ratio": 12.0,
+            "maximum_output_edge_ratio": 24.0,
+            "minimum_height_span_ratio": 0.5,
+            "maximum_height_span_ratio": 1.15,
+            "maximum_correction_span_ratio": 3.0,
+        }
+
+        audit = _audit_bounded_compression_surface(
+            source,
+            candidate,
+            None,
+            sample_pitch_mm=0.4,
+            max_slope_mm_per_mm=2.0,
+            quality_gates=gates,
+            reject_direction_reversals=True,
+        )
+
+        self.assertFalse(audit["enabled"])
+        self.assertEqual(audit["cardinal_edge_direction_reversal_count"], 2)
+        self.assertGreater(
+            audit["cardinal_edge_direction_reversal_max_physical_ratio"],
+            audit["maximum_sparse_direction_reversal_physical_ratio"],
+        )
+        self.assertIn(
+            "cardinal_edge_direction_reversal",
+            audit["quality_gates"]["failures"],
+        )
+
+    def test_post_blend_audit_combines_corner_reversal_support(self):
+        rows, cols = np.indices((80, 100), dtype=np.float32)
+        source = (
+            0.2 * rows
+            + 0.01 * cols
+            + 0.1 * np.sin(cols * 1.2)
+            + 0.05 * np.cos(rows)
+        )
+        detail = np.ones(source.shape, dtype=bool)
+        source[0:1, 0:2] += 1.25
+        candidate = source.copy()
+        candidate[0:1, 0:2] -= 2.5
+        gates = {
+            "minimum_detail_correlation": 0.65,
+            "minimum_detail_rms_retention": 0.15,
+            "maximum_detail_rms_retention": 2.0,
+            "maximum_output_edge_p99_ratio": 12.0,
+            "maximum_output_edge_ratio": 24.0,
+            "minimum_height_span_ratio": 0.5,
+            "maximum_height_span_ratio": 1.15,
+            "maximum_correction_span_ratio": 0.9,
+        }
+
+        audit = _audit_bounded_compression_surface(
+            source,
+            candidate,
+            detail,
+            sample_pitch_mm=0.4,
+            max_slope_mm_per_mm=2.0,
+            quality_gates=gates,
+            reject_direction_reversals=True,
+        )
+
+        self.assertEqual(audit["cardinal_edge_direction_reversal_count"], 3)
+        self.assertEqual(audit["diagonal_edge_direction_reversal_count"], 3)
+        self.assertLessEqual(
+            audit["cardinal_edge_direction_reversal_max_physical_ratio"],
+            audit["maximum_sparse_direction_reversal_physical_ratio"],
+        )
+        self.assertLessEqual(
+            audit["diagonal_edge_direction_reversal_max_physical_ratio"],
+            audit["maximum_sparse_direction_reversal_physical_ratio"],
+        )
+        self.assertFalse(audit["enabled"])
+        self.assertIn(
+            "cardinal_edge_direction_reversal",
+            audit["quality_gates"]["failures"],
+        )
+        self.assertIn(
+            "diagonal_edge_direction_reversal",
+            audit["quality_gates"]["failures"],
+        )
+
     def test_face_detail_metrics_fail_closed_for_tiny_detected_component(self):
         rows, cols = np.indices((48, 64), dtype=np.float32)
         reference = 0.02 * rows + 0.03 * cols + 0.2 * np.sin(cols * 0.4)
@@ -1549,6 +1668,7 @@ class ReliefStlControlsTest(unittest.TestCase):
 
         self.assertTrue(compress_mock.call_args.kwargs["allow_edge_only_candidate"])
         audit_mock.assert_called_once()
+        self.assertTrue(audit_mock.call_args.kwargs["reject_direction_reversals"])
         self.assertTrue(stats["enabled"])
         self.assertTrue(stats["quality_gates"]["passed"])
         self.assertTrue(stats["provisional_edge_only_candidate_accepted"])

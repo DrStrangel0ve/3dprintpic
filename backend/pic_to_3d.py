@@ -4760,6 +4760,20 @@ def _audit_bounded_compression_surface(
         & (source_diagonal_edges > diagonal_step * 0.25)
         & (diagonal_edges > diagonal_step)
     )
+    cardinal_reversal_count = int(np.count_nonzero(cardinal_direction_reversal))
+    diagonal_reversal_count = int(np.count_nonzero(diagonal_direction_reversal))
+    total_reversal_count = cardinal_reversal_count + diagonal_reversal_count
+    minimum_reversal_support_edges = 4
+    cardinal_reversal_max_physical_ratio = (
+        float(np.max(physical_cardinal_ratio[cardinal_direction_reversal]))
+        if cardinal_reversal_count
+        else 0.0
+    )
+    diagonal_reversal_max_physical_ratio = (
+        float(np.max(physical_diagonal_ratio[diagonal_direction_reversal]))
+        if diagonal_reversal_count
+        else 0.0
+    )
     detail_stats = _face_detail_preservation_metrics(
         source,
         candidate,
@@ -4778,6 +4792,7 @@ def _audit_bounded_compression_surface(
     maximum_edge_p99 = float(
         quality_gates.get("maximum_output_edge_p99_ratio", 12.0)
     )
+    maximum_sparse_reversal_physical_ratio = min(maximum_edge_p99, 4.0)
     maximum_edge = float(quality_gates.get("maximum_output_edge_ratio", 24.0))
     minimum_span = float(quality_gates.get("minimum_height_span_ratio", 0.5))
     maximum_span = float(quality_gates.get("maximum_height_span_ratio", 1.15))
@@ -4809,7 +4824,11 @@ def _audit_bounded_compression_surface(
         failures.append("cardinal_edge_excess_p99")
     if cardinal_excess_max > maximum_edge:
         failures.append("cardinal_edge_excess_max")
-    if reject_direction_reversals and np.any(cardinal_direction_reversal):
+    if reject_direction_reversals and (
+        (cardinal_reversal_count and total_reversal_count >= minimum_reversal_support_edges)
+        or cardinal_reversal_max_physical_ratio
+        > maximum_sparse_reversal_physical_ratio
+    ):
         failures.append("cardinal_edge_direction_reversal")
     if diagonal_p99 is not None and diagonal_p99 > maximum_edge_p99:
         failures.append("diagonal_edge_p99")
@@ -4819,7 +4838,11 @@ def _audit_bounded_compression_surface(
         failures.append("diagonal_edge_excess_p99")
     if diagonal_excess_max is not None and diagonal_excess_max > maximum_edge:
         failures.append("diagonal_edge_excess_max")
-    if reject_direction_reversals and np.any(diagonal_direction_reversal):
+    if reject_direction_reversals and (
+        (diagonal_reversal_count and total_reversal_count >= minimum_reversal_support_edges)
+        or diagonal_reversal_max_physical_ratio
+        > maximum_sparse_reversal_physical_ratio
+    ):
         failures.append("diagonal_edge_direction_reversal")
     if not minimum_span <= height_span_ratio <= maximum_span:
         failures.append("height_span_ratio")
@@ -4874,8 +4897,9 @@ def _audit_bounded_compression_surface(
             "output_edge_ratio_max": cardinal_max,
             "output_edge_excess_ratio_p99": cardinal_excess_p99,
             "output_edge_excess_ratio_max": cardinal_excess_max,
-            "cardinal_edge_direction_reversal_count": int(
-                np.count_nonzero(cardinal_direction_reversal)
+            "cardinal_edge_direction_reversal_count": cardinal_reversal_count,
+            "cardinal_edge_direction_reversal_max_physical_ratio": (
+                cardinal_reversal_max_physical_ratio
             ),
             "physical_output_edge_ratio_p99": float(
                 np.percentile(physical_cardinal_ratio, 99.0)
@@ -4887,8 +4911,16 @@ def _audit_bounded_compression_surface(
             "diagonal_edge_ratio_max": diagonal_max,
             "diagonal_edge_excess_ratio_p99": diagonal_excess_p99,
             "diagonal_edge_excess_ratio_max": diagonal_excess_max,
-            "diagonal_edge_direction_reversal_count": int(
-                np.count_nonzero(diagonal_direction_reversal)
+            "diagonal_edge_direction_reversal_count": diagonal_reversal_count,
+            "diagonal_edge_direction_reversal_max_physical_ratio": (
+                diagonal_reversal_max_physical_ratio
+            ),
+            "total_edge_direction_reversal_count": total_reversal_count,
+            "minimum_direction_reversal_support_edges": (
+                minimum_reversal_support_edges
+            ),
+            "maximum_sparse_direction_reversal_physical_ratio": (
+                maximum_sparse_reversal_physical_ratio
             ),
             "physical_diagonal_edge_ratio_p99": (
                 float(np.percentile(physical_diagonal_ratio, 99.0))
@@ -5144,6 +5176,7 @@ def _compress_selected_relief_surface(
                 "output_edge_excess_ratio_p99",
                 "output_edge_excess_ratio_max",
                 "cardinal_edge_direction_reversal_count",
+                "cardinal_edge_direction_reversal_max_physical_ratio",
                 "physical_output_edge_ratio_p99",
                 "physical_output_edge_ratio_max",
                 "diagonal_edge_ratio_p99",
@@ -5151,6 +5184,10 @@ def _compress_selected_relief_surface(
                 "diagonal_edge_excess_ratio_p99",
                 "diagonal_edge_excess_ratio_max",
                 "diagonal_edge_direction_reversal_count",
+                "diagonal_edge_direction_reversal_max_physical_ratio",
+                "total_edge_direction_reversal_count",
+                "minimum_direction_reversal_support_edges",
+                "maximum_sparse_direction_reversal_physical_ratio",
                 "physical_diagonal_edge_ratio_p99",
                 "physical_diagonal_edge_ratio_max",
                 "height_span_ratio",
