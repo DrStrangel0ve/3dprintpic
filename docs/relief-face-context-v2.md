@@ -542,6 +542,37 @@ Exact summaries, privacy-safe sources, hashes, and fail-closed reproduction are
 in `docs/benchmark-evidence/background_photo_detail_sweep_30mm_n3_v5/` and
 `docs/benchmark-evidence/background_photo_detail_da2_s40_n1_v3/`.
 
+## Exact private background-detail confirmation
+
+The current `0.60 mm` photo-detail algorithm was replayed at 30 mm on the two
+exact motivating scenes using their cached upstream depth and historical
+512-grid request settings. This validates that configuration, not every current
+endpoint default. The new runner keeps the config, every private input, and all
+generated geometry under ignored output and publishes a scalar allowlist only.
+It locally checksum-pins every input, cross-checks selection fingerprints and
+the expected Depth Anything V2 identity, and never publishes those checksums or
+identifiers. It also replays the exporter's recorded resize, horizontal flip,
+mesh resample, and crop when measuring source alignment; direct photo-to-final-
+grid resizing is no longer accepted for this evidence lane.
+
+Intended-background correlation is `0.6141` on Scene 01 and `0.6296` on Scene
+02. RMS/p95 added relief is `0.0512/0.1184 mm` and
+`0.0784/0.1843 mm`, with source-aligned capture of `0.5430` and `0.6076`.
+Scene 01 face movement is effectively zero (`0.000002 mm` maximum), and the
+selected-subject attachment boundary changes by at most `0.0146/0.0129 mm`.
+The original broad background remains intact: correlation is
+`0.999994/0.999921`, RMS retention is `1.000051/1.000088`, and coverage is
+complete.
+
+All four baseline/candidate STLs are single-component watertight manifold
+volumes with consistent winding, zero degenerates, and exact complete-shell
+facet agreement. Far-background cap violation is zero and every satisfiable
+attachment jump is at most `0.800001 mm`. Strict cap status remains explicitly
+false for `13/41` mutually incompatible one-pixel constraints; this is not
+misreported as strict success. Aggregate evidence and the generic reproduction
+contract are in
+`docs/benchmark-evidence/private_background_photo_detail_30mm_v1/`.
+
 ## Validation
 
 ```powershell
@@ -554,7 +585,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 537 passed, 69 subtests passed (2 existing warnings).
+- Backend: 543 passed, 69 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
