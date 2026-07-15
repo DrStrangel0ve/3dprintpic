@@ -1,0 +1,2471 @@
+{
+  "schema_version": 1,
+  "run_kind": "production_depth_background_photo_detail_smoke",
+  "privacy": "checksum-pinned CC0 generated head and analytic background only",
+  "implementation_provenance": {
+    "available": true,
+    "clean": true,
+    "revision": "562eb56bbe5cccc71a5fc144ffc636ab4c8f0769",
+    "paths": [
+      "backend/pic_to_3d.py",
+      "backend/benchmark/face_part_metrics.py",
+      "backend/benchmark/makehuman_face_fixture.py",
+      "backend/benchmark/run_makehuman_face_depth_smoke.py",
+      "backend/benchmark/run_makehuman_face_relief_smoke.py",
+      "backend/benchmark/run_makehuman_face_provider_relief_smoke.py",
+      "backend/benchmark/run_relief_scene_regression.py",
+      "backend/benchmark/run_background_photo_detail_sweep.py",
+      "backend/benchmark/run_background_photo_detail_provider_smoke.py",
+      "backend/benchmark/assets/makehuman_cc0_heads"
+    ],
+    "status": []
+  },
+  "matrix": {
+    "provider": "depth-anything-v2-large",
+    "scenes": [
+      {
+        "profile_name": "asian_female_asymmetric",
+        "framing": "right_frame",
+        "phase_rad": 2.03
+      }
+    ],
+    "detail_levels_mm": [
+      0.0,
+      0.6
+    ],
+    "relief_height_mm": 30.0,
+    "physical_size_mm": 96.0,
+    "background_depth_ratio": 0.65,
+    "device": "cuda"
+  },
+  "inference_manifests": [
+    {
+      "scene": {
+        "profile_name": "asian_female_asymmetric",
+        "framing": "right_frame",
+        "phase_rad": 2.03
+      },
+      "schema_version": 1,
+      "source_sha256": "d69fc20ea774f1b4c9701e66be48a5382c38277d163dc415aeb58b791e1bc26a",
+      "model_id": "depth-anything/Depth-Anything-V2-Large-hf",
+      "model_revision": "7581137eff8d4e94f6e796d3baea0e9fa79b22d2",
+      "provider": "depth-anything-v2-large",
+      "depth_semantics": "relative-near-high",
+      "value_transform": "linear",
+      "normalization": "provider-native then selection-only p01-p99 at STL emission",
+      "native_shape": [
+        256,
+        256
+      ],
+      "resized_shape": [
+        256,
+        256
+      ],
+      "native_sha256": "3536a81703614b7a7676e7659861a50befd4d2a7cb1aa3ffd7f812b3eb672205",
+      "resized_sha256": "3536a81703614b7a7676e7659861a50befd4d2a7cb1aa3ffd7f812b3eb672205",
+      "inference_seconds": 13.867200699998648,
+      "peak_vram_gb": 0.863213062286377,
+      "incremental_peak_vram_gb": 0.863213062286377,
+      "resident_vram_before_inference_gb": 0.0,
+      "cuda_device_index": 0,
+      "python": "3.11.8",
+      "provider_metadata": {
+        "provider": "depth-anything-v2",
+        "requested_model": "depth-anything/Depth-Anything-V2-Large-hf",
+        "effective_model": "depth-anything/Depth-Anything-V2-Large-hf",
+        "fallback_model": null,
+        "fallback_reason": null,
+        "relief_value_transform": "linear",
+        "stored_depth_normalized": true,
+        "model": "depth-anything/Depth-Anything-V2-Large-hf",
+        "depth_semantics": "relative-near-high",
+        "relief_transform": "linear",
+        "inference_seconds": 9.30523230000108
+      },
+      "ordering_diagnostics": {
+        "diagnostic_only": true,
+        "oracle_used_for_stl": false,
+        "regions": {
+          "face": {
+            "samples": 26544,
+            "far_high_correlation": -0.9154316185895072,
+            "expected_far_high_sign": -1,
+            "provider_contract_sign_consistent": true
+          },
+          "background": {
+            "samples": 38992,
+            "far_high_correlation": 0.5484465539206894,
+            "expected_far_high_sign": -1,
+            "provider_contract_sign_consistent": false
+          }
+        },
+        "provider_contract_consistent_across_regions": false
+      }
+    }
+  ],
+  "records": [
+    {
+      "profile_name": "asian_female_asymmetric",
+      "framing": "right_frame",
+      "baseline_row_id": "depth-anything-v2-large_photo_detail_0p00mm_asian_female_asymmetric_right_frame_30p0mm",
+      "candidate_row_id": "depth-anything-v2-large_photo_detail_0p60mm_asian_female_asymmetric_right_frame_30p0mm",
+      "detail_metrics": {
+        "requested_detail_mm": 0.6,
+        "active_source_detail_correlation": 0.5833466305839274,
+        "source_detail_correlation_intended_background": 0.58712199301947,
+        "source_detail_correlation_all_background": 0.20938032689985575,
+        "background_delta_rms_mm": 0.16457566388886394,
+        "background_delta_p95_mm": 0.2532273158431053,
+        "background_delta_p95_all_background_mm": 0.2441294782795012,
+        "background_delta_max_mm": 0.5967998467385769,
+        "realized_p95_ratio": 0.42204552640517556,
+        "face_interior_p99_change_mm": 0.00038814544677734375,
+        "max_face_interior_change_mm": 0.0017499923706054688,
+        "max_attachment_boundary_change_mm": 0.017009735107421875,
+        "background_coverage_ratio": 0.8373127239756487,
+        "active_detail_coverage_ratio": 0.6415094339622641,
+        "source_aligned_capture_ratio": 0.7400608466972619,
+        "protection_halo_px": 13.28125,
+        "checks": {
+          "intended_background_source_detail_correlation": true,
+          "realized_p95": true,
+          "face_interior": true,
+          "attachment_boundary": true,
+          "coverage": true,
+          "source_aligned_capture": true,
+          "passed": true
+        }
+      },
+      "baseline_detail_telemetry": {
+        "enabled": false,
+        "max_detail_ratio": 0.0,
+        "requested_detail_mm": 0.0,
+        "effective_detail_mm": 0.0,
+        "unprotected_detail_limited": false,
+        "protection_halo_mm": 5.0,
+        "input_sample_pitch_mm": 0.3764705882352941
+      },
+      "candidate_detail_telemetry": {
+        "enabled": true,
+        "max_detail_ratio": 0.02,
+        "detail_scale": 0.015420511364936829,
+        "detail_scale_percentile": 96.0,
+        "detail_contrast_gamma": 0.75,
+        "background_coverage_ratio": 0.4058837890625,
+        "face_protected": true,
+        "protection_halo_px": 13.28125,
+        "requested_detail_mm": 0.6,
+        "effective_detail_mm": 0.6,
+        "unprotected_detail_limited": false,
+        "protection_halo_mm": 5.0,
+        "input_sample_pitch_mm": 0.3764705882352941
+      },
+      "telemetry_checks": {
+        "baseline": {
+          "requested_detail": true,
+          "effective_detail": true,
+          "not_unprotected_limited": true,
+          "passed": true
+        },
+        "candidate": {
+          "requested_detail": true,
+          "effective_detail": true,
+          "not_unprotected_limited": true,
+          "protected": true,
+          "enabled": true,
+          "passed": true
+        }
+      },
+      "diagnostic_downstream_checks": {
+        "baseline": {
+          "framing": true,
+          "source_context": true,
+          "absolute_face_appearance": true,
+          "absolute_named_parts": true,
+          "absolute_named_part_mm_error": true,
+          "background_preservation": true,
+          "localized_background_structure": true,
+          "physical_emission": true,
+          "feasible_attachment": true,
+          "printable_mesh": true,
+          "complete_shell": true,
+          "screened_face_reconstruction": true,
+          "redundant_emboss_suppressed": true,
+          "direction_reversal_projection": true,
+          "passed": true
+        },
+        "candidate": {
+          "framing": true,
+          "source_context": true,
+          "absolute_face_appearance": true,
+          "absolute_named_parts": true,
+          "absolute_named_part_mm_error": true,
+          "background_preservation": true,
+          "localized_background_structure": true,
+          "physical_emission": true,
+          "feasible_attachment": true,
+          "printable_mesh": true,
+          "complete_shell": true,
+          "screened_face_reconstruction": true,
+          "redundant_emboss_suppressed": true,
+          "direction_reversal_projection": true,
+          "passed": true
+        }
+      },
+      "checks": {
+        "source_match": true,
+        "provider_depth_match": true,
+        "surface_grid_match": true,
+        "sample_pitch_match": true,
+        "face_mask_match": true,
+        "baseline_telemetry": true,
+        "candidate_telemetry": true,
+        "detail_delta": true,
+        "baseline_physical_cap": true,
+        "baseline_printable": true,
+        "baseline_shell": true,
+        "physical_cap": true,
+        "printable": true,
+        "shell": true,
+        "passed": true
+      }
+    }
+  ],
+  "rows": [
+    {
+      "row_id": "depth-anything-v2-large_photo_detail_0p00mm_asian_female_asymmetric_right_frame_30p0mm",
+      "provider": "depth-anything-v2-large_photo_detail_0p00mm",
+      "provider_depth_semantics": {
+        "value_transform": "linear",
+        "invert": false,
+        "uses_oracle_depth": false,
+        "uses_oracle_part_feature_weight": false,
+        "normalization_percentiles": [
+          1.0,
+          99.0
+        ]
+      },
+      "profile_name": "asian_female_asymmetric",
+      "framing": {
+        "render_size": 384,
+        "stress_render_size": 384,
+        "crop_size": 256,
+        "crop_bounds_yxyx": [
+          64,
+          320,
+          0,
+          256
+        ],
+        "framing": "right_frame",
+        "full_face_pixels": 29060,
+        "cropped_face_pixels": 26544,
+        "visible_face_fraction": 0.9134205092911218,
+        "frame_contact": true,
+        "head_frame_contact": true,
+        "head_frame_contact_row_limit": 200,
+        "named_part_retention": {
+          "left_eye": 1.0,
+          "right_eye": 1.0,
+          "left_eyebrow": 1.0,
+          "right_eyebrow": 1.0,
+          "nose": 1.0,
+          "mouth": 1.0
+        },
+        "checks": {
+          "face_coverage": true,
+          "expected_frame_contact": true,
+          "expected_head_frame_contact": true,
+          "named_parts_complete": true,
+          "named_parts_retained": true,
+          "passed": true
+        }
+      },
+      "relief_height_mm": 30.0,
+      "background_photo_detail_mm": 0.0,
+      "runtime_seconds": 7.537468900001841,
+      "checks": {
+        "framing": true,
+        "source_context": true,
+        "absolute_face_appearance": true,
+        "absolute_named_parts": true,
+        "absolute_named_part_mm_error": true,
+        "background_preservation": true,
+        "localized_background_structure": true,
+        "physical_emission": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "complete_shell": true,
+        "screened_face_reconstruction": true,
+        "redundant_emboss_suppressed": true,
+        "direction_reversal_projection": true,
+        "passed": true
+      },
+      "absolute_face": {
+        "available": true,
+        "samples": 21425,
+        "reference_samples": 21425,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.9996274328515478,
+        "normal_p05_cosine": 0.9994404192594261,
+        "normal_angle_p95_deg": 1.9168549315496894,
+        "minimum_lighting_correlation": 0.9976123042947084,
+        "maximum_lighting_mae": 0.0037817284437359636,
+        "minimum_lighting_rms_retention": 1.0026260106538811,
+        "maximum_lighting_rms_retention": 1.0182506693492122,
+        "checks": {
+          "telemetry": true,
+          "coverage": true,
+          "normal_field": true,
+          "lighting": true,
+          "lighting_energy": true,
+          "components": true,
+          "passed": true
+        }
+      },
+      "absolute_named_parts": {
+        "schema_version": 3,
+        "available": true,
+        "passed": true,
+        "sample_pitch_mm": 0.4,
+        "normalization": "per-face-median-and-p05-p95-span",
+        "smoothing_radii_mm": [
+          0.0,
+          0.8
+        ],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_shape_correlation": 0.9,
+          "maximum_face_normalized_shape_rmse": 0.2,
+          "minimum_raw_gradient_correlation": 0.25,
+          "minimum_gradient_correlation": 0.75,
+          "minimum_slope_q95_retention": 0.45,
+          "maximum_slope_q95_retention": 2.2,
+          "minimum_curvature_q95_retention": 0.35,
+          "maximum_curvature_q95_retention": 2.8,
+          "maximum_slope_wasserstein_ratio": 0.75,
+          "maximum_curvature_wasserstein_ratio": 0.9
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "available": true,
+            "passed": true,
+            "reference_samples": 2278,
+            "samples": 2278,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 2533,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 2278,
+            "boundary_exclusion_attempted_retained_fraction": 0.8993288590604027,
+            "boundary_exclusion_retained_fraction": 0.8993288590604027,
+            "minimum_eroded_support_ratio": 0.35,
+            "scales": [
+              {
+                "radius_mm": 0.0,
+                "gradient_correlations": [
+                  0.9999874182044844,
+                  0.9999622183978735
+                ],
+                "minimum_gradient_correlation": 0.9999622183978735,
+                "slope": {
+                  "available": true,
+                  "samples": 2278,
+                  "reference_q50": 0.023067376584503536,
+                  "reference_q90": 0.05474714911274532,
+                  "reference_q95": 0.0715154931792985,
+                  "candidate_q50": 0.023199408613669103,
+                  "candidate_q90": 0.054715942758110425,
+                  "candidate_q95": 0.07182083359375697,
+                  "q95_retention": 1.0042695701432547,
+                  "rms_retention": 1.0030090461225232,
+                  "wasserstein_ratio": 0.0015638629838455916
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 2278,
+                  "reference_q50": 0.008952067655147156,
+                  "reference_q90": 0.037444038937697606,
+                  "reference_q95": 0.06373582556126,
+                  "candidate_q50": 0.008972710343631283,
+                  "candidate_q90": 0.03745895273649312,
+                  "candidate_q95": 0.06367058571320898,
+                  "q95_retention": 0.9989764022435338,
+                  "rms_retention": 1.0005352112824184,
+                  "wasserstein_ratio": 0.000735376820157199
+                }
+              },
+              {
+                "radius_mm": 0.8,
+                "gradient_correlations": [
+                  0.9999756800319948,
+                  0.9999664767413335
+                ],
+                "minimum_gradient_correlation": 0.9999664767413335,
+                "slope": {
+                  "available": true,
+                  "samples": 2278,
+                  "reference_q50": 0.023233871272736586,
+                  "reference_q90": 0.05207920278610993,
+                  "reference_q95": 0.06625878646197184,
+                  "candidate_q50": 0.023359274984222925,
+                  "candidate_q90": 0.05206767115901659,
+                  "candidate_q95": 0.06653061470786205,
+                  "q95_retention": 1.0041025237618293,
+                  "rms_retention": 1.0034213034806048,
+                  "wasserstein_ratio": 0.0017515322266081098
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 2278,
+                  "reference_q50": 0.007048449358356029,
+                  "reference_q90": 0.02626469346791009,
+                  "reference_q95": 0.038501579317579956,
+                  "candidate_q50": 0.007030216381964138,
+                  "candidate_q90": 0.026286946731384493,
+                  "candidate_q95": 0.03896205629696148,
+                  "q95_retention": 1.0119599504109502,
+                  "rms_retention": 1.0017190914787921,
+                  "wasserstein_ratio": 0.0012943277571351602
+                }
+              }
+            ],
+            "shape_correlation": 0.9999657937342727,
+            "face_normalized_shape_rmse": 0.002163434234776125,
+            "minimum_gradient_correlation": 0.9999664767413335,
+            "minimum_raw_gradient_correlation": 0.9999622183978735,
+            "minimum_all_scale_gradient_correlation": 0.9999622183978735,
+            "minimum_slope_q95_retention": 1.0041025237618293,
+            "maximum_slope_q95_retention": 1.0042695701432547,
+            "minimum_curvature_q95_retention": 0.9989764022435338,
+            "maximum_curvature_q95_retention": 1.0119599504109502,
+            "maximum_slope_wasserstein_ratio": 0.0017515322266081098,
+            "maximum_curvature_wasserstein_ratio": 0.0012943277571351602,
+            "checks": {
+              "coverage": true,
+              "shape_correlation": true,
+              "shape_rmse": true,
+              "gradient_correlation": true,
+              "raw_gradient_correlation": true,
+              "slope_retention": true,
+              "curvature_retention": true,
+              "slope_distribution": true,
+              "curvature_distribution": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "left_eyebrow",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3538,
+            "samples": 3538,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3869,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3538,
+            "boundary_exclusion_attempted_retained_fraction": 0.9144481778237271,
+            "boundary_exclusion_retained_fraction": 0.9144481778237271,
+            "minimum_eroded_support_ratio": 0.35,
+            "scales": [
+              {
+                "radius_mm": 0.0,
+                "gradient_correlations": [
+                  0.9822715155627567,
+                  0.9980005132101623
+                ],
+                "minimum_gradient_correlation": 0.9822715155627567,
+                "slope": {
+                  "available": true,
+                  "samples": 3538,
+                  "reference_q50": 0.028654323996187253,
+                  "reference_q90": 0.07937218531216327,
+                  "reference_q95": 0.09788758979566349,
+                  "candidate_q50": 0.029138624091234397,
+                  "candidate_q90": 0.08403752993478898,
+                  "candidate_q95": 0.1086361157517814,
+                  "q95_retention": 1.1098047870884864,
+                  "rms_retention": 1.0615463679819561,
+                  "wasserstein_ratio": 0.01516511071594639
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3538,
+                  "reference_q50": 0.009417993013750499,
+                  "reference_q90": 0.029012116424875986,
+                  "reference_q95": 0.04077800293757364,
+                  "candidate_q50": 0.009549973306697839,
+                  "candidate_q90": 0.0358103560025436,
+                  "candidate_q95": 0.053032375050299035,
+                  "q95_retention": 1.3005142780406733,
+                  "rms_retention": 1.28599970093769,
+                  "wasserstein_ratio": 0.04974132486837752
+                }
+              },
+              {
+                "radius_mm": 0.8,
+                "gradient_correlations": [
+                  0.9959022891856205,
+                  0.9993809264636112
+                ],
+                "minimum_gradient_correlation": 0.9959022891856205,
+                "slope": {
+                  "available": true,
+                  "samples": 3538,
+                  "reference_q50": 0.028676484290491442,
+                  "reference_q90": 0.08587023387856214,
+                  "reference_q95": 0.1137618934217049,
+                  "candidate_q50": 0.029232155908935156,
+                  "candidate_q90": 0.09167554652959424,
+                  "candidate_q95": 0.12070787268423001,
+                  "q95_retention": 1.0610571699679523,
+                  "rms_retention": 1.0371706992283267,
+                  "wasserstein_ratio": 0.009744240833443185
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3538,
+                  "reference_q50": 0.00709711278793646,
+                  "reference_q90": 0.03230945989830353,
+                  "reference_q95": 0.04751140159762162,
+                  "candidate_q50": 0.006989757662504389,
+                  "candidate_q90": 0.03524305810791004,
+                  "candidate_q95": 0.04511185387987907,
+                  "q95_retention": 0.9494953287620405,
+                  "rms_retention": 0.92637645274641,
+                  "wasserstein_ratio": 0.018773720373442777
+                }
+              }
+            ],
+            "shape_correlation": 0.9996375248539648,
+            "face_normalized_shape_rmse": 0.004921971176991712,
+            "minimum_gradient_correlation": 0.9959022891856205,
+            "minimum_raw_gradient_correlation": 0.9822715155627567,
+            "minimum_all_scale_gradient_correlation": 0.9822715155627567,
+            "minimum_slope_q95_retention": 1.0610571699679523,
+            "maximum_slope_q95_retention": 1.1098047870884864,
+            "minimum_curvature_q95_retention": 0.9494953287620405,
+            "maximum_curvature_q95_retention": 1.3005142780406733,
+            "maximum_slope_wasserstein_ratio": 0.01516511071594639,
+            "maximum_curvature_wasserstein_ratio": 0.04974132486837752,
+            "checks": {
+              "coverage": true,
+              "shape_correlation": true,
+              "shape_rmse": true,
+              "gradient_correlation": true,
+              "raw_gradient_correlation": true,
+              "slope_retention": true,
+              "curvature_retention": true,
+              "slope_distribution": true,
+              "curvature_distribution": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "mouth",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3501,
+            "samples": 3501,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3882,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3501,
+            "boundary_exclusion_attempted_retained_fraction": 0.901854714064915,
+            "boundary_exclusion_retained_fraction": 0.901854714064915,
+            "minimum_eroded_support_ratio": 0.35,
+            "scales": [
+              {
+                "radius_mm": 0.0,
+                "gradient_correlations": [
+                  0.9994672489710422,
+                  0.9998713968782071
+                ],
+                "minimum_gradient_correlation": 0.9994672489710422,
+                "slope": {
+                  "available": true,
+                  "samples": 3501,
+                  "reference_q50": 0.026996685011954045,
+                  "reference_q90": 0.05481889631328773,
+                  "reference_q95": 0.06623135175986751,
+                  "candidate_q50": 0.026993850982537565,
+                  "candidate_q90": 0.05531616762265147,
+                  "candidate_q95": 0.06779938121017418,
+                  "q95_retention": 1.023675033177517,
+                  "rms_retention": 1.0090824433392662,
+                  "wasserstein_ratio": 0.002566876255177866
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3501,
+                  "reference_q50": 0.009039394116189257,
+                  "reference_q90": 0.02586355534497965,
+                  "reference_q95": 0.03719886160783239,
+                  "candidate_q50": 0.009087058126745587,
+                  "candidate_q90": 0.02650161784988544,
+                  "candidate_q95": 0.03957096181466772,
+                  "q95_retention": 1.0637680860194891,
+                  "rms_retention": 1.0100511655484188,
+                  "wasserstein_ratio": 0.006213524808051346
+                }
+              },
+              {
+                "radius_mm": 0.8,
+                "gradient_correlations": [
+                  0.9996570896785991,
+                  0.9999422205381395
+                ],
+                "minimum_gradient_correlation": 0.9996570896785991,
+                "slope": {
+                  "available": true,
+                  "samples": 3501,
+                  "reference_q50": 0.027328838306051862,
+                  "reference_q90": 0.05586182932400388,
+                  "reference_q95": 0.07051581021022689,
+                  "candidate_q50": 0.02736127362628425,
+                  "candidate_q90": 0.05631634658518431,
+                  "candidate_q95": 0.07161573211928553,
+                  "q95_retention": 1.0155982311736824,
+                  "rms_retention": 1.0079441753129246,
+                  "wasserstein_ratio": 0.00226004366338849
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3501,
+                  "reference_q50": 0.005675089853948711,
+                  "reference_q90": 0.022297260084792183,
+                  "reference_q95": 0.03293695876384096,
+                  "candidate_q50": 0.005658601092185799,
+                  "candidate_q90": 0.022937371302195888,
+                  "candidate_q95": 0.032913133795623224,
+                  "q95_retention": 0.9992766494202285,
+                  "rms_retention": 0.9997185268225693,
+                  "wasserstein_ratio": 0.004288038915506002
+                }
+              }
+            ],
+            "shape_correlation": 0.9999948894139639,
+            "face_normalized_shape_rmse": 0.002367386486397098,
+            "minimum_gradient_correlation": 0.9996570896785991,
+            "minimum_raw_gradient_correlation": 0.9994672489710422,
+            "minimum_all_scale_gradient_correlation": 0.9994672489710422,
+            "minimum_slope_q95_retention": 1.0155982311736824,
+            "maximum_slope_q95_retention": 1.023675033177517,
+            "minimum_curvature_q95_retention": 0.9992766494202285,
+            "maximum_curvature_q95_retention": 1.0637680860194891,
+            "maximum_slope_wasserstein_ratio": 0.002566876255177866,
+            "maximum_curvature_wasserstein_ratio": 0.006213524808051346,
+            "checks": {
+              "coverage": true,
+              "shape_correlation": true,
+              "shape_rmse": true,
+              "gradient_correlation": true,
+              "raw_gradient_correlation": true,
+              "slope_retention": true,
+              "curvature_retention": true,
+              "slope_distribution": true,
+              "curvature_distribution": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "nose",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3551,
+            "samples": 3551,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3927,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3551,
+            "boundary_exclusion_attempted_retained_fraction": 0.904252610134963,
+            "boundary_exclusion_retained_fraction": 0.904252610134963,
+            "minimum_eroded_support_ratio": 0.35,
+            "scales": [
+              {
+                "radius_mm": 0.0,
+                "gradient_correlations": [
+                  0.9999997002282067,
+                  0.9999995334669978
+                ],
+                "minimum_gradient_correlation": 0.9999995334669978,
+                "slope": {
+                  "available": true,
+                  "samples": 3551,
+                  "reference_q50": 0.02366758375725798,
+                  "reference_q90": 0.045711815499431346,
+                  "reference_q95": 0.057827703191798634,
+                  "candidate_q50": 0.023666328672744173,
+                  "candidate_q90": 0.04568719064265851,
+                  "candidate_q95": 0.05781339330929805,
+                  "q95_retention": 0.999752542782944,
+                  "rms_retention": 0.9999711812510175,
+                  "wasserstein_ratio": 0.00031594627738019954
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3551,
+                  "reference_q50": 0.007170718389695045,
+                  "reference_q90": 0.02600117742599019,
+                  "reference_q95": 0.06626503200669492,
+                  "candidate_q50": 0.00716579440851947,
+                  "candidate_q90": 0.0259829097902493,
+                  "candidate_q95": 0.06622504337537338,
+                  "q95_retention": 0.9993965349429319,
+                  "rms_retention": 0.9994938779761978,
+                  "wasserstein_ratio": 0.00016181792056003721
+                }
+              },
+              {
+                "radius_mm": 0.8,
+                "gradient_correlations": [
+                  0.9999994928537308,
+                  0.9999993235028451
+                ],
+                "minimum_gradient_correlation": 0.9999993235028451,
+                "slope": {
+                  "available": true,
+                  "samples": 3551,
+                  "reference_q50": 0.024281138769489626,
+                  "reference_q90": 0.044750688925208004,
+                  "reference_q95": 0.052161637953223414,
+                  "candidate_q50": 0.02430751722502887,
+                  "candidate_q90": 0.044773098720590966,
+                  "candidate_q95": 0.05223719273468394,
+                  "q95_retention": 1.0014484740975405,
+                  "rms_retention": 1.0002912537228132,
+                  "wasserstein_ratio": 0.0003333161208232884
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3551,
+                  "reference_q50": 0.004709191267130915,
+                  "reference_q90": 0.01701126197963809,
+                  "reference_q95": 0.028115683970967788,
+                  "candidate_q50": 0.004710568613849191,
+                  "candidate_q90": 0.017006732249870943,
+                  "candidate_q95": 0.028105089063131312,
+                  "q95_retention": 0.9996231673450514,
+                  "rms_retention": 1.0000545835260728,
+                  "wasserstein_ratio": 0.00043209253311529277
+                }
+              }
+            ],
+            "shape_correlation": 0.9999991027922123,
+            "face_normalized_shape_rmse": 0.0025943931256145955,
+            "minimum_gradient_correlation": 0.9999993235028451,
+            "minimum_raw_gradient_correlation": 0.9999995334669978,
+            "minimum_all_scale_gradient_correlation": 0.9999993235028451,
+            "minimum_slope_q95_retention": 0.999752542782944,
+            "maximum_slope_q95_retention": 1.0014484740975405,
+            "minimum_curvature_q95_retention": 0.9993965349429319,
+            "maximum_curvature_q95_retention": 0.9996231673450514,
+            "maximum_slope_wasserstein_ratio": 0.0003333161208232884,
+            "maximum_curvature_wasserstein_ratio": 0.00043209253311529277,
+            "checks": {
+              "coverage": true,
+              "shape_correlation": true,
+              "shape_rmse": true,
+              "gradient_correlation": true,
+              "raw_gradient_correlation": true,
+              "slope_retention": true,
+              "curvature_retention": true,
+              "slope_distribution": true,
+              "curvature_distribution": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "right_eye",
+            "available": true,
+            "passed": true,
+            "reference_samples": 2243,
+            "samples": 2243,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 2500,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 2243,
+            "boundary_exclusion_attempted_retained_fraction": 0.8972,
+            "boundary_exclusion_retained_fraction": 0.8972,
+            "minimum_eroded_support_ratio": 0.35,
+            "scales": [
+              {
+                "radius_mm": 0.0,
+                "gradient_correlations": [
+                  0.9999989006140255,
+                  0.9999938767147541
+                ],
+                "minimum_gradient_correlation": 0.9999938767147541,
+                "slope": {
+                  "available": true,
+                  "samples": 2243,
+                  "reference_q50": 0.029323073275160743,
+                  "reference_q90": 0.061112274109462905,
+                  "reference_q95": 0.0757147412324926,
+                  "candidate_q50": 0.02932341931910563,
+                  "candidate_q90": 0.06106152153115834,
+                  "candidate_q95": 0.07575297243599977,
+                  "q95_retention": 1.000504937385836,
+                  "rms_retention": 1.0003317280977333,
+                  "wasserstein_ratio": 0.00036798518958568584
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 2243,
+                  "reference_q50": 0.009404728234858188,
+                  "reference_q90": 0.029802641976963185,
+                  "reference_q95": 0.05787251694116783,
+                  "candidate_q50": 0.009435625523582928,
+                  "candidate_q90": 0.029853720349868263,
+                  "candidate_q95": 0.057837053458925904,
+                  "q95_retention": 0.9993872137567824,
+                  "rms_retention": 1.000081971596596,
+                  "wasserstein_ratio": 0.0004868820349138011
+                }
+              },
+              {
+                "radius_mm": 0.8,
+                "gradient_correlations": [
+                  0.9999971191690713,
+                  0.9999908259748619
+                ],
+                "minimum_gradient_correlation": 0.9999908259748619,
+                "slope": {
+                  "available": true,
+                  "samples": 2243,
+                  "reference_q50": 0.02947577857222017,
+                  "reference_q90": 0.05959270123674542,
+                  "reference_q95": 0.0702237617813194,
+                  "candidate_q50": 0.02949243180152768,
+                  "candidate_q90": 0.05955751315664744,
+                  "candidate_q95": 0.07042665149731148,
+                  "q95_retention": 1.002889188941827,
+                  "rms_retention": 1.000662777448166,
+                  "wasserstein_ratio": 0.0003927255639062437
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 2243,
+                  "reference_q50": 0.007773957551801198,
+                  "reference_q90": 0.022652859115094705,
+                  "reference_q95": 0.031154694917471002,
+                  "candidate_q50": 0.0077638586379179236,
+                  "candidate_q90": 0.02280191409745245,
+                  "candidate_q95": 0.031239784833918788,
+                  "q95_retention": 1.0027312068589722,
+                  "rms_retention": 1.001534425622541,
+                  "wasserstein_ratio": 0.0009440894279440923
+                }
+              }
+            ],
+            "shape_correlation": 0.9999991506810868,
+            "face_normalized_shape_rmse": 0.002616578999873912,
+            "minimum_gradient_correlation": 0.9999908259748619,
+            "minimum_raw_gradient_correlation": 0.9999938767147541,
+            "minimum_all_scale_gradient_correlation": 0.9999908259748619,
+            "minimum_slope_q95_retention": 1.000504937385836,
+            "maximum_slope_q95_retention": 1.002889188941827,
+            "minimum_curvature_q95_retention": 0.9993872137567824,
+            "maximum_curvature_q95_retention": 1.0027312068589722,
+            "maximum_slope_wasserstein_ratio": 0.0003927255639062437,
+            "maximum_curvature_wasserstein_ratio": 0.0009440894279440923,
+            "checks": {
+              "coverage": true,
+              "shape_correlation": true,
+              "shape_rmse": true,
+              "gradient_correlation": true,
+              "raw_gradient_correlation": true,
+              "slope_retention": true,
+              "curvature_retention": true,
+              "slope_distribution": true,
+              "curvature_distribution": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "right_eyebrow",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3023,
+            "samples": 3023,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3346,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3023,
+            "boundary_exclusion_attempted_retained_fraction": 0.9034668260609683,
+            "boundary_exclusion_retained_fraction": 0.9034668260609683,
+            "minimum_eroded_support_ratio": 0.35,
+            "scales": [
+              {
+                "radius_mm": 0.0,
+                "gradient_correlations": [
+                  0.9900080029766875,
+                  0.9989451786656537
+                ],
+                "minimum_gradient_correlation": 0.9900080029766875,
+                "slope": {
+                  "available": true,
+                  "samples": 3023,
+                  "reference_q50": 0.03498948935428772,
+                  "reference_q90": 0.08423891345127034,
+                  "reference_q95": 0.10068960366193265,
+                  "candidate_q50": 0.03526487494757098,
+                  "candidate_q90": 0.08857501444425593,
+                  "candidate_q95": 0.10919452640386872,
+                  "q95_retention": 1.0844667416756502,
+                  "rms_retention": 1.0408418568211166,
+                  "wasserstein_ratio": 0.01128006154179894
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3023,
+                  "reference_q50": 0.010276887447046785,
+                  "reference_q90": 0.02896508172971917,
+                  "reference_q95": 0.03642613296742549,
+                  "candidate_q50": 0.010443211786390764,
+                  "candidate_q90": 0.033401595093019563,
+                  "candidate_q95": 0.04593306255336333,
+                  "q95_retention": 1.2609920079751407,
+                  "rms_retention": 1.1909358491125082,
+                  "wasserstein_ratio": 0.04145818679349341
+                }
+              },
+              {
+                "radius_mm": 0.8,
+                "gradient_correlations": [
+                  0.9967129920414443,
+                  0.9995063769535694
+                ],
+                "minimum_gradient_correlation": 0.9967129920414443,
+                "slope": {
+                  "available": true,
+                  "samples": 3023,
+                  "reference_q50": 0.03527042434438384,
+                  "reference_q90": 0.0899650896192981,
+                  "reference_q95": 0.11279474013263356,
+                  "candidate_q50": 0.03551574576438355,
+                  "candidate_q90": 0.0957832020733542,
+                  "candidate_q95": 0.11737623322454044,
+                  "q95_retention": 1.0406179675268508,
+                  "rms_retention": 1.0294764584201714,
+                  "wasserstein_ratio": 0.008292643079897043
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3023,
+                  "reference_q50": 0.007983975736719493,
+                  "reference_q90": 0.02782677291699475,
+                  "reference_q95": 0.04416894622931296,
+                  "candidate_q50": 0.007906669402405612,
+                  "candidate_q90": 0.031601118582006996,
+                  "candidate_q95": 0.044659937712313344,
+                  "q95_retention": 1.011116214556066,
+                  "rms_retention": 0.9427288407459014,
+                  "wasserstein_ratio": 0.019957604996746748
+                }
+              }
+            ],
+            "shape_correlation": 0.9997642120011582,
+            "face_normalized_shape_rmse": 0.003949111732886829,
+            "minimum_gradient_correlation": 0.9967129920414443,
+            "minimum_raw_gradient_correlation": 0.9900080029766875,
+            "minimum_all_scale_gradient_correlation": 0.9900080029766875,
+            "minimum_slope_q95_retention": 1.0406179675268508,
+            "maximum_slope_q95_retention": 1.0844667416756502,
+            "minimum_curvature_q95_retention": 1.011116214556066,
+            "maximum_curvature_q95_retention": 1.2609920079751407,
+            "maximum_slope_wasserstein_ratio": 0.01128006154179894,
+            "maximum_curvature_wasserstein_ratio": 0.04145818679349341,
+            "checks": {
+              "coverage": true,
+              "shape_correlation": true,
+              "shape_rmse": true,
+              "gradient_correlation": true,
+              "raw_gradient_correlation": true,
+              "slope_retention": true,
+              "curvature_retention": true,
+              "slope_distribution": true,
+              "curvature_distribution": true,
+              "passed": true
+            }
+          }
+        ],
+        "reference_face_samples": 21425,
+        "face_samples": 21425,
+        "face_coverage_ratio": 1.0,
+        "face_normalization": {
+          "reference_median_mm": 20.8836669921875,
+          "candidate_median_mm": 20.821826934814453,
+          "reference_p05_p95_span_mm": 21.56856870651245,
+          "candidate_p05_p95_span_mm": 21.58006238937378
+        },
+        "part_count": 6,
+        "measured_part_count": 6,
+        "unavailable_part_count": 0,
+        "failed_parts": []
+      },
+      "absolute_named_part_mm_error": {
+        "schema_version": 2,
+        "method": "shared_face_affine_then_part_mm_error",
+        "available": true,
+        "passed": true,
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_face_affine_scale": 0.1,
+          "maximum_face_affine_scale": 2.0,
+          "maximum_rmse_mm": 0.8,
+          "maximum_p95_absolute_error_mm": 1.5,
+          "maximum_absolute_bias_mm": 0.5,
+          "minimum_span_retention": 0.65,
+          "maximum_span_retention": 1.35
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "available": true,
+            "passed": true,
+            "reference_samples": 2278,
+            "samples": 2278,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 2533,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 2278,
+            "boundary_exclusion_attempted_retained_fraction": 0.8993288590604027,
+            "boundary_exclusion_retained_fraction": 0.8993288590604027,
+            "minimum_eroded_support_ratio": 0.35,
+            "rmse_mm": 0.02758463899819988,
+            "bias_mm": 0.021603174222398068,
+            "p95_absolute_error_mm": 0.03708069361093127,
+            "expected_span_p05_p95_mm": 6.054335221985923,
+            "candidate_span_p05_p95_mm": 6.101857662200928,
+            "span_retention": 1.0078493242399975,
+            "checks": {
+              "coverage": true,
+              "rmse": true,
+              "p95_absolute_error": true,
+              "bias": true,
+              "span_retention": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "left_eyebrow",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3538,
+            "samples": 3538,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3869,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3538,
+            "boundary_exclusion_attempted_retained_fraction": 0.9144481778237271,
+            "boundary_exclusion_retained_fraction": 0.9144481778237271,
+            "minimum_eroded_support_ratio": 0.35,
+            "rmse_mm": 0.10738856309952084,
+            "bias_mm": -0.024288661443408403,
+            "p95_absolute_error_mm": 0.19573805963006158,
+            "expected_span_p05_p95_mm": 10.066669233986318,
+            "candidate_span_p05_p95_mm": 10.208881473541261,
+            "span_retention": 1.0141270400615545,
+            "checks": {
+              "coverage": true,
+              "rmse": true,
+              "p95_absolute_error": true,
+              "bias": true,
+              "span_retention": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "mouth",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3501,
+            "samples": 3501,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3882,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3501,
+            "boundary_exclusion_attempted_retained_fraction": 0.901854714064915,
+            "boundary_exclusion_retained_fraction": 0.901854714064915,
+            "minimum_eroded_support_ratio": 0.35,
+            "rmse_mm": 0.029181214682994408,
+            "bias_mm": 0.027839771305688047,
+            "p95_absolute_error_mm": 0.03496390758875023,
+            "expected_span_p05_p95_mm": 8.271573125681538,
+            "candidate_span_p05_p95_mm": 8.278467178344727,
+            "span_retention": 1.0008334633035865,
+            "checks": {
+              "coverage": true,
+              "rmse": true,
+              "p95_absolute_error": true,
+              "bias": true,
+              "span_retention": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "nose",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3551,
+            "samples": 3551,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3927,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3551,
+            "boundary_exclusion_attempted_retained_fraction": 0.904252610134963,
+            "boundary_exclusion_retained_fraction": 0.904252610134963,
+            "minimum_eroded_support_ratio": 0.35,
+            "rmse_mm": 0.033224864958940836,
+            "bias_mm": 0.03305858465821565,
+            "p95_absolute_error_mm": 0.038107611064106095,
+            "expected_span_p05_p95_mm": 8.041000112008398,
+            "candidate_span_p05_p95_mm": 8.037705421447754,
+            "span_retention": 0.9995902635847843,
+            "checks": {
+              "coverage": true,
+              "rmse": true,
+              "p95_absolute_error": true,
+              "bias": true,
+              "span_retention": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "right_eye",
+            "available": true,
+            "passed": true,
+            "reference_samples": 2243,
+            "samples": 2243,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 2500,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 2243,
+            "boundary_exclusion_attempted_retained_fraction": 0.8972,
+            "boundary_exclusion_retained_fraction": 0.8972,
+            "minimum_eroded_support_ratio": 0.35,
+            "rmse_mm": 0.03624998469974869,
+            "bias_mm": 0.03607032479104288,
+            "p95_absolute_error_mm": 0.04125525391042047,
+            "expected_span_p05_p95_mm": 7.833737669595074,
+            "candidate_span_p05_p95_mm": 7.822470283508302,
+            "span_retention": 0.998561684528893,
+            "checks": {
+              "coverage": true,
+              "rmse": true,
+              "p95_absolute_error": true,
+              "bias": true,
+              "span_retention": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "right_eyebrow",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3023,
+            "samples": 3023,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3346,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3023,
+            "boundary_exclusion_attempted_retained_fraction": 0.9034668260609683,
+            "boundary_exclusion_retained_fraction": 0.9034668260609683,
+            "minimum_eroded_support_ratio": 0.35,
+            "rmse_mm": 0.08234861332863985,
+            "bias_mm": -0.0030747825942175036,
+            "p95_absolute_error_mm": 0.14800888692553543,
+            "expected_span_p05_p95_mm": 10.914135029175227,
+            "candidate_span_p05_p95_mm": 11.080635261535647,
+            "span_retention": 1.015255467512115,
+            "checks": {
+              "coverage": true,
+              "rmse": true,
+              "p95_absolute_error": true,
+              "bias": true,
+              "span_retention": true,
+              "passed": true
+            }
+          }
+        ],
+        "failed_parts": [],
+        "face_affine_fit": {
+          "scale": 1.0014054705854436,
+          "offset_mm": -0.07247012056453882
+        },
+        "reference_face_samples": 21425,
+        "face_samples": 21425,
+        "face_coverage_ratio": 1.0,
+        "part_count": 6,
+        "measured_part_count": 6,
+        "unavailable_part_count": 0,
+        "face_affine_scale_passed": true
+      },
+      "background": {
+        "passed": true,
+        "correlation": 0.9999996503932967,
+        "rms_retention": 1.0000073179075155,
+        "span_retention": 1.0,
+        "gradient_correlation": 0.999913123703595,
+        "candidate_coverage_ratio": 1.0,
+        "output_rms_mm": 4.926873829517269,
+        "output_span_p02_p98_mm": 18.57432968162
+      },
+      "physical_cap": {
+        "emission_passed": true,
+        "far_background_max_mm": 19.510000228881836,
+        "far_background_ceiling_mm": 19.509999999776483,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633,
+        "conflicting_attachment_pixels": 0
+      },
+      "direction_reversal_projection": {
+        "enabled": false,
+        "reason": "not_provisional_edge_only_candidate",
+        "passed": null,
+        "iterations": null,
+        "corrected_pixels": null,
+        "initial_cardinal_reversals": null,
+        "initial_diagonal_reversals": null,
+        "final_cardinal_reversals": null,
+        "final_diagonal_reversals": null,
+        "correction_p95_mm": null,
+        "correction_max_mm": null
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 232320,
+        "vertex_count": 116162,
+        "printable": true
+      },
+      "shell": {
+        "passed": true,
+        "complete_shell_verified": true,
+        "facet_geometry_passed": true,
+        "coverage_ratio": 1.0,
+        "max_abs_error_mm": 0.0,
+        "rms_error_mm": 0.0,
+        "expected_shell_triangle_count": 232320,
+        "actual_shell_triangle_count": 232320,
+        "invalid_shell_triangle_count": 0
+      },
+      "artifacts": {
+        "source.png": {
+          "size_bytes": 49185,
+          "sha256": "d69fc20ea774f1b4c9701e66be48a5382c38277d163dc415aeb58b791e1bc26a"
+        },
+        "exact_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "b604a2b59a3d015706abe2bea47d401bff0d7e2d93456ddc7598f73e3857ef8b"
+        },
+        "composed_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "4ca0b04a19af5c3e20d4966fa8ffd8d5ac174615af6751d5fd829913a92cf6c3"
+        },
+        "reference_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "55979761c2eb2b7565dde4c1887573d1e3fbf771dc621d0fce8d18eac4651222"
+        },
+        "emitted_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "2d3b44412236847556ff57e94f90272d8b617759e6dbf3a5afcb9c17b4319827"
+        },
+        "relief.stl": {
+          "size_bytes": 11616084,
+          "sha256": "96d3e02d67c9ba5dcbc59648c24278075315cb603b324ba19aff46963e0ee393"
+        },
+        "postprocess.json": {
+          "size_bytes": 87277,
+          "sha256": "7fff70c67aef5bf31b602e5c762c599ecb37c60f54ca060d392876e59ca069a3"
+        },
+        "face_part_metadata.json": {
+          "size_bytes": 801,
+          "sha256": "ff8a1fb2aec63c7b2da1e0877e0917b2b9f0f017bc29976365c68831936d6aec"
+        },
+        "face_parts/face.png": {
+          "size_bytes": 1133,
+          "sha256": "e417d8d61a7cef5915e02a13a1eb4bec830b2982d603827d7c55eeb102b63016"
+        },
+        "face_parts/left_eye.png": {
+          "size_bytes": 449,
+          "sha256": "f05819a0e1d6179695667a0fca7694f3a474fd9141af2927f818e30270fdf2b4"
+        },
+        "face_parts/left_eyebrow.png": {
+          "size_bytes": 494,
+          "sha256": "3f9449c4631c0321050392fb496e761c139eb61031840d06919075216e8a5252"
+        },
+        "face_parts/mouth.png": {
+          "size_bytes": 547,
+          "sha256": "0db6799e1a9f0e774a3f2bb6044023631ea67835821763537a68228ad490691f"
+        },
+        "face_parts/nose.png": {
+          "size_bytes": 499,
+          "sha256": "3d1e7dc0aea515183330a37d1343dab14fc69dc0d54ea1880430e0b5fccd8327"
+        },
+        "face_parts/right_eye.png": {
+          "size_bytes": 471,
+          "sha256": "ff97fcbc26aace5bdc3e9a7bee341510a463b377a327e29c99b4b30ad55fcabf"
+        },
+        "face_parts/right_eyebrow.png": {
+          "size_bytes": 499,
+          "sha256": "b6d68b93d0d9ed44093f4f6156a7140173323c40b890087f9842873149ec91bc"
+        },
+        "provider_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "3536a81703614b7a7676e7659861a50befd4d2a7cb1aa3ffd7f812b3eb672205"
+        }
+      }
+    },
+    {
+      "row_id": "depth-anything-v2-large_photo_detail_0p60mm_asian_female_asymmetric_right_frame_30p0mm",
+      "provider": "depth-anything-v2-large_photo_detail_0p60mm",
+      "provider_depth_semantics": {
+        "value_transform": "linear",
+        "invert": false,
+        "uses_oracle_depth": false,
+        "uses_oracle_part_feature_weight": false,
+        "normalization_percentiles": [
+          1.0,
+          99.0
+        ]
+      },
+      "profile_name": "asian_female_asymmetric",
+      "framing": {
+        "render_size": 384,
+        "stress_render_size": 384,
+        "crop_size": 256,
+        "crop_bounds_yxyx": [
+          64,
+          320,
+          0,
+          256
+        ],
+        "framing": "right_frame",
+        "full_face_pixels": 29060,
+        "cropped_face_pixels": 26544,
+        "visible_face_fraction": 0.9134205092911218,
+        "frame_contact": true,
+        "head_frame_contact": true,
+        "head_frame_contact_row_limit": 200,
+        "named_part_retention": {
+          "left_eye": 1.0,
+          "right_eye": 1.0,
+          "left_eyebrow": 1.0,
+          "right_eyebrow": 1.0,
+          "nose": 1.0,
+          "mouth": 1.0
+        },
+        "checks": {
+          "face_coverage": true,
+          "expected_frame_contact": true,
+          "expected_head_frame_contact": true,
+          "named_parts_complete": true,
+          "named_parts_retained": true,
+          "passed": true
+        }
+      },
+      "relief_height_mm": 30.0,
+      "background_photo_detail_mm": 0.6,
+      "runtime_seconds": 7.24497749999864,
+      "checks": {
+        "framing": true,
+        "source_context": true,
+        "absolute_face_appearance": true,
+        "absolute_named_parts": true,
+        "absolute_named_part_mm_error": true,
+        "background_preservation": true,
+        "localized_background_structure": true,
+        "physical_emission": true,
+        "feasible_attachment": true,
+        "printable_mesh": true,
+        "complete_shell": true,
+        "screened_face_reconstruction": true,
+        "redundant_emboss_suppressed": true,
+        "direction_reversal_projection": true,
+        "passed": true
+      },
+      "absolute_face": {
+        "available": true,
+        "samples": 21425,
+        "reference_samples": 21425,
+        "candidate_coverage_ratio": 1.0,
+        "normal_mean_cosine": 0.999627502315307,
+        "normal_p05_cosine": 0.9994404823271802,
+        "normal_angle_p95_deg": 1.9167468785995736,
+        "minimum_lighting_correlation": 0.9976130211095369,
+        "maximum_lighting_mae": 0.003780034787825581,
+        "minimum_lighting_rms_retention": 1.0026190160908273,
+        "maximum_lighting_rms_retention": 1.0182304262665685,
+        "checks": {
+          "telemetry": true,
+          "coverage": true,
+          "normal_field": true,
+          "lighting": true,
+          "lighting_energy": true,
+          "components": true,
+          "passed": true
+        }
+      },
+      "absolute_named_parts": {
+        "schema_version": 3,
+        "available": true,
+        "passed": true,
+        "sample_pitch_mm": 0.4,
+        "normalization": "per-face-median-and-p05-p95-span",
+        "smoothing_radii_mm": [
+          0.0,
+          0.8
+        ],
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_shape_correlation": 0.9,
+          "maximum_face_normalized_shape_rmse": 0.2,
+          "minimum_raw_gradient_correlation": 0.25,
+          "minimum_gradient_correlation": 0.75,
+          "minimum_slope_q95_retention": 0.45,
+          "maximum_slope_q95_retention": 2.2,
+          "minimum_curvature_q95_retention": 0.35,
+          "maximum_curvature_q95_retention": 2.8,
+          "maximum_slope_wasserstein_ratio": 0.75,
+          "maximum_curvature_wasserstein_ratio": 0.9
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "available": true,
+            "passed": true,
+            "reference_samples": 2278,
+            "samples": 2278,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 2533,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 2278,
+            "boundary_exclusion_attempted_retained_fraction": 0.8993288590604027,
+            "boundary_exclusion_retained_fraction": 0.8993288590604027,
+            "minimum_eroded_support_ratio": 0.35,
+            "scales": [
+              {
+                "radius_mm": 0.0,
+                "gradient_correlations": [
+                  0.999987418222087,
+                  0.9999622190046785
+                ],
+                "minimum_gradient_correlation": 0.9999622190046785,
+                "slope": {
+                  "available": true,
+                  "samples": 2278,
+                  "reference_q50": 0.023067376584503536,
+                  "reference_q90": 0.05474714911274532,
+                  "reference_q95": 0.0715154931792985,
+                  "candidate_q50": 0.02319934479174201,
+                  "candidate_q90": 0.054715983139294606,
+                  "candidate_q95": 0.07182084222308506,
+                  "q95_retention": 1.0042696908070117,
+                  "rms_retention": 1.0030091934854506,
+                  "wasserstein_ratio": 0.0015638912473654061
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 2278,
+                  "reference_q50": 0.008952067655147156,
+                  "reference_q90": 0.037444038937697606,
+                  "reference_q95": 0.06373582556126,
+                  "candidate_q50": 0.008973539268004696,
+                  "candidate_q90": 0.03745779401079825,
+                  "candidate_q95": 0.06367160991303522,
+                  "q95_retention": 0.9989924716961097,
+                  "rms_retention": 1.0005350837745246,
+                  "wasserstein_ratio": 0.0007350043090201344
+                }
+              },
+              {
+                "radius_mm": 0.8,
+                "gradient_correlations": [
+                  0.9999756800015605,
+                  0.9999664773589445
+                ],
+                "minimum_gradient_correlation": 0.9999664773589445,
+                "slope": {
+                  "available": true,
+                  "samples": 2278,
+                  "reference_q50": 0.023233871272736586,
+                  "reference_q90": 0.05207920278610993,
+                  "reference_q95": 0.06625878646197184,
+                  "candidate_q50": 0.023359283040815526,
+                  "candidate_q90": 0.05206767707343716,
+                  "candidate_q95": 0.06653061446716049,
+                  "q95_retention": 1.00410252012908,
+                  "rms_retention": 1.0034214371626549,
+                  "wasserstein_ratio": 0.001751588670501361
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 2278,
+                  "reference_q50": 0.007048449358356029,
+                  "reference_q90": 0.02626469346791009,
+                  "reference_q95": 0.038501579317579956,
+                  "candidate_q50": 0.00703023150380429,
+                  "candidate_q90": 0.026286955700133396,
+                  "candidate_q95": 0.03896205739801972,
+                  "q95_retention": 1.0119599790086926,
+                  "rms_retention": 1.0017191240995713,
+                  "wasserstein_ratio": 0.0012943307294070888
+                }
+              }
+            ],
+            "shape_correlation": 0.9999657943261977,
+            "face_normalized_shape_rmse": 0.002161815634977451,
+            "minimum_gradient_correlation": 0.9999664773589445,
+            "minimum_raw_gradient_correlation": 0.9999622190046785,
+            "minimum_all_scale_gradient_correlation": 0.9999622190046785,
+            "minimum_slope_q95_retention": 1.00410252012908,
+            "maximum_slope_q95_retention": 1.0042696908070117,
+            "minimum_curvature_q95_retention": 0.9989924716961097,
+            "maximum_curvature_q95_retention": 1.0119599790086926,
+            "maximum_slope_wasserstein_ratio": 0.001751588670501361,
+            "maximum_curvature_wasserstein_ratio": 0.0012943307294070888,
+            "checks": {
+              "coverage": true,
+              "shape_correlation": true,
+              "shape_rmse": true,
+              "gradient_correlation": true,
+              "raw_gradient_correlation": true,
+              "slope_retention": true,
+              "curvature_retention": true,
+              "slope_distribution": true,
+              "curvature_distribution": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "left_eyebrow",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3538,
+            "samples": 3538,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3869,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3538,
+            "boundary_exclusion_attempted_retained_fraction": 0.9144481778237271,
+            "boundary_exclusion_retained_fraction": 0.9144481778237271,
+            "minimum_eroded_support_ratio": 0.35,
+            "scales": [
+              {
+                "radius_mm": 0.0,
+                "gradient_correlations": [
+                  0.9822710683819893,
+                  0.9980006054897776
+                ],
+                "minimum_gradient_correlation": 0.9822710683819893,
+                "slope": {
+                  "available": true,
+                  "samples": 3538,
+                  "reference_q50": 0.028654323996187253,
+                  "reference_q90": 0.07937218531216327,
+                  "reference_q95": 0.09788758979566349,
+                  "candidate_q50": 0.029138604130982508,
+                  "candidate_q90": 0.08403475011807485,
+                  "candidate_q95": 0.10863382640513365,
+                  "q95_retention": 1.109781399581934,
+                  "rms_retention": 1.0615408579415337,
+                  "wasserstein_ratio": 0.015163616318734845
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3538,
+                  "reference_q50": 0.009417993013750499,
+                  "reference_q90": 0.029012116424875986,
+                  "reference_q95": 0.04077800293757364,
+                  "candidate_q50": 0.009550526049095785,
+                  "candidate_q90": 0.03581229068527087,
+                  "candidate_q95": 0.053032252634127655,
+                  "q95_retention": 1.3005112760257986,
+                  "rms_retention": 1.2859835480900428,
+                  "wasserstein_ratio": 0.04973640899601795
+                }
+              },
+              {
+                "radius_mm": 0.8,
+                "gradient_correlations": [
+                  0.9959022378858784,
+                  0.9993810200991045
+                ],
+                "minimum_gradient_correlation": 0.9959022378858784,
+                "slope": {
+                  "available": true,
+                  "samples": 3538,
+                  "reference_q50": 0.028676484290491442,
+                  "reference_q90": 0.08586816371170487,
+                  "reference_q95": 0.11376180381506161,
+                  "candidate_q50": 0.029232157779001865,
+                  "candidate_q90": 0.09167553336828771,
+                  "candidate_q95": 0.12070787917522985,
+                  "q95_retention": 1.0610580627875787,
+                  "rms_retention": 1.0371700216305981,
+                  "wasserstein_ratio": 0.009743749602396998
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3538,
+                  "reference_q50": 0.00709711278793646,
+                  "reference_q90": 0.03230335317609504,
+                  "reference_q95": 0.04751140159762162,
+                  "candidate_q50": 0.0069897634079733335,
+                  "candidate_q90": 0.03523583176517931,
+                  "candidate_q95": 0.045111822589752035,
+                  "q95_retention": 0.9494946701806055,
+                  "rms_retention": 0.926394277752148,
+                  "wasserstein_ratio": 0.018768264137609837
+                }
+              }
+            ],
+            "shape_correlation": 0.9996375087171235,
+            "face_normalized_shape_rmse": 0.004921993117259719,
+            "minimum_gradient_correlation": 0.9959022378858784,
+            "minimum_raw_gradient_correlation": 0.9822710683819893,
+            "minimum_all_scale_gradient_correlation": 0.9822710683819893,
+            "minimum_slope_q95_retention": 1.0610580627875787,
+            "maximum_slope_q95_retention": 1.109781399581934,
+            "minimum_curvature_q95_retention": 0.9494946701806055,
+            "maximum_curvature_q95_retention": 1.3005112760257986,
+            "maximum_slope_wasserstein_ratio": 0.015163616318734845,
+            "maximum_curvature_wasserstein_ratio": 0.04973640899601795,
+            "checks": {
+              "coverage": true,
+              "shape_correlation": true,
+              "shape_rmse": true,
+              "gradient_correlation": true,
+              "raw_gradient_correlation": true,
+              "slope_retention": true,
+              "curvature_retention": true,
+              "slope_distribution": true,
+              "curvature_distribution": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "mouth",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3501,
+            "samples": 3501,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3882,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3501,
+            "boundary_exclusion_attempted_retained_fraction": 0.901854714064915,
+            "boundary_exclusion_retained_fraction": 0.901854714064915,
+            "minimum_eroded_support_ratio": 0.35,
+            "scales": [
+              {
+                "radius_mm": 0.0,
+                "gradient_correlations": [
+                  0.9994685514300216,
+                  0.9998718737046135
+                ],
+                "minimum_gradient_correlation": 0.9994685514300216,
+                "slope": {
+                  "available": true,
+                  "samples": 3501,
+                  "reference_q50": 0.026996685011954045,
+                  "reference_q90": 0.05481889631328773,
+                  "reference_q95": 0.06623135175986751,
+                  "candidate_q50": 0.026993851936875608,
+                  "candidate_q90": 0.05531512542465494,
+                  "candidate_q95": 0.06779649485591921,
+                  "q95_retention": 1.0236314532991322,
+                  "rms_retention": 1.0090621381995994,
+                  "wasserstein_ratio": 0.002561946322781505
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3501,
+                  "reference_q50": 0.009039394116189257,
+                  "reference_q90": 0.02586355534497965,
+                  "reference_q95": 0.03719886160783239,
+                  "candidate_q50": 0.009088715662314976,
+                  "candidate_q90": 0.02650217119159019,
+                  "candidate_q95": 0.03957041080888713,
+                  "q95_retention": 1.0637532735828508,
+                  "rms_retention": 1.010026997487934,
+                  "wasserstein_ratio": 0.006200869053903841
+                }
+              },
+              {
+                "radius_mm": 0.8,
+                "gradient_correlations": [
+                  0.9996575786244623,
+                  0.9999424560153085
+                ],
+                "minimum_gradient_correlation": 0.9996575786244623,
+                "slope": {
+                  "available": true,
+                  "samples": 3501,
+                  "reference_q50": 0.027328838306051862,
+                  "reference_q90": 0.05586182435240135,
+                  "reference_q95": 0.07051423929649617,
+                  "candidate_q50": 0.027361241160962592,
+                  "candidate_q90": 0.056314564934834985,
+                  "candidate_q95": 0.07161028126788875,
+                  "q95_retention": 1.015543555207112,
+                  "rms_retention": 1.0079374836620674,
+                  "wasserstein_ratio": 0.00225754607601284
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3501,
+                  "reference_q50": 0.005675089853948711,
+                  "reference_q90": 0.022297260084792183,
+                  "reference_q95": 0.03293695876384096,
+                  "candidate_q50": 0.005658589022121407,
+                  "candidate_q90": 0.02293739143202494,
+                  "candidate_q95": 0.03291311517650413,
+                  "q95_retention": 0.9992760841245912,
+                  "rms_retention": 0.999767963587861,
+                  "wasserstein_ratio": 0.004271344964200775
+                }
+              }
+            ],
+            "shape_correlation": 0.9999949057419226,
+            "face_normalized_shape_rmse": 0.0023658645590310754,
+            "minimum_gradient_correlation": 0.9996575786244623,
+            "minimum_raw_gradient_correlation": 0.9994685514300216,
+            "minimum_all_scale_gradient_correlation": 0.9994685514300216,
+            "minimum_slope_q95_retention": 1.015543555207112,
+            "maximum_slope_q95_retention": 1.0236314532991322,
+            "minimum_curvature_q95_retention": 0.9992760841245912,
+            "maximum_curvature_q95_retention": 1.0637532735828508,
+            "maximum_slope_wasserstein_ratio": 0.002561946322781505,
+            "maximum_curvature_wasserstein_ratio": 0.006200869053903841,
+            "checks": {
+              "coverage": true,
+              "shape_correlation": true,
+              "shape_rmse": true,
+              "gradient_correlation": true,
+              "raw_gradient_correlation": true,
+              "slope_retention": true,
+              "curvature_retention": true,
+              "slope_distribution": true,
+              "curvature_distribution": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "nose",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3551,
+            "samples": 3551,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3927,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3551,
+            "boundary_exclusion_attempted_retained_fraction": 0.904252610134963,
+            "boundary_exclusion_retained_fraction": 0.904252610134963,
+            "minimum_eroded_support_ratio": 0.35,
+            "scales": [
+              {
+                "radius_mm": 0.0,
+                "gradient_correlations": [
+                  0.9999997006149219,
+                  0.9999995337856421
+                ],
+                "minimum_gradient_correlation": 0.9999995337856421,
+                "slope": {
+                  "available": true,
+                  "samples": 3551,
+                  "reference_q50": 0.02366758375725798,
+                  "reference_q90": 0.045711815499431346,
+                  "reference_q95": 0.057827703191798634,
+                  "candidate_q50": 0.023666277715921454,
+                  "candidate_q90": 0.04568743312309774,
+                  "candidate_q95": 0.0578132959355092,
+                  "q95_retention": 0.999750858922381,
+                  "rms_retention": 0.9999710389312227,
+                  "wasserstein_ratio": 0.0003158639478520773
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3551,
+                  "reference_q50": 0.007170718389695045,
+                  "reference_q90": 0.02600117742599019,
+                  "reference_q95": 0.06626503200669492,
+                  "candidate_q50": 0.007167451876165241,
+                  "candidate_q90": 0.025982910708846788,
+                  "candidate_q95": 0.06622449331191922,
+                  "q95_retention": 0.999388233981814,
+                  "rms_retention": 0.9994941586946504,
+                  "wasserstein_ratio": 0.0001614820905424669
+                }
+              },
+              {
+                "radius_mm": 0.8,
+                "gradient_correlations": [
+                  0.9999994937647052,
+                  0.9999993244040796
+                ],
+                "minimum_gradient_correlation": 0.9999993244040796,
+                "slope": {
+                  "available": true,
+                  "samples": 3551,
+                  "reference_q50": 0.024281138769489626,
+                  "reference_q90": 0.044750688925208004,
+                  "reference_q95": 0.05216163782994433,
+                  "candidate_q50": 0.02430750577452101,
+                  "candidate_q90": 0.044773106088846104,
+                  "candidate_q95": 0.052237190018236415,
+                  "q95_retention": 1.0014484243868722,
+                  "rms_retention": 1.0002908111929603,
+                  "wasserstein_ratio": 0.00033318557226305894
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3551,
+                  "reference_q50": 0.004709191267130915,
+                  "reference_q90": 0.01701126197963809,
+                  "reference_q95": 0.028115683970967788,
+                  "candidate_q50": 0.00471056666979247,
+                  "candidate_q90": 0.01700670201731733,
+                  "candidate_q95": 0.028105093965849474,
+                  "q95_retention": 0.9996233417216793,
+                  "rms_retention": 1.0000537074326525,
+                  "wasserstein_ratio": 0.00043161838657405915
+                }
+              }
+            ],
+            "shape_correlation": 0.9999991030096497,
+            "face_normalized_shape_rmse": 0.002592714878528302,
+            "minimum_gradient_correlation": 0.9999993244040796,
+            "minimum_raw_gradient_correlation": 0.9999995337856421,
+            "minimum_all_scale_gradient_correlation": 0.9999993244040796,
+            "minimum_slope_q95_retention": 0.999750858922381,
+            "maximum_slope_q95_retention": 1.0014484243868722,
+            "minimum_curvature_q95_retention": 0.999388233981814,
+            "maximum_curvature_q95_retention": 0.9996233417216793,
+            "maximum_slope_wasserstein_ratio": 0.00033318557226305894,
+            "maximum_curvature_wasserstein_ratio": 0.00043161838657405915,
+            "checks": {
+              "coverage": true,
+              "shape_correlation": true,
+              "shape_rmse": true,
+              "gradient_correlation": true,
+              "raw_gradient_correlation": true,
+              "slope_retention": true,
+              "curvature_retention": true,
+              "slope_distribution": true,
+              "curvature_distribution": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "right_eye",
+            "available": true,
+            "passed": true,
+            "reference_samples": 2243,
+            "samples": 2243,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 2500,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 2243,
+            "boundary_exclusion_attempted_retained_fraction": 0.8972,
+            "boundary_exclusion_retained_fraction": 0.8972,
+            "minimum_eroded_support_ratio": 0.35,
+            "scales": [
+              {
+                "radius_mm": 0.0,
+                "gradient_correlations": [
+                  0.9999989032821229,
+                  0.9999938846655863
+                ],
+                "minimum_gradient_correlation": 0.9999938846655863,
+                "slope": {
+                  "available": true,
+                  "samples": 2243,
+                  "reference_q50": 0.029323073275160743,
+                  "reference_q90": 0.061112274109462905,
+                  "reference_q95": 0.0757147412324926,
+                  "candidate_q50": 0.029323131412143683,
+                  "candidate_q90": 0.0610615056312182,
+                  "candidate_q95": 0.07575306298865904,
+                  "q95_retention": 1.0005061333571592,
+                  "rms_retention": 1.0003316119020378,
+                  "wasserstein_ratio": 0.0003675725109873772
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 2243,
+                  "reference_q50": 0.009404728234858188,
+                  "reference_q90": 0.029802641976963185,
+                  "reference_q95": 0.05787251694116783,
+                  "candidate_q50": 0.009435625857169559,
+                  "candidate_q90": 0.02985405284817556,
+                  "candidate_q95": 0.057837055503691094,
+                  "q95_retention": 0.9993872490890143,
+                  "rms_retention": 1.0000820354734528,
+                  "wasserstein_ratio": 0.0004860874141917561
+                }
+              },
+              {
+                "radius_mm": 0.8,
+                "gradient_correlations": [
+                  0.9999971260411687,
+                  0.9999908446281026
+                ],
+                "minimum_gradient_correlation": 0.9999908446281026,
+                "slope": {
+                  "available": true,
+                  "samples": 2243,
+                  "reference_q50": 0.02947577857222017,
+                  "reference_q90": 0.05959270123674542,
+                  "reference_q95": 0.07022376138609887,
+                  "candidate_q50": 0.029492412390357676,
+                  "candidate_q90": 0.05955755090230116,
+                  "candidate_q95": 0.07042667436785374,
+                  "q95_retention": 1.0028895202670678,
+                  "rms_retention": 1.0006619372391827,
+                  "wasserstein_ratio": 0.00039225421081948055
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 2243,
+                  "reference_q50": 0.007773957551801198,
+                  "reference_q90": 0.02265285911499069,
+                  "reference_q95": 0.031154694917471002,
+                  "candidate_q50": 0.007763829894245898,
+                  "candidate_q90": 0.022801797298582584,
+                  "candidate_q95": 0.03123978725949745,
+                  "q95_retention": 1.0027312847149317,
+                  "rms_retention": 1.001531148724063,
+                  "wasserstein_ratio": 0.0009430147228553606
+                }
+              }
+            ],
+            "shape_correlation": 0.9999991550669757,
+            "face_normalized_shape_rmse": 0.0026151730783713027,
+            "minimum_gradient_correlation": 0.9999908446281026,
+            "minimum_raw_gradient_correlation": 0.9999938846655863,
+            "minimum_all_scale_gradient_correlation": 0.9999908446281026,
+            "minimum_slope_q95_retention": 1.0005061333571592,
+            "maximum_slope_q95_retention": 1.0028895202670678,
+            "minimum_curvature_q95_retention": 0.9993872490890143,
+            "maximum_curvature_q95_retention": 1.0027312847149317,
+            "maximum_slope_wasserstein_ratio": 0.00039225421081948055,
+            "maximum_curvature_wasserstein_ratio": 0.0009430147228553606,
+            "checks": {
+              "coverage": true,
+              "shape_correlation": true,
+              "shape_rmse": true,
+              "gradient_correlation": true,
+              "raw_gradient_correlation": true,
+              "slope_retention": true,
+              "curvature_retention": true,
+              "slope_distribution": true,
+              "curvature_distribution": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "right_eyebrow",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3023,
+            "samples": 3023,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3346,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3023,
+            "boundary_exclusion_attempted_retained_fraction": 0.9034668260609683,
+            "boundary_exclusion_retained_fraction": 0.9034668260609683,
+            "minimum_eroded_support_ratio": 0.35,
+            "scales": [
+              {
+                "radius_mm": 0.0,
+                "gradient_correlations": [
+                  0.9900080946510271,
+                  0.998949837345831
+                ],
+                "minimum_gradient_correlation": 0.9900080946510271,
+                "slope": {
+                  "available": true,
+                  "samples": 3023,
+                  "reference_q50": 0.03498948935428772,
+                  "reference_q90": 0.08423891345127034,
+                  "reference_q95": 0.10068960366193265,
+                  "candidate_q50": 0.035264728604061116,
+                  "candidate_q90": 0.08856761794408,
+                  "candidate_q95": 0.10917168172035606,
+                  "q95_retention": 1.084239859428806,
+                  "rms_retention": 1.0407784418771615,
+                  "wasserstein_ratio": 0.011264720647097699
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3023,
+                  "reference_q50": 0.010276887447046785,
+                  "reference_q90": 0.02896508172971917,
+                  "reference_q95": 0.03642613296742549,
+                  "candidate_q50": 0.010442107346061642,
+                  "candidate_q90": 0.03338016296886417,
+                  "candidate_q95": 0.04592477810574382,
+                  "q95_retention": 1.2607645765421385,
+                  "rms_retention": 1.1907081474993702,
+                  "wasserstein_ratio": 0.041398228440063446
+                }
+              },
+              {
+                "radius_mm": 0.8,
+                "gradient_correlations": [
+                  0.9967133130207124,
+                  0.9995090032556347
+                ],
+                "minimum_gradient_correlation": 0.9967133130207124,
+                "slope": {
+                  "available": true,
+                  "samples": 3023,
+                  "reference_q50": 0.03527042434438384,
+                  "reference_q90": 0.08996408455630578,
+                  "reference_q95": 0.11277490354166203,
+                  "candidate_q50": 0.03551555325022082,
+                  "candidate_q90": 0.09576816849264055,
+                  "candidate_q95": 0.11734037793327778,
+                  "q95_retention": 1.0404830706853954,
+                  "rms_retention": 1.0294430835716168,
+                  "wasserstein_ratio": 0.008283846433674668
+                },
+                "curvature": {
+                  "available": true,
+                  "samples": 3023,
+                  "reference_q50": 0.007983975736719493,
+                  "reference_q90": 0.027813144243564254,
+                  "reference_q95": 0.04403899945015395,
+                  "candidate_q50": 0.007906719100838828,
+                  "candidate_q90": 0.0315379769208636,
+                  "candidate_q95": 0.04461489500648095,
+                  "q95_retention": 1.0130769446063104,
+                  "rms_retention": 0.942826828344275,
+                  "wasserstein_ratio": 0.019959008391615803
+                }
+              }
+            ],
+            "shape_correlation": 0.9997641752946868,
+            "face_normalized_shape_rmse": 0.003948509711216672,
+            "minimum_gradient_correlation": 0.9967133130207124,
+            "minimum_raw_gradient_correlation": 0.9900080946510271,
+            "minimum_all_scale_gradient_correlation": 0.9900080946510271,
+            "minimum_slope_q95_retention": 1.0404830706853954,
+            "maximum_slope_q95_retention": 1.084239859428806,
+            "minimum_curvature_q95_retention": 1.0130769446063104,
+            "maximum_curvature_q95_retention": 1.2607645765421385,
+            "maximum_slope_wasserstein_ratio": 0.011264720647097699,
+            "maximum_curvature_wasserstein_ratio": 0.041398228440063446,
+            "checks": {
+              "coverage": true,
+              "shape_correlation": true,
+              "shape_rmse": true,
+              "gradient_correlation": true,
+              "raw_gradient_correlation": true,
+              "slope_retention": true,
+              "curvature_retention": true,
+              "slope_distribution": true,
+              "curvature_distribution": true,
+              "passed": true
+            }
+          }
+        ],
+        "reference_face_samples": 21425,
+        "face_samples": 21425,
+        "face_coverage_ratio": 1.0,
+        "face_normalization": {
+          "reference_median_mm": 20.8836669921875,
+          "candidate_median_mm": 20.82186508178711,
+          "reference_p05_p95_span_mm": 21.56856870651245,
+          "candidate_p05_p95_span_mm": 21.580061626434325
+        },
+        "part_count": 6,
+        "measured_part_count": 6,
+        "unavailable_part_count": 0,
+        "failed_parts": []
+      },
+      "absolute_named_part_mm_error": {
+        "schema_version": 2,
+        "method": "shared_face_affine_then_part_mm_error",
+        "available": true,
+        "passed": true,
+        "gates": {
+          "minimum_coverage_ratio": 1.0,
+          "minimum_face_affine_scale": 0.1,
+          "maximum_face_affine_scale": 2.0,
+          "maximum_rmse_mm": 0.8,
+          "maximum_p95_absolute_error_mm": 1.5,
+          "maximum_absolute_bias_mm": 0.5,
+          "minimum_span_retention": 0.65,
+          "maximum_span_retention": 1.35
+        },
+        "parts": [
+          {
+            "name": "left_eye",
+            "available": true,
+            "passed": true,
+            "reference_samples": 2278,
+            "samples": 2278,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 2533,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 2278,
+            "boundary_exclusion_attempted_retained_fraction": 0.8993288590604027,
+            "boundary_exclusion_retained_fraction": 0.8993288590604027,
+            "minimum_eroded_support_ratio": 0.35,
+            "rmse_mm": 0.027576588773607448,
+            "bias_mm": 0.0215919399099027,
+            "p95_absolute_error_mm": 0.03706874269336975,
+            "expected_span_p05_p95_mm": 6.054326078017112,
+            "candidate_span_p05_p95_mm": 6.101857662200928,
+            "span_retention": 1.0078508464148306,
+            "checks": {
+              "coverage": true,
+              "rmse": true,
+              "p95_absolute_error": true,
+              "bias": true,
+              "span_retention": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "left_eyebrow",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3538,
+            "samples": 3538,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3869,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3538,
+            "boundary_exclusion_attempted_retained_fraction": 0.9144481778237271,
+            "boundary_exclusion_retained_fraction": 0.9144481778237271,
+            "minimum_eroded_support_ratio": 0.35,
+            "rmse_mm": 0.10739274910432971,
+            "bias_mm": -0.024298199196525653,
+            "p95_absolute_error_mm": 0.19574881732690444,
+            "expected_span_p05_p95_mm": 10.066654030118979,
+            "candidate_span_p05_p95_mm": 10.208881473541261,
+            "span_retention": 1.0141285717177468,
+            "checks": {
+              "coverage": true,
+              "rmse": true,
+              "p95_absolute_error": true,
+              "bias": true,
+              "span_retention": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "mouth",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3501,
+            "samples": 3501,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3882,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3501,
+            "boundary_exclusion_attempted_retained_fraction": 0.901854714064915,
+            "boundary_exclusion_retained_fraction": 0.901854714064915,
+            "minimum_eroded_support_ratio": 0.35,
+            "rmse_mm": 0.029174688884182894,
+            "bias_mm": 0.027837658096691188,
+            "p95_absolute_error_mm": 0.034956980177167196,
+            "expected_span_p05_p95_mm": 8.27156063297938,
+            "candidate_span_p05_p95_mm": 8.278461456298828,
+            "span_retention": 1.0008342831087926,
+            "checks": {
+              "coverage": true,
+              "rmse": true,
+              "p95_absolute_error": true,
+              "bias": true,
+              "span_retention": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "nose",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3551,
+            "samples": 3551,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3927,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3551,
+            "boundary_exclusion_attempted_retained_fraction": 0.904252610134963,
+            "boundary_exclusion_retained_fraction": 0.904252610134963,
+            "minimum_eroded_support_ratio": 0.35,
+            "rmse_mm": 0.03321739566017592,
+            "bias_mm": 0.03305120282151819,
+            "p95_absolute_error_mm": 0.03809649236073476,
+            "expected_span_p05_p95_mm": 8.040987967544709,
+            "candidate_span_p05_p95_mm": 8.03769588470459,
+            "span_retention": 0.9995905872694492,
+            "checks": {
+              "coverage": true,
+              "rmse": true,
+              "p95_absolute_error": true,
+              "bias": true,
+              "span_retention": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "right_eye",
+            "available": true,
+            "passed": true,
+            "reference_samples": 2243,
+            "samples": 2243,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 2500,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 2243,
+            "boundary_exclusion_attempted_retained_fraction": 0.8972,
+            "boundary_exclusion_retained_fraction": 0.8972,
+            "minimum_eroded_support_ratio": 0.35,
+            "rmse_mm": 0.036243832962206624,
+            "bias_mm": 0.03606495899421489,
+            "p95_absolute_error_mm": 0.041242191939540616,
+            "expected_span_p05_p95_mm": 7.833725838163492,
+            "candidate_span_p05_p95_mm": 7.822476959228517,
+            "span_retention": 0.9985640448533221,
+            "checks": {
+              "coverage": true,
+              "rmse": true,
+              "p95_absolute_error": true,
+              "bias": true,
+              "span_retention": true,
+              "passed": true
+            }
+          },
+          {
+            "name": "right_eyebrow",
+            "available": true,
+            "passed": true,
+            "reference_samples": 3023,
+            "samples": 3023,
+            "candidate_coverage_ratio": 1.0,
+            "visible_samples_before_boundary_exclusion": 3346,
+            "boundary_exclusion_requested_px": 1,
+            "boundary_exclusion_applied": true,
+            "boundary_exclusion_reason": "accepted",
+            "boundary_exclusion_eroded_samples": 3023,
+            "boundary_exclusion_attempted_retained_fraction": 0.9034668260609683,
+            "boundary_exclusion_retained_fraction": 0.9034668260609683,
+            "minimum_eroded_support_ratio": 0.35,
+            "rmse_mm": 0.08233818478120752,
+            "bias_mm": -0.0030521805733693262,
+            "p95_absolute_error_mm": 0.14801578157886974,
+            "expected_span_p05_p95_mm": 10.914118545365422,
+            "candidate_span_p05_p95_mm": 11.080233001708987,
+            "span_retention": 1.0152201440412338,
+            "checks": {
+              "coverage": true,
+              "rmse": true,
+              "p95_absolute_error": true,
+              "bias": true,
+              "span_retention": true,
+              "passed": true
+            }
+          }
+        ],
+        "failed_parts": [],
+        "face_affine_fit": {
+          "scale": 1.0014039581451744,
+          "offset_mm": -0.07242228060225567
+        },
+        "reference_face_samples": 21425,
+        "face_samples": 21425,
+        "face_coverage_ratio": 1.0,
+        "part_count": 6,
+        "measured_part_count": 6,
+        "unavailable_part_count": 0,
+        "face_affine_scale_passed": true
+      },
+      "background": {
+        "passed": true,
+        "correlation": 0.9999996480621367,
+        "rms_retention": 1.0000068571094851,
+        "span_retention": 1.0,
+        "gradient_correlation": 0.9999192666404173,
+        "candidate_coverage_ratio": 1.0,
+        "output_rms_mm": 4.912929962927638,
+        "output_span_p02_p98_mm": 18.56394508782774
+      },
+      "physical_cap": {
+        "emission_passed": true,
+        "far_background_max_mm": 19.510000228881836,
+        "far_background_ceiling_mm": 19.509999999776483,
+        "feasible_attachment_jump_max_mm": 0.8000001907348633,
+        "conflicting_attachment_pixels": 0
+      },
+      "direction_reversal_projection": {
+        "enabled": false,
+        "reason": "not_provisional_edge_only_candidate",
+        "passed": null,
+        "iterations": null,
+        "corrected_pixels": null,
+        "initial_cardinal_reversals": null,
+        "initial_diagonal_reversals": null,
+        "final_cardinal_reversals": null,
+        "final_diagonal_reversals": null,
+        "correction_p95_mm": null,
+        "correction_max_mm": null
+      },
+      "topology": {
+        "watertight": true,
+        "is_volume": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "positive_volume": true,
+        "bbox_has_volume": true,
+        "face_count": 232320,
+        "vertex_count": 116162,
+        "printable": true
+      },
+      "shell": {
+        "passed": true,
+        "complete_shell_verified": true,
+        "facet_geometry_passed": true,
+        "coverage_ratio": 1.0,
+        "max_abs_error_mm": 0.0,
+        "rms_error_mm": 0.0,
+        "expected_shell_triangle_count": 232320,
+        "actual_shell_triangle_count": 232320,
+        "invalid_shell_triangle_count": 0
+      },
+      "artifacts": {
+        "source.png": {
+          "size_bytes": 49185,
+          "sha256": "d69fc20ea774f1b4c9701e66be48a5382c38277d163dc415aeb58b791e1bc26a"
+        },
+        "exact_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "b604a2b59a3d015706abe2bea47d401bff0d7e2d93456ddc7598f73e3857ef8b"
+        },
+        "composed_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "4ca0b04a19af5c3e20d4966fa8ffd8d5ac174615af6751d5fd829913a92cf6c3"
+        },
+        "reference_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "1bcb67bf0fe110c0848029f371089f3b7b90d4cc8aa538f3f7efeb5a502def62"
+        },
+        "emitted_surface.npy": {
+          "size_bytes": 232452,
+          "sha256": "f198294c660c19b9874ad9ff7dec3f19f2dfe4fa8e8ad2fa55f6cf8083b5a402"
+        },
+        "relief.stl": {
+          "size_bytes": 11616084,
+          "sha256": "2058889079c88b933b09f02bff9ca577c04f1bf031a09d0181ddda6f2313be92"
+        },
+        "postprocess.json": {
+          "size_bytes": 87500,
+          "sha256": "3aeb319d26c8ca66a251e775699905eb91148c8a1c996446bbfb303fcc57108a"
+        },
+        "face_part_metadata.json": {
+          "size_bytes": 801,
+          "sha256": "ff8a1fb2aec63c7b2da1e0877e0917b2b9f0f017bc29976365c68831936d6aec"
+        },
+        "face_parts/face.png": {
+          "size_bytes": 1133,
+          "sha256": "e417d8d61a7cef5915e02a13a1eb4bec830b2982d603827d7c55eeb102b63016"
+        },
+        "face_parts/left_eye.png": {
+          "size_bytes": 449,
+          "sha256": "f05819a0e1d6179695667a0fca7694f3a474fd9141af2927f818e30270fdf2b4"
+        },
+        "face_parts/left_eyebrow.png": {
+          "size_bytes": 494,
+          "sha256": "3f9449c4631c0321050392fb496e761c139eb61031840d06919075216e8a5252"
+        },
+        "face_parts/mouth.png": {
+          "size_bytes": 547,
+          "sha256": "0db6799e1a9f0e774a3f2bb6044023631ea67835821763537a68228ad490691f"
+        },
+        "face_parts/nose.png": {
+          "size_bytes": 499,
+          "sha256": "3d1e7dc0aea515183330a37d1343dab14fc69dc0d54ea1880430e0b5fccd8327"
+        },
+        "face_parts/right_eye.png": {
+          "size_bytes": 471,
+          "sha256": "ff97fcbc26aace5bdc3e9a7bee341510a463b377a327e29c99b4b30ad55fcabf"
+        },
+        "face_parts/right_eyebrow.png": {
+          "size_bytes": 499,
+          "sha256": "b6d68b93d0d9ed44093f4f6156a7140173323c40b890087f9842873149ec91bc"
+        },
+        "provider_depth.npy": {
+          "size_bytes": 262272,
+          "sha256": "3536a81703614b7a7676e7659861a50befd4d2a7cb1aa3ffd7f812b3eb672205"
+        }
+      }
+    }
+  ],
+  "checks": {
+    "expected_rows": true,
+    "one_inference_per_scene": true,
+    "all_pairs_passed": true,
+    "implementation_provenance_clean": true,
+    "passed": true
+  }
+}

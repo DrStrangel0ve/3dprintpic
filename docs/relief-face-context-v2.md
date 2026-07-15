@@ -513,19 +513,34 @@ integrated. Pins, output checksums, measured holds, and reproduction are in
 
 ## Stronger face-protected photo relief
 
-The deterministic photo-detail path was then swept at `0`, `0.12`, `0.30`, and
-`0.60 mm` through eight complete 30 mm STLs. The first pass exposed that texture
-near the selection boundary could make later attachment capping move the first
-two selected pixels. A wider quiet halo now suppresses photo detail around the
-subject before physical capping; face-interior shape remains effectively exact.
+The final background pass no longer decides which scenery deserves detail from
+depth percentiles when a valid semantic subject mask exists. It activates the
+source-defined background while preserving a physical 5 mm quiet halo around
+the subject. A bounded p96 normalization and `0.75` detail-contrast curve make
+weak photographic structure printable without exceeding the requested cap.
+Missing or empty protection masks retain the legacy `0.12 mm` limit.
 
-The clean final sweep promotes `0.60 mm`. Active source-detail correlation is
-`0.4774` centered and `0.7051` right-cropped. Background detail RMS reaches
-`0.1204/0.0585 mm`, while face-interior p99 movement stays below `0.0005 mm`
-and worst interior movement is `0.0027 mm`. All eight STLs pass background,
-cap, attachment, topology, and shell gates. The backend API default is now
-`0.60 mm`; the local UI default and range match it. Compact evidence is in
-`docs/benchmark-evidence/background_photo_detail_sweep_30mm_n2_v3/`.
+The clean 12-row oracle sweep covers centered, left-frame, and right-frame CC0
+faces at `0`, `0.12`, `0.30`, and `0.60 mm`. At `0.60 mm`, intended-background
+correlation is `0.4101-0.5052`, RMS detail is `0.0740-0.1956 mm`, and p95 detail
+is `0.1727-0.4483 mm`. Source-aligned capture is `0.1424-0.3703`, above the
+frozen `0.12` coverage floor. Worst face-interior and attachment-boundary
+movement are `0.0043` and `0.0525 mm`. Every STL passes cap, attachment,
+topology, and complete-shell checks.
+
+A production Depth Anything V2 pair then reuses one exact cached prediction for
+the `0` and `0.60 mm` emissions. It reaches `0.5871` intended-background
+correlation and `0.1646/0.2532 mm` RMS/p95 detail, while face-interior and
+attachment-boundary maxima remain `0.00175/0.01701 mm`. Both STLs are printable
+complete shells. Non-finite, negative, or greater-than-`0.60 mm` API values are
+rejected before inference; internal calls also fail closed or clamp to the hard
+cap. The tracked backend default is `0.60 mm`; frontend controls remain outside
+this evidence claim because the current UI edits are part of unrelated local
+work.
+
+Exact summaries, privacy-safe sources, hashes, and fail-closed reproduction are
+in `docs/benchmark-evidence/background_photo_detail_sweep_30mm_n3_v5/` and
+`docs/benchmark-evidence/background_photo_detail_da2_s40_n1_v3/`.
 
 ## Validation
 
@@ -539,7 +554,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 525 passed, 57 subtests passed (2 existing warnings).
+- Backend: 536 passed, 69 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
