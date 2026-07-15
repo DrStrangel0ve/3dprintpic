@@ -163,6 +163,55 @@ class MainStlContractTest(unittest.TestCase):
                 self.assertEqual(metadata["requested_target_dimension"], payload["requested_target_dimension"])
                 self.assertEqual(metadata["relief_postprocess"], payload["relief_postprocess"])
 
+    def test_process_image_forwards_background_photo_detail_default_and_override(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "output"
+            observed_detail_mm = []
+
+            def fake_complete_image(input_path, **_kwargs):
+                return input_path, None
+
+            def fake_depth_data(_image_path, output_dir, **_kwargs):
+                depth_path = Path(output_dir) / "output_depth_data.npy"
+                rows, cols = np.indices((24, 32), dtype=np.float32)
+                np.save(depth_path, 0.1 + 0.01 * rows + 0.02 * cols)
+                return str(depth_path)
+
+            real_depth_to_model = main_module.depth_data_to_3d_model
+
+            def capture_detail(*args, **kwargs):
+                observed_detail_mm.append(kwargs["background_photo_detail_mm"])
+                return real_depth_to_model(*args, **kwargs)
+
+            with (
+                patch.object(main_module, "OUTPUT_DIR", output_root),
+                patch.object(main_module, "complete_image", side_effect=fake_complete_image),
+                patch.object(main_module, "process_image_get_depth_data", side_effect=fake_depth_data),
+                patch.object(main_module, "depth_data_to_3d_model", side_effect=capture_detail),
+            ):
+                client = TestClient(main_module.app)
+                base_request = {
+                    "target_dimension": "-1",
+                    "z_scale": "10",
+                    "max_xy_size": "24",
+                    "sigma": "0",
+                    "base_border_px": "0",
+                }
+                default_response = client.post(
+                    "/process_image",
+                    files={"file": ("default.png", self.png_bytes(), "image/png")},
+                    data=base_request,
+                )
+                override_response = client.post(
+                    "/process_image",
+                    files={"file": ("override.png", self.png_bytes(), "image/png")},
+                    data={**base_request, "background_photo_detail_mm": "0.27"},
+                )
+
+            self.assertEqual(default_response.status_code, 200, default_response.text)
+            self.assertEqual(override_response.status_code, 200, override_response.text)
+            self.assertEqual(observed_detail_mm, [0.60, 0.27])
+
     def test_process_image_uses_original_context_then_masks_selected_depth(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_root = Path(temp_dir) / "output"

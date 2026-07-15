@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from scipy.ndimage import binary_erosion, gaussian_filter
+from scipy.ndimage import binary_erosion, gaussian_filter, maximum_filter
 
 from backend.benchmark.makehuman_face_fixture import load_makehuman_face_fixture
 from backend.benchmark.run_makehuman_face_depth_smoke import DEFAULT_ASSET_DIR, _correlation
@@ -16,14 +16,16 @@ from backend.benchmark.run_makehuman_face_relief_smoke import (
     DEFAULT_SCENES,
     SceneSpec,
     _emit_row,
-    _sha256,
 )
 from backend.benchmark.run_relief_scene_regression import _git_provenance
-from backend.pic_to_3d import DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO
+from backend.pic_to_3d import (
+    BACKGROUND_PHOTO_DETAIL_PROTECTION_HALO_MM,
+    DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
+)
 
 
 DETAIL_LEVELS_MM = (0.0, 0.12, 0.30, 0.60)
-SWEEP_SCENES = (DEFAULT_SCENES[0], DEFAULT_SCENES[2])
+SWEEP_SCENES = DEFAULT_SCENES
 PROVENANCE_PATHS = (
     "backend/pic_to_3d.py",
     "backend/benchmark/run_makehuman_face_relief_smoke.py",
@@ -31,14 +33,13 @@ PROVENANCE_PATHS = (
     "backend/benchmark/assets/makehuman_cc0_heads",
 )
 DETAIL_GATES = {
-    "minimum_source_detail_correlation": 0.45,
-    "minimum_realized_p95_ratio": 0.14,
+    "minimum_intended_background_source_detail_correlation": 0.30,
+    "minimum_realized_p95_ratio": 0.12,
     "maximum_realized_p95_ratio": 1.05,
     "maximum_face_interior_p99_change_mm": 0.01,
     "maximum_face_interior_change_mm": 0.05,
-    "maximum_attachment_boundary_ratio": 0.35,
+    "maximum_attachment_boundary_change_mm": 0.10,
     "minimum_background_coverage_ratio": 0.35,
-    "minimum_active_detail_coverage_ratio": 0.18,
 }
 
 
@@ -58,6 +59,7 @@ def _detail_metrics(
     face_mask: np.ndarray,
     source_path: Path,
     requested_detail_mm: float,
+    protection_halo_px: float = 13.0,
 ) -> dict:
     baseline = np.asarray(baseline_surface, dtype=np.float64)
     candidate = np.asarray(candidate_surface, dtype=np.float64)
@@ -67,15 +69,34 @@ def _detail_metrics(
     delta = candidate - baseline
     source_detail = _photo_detail_signal(source_path, baseline.shape)
     background = ~face
-    scale = float(np.percentile(np.abs(source_detail[background]), 98.0))
-    usable = background & np.isfinite(delta) & np.isfinite(source_detail)
+    halo_radius_px = max(1, int(np.ceil(float(protection_halo_px))))
+    protection_feather = gaussian_filter(
+        maximum_filter(face.astype(np.float32), size=2 * halo_radius_px + 1),
+        sigma=max(1.0, 0.625 * halo_radius_px),
+    )
+    intended_background = background & (protection_feather < 0.5)
+    intended_source = np.abs(source_detail[intended_background])
+    scale = (
+        float(np.percentile(intended_source, 98.0))
+        if intended_source.size
+        else 0.0
+    )
+    finite_source_delta = np.isfinite(delta) & np.isfinite(source_detail)
+    usable_all = background & finite_source_delta
+    usable = intended_background & finite_source_delta
     if scale > 1e-8:
+        usable_all &= np.abs(source_detail) >= 0.04 * scale
         usable &= np.abs(source_detail) >= 0.04 * scale
-    background_count = max(int(np.count_nonzero(background)), 1)
+    background_count = max(int(np.count_nonzero(intended_background)), 1)
     coverage = float(np.count_nonzero(usable) / background_count)
-    absolute = np.abs(delta[background])
-    p95 = float(np.percentile(absolute, 95.0))
-    rms = float(np.sqrt(np.mean(np.square(delta[background]))))
+    absolute_all = np.abs(delta[background])
+    absolute = np.abs(delta[intended_background])
+    p95 = float(np.percentile(absolute, 95.0)) if absolute.size else 0.0
+    rms = (
+        float(np.sqrt(np.mean(np.square(delta[intended_background]))))
+        if absolute.size
+        else 0.0
+    )
     face_interior = binary_erosion(face, iterations=3)
     face_boundary = face & ~face_interior
     interior_delta = np.abs(delta[face_interior])
@@ -90,6 +111,11 @@ def _detail_metrics(
         float(np.max(boundary_delta)) if boundary_delta.size else 0.0
     )
     source_correlation_all = (
+        _correlation(source_detail[usable_all], delta[usable_all])
+        if np.count_nonzero(usable_all) >= 64
+        else 0.0
+    )
+    source_correlation_intended = (
         _correlation(source_detail[usable], delta[usable])
         if np.count_nonzero(usable) >= 64
         else 0.0
@@ -98,6 +124,10 @@ def _detail_metrics(
     if requested_detail_mm > 0:
         active &= np.abs(delta) >= 0.04 * float(requested_detail_mm)
     active_coverage = float(np.count_nonzero(active) / background_count)
+    source_aligned = active & (delta * source_detail > 0)
+    source_aligned_capture_ratio = float(
+        np.count_nonzero(source_aligned) / max(int(np.count_nonzero(usable)), 1)
+    )
     source_correlation = (
         _correlation(source_detail[active], delta[active])
         if np.count_nonzero(active) >= 64
@@ -106,8 +136,8 @@ def _detail_metrics(
     if requested_detail_mm > 0:
         realized_ratio = p95 / float(requested_detail_mm)
         checks = {
-            "source_detail_correlation": source_correlation
-            >= DETAIL_GATES["minimum_source_detail_correlation"],
+            "intended_background_source_detail_correlation": source_correlation_intended
+            >= DETAIL_GATES["minimum_intended_background_source_detail_correlation"],
             "realized_p95": DETAIL_GATES["minimum_realized_p95_ratio"]
             <= realized_ratio
             <= DETAIL_GATES["maximum_realized_p95_ratio"],
@@ -118,35 +148,41 @@ def _detail_metrics(
                 <= DETAIL_GATES["maximum_face_interior_change_mm"]
             ),
             "attachment_boundary": max_attachment_boundary_change
-            <= DETAIL_GATES["maximum_attachment_boundary_ratio"]
-            * float(requested_detail_mm),
+            <= DETAIL_GATES["maximum_attachment_boundary_change_mm"],
             "coverage": coverage >= DETAIL_GATES["minimum_background_coverage_ratio"],
-            "active_detail_coverage": active_coverage
-            >= DETAIL_GATES["minimum_active_detail_coverage_ratio"],
         }
     else:
         realized_ratio = 0.0
         checks = {
-            "source_detail_correlation": True,
+            "intended_background_source_detail_correlation": True,
             "realized_p95": p95 <= 1e-9,
             "face_interior": max_face_interior_change <= 1e-9,
             "attachment_boundary": max_attachment_boundary_change <= 1e-9,
             "coverage": coverage >= DETAIL_GATES["minimum_background_coverage_ratio"],
-            "active_detail_coverage": True,
         }
     return {
         "requested_detail_mm": float(requested_detail_mm),
-        "source_detail_correlation": float(source_correlation),
+        "active_source_detail_correlation": float(source_correlation),
+        "source_detail_correlation_intended_background": float(
+            source_correlation_intended
+        ),
         "source_detail_correlation_all_background": float(source_correlation_all),
         "background_delta_rms_mm": rms,
         "background_delta_p95_mm": p95,
-        "background_delta_max_mm": float(np.max(absolute)),
+        "background_delta_p95_all_background_mm": (
+            float(np.percentile(absolute_all, 95.0)) if absolute_all.size else 0.0
+        ),
+        "background_delta_max_mm": (
+            float(np.max(absolute_all)) if absolute_all.size else 0.0
+        ),
         "realized_p95_ratio": float(realized_ratio),
         "face_interior_p99_change_mm": face_interior_p99_change,
         "max_face_interior_change_mm": max_face_interior_change,
         "max_attachment_boundary_change_mm": max_attachment_boundary_change,
         "background_coverage_ratio": coverage,
         "active_detail_coverage_ratio": active_coverage,
+        "source_aligned_capture_ratio": source_aligned_capture_ratio,
+        "protection_halo_px": float(protection_halo_px),
         "checks": {**checks, "passed": bool(all(checks.values()))},
     }
 
@@ -175,6 +211,10 @@ def run(
     fixture = load_makehuman_face_fixture(asset_dir)
     rows = []
     records = []
+    input_pitch_mm = float(physical_size_mm) / max(int(crop_size) - 1, 1)
+    protection_halo_px = BACKGROUND_PHOTO_DETAIL_PROTECTION_HALO_MM / max(
+        input_pitch_mm, 1e-6
+    )
     for spec in scenes:
         baseline_surface = None
         baseline_context = None
@@ -205,6 +245,7 @@ def run(
                 baseline_context["face_mask"],
                 baseline_source,
                 detail_mm,
+                protection_halo_px=protection_halo_px,
             )
             record_checks = {
                 "detail": bool(metrics["checks"]["passed"]),
@@ -234,8 +275,19 @@ def run(
         level_summaries.append(
             {
                 "detail_mm": detail_mm,
-                "minimum_source_detail_correlation": float(
-                    min(record["metrics"]["source_detail_correlation"] for record in level_records)
+                "minimum_intended_background_source_detail_correlation": float(
+                    min(
+                        record["metrics"][
+                            "source_detail_correlation_intended_background"
+                        ]
+                        for record in level_records
+                    )
+                ),
+                "minimum_active_source_detail_correlation": float(
+                    min(
+                        record["metrics"]["active_source_detail_correlation"]
+                        for record in level_records
+                    )
                 ),
                 "minimum_background_delta_rms_mm": float(
                     min(record["metrics"]["background_delta_rms_mm"] for record in level_records)

@@ -1149,6 +1149,29 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertGreater(float(np.mean(np.abs(fused[:, :24] - relief[:, :24]))), 0.002)
         np.testing.assert_array_equal(fused[face_region], relief[face_region])
 
+    def test_photo_detail_fusion_keeps_raised_masked_background_active(self):
+        relief = np.full((64, 64), 0.1, dtype=np.float32)
+        relief[:, :12] = 0.9
+        photo = np.zeros((64, 64, 3), dtype=np.uint8)
+        photo[:, ::4] = 255
+        face_region = np.zeros_like(relief, dtype=bool)
+        face_region[20:44, 24:40] = True
+
+        fused, stats = _inject_photo_relief_detail(
+            relief,
+            photo,
+            max_detail_ratio=0.04,
+            protection_mask=face_region,
+            protection_halo_px=4.0,
+        )
+
+        raised_change = float(np.mean(np.abs(fused[:, :12] - relief[:, :12])))
+        low_change = float(np.mean(np.abs(fused[:, 52:] - relief[:, 52:])))
+        self.assertTrue(stats["enabled"])
+        self.assertGreater(raised_change, 0.002)
+        self.assertGreater(low_change, 0.002)
+        np.testing.assert_array_equal(fused[face_region], relief[face_region])
+
     def test_top_silhouette_mask_removes_only_pixels_above_content(self):
         source = np.full((20, 24, 3), 255, dtype=np.uint8)
         source[8:, :12] = 30

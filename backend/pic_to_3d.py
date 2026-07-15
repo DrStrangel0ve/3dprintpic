@@ -1540,11 +1540,49 @@ def _shape_relief_values(
     return np.clip(relief, 0.0, 1.0)
 
 
+def _has_background_photo_detail_protection(protection_mask):
+    if protection_mask is not None:
+        try:
+            if bool(np.any(np.asarray(protection_mask) > 0)):
+                return True
+        except (TypeError, ValueError):
+            pass
+    return False
+
+
+def _effective_background_photo_detail_mm(requested_detail_mm, protection_mask):
+    requested = max(0.0, float(requested_detail_mm))
+    return (
+        requested
+        if _has_background_photo_detail_protection(protection_mask)
+        else min(requested, 0.12)
+    )
+
+
+BACKGROUND_PHOTO_DETAIL_PROTECTION_HALO_MM = 5.0
+
+
+def _photo_detail_sampling(
+    max_xy_size,
+    shape,
+    protection_halo_mm=BACKGROUND_PHOTO_DETAIL_PROTECTION_HALO_MM,
+):
+    longest_dimension = max((int(value) for value in shape), default=1)
+    sample_pitch_mm = (
+        float(max_xy_size) / max(longest_dimension - 1, 1)
+        if max_xy_size is not None and float(max_xy_size) > 0
+        else 1.0
+    )
+    halo_px = max(0.0, float(protection_halo_mm)) / max(sample_pitch_mm, 1e-6)
+    return sample_pitch_mm, halo_px
+
+
 def _inject_photo_relief_detail(
     relief,
     source_image,
     max_detail_ratio=0.0,
     protection_mask=None,
+    protection_halo_px=8.0,
 ):
     """Recover printable texture that a monocular depth model flattened away."""
     if source_image is None or max_detail_ratio <= 0:
@@ -1591,28 +1629,47 @@ def _inject_photo_relief_detail(
         # close to the attachment boundary can otherwise make the later physical
         # cap move the outermost selected pixels even though detail injection did
         # not write inside the mask itself.
+        halo_radius_px = max(1, int(np.ceil(float(protection_halo_px))))
         feather = gaussian_filter(
-            maximum_filter(protected.astype(np.float32), size=17),
-            sigma=5.0,
+            maximum_filter(
+                protected.astype(np.float32),
+                size=2 * halo_radius_px + 1,
+            ),
+            sigma=max(1.0, 0.625 * halo_radius_px),
         )
         feather[protected] = 1.0
-        background_gate *= 1.0 - np.clip(feather, 0.0, 1.0)
+        # A semantic mask tells us which pixels are truly background. Preserve
+        # raised architecture and scenery instead of suppressing it merely
+        # because its monocular depth happens to resemble the foreground.
+        background_gate = 1.0 - np.clip(feather, 0.0, 1.0)
 
     usable = finite & (background_gate > 0.5)
     if not np.any(usable):
         return relief, {"enabled": False, "reason": "no_background_pixels"}
-    detail_scale = float(np.percentile(np.abs(photo_detail[usable]), 98.0))
+    detail_scale_percentile = 96.0
+    detail_scale = float(
+        np.percentile(np.abs(photo_detail[usable]), detail_scale_percentile)
+    )
     if not np.isfinite(detail_scale) or detail_scale <= 1e-6:
         return relief, {"enabled": False, "reason": "no_photo_detail"}
 
+    detail_contrast_gamma = 0.75
     normalized_detail = np.clip(photo_detail / detail_scale, -1.0, 1.0)
+    normalized_detail = np.sign(normalized_detail) * np.power(
+        np.abs(normalized_detail), detail_contrast_gamma
+    )
     fused = relief + float(max_detail_ratio) * normalized_detail * background_gate
     return np.clip(fused, 0.0, 1.0), {
         "enabled": True,
         "max_detail_ratio": float(max_detail_ratio),
         "detail_scale": detail_scale,
+        "detail_scale_percentile": detail_scale_percentile,
+        "detail_contrast_gamma": detail_contrast_gamma,
         "background_coverage_ratio": float(np.mean(usable)),
         "face_protected": protected is not None,
+        "protection_halo_px": (
+            float(max(1.0, protection_halo_px)) if protected is not None else 0.0
+        ),
     }
 
 
@@ -5526,16 +5583,47 @@ def depth_data_to_3d_model(
             else None
         ),
     )
+    requested_photo_detail_mm = max(0.0, float(background_photo_detail_mm))
+    has_photo_detail_protection = _has_background_photo_detail_protection(
+        detail_protection_mask
+    )
+    effective_photo_detail_mm = _effective_background_photo_detail_mm(
+        requested_photo_detail_mm,
+        detail_protection_mask,
+    )
     photo_detail_ratio = (
-        float(background_photo_detail_mm) / float(z_scale)
-        if z_scale and background_photo_detail_mm > 0
+        effective_photo_detail_mm / float(z_scale)
+        if z_scale and effective_photo_detail_mm > 0
         else 0.0
+    )
+    photo_detail_halo_mm = BACKGROUND_PHOTO_DETAIL_PROTECTION_HALO_MM
+    input_sample_pitch_mm, photo_detail_halo_px = _photo_detail_sampling(
+        max_xy_size,
+        relief.shape,
+        photo_detail_halo_mm,
     )
     relief, photo_detail_stats = _inject_photo_relief_detail(
         relief,
         source_image,
         max_detail_ratio=photo_detail_ratio,
-        protection_mask=detail_protection_mask,
+        protection_mask=(
+            detail_protection_mask if has_photo_detail_protection else None
+        ),
+        protection_halo_px=photo_detail_halo_px,
+    )
+    photo_detail_stats.update(
+        {
+            "requested_detail_mm": requested_photo_detail_mm,
+            "effective_detail_mm": effective_photo_detail_mm,
+            "unprotected_detail_limited": bool(
+                not has_photo_detail_protection
+                and effective_photo_detail_mm < requested_photo_detail_mm
+            ),
+            "protection_halo_mm": (
+                photo_detail_halo_mm if has_photo_detail_protection else 0.0
+            ),
+            "input_sample_pitch_mm": input_sample_pitch_mm,
+        }
     )
     relief = np.where(top_silhouette_mask, relief, np.nan)
     border_detail_region = region_mask if region_mask is not None else selected_region

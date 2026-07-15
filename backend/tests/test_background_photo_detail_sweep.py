@@ -6,9 +6,32 @@ import numpy as np
 from PIL import Image
 
 from backend.benchmark import run_background_photo_detail_sweep as detail_sweep
+from backend.pic_to_3d import (
+    _effective_background_photo_detail_mm,
+    _photo_detail_sampling,
+)
 
 
 class BackgroundPhotoDetailSweepTests(unittest.TestCase):
+    def test_unprotected_photo_detail_retains_legacy_cap(self):
+        self.assertEqual(_effective_background_photo_detail_mm(0.60, None), 0.12)
+        self.assertEqual(
+            _effective_background_photo_detail_mm(0.60, np.ones((2, 2), dtype=bool)),
+            0.60,
+        )
+        self.assertEqual(
+            _effective_background_photo_detail_mm(0.60, np.zeros((2, 2), dtype=bool)),
+            0.12,
+        )
+
+    def test_photo_detail_halo_is_constant_in_physical_units(self):
+        coarse_pitch, coarse_halo = _photo_detail_sampling(96.0, (256, 256))
+        fine_pitch, fine_halo = _photo_detail_sampling(96.0, (512, 512))
+
+        self.assertAlmostEqual(coarse_pitch * coarse_halo, 5.0)
+        self.assertAlmostEqual(fine_pitch * fine_halo, 5.0)
+        self.assertGreater(fine_halo, coarse_halo)
+
     def test_detail_signal_is_deterministic_and_sensitive_to_texture(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "source.png"
@@ -45,7 +68,9 @@ class BackgroundPhotoDetailSweepTests(unittest.TestCase):
             )
 
         self.assertTrue(metrics["checks"]["passed"])
-        self.assertGreater(metrics["source_detail_correlation"], 0.9)
+        self.assertGreater(
+            metrics["source_detail_correlation_intended_background"], 0.9
+        )
         self.assertEqual(metrics["max_face_interior_change_mm"], 0.0)
         self.assertEqual(metrics["max_attachment_boundary_change_mm"], 0.0)
 
@@ -71,6 +96,79 @@ class BackgroundPhotoDetailSweepTests(unittest.TestCase):
 
         self.assertFalse(metrics["checks"]["face_interior"])
         self.assertFalse(metrics["checks"]["passed"])
+
+    def test_detail_metrics_reject_large_attachment_boundary_movement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "source.png"
+            image = np.zeros((64, 64, 3), dtype=np.uint8)
+            image[:, ::4] = 255
+            Image.fromarray(image).save(path)
+            baseline = np.zeros((64, 64), dtype=np.float32)
+            face = np.zeros_like(baseline, dtype=bool)
+            face[16:48, 16:48] = True
+            candidate = baseline.copy()
+            candidate[16, 16:48] = 0.15
+
+            metrics = detail_sweep._detail_metrics(
+                baseline, candidate, face, path, 0.60
+            )
+
+        self.assertFalse(metrics["checks"]["attachment_boundary"])
+        self.assertFalse(metrics["checks"]["passed"])
+
+    def test_partial_candidate_cannot_hide_full_background_correlation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "source.png"
+            image = np.zeros((64, 64, 3), dtype=np.uint8)
+            image[:, ::4] = 255
+            Image.fromarray(image).save(path)
+            signal = detail_sweep._photo_detail_signal(path, (64, 64))
+            scale = float(np.percentile(np.abs(signal), 98.0))
+            baseline = np.zeros((64, 64), dtype=np.float32)
+            face = np.zeros_like(baseline, dtype=bool)
+            face[16:48, 24:40] = True
+            candidate = baseline.copy()
+            candidate[:4] = 0.60 * np.clip(signal[:4] / scale, -1.0, 1.0)
+
+            metrics = detail_sweep._detail_metrics(
+                baseline, candidate, face, path, 0.60
+            )
+
+        self.assertGreater(metrics["active_source_detail_correlation"], 0.9)
+        self.assertFalse(
+            metrics["checks"]["intended_background_source_detail_correlation"]
+        )
+        self.assertFalse(metrics["checks"]["passed"])
+
+    def test_intended_background_metric_excludes_declared_quiet_halo(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "source.png"
+            image = np.zeros((64, 64, 3), dtype=np.uint8)
+            image[:, ::4] = 255
+            Image.fromarray(image).save(path)
+            signal = detail_sweep._photo_detail_signal(path, (64, 64))
+            scale = float(np.percentile(np.abs(signal), 98.0))
+            baseline = np.zeros((64, 64), dtype=np.float32)
+            face = np.zeros_like(baseline, dtype=bool)
+            face[20:44, 24:40] = True
+            feather = detail_sweep.gaussian_filter(
+                detail_sweep.maximum_filter(face.astype(np.float32), size=17),
+                sigma=5.0,
+            )
+            intended = (~face) & (feather < 0.5)
+            candidate = baseline.copy()
+            candidate[intended] = 0.60 * np.clip(
+                signal[intended] / scale, -1.0, 1.0
+            )
+
+            metrics = detail_sweep._detail_metrics(
+                baseline, candidate, face, path, 0.60, protection_halo_px=8.0
+            )
+
+        self.assertGreater(
+            metrics["source_detail_correlation_intended_background"], 0.9
+        )
+        self.assertTrue(metrics["checks"]["intended_background_source_detail_correlation"])
 
     def test_run_rejects_invalid_level_matrix_before_loading_fixture(self):
         for levels in ((0.12, 0.30), (0.0, -0.1), (0.0, 0.3, 0.3)):
