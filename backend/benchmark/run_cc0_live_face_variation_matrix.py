@@ -1,4 +1,4 @@
-"""Run a privacy-safe CC0 MakeHuman face matrix against a live backend.
+"""Run a privacy-safe generated relief-context matrix against a live backend.
 
 All rendered inputs, request records, and raw responses are kept below the
 specified clean server checkout's ignored ``backend/output`` directory.
@@ -26,7 +26,12 @@ from backend.benchmark.makehuman_face_fixture import (
     load_makehuman_face_fixture,
     make_profile_vertex_colors,
 )
-from backend.benchmark.mesh_rendering import CameraSpec, RenderConfig, render_mesh
+from backend.benchmark.mesh_rendering import (
+    CameraSpec,
+    RenderConfig,
+    make_procedural_mesh,
+    render_mesh,
+)
 from backend.benchmark.run_makehuman_face_depth_smoke import (
     _correlation,
     _make_scene,
@@ -38,9 +43,11 @@ from backend.benchmark.run_private_background_photo_detail_replay import (
     _selection_source_fingerprint,
     _sha256,
 )
+from backend.benchmark.run_relief_scene_regression import _boundary_shape_metrics
 from backend.benchmark.run_relief_visual_sweep import (
     BACKGROUND_APPEARANCE_GATES,
     FACE_APPEARANCE_GATES,
+    SELECTION_APPEARANCE_GATES,
     _appearance_checks,
     _stl_heightfield_agreement,
 )
@@ -68,12 +75,45 @@ EXACT_FACE_DEPTH_GATES = {
     "minimum_gradient_correlation": 0.20,
     "maximum_normalized_rmse": 0.35,
 }
+BACKGROUND_PROFILES = {
+    "structured_room",
+    "deep_shelves",
+    "layered_studio",
+}
+LIGHTING_PROFILES = {
+    "soft_left": {
+        "ambient": 0.42,
+        "diffuse": 0.53,
+        "specular": 0.035,
+        "shininess": 48.0,
+        "direction": (-0.35, -0.20, 0.90),
+    },
+    "side_right": {
+        "ambient": 0.34,
+        "diffuse": 0.61,
+        "specular": 0.025,
+        "shininess": 42.0,
+        "direction": (0.62, -0.12, 0.78),
+    },
+    "overhead": {
+        "ambient": 0.38,
+        "diffuse": 0.57,
+        "specular": 0.03,
+        "shininess": 54.0,
+        "direction": (-0.08, -0.68, 0.73),
+    },
+}
 _JOB_ID = re.compile(r"^[a-f0-9]{32}$")
 PRODUCER_PATHS = (
     "backend/benchmark/run_cc0_live_face_variation_matrix.py",
     "backend/benchmark/makehuman_face_fixture.py",
     "backend/benchmark/mesh_rendering.py",
     "backend/benchmark/run_makehuman_face_depth_smoke.py",
+    "backend/benchmark/run_background_photo_detail_sweep.py",
+    "backend/benchmark/run_private_background_photo_detail_replay.py",
+    "backend/benchmark/run_relief_scene_regression.py",
+    "backend/benchmark/run_relief_visual_sweep.py",
+    "backend/benchmark/summarize_private_live_api_background_replay.py",
     "backend/benchmark/assets/makehuman_cc0_heads/asset.json",
 )
 
@@ -98,9 +138,29 @@ class FaceSceneSpec:
     target_dimension: int
     camera_yaw_deg: float
     camera_distance: float
+    camera_elevation_deg: float = 0.0
     camera_scale: float = 1.0
     horizontal_offset: float = 0.0
+    background_profile: str = "structured_room"
+    lighting_profile: str = "soft_left"
     occluder: OccluderSpec | None = None
+
+
+@dataclass(frozen=True)
+class ObjectSceneSpec:
+    row_id: str
+    procedural_index: int
+    target_dimension: int
+    camera_yaw_deg: float
+    camera_distance: float
+    camera_elevation_deg: float = 0.0
+    camera_scale: float = 1.0
+    horizontal_offset: float = 0.0
+    background_profile: str = "deep_shelves"
+    lighting_profile: str = "side_right"
+
+
+SceneSpec = FaceSceneSpec | ObjectSceneSpec
 
 
 # Keep the recommended cheap smoke first: a small, off-axis, yawed face at 256 px.
@@ -150,13 +210,74 @@ DEFAULT_MATRIX = (
 )
 
 
-def _validate_scene_spec(spec: FaceSceneSpec) -> None:
+VARIED_CONTEXT_MATRIX = (
+    FaceSceneSpec(
+        row_id="small_side_lit_shelves_256",
+        profile_name="asian_female_asymmetric",
+        target_dimension=256,
+        camera_yaw_deg=29.0,
+        camera_elevation_deg=-4.0,
+        camera_distance=7.2,
+        horizontal_offset=0.18,
+        background_profile="deep_shelves",
+        lighting_profile="side_right",
+    ),
+    FaceSceneSpec(
+        row_id="eyewear_overhead_panel_384",
+        profile_name="african_male_neutral",
+        target_dimension=384,
+        camera_yaw_deg=-17.0,
+        camera_elevation_deg=3.0,
+        camera_distance=4.1,
+        horizontal_offset=-0.11,
+        background_profile="layered_studio",
+        lighting_profile="overhead",
+        occluder=OccluderSpec(
+            0.39,
+            0.49,
+            0.61,
+            0.62,
+            rgb=(8, 13, 18),
+            anchor="eye_band",
+            opacity=0.42,
+        ),
+    ),
+    FaceSceneSpec(
+        row_id="strong_turn_layered_384",
+        profile_name="caucasian_female_smile",
+        target_dimension=384,
+        camera_yaw_deg=32.0,
+        camera_elevation_deg=-2.0,
+        camera_distance=3.55,
+        camera_scale=1.04,
+        horizontal_offset=0.08,
+        background_profile="layered_studio",
+        lighting_profile="soft_left",
+    ),
+    ObjectSceneSpec(
+        row_id="multilobe_object_shelves_384",
+        procedural_index=5,
+        target_dimension=384,
+        camera_yaw_deg=31.0,
+        camera_elevation_deg=-9.0,
+        camera_distance=3.8,
+        camera_scale=1.08,
+        horizontal_offset=-0.06,
+        background_profile="deep_shelves",
+        lighting_profile="side_right",
+    ),
+)
+OBJECT_SMOKE_MATRIX = (VARIED_CONTEXT_MATRIX[-1],)
+
+
+def _validate_scene_spec(spec: SceneSpec) -> None:
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", spec.row_id):
         raise ValueError(f"Unsafe row identifier: {spec.row_id!r}")
     if not 64 <= int(spec.target_dimension) <= 1024:
         raise ValueError("target_dimension must be between 64 and 1024")
     numeric = (
         spec.camera_yaw_deg,
+        spec.camera_elevation_deg,
         spec.camera_distance,
         spec.camera_scale,
         spec.horizontal_offset,
@@ -165,12 +286,22 @@ def _validate_scene_spec(spec: FaceSceneSpec) -> None:
         raise ValueError("Scene camera controls must be finite")
     if not -75.0 <= float(spec.camera_yaw_deg) <= 75.0:
         raise ValueError("camera_yaw_deg must be between -75 and 75")
+    if not -45.0 <= float(spec.camera_elevation_deg) <= 45.0:
+        raise ValueError("camera_elevation_deg must be between -45 and 45")
     if not 1.5 <= float(spec.camera_distance) <= 12.0:
         raise ValueError("camera_distance must be between 1.5 and 12")
     if not 0.5 <= float(spec.camera_scale) <= 2.0:
         raise ValueError("camera_scale must be between 0.5 and 2")
     if not -0.45 <= float(spec.horizontal_offset) <= 0.45:
         raise ValueError("horizontal_offset must be between -0.45 and 0.45")
+    if spec.background_profile not in BACKGROUND_PROFILES:
+        raise ValueError("Unknown background_profile")
+    if spec.lighting_profile not in LIGHTING_PROFILES:
+        raise ValueError("Unknown lighting_profile")
+    if isinstance(spec, ObjectSceneSpec):
+        if int(spec.procedural_index) < 0:
+            raise ValueError("procedural_index must be non-negative")
+        return
     if spec.occluder is not None:
         occ = spec.occluder
         coordinates = (occ.left, occ.top, occ.right, occ.bottom)
@@ -213,10 +344,139 @@ def _scene_phase(row_id: str) -> float:
     return int.from_bytes(prefix, "big") / float(2**64) * 2.0 * math.pi
 
 
+def _background_rgb(profile: str) -> tuple[float, float, float]:
+    return {
+        "structured_room": (0.84, 0.87, 0.91),
+        "deep_shelves": (0.76, 0.80, 0.84),
+        "layered_studio": (0.82, 0.78, 0.73),
+    }[profile]
+
+
+def _render_config(spec: SceneSpec, effective_distance: float) -> RenderConfig:
+    lighting = LIGHTING_PROFILES[spec.lighting_profile]
+    return RenderConfig(
+        size=int(spec.target_dimension),
+        projection="perspective",
+        perspective_fov_y_deg=32.0,
+        camera_distance=effective_distance,
+        background_rgb=_background_rgb(spec.background_profile),
+        ambient=float(lighting["ambient"]),
+        diffuse=float(lighting["diffuse"]),
+        specular=float(lighting["specular"]),
+        shininess=float(lighting["shininess"]),
+        light_direction=tuple(float(value) for value in lighting["direction"]),
+    )
+
+
+def _compose_scene(
+    rendered_depth: np.ndarray,
+    selection_mask: np.ndarray,
+    selection_rgb: np.ndarray,
+    *,
+    phase: float,
+    background_profile: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    if background_profile == "structured_room":
+        return _make_scene(
+            rendered_depth,
+            selection_mask,
+            selection_rgb,
+            phase=phase,
+        )
+
+    rows, columns = np.indices(rendered_depth.shape, dtype=np.float32)
+    x = 2.0 * columns / max(rendered_depth.shape[1] - 1, 1) - 1.0
+    y = 2.0 * rows / max(rendered_depth.shape[0] - 1, 1) - 1.0
+    if background_profile == "deep_shelves":
+        depth = 0.73 + 0.075 * x + 0.055 * y
+        depth += 0.025 * np.sin(2.2 * np.pi * x + phase)
+        left_bay = (x < -0.30) & (y > -0.72) & (y < 0.72)
+        right_bay = (x > 0.34) & (y > -0.58) & (y < 0.82)
+        shelf_a = (y > -0.18) & (y < -0.09) & (x < 0.48)
+        shelf_b = (y > 0.38) & (y < 0.48) & (x > -0.70)
+        depth = np.where(left_bay, depth - 0.105, depth)
+        depth = np.where(right_bay, depth + 0.085, depth)
+        depth = np.where(shelf_a | shelf_b, depth - 0.055, depth)
+        depth = np.clip(depth, 0.50, 0.96)
+        rgb = np.stack(
+            (
+                0.34 + 0.34 * (1.0 - depth) + 0.05 * np.cos(4.2 * y),
+                0.40 + 0.23 * x + 0.05 * np.sin(3.4 * y + phase),
+                0.46 + 0.20 * y + 0.04 * np.cos(3.1 * x),
+            ),
+            axis=-1,
+        )
+        rgb[left_bay] *= np.asarray((0.82, 0.72, 0.62), dtype=np.float32)
+        rgb[right_bay] = 0.72 * rgb[right_bay] + 0.28 * np.asarray(
+            (0.38, 0.55, 0.66), dtype=np.float32
+        )
+        rgb[shelf_a | shelf_b] *= np.asarray((0.62, 0.58, 0.54), dtype=np.float32)
+    elif background_profile == "layered_studio":
+        depth = 0.74 + 0.065 * x - 0.045 * y
+        depth += 0.035 * np.cos(2.0 * np.pi * y - 0.4 * phase)
+        diagonal = y > 0.46 * x + 0.16
+        inset = (x > -0.76) & (x < -0.22) & (y > -0.58) & (y < 0.42)
+        plinth = (y > 0.46) & (x > -0.18) & (x < 0.78)
+        depth = np.where(diagonal, depth + 0.075, depth)
+        depth = np.where(inset, depth - 0.095, depth)
+        depth = np.where(plinth, depth - 0.045, depth)
+        depth = np.clip(depth, 0.52, 0.96)
+        rgb = np.stack(
+            (
+                0.48 + 0.22 * (1.0 - depth) + 0.04 * np.sin(3.3 * x),
+                0.43 + 0.13 * x + 0.06 * np.cos(2.7 * y + phase),
+                0.38 + 0.16 * y + 0.04 * np.sin(2.1 * x - y),
+            ),
+            axis=-1,
+        )
+        rgb[inset] = 0.70 * rgb[inset] + 0.30 * np.asarray(
+            (0.31, 0.46, 0.56), dtype=np.float32
+        )
+        rgb[plinth] *= np.asarray((0.70, 0.78, 0.86), dtype=np.float32)
+    else:
+        raise ValueError(f"Unknown background profile: {background_profile}")
+
+    texture = 0.014 * np.sin(67.0 * x + 41.0 * y + phase)
+    rgb = np.clip(rgb + texture[..., None], 0.0, 1.0).astype(np.float32)
+    exact_depth = np.where(
+        selection_mask,
+        0.08 + 0.50 * np.asarray(rendered_depth, dtype=np.float32),
+        depth,
+    ).astype(np.float32)
+    rgb[selection_mask] = selection_rgb[selection_mask]
+    return exact_depth, rgb
+
+
+def _selection_geometry_record(mask: np.ndarray) -> dict:
+    pixels = int(np.count_nonzero(mask))
+    if pixels == 0:
+        raise ValueError("Rendered selection mask is empty")
+    rows, columns = np.where(mask)
+    bbox = [
+        int(columns.min()),
+        int(rows.min()),
+        int(columns.max() + 1),
+        int(rows.max() + 1),
+    ]
+    width = bbox[2] - bbox[0]
+    height = bbox[3] - bbox[1]
+    return {
+        "visible_selection_pixels": pixels,
+        "visible_selection_fraction": pixels / float(mask.size),
+        "selection_bbox_xyxy": bbox,
+        "selection_bbox_width_pixels": int(width),
+        "selection_bbox_height_pixels": int(height),
+        "selection_bbox_width_ratio": float(width / mask.shape[1]),
+        "selection_bbox_height_ratio": float(height / mask.shape[0]),
+    }
+
+
 def _render_scene_arrays(
-    spec: FaceSceneSpec, fixture: dict
+    spec: SceneSpec, fixture: dict
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     _validate_scene_spec(spec)
+    if isinstance(spec, ObjectSceneSpec):
+        return _render_object_scene_arrays(spec)
     profile = fixture["profiles"].get(spec.profile_name)
     if profile is None:
         raise ValueError(f"Unknown MakeHuman profile: {spec.profile_name}")
@@ -227,22 +487,14 @@ def _render_scene_arrays(
         fixture["surface_weights"],
     )
     effective_distance = float(spec.camera_distance) / float(spec.camera_scale)
-    background = (0.84, 0.87, 0.91)
+    background = _background_rgb(spec.background_profile)
     rendered = render_mesh(
         profile["mesh"],
-        CameraSpec(azimuth_deg=float(spec.camera_yaw_deg), elevation_deg=0.0),
-        RenderConfig(
-            size=int(spec.target_dimension),
-            projection="perspective",
-            perspective_fov_y_deg=32.0,
-            camera_distance=effective_distance,
-            background_rgb=background,
-            ambient=0.42,
-            diffuse=0.53,
-            specular=0.035,
-            shininess=48.0,
-            light_direction=(-0.35, -0.20, 0.90),
+        CameraSpec(
+            azimuth_deg=float(spec.camera_yaw_deg),
+            elevation_deg=float(spec.camera_elevation_deg),
         ),
+        _render_config(spec, effective_distance),
         (180, 120, 100),
         vertex_part_weights=fixture["part_weights"],
         vertex_colors=colors,
@@ -291,11 +543,12 @@ def _render_scene_arrays(
         occluder_pixels = int((right - left) * (bottom - top))
         occluder_bounds = (top, bottom, left, right)
 
-    exact_depth, source_rgb = _make_scene(
+    exact_depth, source_rgb = _compose_scene(
         rendered_depth,
         face_mask,
         face_rgb,
         phase=_scene_phase(spec.row_id),
+        background_profile=spec.background_profile,
     )
     if occluder_bounds is not None:
         top, bottom, left, right = occluder_bounds
@@ -305,27 +558,25 @@ def _render_scene_arrays(
             top:bottom, left:right
         ] + opacity * ink
 
-    mask_pixels = int(np.count_nonzero(face_mask))
-    if mask_pixels == 0:
-        raise ValueError(f"Scene {spec.row_id!r} has an empty visible face mask")
+    selection_record = _selection_geometry_record(face_mask)
+    mask_pixels = int(selection_record["visible_selection_pixels"])
     source = np.clip(source_rgb * 255.0, 0, 255).astype(np.uint8)
     mask = face_mask.astype(np.uint8) * 255
-    rows, columns = np.where(face_mask)
-    face_bbox = [
-        int(columns.min()),
-        int(rows.min()),
-        int(columns.max() + 1),
-        int(rows.max() + 1),
-    ]
-    face_width = face_bbox[2] - face_bbox[0]
-    face_height = face_bbox[3] - face_bbox[1]
+    face_bbox = selection_record["selection_bbox_xyxy"]
+    face_width = selection_record["selection_bbox_width_pixels"]
+    face_height = selection_record["selection_bbox_height_pixels"]
+    background_values = exact_depth[~face_mask]
     return (
         source,
         mask,
         exact_depth.astype(np.float32, copy=False),
         {
+            "scene_kind": "face",
+            "background_profile": spec.background_profile,
+            "lighting_profile": spec.lighting_profile,
             "effective_camera_distance": effective_distance,
             "horizontal_offset_columns": offset_columns,
+            **selection_record,
             "visible_face_pixels": mask_pixels,
             "visible_face_fraction": mask_pixels / float(mask.size),
             "face_bbox_xyxy": face_bbox,
@@ -333,6 +584,12 @@ def _render_scene_arrays(
             "face_bbox_height_pixels": int(face_height),
             "face_bbox_width_ratio": float(face_width / spec.target_dimension),
             "face_bbox_height_ratio": float(face_height / spec.target_dimension),
+            "background_depth_p02": float(np.percentile(background_values, 2.0)),
+            "background_depth_p98": float(np.percentile(background_values, 98.0)),
+            "background_depth_span": float(
+                np.percentile(background_values, 98.0)
+                - np.percentile(background_values, 2.0)
+            ),
             "occluder_pixels": occluder_pixels,
             "occluder_anchor": (
                 spec.occluder.anchor if spec.occluder is not None else None
@@ -340,6 +597,64 @@ def _render_scene_arrays(
             "occluder_bounds_tblr": (
                 list(occluder_bounds) if occluder_bounds is not None else None
             ),
+        },
+    )
+
+
+def _render_object_scene_arrays(
+    spec: ObjectSceneSpec,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    effective_distance = float(spec.camera_distance) / float(spec.camera_scale)
+    rendered = render_mesh(
+        make_procedural_mesh(int(spec.procedural_index)),
+        CameraSpec(
+            azimuth_deg=float(spec.camera_yaw_deg),
+            elevation_deg=float(spec.camera_elevation_deg),
+        ),
+        _render_config(spec, effective_distance),
+        (132, 177, 118),
+    )
+    background = _background_rgb(spec.background_profile)
+    offset_columns = int(round(float(spec.horizontal_offset) * spec.target_dimension))
+    selection_mask = _translate(
+        np.asarray(rendered.silhouette, dtype=bool), offset_columns, False
+    )
+    selection_rgb = _translate(
+        np.asarray(rendered.rgb, dtype=np.float32), offset_columns, background
+    )
+    rendered_depth = _translate(
+        np.asarray(rendered.depth, dtype=np.float32), offset_columns, 1.0
+    )
+    exact_depth, source_rgb = _compose_scene(
+        rendered_depth,
+        selection_mask,
+        selection_rgb,
+        phase=_scene_phase(spec.row_id),
+        background_profile=spec.background_profile,
+    )
+    selection_record = _selection_geometry_record(selection_mask)
+    background_values = exact_depth[~selection_mask]
+    return (
+        np.clip(source_rgb * 255.0, 0, 255).astype(np.uint8),
+        selection_mask.astype(np.uint8) * 255,
+        exact_depth.astype(np.float32, copy=False),
+        {
+            "scene_kind": "object",
+            "procedural_index": int(spec.procedural_index),
+            "background_profile": spec.background_profile,
+            "lighting_profile": spec.lighting_profile,
+            "effective_camera_distance": effective_distance,
+            "horizontal_offset_columns": offset_columns,
+            **selection_record,
+            "background_depth_p02": float(np.percentile(background_values, 2.0)),
+            "background_depth_p98": float(np.percentile(background_values, 98.0)),
+            "background_depth_span": float(
+                np.percentile(background_values, 98.0)
+                - np.percentile(background_values, 2.0)
+            ),
+            "occluder_pixels": 0,
+            "occluder_anchor": None,
+            "occluder_bounds_tblr": None,
         },
     )
 
@@ -528,7 +843,7 @@ def _assert_number(payload: dict, key: str, expected: float) -> None:
 def _assert_process_contract(
     payload: dict,
     *,
-    spec: FaceSceneSpec,
+    spec: SceneSpec,
     selection_job_id: str,
     expected_provenance: dict,
     expected_detail_mm: float,
@@ -556,7 +871,7 @@ def _assert_process_contract(
 
 
 def _stage_scene(
-    row_dir: Path, spec: FaceSceneSpec, fixture: dict
+    row_dir: Path, spec: SceneSpec, fixture: dict
 ) -> tuple[Path, Path, Path, dict]:
     source, mask, exact_depth, render_record = _render_scene_arrays(spec, fixture)
     source_path = row_dir / "source.png"
@@ -569,7 +884,7 @@ def _stage_scene(
 
 
 def _process_form(
-    spec: FaceSceneSpec, selection_job_id: str, *, baseline: bool
+    spec: SceneSpec, selection_job_id: str, *, baseline: bool
 ) -> dict[str, str]:
     form = {
         "selection_job_id": selection_job_id,
@@ -803,6 +1118,7 @@ def _score_variant(
     exact_depth_path: Path,
     mask_path: Path,
     require_occlusion: bool,
+    spec: SceneSpec | None = None,
 ) -> dict:
     artifacts = _job_artifacts(server_output, response)
     surface = np.load(artifacts["surface"])
@@ -816,17 +1132,20 @@ def _score_variant(
     )
 
     refinement = response.get("face_refinement", {})
-    validated_faces = min(
-        int(refinement.get("detected_faces", 0)),
-        int(refinement.get("refined_faces", 0)),
-    )
+    detected_faces = int(refinement.get("detected_faces", 0))
+    refined_faces = int(refinement.get("refined_faces", 0))
+    validated_faces = min(detected_faces, refined_faces)
     selected_detail = int(refinement.get("refined_selection_detail_regions", 0))
-    semantic_key = "face"
+    selection_fallback = int(refinement.get("selection_detail_fallback_regions", 0))
+    refined_regions_total = int(refinement.get("refined_regions_total", 0))
+    is_face = not isinstance(spec, ObjectSceneSpec)
+    semantic_key = "face" if is_face else "selection_nonface"
+    appearance_gates = FACE_APPEARANCE_GATES if is_face else SELECTION_APPEARANCE_GATES
     postprocess = response.get("relief_postprocess", {})
     appearance = postprocess.get("surface_appearance_agreement", {}).get(
         semantic_key, {}
     )
-    appearance_checks = _appearance_checks(appearance, FACE_APPEARANCE_GATES)
+    appearance_checks = _appearance_checks(appearance, appearance_gates)
     background_appearance = postprocess.get("surface_appearance_agreement", {}).get(
         "background", {}
     )
@@ -839,13 +1158,17 @@ def _score_variant(
     cap_checks = _independent_cap_checks(
         postprocess.get("selection_background_physical_cap", {})
     )
+    boundary_shape = _boundary_shape_metrics(
+        postprocess.get("background_depth_preservation", {}),
+        postprocess.get("selection_background_physical_cap", {}),
+    )
     topology = _topology_record(response.get("stl_diagnostics", {}))
     shell = _stl_heightfield_agreement(
         artifacts["stl"],
         artifacts["surface"],
         expected_max_xy_size_mm=MAX_XY_SIZE_MM,
     )
-    exact_face_depth = (
+    exact_subject_depth = (
         _exact_face_depth_quality(
             artifacts["refined_depth"],
             exact_depth_path,
@@ -862,29 +1185,52 @@ def _score_variant(
     )
     occlusion = _occlusion_handling(
         refinement,
-        required=require_occlusion,
+        required=bool(is_face and require_occlusion),
     )
-    occlusion_passed = bool(validated_faces > 0 and occlusion["passed"])
+    refinement_route_passed = bool(
+        validated_faces > 0
+        if is_face
+        else selected_detail > 0
+        and selection_fallback >= selected_detail
+        and refined_regions_total == selected_detail
+        and detected_faces == 0
+        and refined_faces == 0
+    )
+    occlusion_passed = bool(
+        occlusion["passed"] and (validated_faces > 0 if is_face else True)
+    )
     checks = {
         "finite_surface_contract": surfaces_valid,
         "refinement_applied": bool(refinement.get("applied", False)),
-        "validated_human_face_refined": validated_faces > 0,
-        "exact_face_depth": bool(exact_face_depth["checks"].get("passed", False)),
+        "subject_refinement_route": refinement_route_passed,
+        "exact_subject_depth": bool(exact_subject_depth["checks"].get("passed", False)),
         "semantic_appearance": bool(appearance_checks.get("passed", False)),
         "background_appearance": bool(
             background_appearance_checks.get("passed", False)
         ),
         "background_depth": bool(background_checks.get("passed", False)),
         "physical_cap": bool(cap_checks.get("passed", False)),
+        "boundary_shape": bool(boundary_shape.get("passed", False)),
         "topology": bool(topology["checks"].get("passed", False)),
         "exact_stl_shell": bool(shell.get("passed", False)),
         "occlusion_deoccluded": occlusion_passed,
     }
+    if is_face:
+        checks["validated_human_face_refined"] = validated_faces > 0
+    else:
+        checks["generic_selection_refined"] = selected_detail > 0
+        checks["generic_fallback_accounted"] = selection_fallback >= selected_detail
+        checks["refined_region_total"] = refined_regions_total == selected_detail
+        checks["no_false_human_face"] = detected_faces == 0 and refined_faces == 0
     checks["passed"] = bool(all(checks.values()))
     return {
         "semantic_scope": semantic_key,
         "validated_face_regions": validated_faces,
+        "detected_faces": detected_faces,
+        "refined_faces": refined_faces,
         "selected_detail_regions": selected_detail,
+        "selection_detail_fallback_regions": selection_fallback,
+        "refined_regions_total": refined_regions_total,
         "eyewear_deoccluded_faces": int(refinement.get("eyewear_deoccluded_faces", 0)),
         "occlusion_handling": occlusion,
         "appearance": appearance,
@@ -895,9 +1241,13 @@ def _score_variant(
         "background_depth_checks": background_checks,
         "physical_cap": postprocess.get("selection_background_physical_cap", {}),
         "physical_cap_checks": cap_checks,
+        "boundary_shape": boundary_shape,
         "topology": topology,
         "stl_heightfield_agreement": shell,
-        "exact_face_depth": exact_face_depth,
+        "exact_subject_depth": exact_subject_depth,
+        (
+            "exact_face_depth" if is_face else "exact_selection_depth"
+        ): exact_subject_depth,
         "artifacts": {
             name: _artifact_record(path, server_output)
             for name, path in artifacts.items()
@@ -948,7 +1298,7 @@ def _score_pair(
     return {"background_photo_detail": detail, "checks": checks}
 
 
-def _matrix_coverage(specs: tuple[FaceSceneSpec, ...]) -> dict:
+def _matrix_coverage(specs: tuple[SceneSpec, ...]) -> dict:
     rows = [spec.row_id for spec in specs]
     dimensions = sorted({int(spec.target_dimension) for spec in specs})
     yaw_signs = sorted(
@@ -963,9 +1313,19 @@ def _matrix_coverage(specs: tuple[FaceSceneSpec, ...]) -> dict:
     )
     return {
         "row_ids": rows,
+        "scene_kinds": sorted(
+            {
+                "object" if isinstance(spec, ObjectSceneSpec) else "face"
+                for spec in specs
+            }
+        ),
         "target_dimensions": dimensions,
         "yaw_signs": yaw_signs,
-        "occluded_rows": [spec.row_id for spec in specs if spec.occluder is not None],
+        "background_profiles": sorted({spec.background_profile for spec in specs}),
+        "lighting_profiles": sorted({spec.lighting_profile for spec in specs}),
+        "occluded_rows": [
+            spec.row_id for spec in specs if getattr(spec, "occluder", None) is not None
+        ],
         "unique_rows": len(rows) == len(set(rows)),
     }
 
@@ -978,7 +1338,7 @@ def run(
     asset_dir: str | Path = DEFAULT_ASSET_DIR,
     limit: int | None = None,
     timeout_seconds: float = 900.0,
-    specs: Iterable[FaceSceneSpec] = DEFAULT_MATRIX,
+    specs: Iterable[SceneSpec] = DEFAULT_MATRIX,
     client=None,
 ) -> dict:
     clean_repository = Path(clean_server_repository).resolve()
@@ -1027,7 +1387,25 @@ def run(
                 "Matrix producer revision does not match the clean live server"
             )
 
-        fixture = load_makehuman_face_fixture(asset_dir)
+        if any(isinstance(spec, FaceSceneSpec) for spec in selected_specs):
+            fixture = load_makehuman_face_fixture(asset_dir)
+        else:
+            fixture = {
+                "profiles": {},
+                "manifest": {
+                    "source": "deterministic_generated_procedural_mesh",
+                    "generator": (
+                        "backend.benchmark.mesh_rendering.make_procedural_mesh"
+                    ),
+                    "indices": sorted(
+                        {
+                            int(spec.procedural_index)
+                            for spec in selected_specs
+                            if isinstance(spec, ObjectSceneSpec)
+                        }
+                    ),
+                },
+            }
         rows = []
         for spec in selected_specs:
             row_dir = run_output / "rows" / spec.row_id
@@ -1112,7 +1490,8 @@ def run(
                     server_output=server_output,
                     exact_depth_path=exact_depth_path,
                     mask_path=mask_path,
-                    require_occlusion=spec.occluder is not None,
+                    require_occlusion=getattr(spec, "occluder", None) is not None,
+                    spec=spec,
                 )
             pair_quality = _score_pair(
                 response_payloads["baseline"],
@@ -1125,6 +1504,9 @@ def run(
                 "baseline": bool(variants["baseline"]["quality"]["checks"]["passed"]),
                 "candidate": bool(variants["candidate"]["quality"]["checks"]["passed"]),
                 "paired_background_detail": bool(pair_quality["checks"]["passed"]),
+                "input_background_depth_span": bool(
+                    float(render_record.get("background_depth_span", 0.0)) >= 0.15
+                ),
             }
             row_checks["passed"] = bool(all(row_checks.values()))
 
@@ -1165,8 +1547,15 @@ def run(
     all_rows_passed = bool(rows) and all(row["checks"]["passed"] for row in rows)
     summary = {
         "schema_version": 1,
-        "run_kind": "cc0_makehuman_live_face_variation_matrix",
-        "privacy": "CC0 MakeHuman synthetic heads and deterministic procedural scene materials only",
+        "run_kind": (
+            "cc0_generated_live_relief_context_matrix"
+            if any(isinstance(spec, ObjectSceneSpec) for spec in selected_specs)
+            else "cc0_makehuman_live_face_variation_matrix"
+        ),
+        "privacy": (
+            "CC0 MakeHuman synthetic heads, generated procedural objects, and "
+            "deterministic procedural scene materials only"
+        ),
         "server_provenance": expected_provenance,
         "server_runtime_provenance": runtime_provenance,
         "producer_provenance": producer_provenance,
@@ -1224,9 +1613,19 @@ def main() -> None:
     parser.add_argument("--output-dir")
     parser.add_argument("--base-url", default="http://127.0.0.1:8005")
     parser.add_argument("--asset-dir", default=str(DEFAULT_ASSET_DIR))
+    parser.add_argument(
+        "--matrix",
+        choices=("default", "varied-context", "procedural-object"),
+        default="default",
+    )
     parser.add_argument("--limit", type=int)
     parser.add_argument("--timeout-seconds", type=float, default=900.0)
     args = parser.parse_args()
+    selected_matrix = {
+        "default": DEFAULT_MATRIX,
+        "varied-context": VARIED_CONTEXT_MATRIX,
+        "procedural-object": OBJECT_SMOKE_MATRIX,
+    }[args.matrix]
     summary = run(
         args.clean_server_repository,
         output_dir=args.output_dir,
@@ -1234,6 +1633,7 @@ def main() -> None:
         asset_dir=args.asset_dir,
         limit=args.limit,
         timeout_seconds=args.timeout_seconds,
+        specs=selected_matrix,
     )
     print(
         json.dumps(

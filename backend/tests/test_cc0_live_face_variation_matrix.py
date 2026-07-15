@@ -120,6 +120,49 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
         self.assertEqual(candidate["z_scale"], "30")
         self.assertEqual(candidate["max_xy_size"], "96")
 
+    def test_varied_context_matrix_covers_mixed_semantics_and_scene_controls(self):
+        coverage = matrix._matrix_coverage(matrix.VARIED_CONTEXT_MATRIX)
+
+        self.assertEqual(coverage["scene_kinds"], ["face", "object"])
+        self.assertGreaterEqual(len(coverage["background_profiles"]), 2)
+        self.assertGreaterEqual(len(coverage["lighting_profiles"]), 3)
+        self.assertEqual(len(coverage["occluded_rows"]), 1)
+        self.assertTrue(coverage["unique_rows"])
+
+    def test_varied_background_profiles_are_distinct_and_have_depth_span(self):
+        shape = (96, 128)
+        rendered_depth = np.full(shape, 0.4, dtype=np.float32)
+        selection_mask = np.zeros(shape, dtype=bool)
+        selection_mask[32:64, 48:80] = True
+        selection_rgb = np.full((*shape, 3), 0.6, dtype=np.float32)
+
+        shelves, _ = matrix._compose_scene(
+            rendered_depth,
+            selection_mask,
+            selection_rgb,
+            phase=0.7,
+            background_profile="deep_shelves",
+        )
+        studio, _ = matrix._compose_scene(
+            rendered_depth,
+            selection_mask,
+            selection_rgb,
+            phase=0.7,
+            background_profile="layered_studio",
+        )
+        background = ~selection_mask
+        shelves_span = float(
+            np.percentile(shelves[background], 98)
+            - np.percentile(shelves[background], 2)
+        )
+        studio_span = float(
+            np.percentile(studio[background], 98) - np.percentile(studio[background], 2)
+        )
+
+        self.assertGreater(shelves_span, 0.20)
+        self.assertGreater(studio_span, 0.15)
+        self.assertGreater(float(np.mean(np.abs(shelves - studio))), 0.03)
+
     def test_render_controls_shift_face_and_preserve_bounded_occluder_selection(self):
         size = 64
         silhouette = np.zeros((size, size), dtype=bool)
@@ -174,6 +217,130 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
         self.assertGreater(record["face_bbox_width_pixels"], 0)
         self.assertEqual(source.shape, (size, size, 3))
         self.assertEqual(exact_depth.shape, (size, size))
+
+    def test_procedural_object_render_records_nonface_selection_and_background(self):
+        size = 64
+        silhouette = np.zeros((size, size), dtype=bool)
+        silhouette[14:52, 11:49] = True
+        rendered = SimpleNamespace(
+            silhouette=silhouette,
+            rgb=np.full((size, size, 3), 0.55, dtype=np.float32),
+            depth=np.full((size, size), 0.35, dtype=np.float32),
+        )
+        spec = matrix.ObjectSceneSpec(
+            row_id="object",
+            procedural_index=5,
+            target_dimension=size,
+            camera_yaw_deg=27.0,
+            camera_elevation_deg=-8.0,
+            camera_distance=3.8,
+            horizontal_offset=0.0625,
+        )
+
+        with (
+            patch.object(matrix, "make_procedural_mesh", return_value=object()),
+            patch.object(matrix, "render_mesh", return_value=rendered) as render,
+        ):
+            source, mask, exact_depth, record = matrix._render_scene_arrays(spec, {})
+
+        camera = render.call_args.args[1]
+        self.assertEqual(camera.azimuth_deg, 27.0)
+        self.assertEqual(camera.elevation_deg, -8.0)
+        self.assertEqual(record["scene_kind"], "object")
+        self.assertEqual(record["procedural_index"], 5)
+        self.assertGreater(record["visible_selection_pixels"], 0)
+        self.assertGreater(record["background_depth_span"], 0.20)
+        self.assertEqual(source.shape, (size, size, 3))
+        self.assertEqual(mask.shape, (size, size))
+        self.assertEqual(exact_depth.shape, (size, size))
+
+    def test_procedural_object_fixture_is_bit_deterministic(self):
+        spec = matrix.OBJECT_SMOKE_MATRIX[0]
+
+        first = matrix._render_scene_arrays(spec, {})
+        second = matrix._render_scene_arrays(spec, {})
+
+        for first_array, second_array in zip(first[:3], second[:3]):
+            np.testing.assert_array_equal(first_array, second_array)
+        self.assertEqual(first[3], second[3])
+        mask = first[1] >= 128
+        selected_span = float(
+            np.percentile(first[2][mask], 98) - np.percentile(first[2][mask], 2)
+        )
+        self.assertGreater(selected_span, 0.30)
+        self.assertGreater(first[3]["background_depth_span"], 0.20)
+
+    def test_object_only_run_skips_makehuman_assets(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "server"
+            server_output = repository / "backend" / "output"
+            output_dir = server_output / "object-smoke"
+            client = FakeLiveClient(server_output.resolve())
+            provenance = {
+                "available": True,
+                "revision": REVISION,
+                "clean": True,
+                "status": [],
+            }
+            source = np.full((16, 16, 3), 127, dtype=np.uint8)
+            mask_values = np.zeros((16, 16), dtype=np.uint8)
+            mask_values[4:12, 5:11] = 255
+            render_record = {
+                "scene_kind": "object",
+                "visible_selection_pixels": 48,
+                "background_depth_span": 0.2,
+            }
+
+            with (
+                patch.object(
+                    matrix, "_clean_server_provenance", return_value=provenance
+                ),
+                patch.object(
+                    matrix,
+                    "_producer_provenance",
+                    return_value={**provenance, "files": []},
+                ),
+                patch.object(matrix, "_require_ignored"),
+                patch.object(
+                    matrix,
+                    "load_makehuman_face_fixture",
+                    side_effect=AssertionError("object smoke must not load faces"),
+                ),
+                patch.object(
+                    matrix,
+                    "_render_scene_arrays",
+                    return_value=(
+                        source,
+                        mask_values,
+                        np.ones((16, 16), dtype=np.float32),
+                        render_record,
+                    ),
+                ),
+                patch.object(
+                    matrix,
+                    "_score_variant",
+                    return_value={"checks": {"passed": True}},
+                ),
+                patch.object(
+                    matrix,
+                    "_score_pair",
+                    return_value={"checks": {"passed": True}},
+                ),
+            ):
+                summary = matrix.run(
+                    repository,
+                    output_dir=output_dir,
+                    specs=matrix.OBJECT_SMOKE_MATRIX,
+                    client=client,
+                )
+
+            self.assertTrue(summary["checks"]["passed"])
+            self.assertEqual(summary["matrix"]["executed_rows"], 1)
+            self.assertEqual(summary["matrix"]["coverage"]["scene_kinds"], ["object"])
+            self.assertEqual(
+                summary["fixture"]["source"],
+                "deterministic_generated_procedural_mesh",
+            )
 
     def test_oversized_occluder_is_rejected(self):
         spec = matrix.FaceSceneSpec(
@@ -267,6 +434,7 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
                 "face_bbox_height_pixels": 8,
                 "face_bbox_width_ratio": 6 / 16,
                 "face_bbox_height_ratio": 8 / 16,
+                "background_depth_span": 0.2,
             }
 
             with (
@@ -430,6 +598,113 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
             self.assertFalse(quality["checks"]["refinement_applied"])
             self.assertFalse(quality["checks"]["validated_human_face_refined"])
             self.assertFalse(quality["checks"]["passed"])
+
+    def test_object_quality_requires_generic_route_and_rejects_false_face(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            surface = root / "surface.npy"
+            reference = root / "reference.npy"
+            stl = root / "model.stl"
+            np.save(surface, np.ones((4, 4), dtype=np.float32))
+            np.save(reference, np.ones((4, 4), dtype=np.float32))
+            stl.write_bytes(b"solid empty\nendsolid empty\n")
+            spec = matrix.ObjectSceneSpec(
+                row_id="object",
+                procedural_index=5,
+                target_dimension=128,
+                camera_yaw_deg=0.0,
+                camera_distance=3.8,
+            )
+            base_response = {
+                "job_id": "b" * 32,
+                "face_refinement": {
+                    "applied": True,
+                    "detected_faces": 0,
+                    "refined_faces": 0,
+                    "selection_detail_fallback_regions": 1,
+                    "refined_selection_detail_regions": 1,
+                    "refined_regions_total": 1,
+                },
+                "relief_postprocess": {
+                    "surface_appearance_agreement": {
+                        "selection_nonface": {},
+                        "background": {},
+                    },
+                    "background_depth_preservation": {},
+                    "selection_background_physical_cap": {},
+                },
+                "stl_diagnostics": {},
+            }
+            artifacts = {
+                "surface": surface,
+                "reference_surface": reference,
+                "stl": stl,
+                "refined_depth": surface,
+            }
+            with (
+                patch.object(matrix, "_job_artifacts", return_value=artifacts),
+                patch.object(
+                    matrix,
+                    "_appearance_checks",
+                    return_value={"passed": True},
+                ),
+                patch.object(
+                    matrix,
+                    "_independent_background_checks",
+                    return_value={"passed": True},
+                ),
+                patch.object(
+                    matrix,
+                    "_independent_cap_checks",
+                    return_value={"passed": True},
+                ),
+                patch.object(
+                    matrix,
+                    "_boundary_shape_metrics",
+                    return_value={"passed": True},
+                ),
+                patch.object(
+                    matrix,
+                    "_topology_record",
+                    return_value={"checks": {"passed": True}},
+                ),
+                patch.object(
+                    matrix,
+                    "_stl_heightfield_agreement",
+                    return_value={"passed": True},
+                ),
+                patch.object(
+                    matrix,
+                    "_exact_face_depth_quality",
+                    return_value={"checks": {"passed": True}},
+                ),
+            ):
+                accepted = matrix._score_variant(
+                    base_response,
+                    server_output=root,
+                    exact_depth_path=reference,
+                    mask_path=stl,
+                    require_occlusion=False,
+                    spec=spec,
+                )
+                false_face_response = json.loads(json.dumps(base_response))
+                false_face_response["face_refinement"]["detected_faces"] = 1
+                false_face_response["face_refinement"]["refined_faces"] = 1
+                rejected = matrix._score_variant(
+                    false_face_response,
+                    server_output=root,
+                    exact_depth_path=reference,
+                    mask_path=stl,
+                    require_occlusion=False,
+                    spec=spec,
+                )
+
+            self.assertTrue(accepted["checks"]["passed"])
+            self.assertTrue(accepted["checks"]["generic_selection_refined"])
+            self.assertTrue(accepted["checks"]["no_false_human_face"])
+            self.assertFalse(rejected["checks"]["subject_refinement_route"])
+            self.assertFalse(rejected["checks"]["no_false_human_face"])
+            self.assertFalse(rejected["checks"]["passed"])
 
     def test_exact_face_depth_quality_accepts_affine_match_and_rejects_reversal(self):
         with tempfile.TemporaryDirectory() as temporary:
