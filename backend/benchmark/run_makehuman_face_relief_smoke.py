@@ -342,6 +342,14 @@ def _emit_row(
     )
     scene_checks = _scene_checks(compose_stats, postprocess, topology)
     feature_stats = postprocess["printable_feature_depth"]
+    selected_compression = postprocess["face_height_stabilization"].get(
+        "gradient_compression_selected",
+        {},
+    )
+    reversal_projection = selected_compression.get(
+        "direction_reversal_projection",
+        {"enabled": False, "reason": "no_selected_compression"},
+    )
     checks = {
         "framing": bool(framing["checks"]["passed"]),
         "source_context": bool(
@@ -363,6 +371,10 @@ def _emit_row(
         "redundant_emboss_suppressed": bool(
             feature_stats.get("suppressed_after_screened_face_reconstruction", False)
             and float(postprocess["effective_printable_feature_depth_mm"]) == 0.0
+        ),
+        "direction_reversal_projection": bool(
+            not reversal_projection.get("enabled", False)
+            or reversal_projection.get("passed", False)
         ),
     }
     background = postprocess["background_depth_preservation"]
@@ -404,6 +416,22 @@ def _emit_row(
             "far_background_ceiling_mm": _finite(cap.get("far_background_ceiling_mm")),
             "feasible_attachment_jump_max_mm": _finite(cap.get("feasible_attachment_jump_max_mm")),
             "conflicting_attachment_pixels": int(cap.get("conflicting_attachment_pixels", 0)),
+        },
+        "direction_reversal_projection": {
+            key: reversal_projection.get(key)
+            for key in (
+                "enabled",
+                "reason",
+                "passed",
+                "iterations",
+                "corrected_pixels",
+                "initial_cardinal_reversals",
+                "initial_diagonal_reversals",
+                "final_cardinal_reversals",
+                "final_diagonal_reversals",
+                "correction_p95_mm",
+                "correction_max_mm",
+            )
         },
         "topology": topology,
         "shell": {key: shell.get(key) for key in (

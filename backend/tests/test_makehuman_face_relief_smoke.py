@@ -1,6 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+import numpy as np
 
 from backend.benchmark.makehuman_face_fixture import load_makehuman_face_fixture
 from backend.benchmark.run_makehuman_face_relief_smoke import (
@@ -12,6 +15,7 @@ from backend.benchmark.run_makehuman_face_relief_smoke import (
     _render_scene,
     run,
 )
+from backend.pic_to_3d import _attenuate_direction_reversals_to_source
 
 
 class MakeHumanFaceReliefSmokeTests(unittest.TestCase):
@@ -63,6 +67,135 @@ class MakeHumanFaceReliefSmokeTests(unittest.TestCase):
         self.assertTrue(row["checks"]["complete_shell"])
         self.assertEqual(context["face_mask"].shape, (96, 96))
         self.assertTrue(all(mask.any() for mask in context["part_masks"].values()))
+
+    def test_direction_reversal_projection_is_local_and_fail_closed(self):
+        source = np.tile(np.arange(7, dtype=np.float32), (7, 1))
+        candidate = source.copy()
+        candidate[3, 3] = -4.0
+        adjustable = np.zeros(source.shape, dtype=bool)
+        adjustable[1:6, 1:6] = True
+
+        projected, stats = _attenuate_direction_reversals_to_source(
+            source,
+            candidate,
+            adjustable,
+            max_neighbor_step_mm=1.0,
+        )
+
+        self.assertTrue(stats["passed"])
+        self.assertGreater(stats["initial_cardinal_reversals"], 0)
+        self.assertGreater(stats["initial_diagonal_reversals"], 0)
+        self.assertEqual(stats["final_cardinal_reversals"], 0)
+        self.assertEqual(stats["final_diagonal_reversals"], 0)
+        np.testing.assert_array_equal(projected[~adjustable], candidate[~adjustable])
+
+        unchanged, no_op = _attenuate_direction_reversals_to_source(
+            source,
+            source,
+            adjustable,
+            max_neighbor_step_mm=1.0,
+        )
+        self.assertFalse(no_op["enabled"])
+        self.assertTrue(no_op["passed"])
+        np.testing.assert_array_equal(unchanged, source)
+
+        outside_adjustable = np.zeros(source.shape, dtype=bool)
+        outside_adjustable[0, 0] = True
+        rejected, outside_stats = _attenuate_direction_reversals_to_source(
+            source,
+            candidate,
+            outside_adjustable,
+            max_neighbor_step_mm=1.0,
+        )
+        self.assertFalse(outside_stats["passed"])
+        self.assertEqual(outside_stats["reason"], "reversals_outside_adjustable_region")
+        np.testing.assert_array_equal(rejected, candidate)
+
+        _, limited_stats = _attenuate_direction_reversals_to_source(
+            source,
+            candidate,
+            adjustable,
+            max_neighbor_step_mm=1.0,
+            iterations=1,
+        )
+        self.assertFalse(limited_stats["passed"])
+        self.assertEqual(limited_stats["reason"], "iteration_limit")
+
+        _, invalid_stats = _attenuate_direction_reversals_to_source(
+            source,
+            candidate,
+            adjustable,
+            max_neighbor_step_mm=0.0,
+        )
+        self.assertEqual(invalid_stats["reason"], "invalid_max_neighbor_step")
+
+        source_with_gap = source.copy()
+        source_with_gap[0, 0] = np.nan
+        _, coverage_stats = _attenuate_direction_reversals_to_source(
+            source_with_gap,
+            candidate,
+            adjustable,
+            max_neighbor_step_mm=1.0,
+        )
+        self.assertEqual(coverage_stats["reason"], "finite_coverage_mismatch")
+
+    def test_right_frame_asymmetric_face_survives_40mm_relief(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row, _ = _emit_row(
+                Path(temporary),
+                self.fixture,
+                DEFAULT_SCENES[2],
+                relief_height_mm=40.0,
+                render_size=384,
+                crop_size=256,
+                physical_size_mm=96.0,
+                background_depth_ratio=0.65,
+            )
+        self.assertTrue(row["checks"]["passed"])
+        self.assertLess(row["absolute_face"]["normal_angle_p95_deg"], 8.0)
+        self.assertGreater(
+            row["absolute_face"]["minimum_lighting_correlation"],
+            0.98,
+        )
+        self.assertEqual(row["absolute_named_parts"]["failed_parts"], [])
+        self.assertTrue(row["background"]["passed"])
+        projection = row["direction_reversal_projection"]
+        self.assertTrue(projection["enabled"])
+        self.assertTrue(projection["passed"])
+        self.assertGreater(projection["corrected_pixels"], 0)
+        self.assertEqual(projection["final_cardinal_reversals"], 0)
+        self.assertEqual(projection["final_diagonal_reversals"], 0)
+
+    def test_failed_reversal_projection_cannot_promote_screened_face(self):
+        def reject_projection(_source, candidate, _region, **_kwargs):
+            return candidate, {
+                "enabled": True,
+                "passed": False,
+                "reason": "forced_test_failure",
+                "corrected_pixels": 0,
+                "final_cardinal_reversals": 1,
+                "final_diagonal_reversals": 0,
+            }
+
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            "backend.pic_to_3d._attenuate_direction_reversals_to_source",
+            side_effect=reject_projection,
+        ):
+            row, _ = _emit_row(
+                Path(temporary),
+                self.fixture,
+                DEFAULT_SCENES[2],
+                relief_height_mm=40.0,
+                render_size=384,
+                crop_size=256,
+                physical_size_mm=96.0,
+                background_depth_ratio=0.65,
+            )
+
+        self.assertFalse(row["direction_reversal_projection"]["passed"])
+        self.assertFalse(row["checks"]["direction_reversal_projection"])
+        self.assertFalse(row["checks"]["screened_face_reconstruction"])
+        self.assertFalse(row["checks"]["passed"])
 
     def test_matrix_validation_fails_closed_before_rendering(self):
         with tempfile.TemporaryDirectory() as temporary:

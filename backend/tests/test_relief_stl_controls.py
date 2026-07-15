@@ -2111,6 +2111,7 @@ class ReliefStlControlsTest(unittest.TestCase):
                 "method": "screened_gradient_domain_compression",
                 "screening_weight": pic_to_3d.HIGH_RELIEF_FACE_DETAIL_RETRY_WEIGHT,
                 "provisional_edge_only_candidate": True,
+                "max_neighbor_step_mm": 2.0,
                 "output_edge_ratio_p99": 8.0,
                 "detail_preservation": {
                     "available": True,
@@ -2169,6 +2170,10 @@ class ReliefStlControlsTest(unittest.TestCase):
             "retry_candidate_pending_post_blend_audit",
         )
         self.assertTrue(adaptive["retry_provisional_edge_only_candidate"])
+        projection = postprocess["face_height_stabilization"][
+            "gradient_compression"
+        ]["direction_reversal_projection"]
+        self.assertTrue(projection["passed"])
         self.assertEqual(
             postprocess["face_boundary_alignment"]["method"],
             "screened_gradient_domain_compression",

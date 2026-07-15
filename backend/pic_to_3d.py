@@ -4945,6 +4945,145 @@ def _audit_bounded_compression_surface(
     return stats
 
 
+def _attenuate_direction_reversals_to_source(
+    source_values,
+    candidate_values,
+    adjustable_region_mask,
+    *,
+    max_neighbor_step_mm,
+    iterations=64,
+):
+    """Locally pull reversed compressed edges toward the accepted source."""
+    source = np.asarray(source_values, dtype=np.float32)
+    candidate = np.asarray(candidate_values, dtype=np.float32)
+    stats = {
+        "enabled": False,
+        "method": "local_source_delta_attenuation",
+        "iterations": 0,
+        "corrected_pixels": 0,
+    }
+    if source.shape != candidate.shape:
+        stats["reason"] = "shape_mismatch"
+        return candidate_values, stats
+    try:
+        max_step = float(max_neighbor_step_mm)
+    except (TypeError, ValueError):
+        max_step = 0.0
+    if not np.isfinite(max_step) or max_step <= 0:
+        stats["reason"] = "invalid_max_neighbor_step"
+        return candidate_values, stats
+    valid = np.isfinite(source) & np.isfinite(candidate)
+    if not np.array_equal(np.isfinite(source), np.isfinite(candidate)):
+        stats["reason"] = "finite_coverage_mismatch"
+        return candidate_values, stats
+    adjustable = _resize_binary_mask(adjustable_region_mask, source.shape) & valid
+    if not np.any(adjustable):
+        stats["reason"] = "empty_adjustable_region"
+        return candidate_values, stats
+
+    work = candidate.copy()
+    corrected = np.zeros(source.shape, dtype=bool)
+
+    def reversal_masks(values):
+        horizontal_valid = valid[:, :-1] & valid[:, 1:]
+        vertical_valid = valid[:-1, :] & valid[1:, :]
+        diagonal_down_valid = valid[:-1, :-1] & valid[1:, 1:]
+        diagonal_up_valid = valid[:-1, 1:] & valid[1:, :-1]
+        source_horizontal = source[:, 1:] - source[:, :-1]
+        output_horizontal = values[:, 1:] - values[:, :-1]
+        source_vertical = source[1:, :] - source[:-1, :]
+        output_vertical = values[1:, :] - values[:-1, :]
+        source_diagonal_down = source[1:, 1:] - source[:-1, :-1]
+        output_diagonal_down = values[1:, 1:] - values[:-1, :-1]
+        source_diagonal_up = source[1:, :-1] - source[:-1, 1:]
+        output_diagonal_up = values[1:, :-1] - values[:-1, 1:]
+        diagonal_step = max_step * np.sqrt(2.0)
+        return (
+            horizontal_valid
+            & (source_horizontal * output_horizontal < 0.0)
+            & (np.abs(source_horizontal) > max_step * 0.25)
+            & (np.abs(output_horizontal) > max_step),
+            vertical_valid
+            & (source_vertical * output_vertical < 0.0)
+            & (np.abs(source_vertical) > max_step * 0.25)
+            & (np.abs(output_vertical) > max_step),
+            diagonal_down_valid
+            & (source_diagonal_down * output_diagonal_down < 0.0)
+            & (np.abs(source_diagonal_down) > diagonal_step * 0.25)
+            & (np.abs(output_diagonal_down) > diagonal_step),
+            diagonal_up_valid
+            & (source_diagonal_up * output_diagonal_up < 0.0)
+            & (np.abs(source_diagonal_up) > diagonal_step * 0.25)
+            & (np.abs(output_diagonal_up) > diagonal_step),
+        )
+
+    def reversal_counts(masks):
+        cardinal = int(np.count_nonzero(masks[0]) + np.count_nonzero(masks[1]))
+        diagonal = int(np.count_nonzero(masks[2]) + np.count_nonzero(masks[3]))
+        return cardinal, diagonal
+
+    initial_masks = reversal_masks(work)
+    initial_cardinal, initial_diagonal = reversal_counts(initial_masks)
+    stats.update(
+        {
+            "enabled": bool(initial_cardinal or initial_diagonal),
+            "initial_cardinal_reversals": initial_cardinal,
+            "initial_diagonal_reversals": initial_diagonal,
+        }
+    )
+    if not stats["enabled"]:
+        stats["reason"] = "no_direction_reversals"
+        stats["passed"] = True
+        return candidate_values, stats
+
+    for iteration in range(max(1, int(iterations))):
+        masks = reversal_masks(work)
+        cardinal, diagonal = reversal_counts(masks)
+        if not cardinal and not diagonal:
+            stats["iterations"] = iteration
+            break
+        marked = np.zeros(source.shape, dtype=bool)
+        marked[:, :-1] |= masks[0]
+        marked[:, 1:] |= masks[0]
+        marked[:-1, :] |= masks[1]
+        marked[1:, :] |= masks[1]
+        marked[:-1, :-1] |= masks[2]
+        marked[1:, 1:] |= masks[2]
+        marked[:-1, 1:] |= masks[3]
+        marked[1:, :-1] |= masks[3]
+        marked &= adjustable
+        if not np.any(marked):
+            stats["reason"] = "reversals_outside_adjustable_region"
+            stats["iterations"] = iteration
+            break
+        corrected |= marked
+        work[marked] = source[marked] + 0.5 * (work[marked] - source[marked])
+        stats["iterations"] = iteration + 1
+
+    final_masks = reversal_masks(work)
+    final_cardinal, final_diagonal = reversal_counts(final_masks)
+    correction = np.abs(work - candidate)
+    stats.update(
+        {
+            "corrected_pixels": int(np.count_nonzero(corrected)),
+            "final_cardinal_reversals": final_cardinal,
+            "final_diagonal_reversals": final_diagonal,
+            "correction_p95_mm": (
+                float(np.percentile(correction[corrected], 95.0))
+                if np.any(corrected)
+                else 0.0
+            ),
+            "correction_max_mm": (
+                float(np.max(correction[corrected])) if np.any(corrected) else 0.0
+            ),
+            "passed": bool(final_cardinal == 0 and final_diagonal == 0),
+        }
+    )
+    if not stats["passed"] and "reason" not in stats:
+        stats["reason"] = "iteration_limit"
+    return work.astype(candidate.dtype, copy=False), stats
+
+
 def _blend_updates_outside_protected_region(
     baseline_values,
     candidate_values,
@@ -5521,7 +5660,10 @@ def depth_data_to_3d_model(
         if not gradient_compression_stats.get("enabled", False):
             adaptive_screening_retry_stats["reason"] = "ineligible_quality_failure"
             detail_retry_trigger_failures = set(primary_quality_failures)
-            if primary_quality_failures == {"cardinal_edge_p99"}:
+            if primary_quality_failures in (
+                {"cardinal_edge_p99"},
+                {"cardinal_edge_max"},
+            ):
                 retry_surface, retry_stats = _compress_relief_gradients(
                     unstabilized_scene,
                     sample_pitch_mm=gradient_sample_pitch_mm,
@@ -5532,6 +5674,7 @@ def depth_data_to_3d_model(
                     minimum_detail_correlation=(
                         HIGH_RELIEF_FACE_MIN_DETAIL_CORRELATION
                     ),
+                    allow_edge_only_candidate=True,
                 )
                 retry_failures = retry_stats.get("quality_gates", {}).get(
                     "failures", []
@@ -5737,6 +5880,29 @@ def depth_data_to_3d_model(
                 face_region_blend_stats["selection_bounded"] = False
             gradient_compression_stats["face_region_blend"] = face_region_blend_stats
             gradient_compression_stats["sample_pitch_source"] = gradient_sample_pitch_source
+            direction_reversal_projection_stats = {
+                "enabled": False,
+                "reason": "not_provisional_edge_only_candidate",
+            }
+            if gradient_compression_stats.get(
+                "provisional_edge_only_candidate",
+                False,
+            ):
+                projected_gradient_surface, direction_reversal_projection_stats = (
+                    _attenuate_direction_reversals_to_source(
+                        unstabilized_scene,
+                        gradient_surface,
+                        face_blend_region,
+                        max_neighbor_step_mm=gradient_compression_stats.get(
+                            "max_neighbor_step_mm"
+                        ),
+                    )
+                )
+                if direction_reversal_projection_stats.get("passed", False):
+                    gradient_surface = projected_gradient_surface
+            gradient_compression_stats["direction_reversal_projection"] = (
+                direction_reversal_projection_stats
+            )
             post_blend_audit = _audit_bounded_compression_surface(
                 unstabilized_scene,
                 gradient_surface,
@@ -5744,11 +5910,38 @@ def depth_data_to_3d_model(
                 sample_pitch_mm=gradient_sample_pitch_mm,
                 max_slope_mm_per_mm=max_relief_slope,
                 quality_gates=gradient_compression_stats["quality_gates"],
+                reject_direction_reversals=bool(
+                    gradient_compression_stats.get(
+                        "provisional_edge_only_candidate",
+                        False,
+                    )
+                ),
             )
+            projection_required = bool(
+                gradient_compression_stats.get(
+                    "provisional_edge_only_candidate",
+                    False,
+                )
+            )
+            projection_passed = bool(
+                direction_reversal_projection_stats.get("passed", False)
+            )
+            if projection_required and not projection_passed:
+                post_blend_audit["enabled"] = False
+                post_blend_audit["reason"] = "direction_reversal_projection_failed"
+                audit_quality = post_blend_audit.setdefault("quality_gates", {})
+                audit_failures = list(audit_quality.get("failures", []))
+                if "direction_reversal_projection" not in audit_failures:
+                    audit_failures.append("direction_reversal_projection")
+                audit_quality["failures"] = audit_failures
+                audit_quality["passed"] = False
             gradient_compression_stats[
                 "post_blend_quality_audit"
             ] = post_blend_audit
             if post_blend_audit.get("enabled", False):
+                gradient_compression_stats[
+                    "provisional_edge_only_candidate_accepted"
+                ] = bool(projection_required and projection_passed)
                 z = gradient_surface
                 processed_scene = gradient_surface
                 slope_limit_stats = gradient_compression_stats
