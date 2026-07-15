@@ -7,6 +7,7 @@ directory.  The optional aggregate summary contains metrics and scene labels onl
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -39,6 +40,16 @@ PROVENANCE_PATHS = (
     "backend/benchmark/run_private_background_photo_detail_replay.py",
 )
 _SAFE_LABEL = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_PRIVATE_PATH_FIELDS = (
+    "source_image",
+    "depth_npy",
+    "selection_mask",
+    "selection_metadata",
+    "request_metadata",
+    "face_region_mask",
+    "feature_weight_mask",
+    "face_metadata",
+)
 
 
 def _resize_mask(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
@@ -94,6 +105,23 @@ def _read_mask(path: Path) -> np.ndarray:
     return np.asarray(Image.open(path).convert("L")) > 0
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _selection_source_fingerprint(path: Path) -> str:
+    with Image.open(path) as image:
+        source = image.convert("RGB")
+    digest = hashlib.sha256()
+    digest.update(f"RGB:{source.width}x{source.height}:".encode("ascii"))
+    digest.update(source.tobytes())
+    return digest.hexdigest()
+
+
 def _require_ignored(path: Path, repository: Path) -> None:
     resolved = path.resolve()
     try:
@@ -109,12 +137,16 @@ def _require_ignored(path: Path, repository: Path) -> None:
         raise ValueError("Private replay output must be covered by .gitignore")
 
 
-def _validate_scene(scene: dict) -> dict:
+def _validate_scene(scene: dict, repository: Path) -> dict:
     allowed = {
         "label",
         "source_image",
         "depth_npy",
         "selection_mask",
+        "selection_metadata",
+        "request_metadata",
+        "expected_depth_model",
+        "input_sha256",
         "face_region_mask",
         "feature_weight_mask",
         "face_metadata",
@@ -124,26 +156,113 @@ def _validate_scene(scene: dict) -> dict:
     if unexpected:
         raise ValueError("Unexpected scene fields: " + ", ".join(unexpected))
     label = scene.get("label")
-    if not isinstance(label, str) or not _SAFE_LABEL.fullmatch(label):
-        raise ValueError("Scene label must be a privacy-safe lowercase identifier")
-    for key in ("source_image", "depth_npy", "selection_mask"):
+    if (
+        not isinstance(label, str)
+        or not _SAFE_LABEL.fullmatch(label)
+        or not re.fullmatch(r"scene-[0-9]{2}", label)
+    ):
+        raise ValueError("Scene label must use the non-semantic scene-NN form")
+    for key in (
+        "source_image",
+        "depth_npy",
+        "selection_mask",
+        "selection_metadata",
+        "request_metadata",
+    ):
         if not isinstance(scene.get(key), str) or not Path(scene[key]).is_file():
             raise ValueError(f"Scene {label!r} has no readable {key}")
-    for key in ("face_region_mask", "feature_weight_mask"):
+    for key in ("face_region_mask", "feature_weight_mask", "face_metadata"):
         value = scene.get(key)
         if value is not None and (not isinstance(value, str) or not Path(value).is_file()):
             raise ValueError(f"Scene {label!r} has no readable {key}")
+    present_paths = {
+        key: Path(scene[key]) for key in _PRIVATE_PATH_FIELDS if scene.get(key)
+    }
+    for path in present_paths.values():
+        _require_ignored(path, repository)
+    expected_hashes = scene.get("input_sha256")
+    if not isinstance(expected_hashes, dict) or set(expected_hashes) != set(
+        present_paths
+    ):
+        raise ValueError(
+            f"Scene {label!r} must checksum-pin every private input path"
+        )
+    for key, path in present_paths.items():
+        expected = expected_hashes[key]
+        if not isinstance(expected, str) or not re.fullmatch(r"[a-f0-9]{64}", expected):
+            raise ValueError(f"Scene {label!r} has an invalid checksum for {key}")
+        if _sha256(path) != expected:
+            raise ValueError(f"Scene {label!r} checksum mismatch for {key}")
+
+    source_path = present_paths["source_image"]
+    selection_path = present_paths["selection_mask"]
+    selection_metadata = json.loads(
+        present_paths["selection_metadata"].read_text(encoding="utf-8")
+    )
+    request_metadata = json.loads(
+        present_paths["request_metadata"].read_text(encoding="utf-8")
+    )
+    source_fingerprint = _selection_source_fingerprint(source_path)
+    request_context = request_metadata.get("selection_depth_context", {})
+    if (
+        selection_metadata.get("model_status") != "composed-clicked-masks"
+        or selection_metadata.get("source_fingerprint") != source_fingerprint
+        or request_context.get("source_fingerprint") != source_fingerprint
+    ):
+        raise ValueError(f"Scene {label!r} selection provenance does not match")
+    expected_depth_model = scene.get("expected_depth_model")
+    if (
+        not isinstance(expected_depth_model, str)
+        or request_metadata.get("depth_model") != expected_depth_model
+        or request_metadata.get("depth_metadata", {}).get("effective_model")
+        != expected_depth_model
+    ):
+        raise ValueError(f"Scene {label!r} depth-model provenance does not match")
+    with Image.open(source_path) as source_image, Image.open(selection_path) as mask_image:
+        source_shape = (source_image.height, source_image.width)
+        if source_image.size != mask_image.size:
+            raise ValueError(f"Scene {label!r} source and selection mask do not align")
     expected_face_count = scene.get("expected_face_count")
     face_metadata = scene.get("face_metadata")
-    if (expected_face_count is None) != (face_metadata is None):
+    has_face_region = scene.get("face_region_mask") is not None
+    if not (
+        (expected_face_count is None and face_metadata is None and not has_face_region)
+        or (expected_face_count is not None and face_metadata is not None and has_face_region)
+    ):
         raise ValueError(
-            f"Scene {label!r} must provide face_metadata and expected_face_count together"
+            f"Scene {label!r} must provide face_region_mask, face_metadata, and "
+            "expected_face_count together"
         )
     if expected_face_count is not None:
         if not isinstance(expected_face_count, int) or expected_face_count < 1:
             raise ValueError(f"Scene {label!r} has an invalid expected_face_count")
         if not isinstance(face_metadata, str) or not Path(face_metadata).is_file():
             raise ValueError(f"Scene {label!r} has no readable face_metadata")
+        metadata = json.loads(Path(face_metadata).read_text(encoding="utf-8"))
+        face_mask = _read_mask(Path(scene["face_region_mask"]))
+        faces = metadata.get("faces", [])
+        if (
+            face_mask.shape != source_shape
+            or not np.any(face_mask)
+            or int(metadata.get("detected_faces", -1)) != expected_face_count
+            or int(metadata.get("refined_faces", -1)) != expected_face_count
+            or len(faces) != expected_face_count
+        ):
+            raise ValueError(f"Scene {label!r} face metadata contract does not match")
+        for face in faces:
+            bbox = face.get("bbox")
+            if face.get("status") != "refined" or not isinstance(bbox, list) or len(bbox) != 4:
+                raise ValueError(f"Scene {label!r} has incomplete per-face metadata")
+            left, top, right, bottom = (int(value) for value in bbox)
+            center_col = int(round((left + right) / 2.0))
+            center_row = int(round((top + bottom) / 2.0))
+            if not (
+                0 <= center_row < face_mask.shape[0]
+                and 0 <= center_col < face_mask.shape[1]
+                and bool(face_mask[center_row, center_col])
+                and np.count_nonzero(face_mask[top:bottom, left:right]) > 0
+            ):
+                raise ValueError(f"Scene {label!r} face mask misses a refined face")
     return scene
 
 
@@ -254,10 +373,11 @@ def run(
     repository = Path(__file__).resolve().parents[2]
     output_dir = Path(output_dir)
     _require_ignored(output_dir, repository)
+    _require_ignored(Path(scene_config), repository)
     config = json.loads(Path(scene_config).read_text(encoding="utf-8"))
     if set(config) != {"scenes"} or not isinstance(config["scenes"], list):
         raise ValueError("Private replay config must contain only a scenes list")
-    scenes = [_validate_scene(scene) for scene in config["scenes"]]
+    scenes = [_validate_scene(scene, repository) for scene in config["scenes"]]
     if not scenes or len({scene["label"] for scene in scenes}) != len(scenes):
         raise ValueError("Private replay requires uniquely labeled scenes")
 
@@ -358,6 +478,7 @@ def run(
             )
             emitted.append(
                 {
+                    "composed_path": composed_path.resolve(),
                     "detail_mm": detail_mm,
                     "surface": surface,
                     "selection_mask": transformed_selection,
@@ -376,6 +497,9 @@ def run(
         selection_match = np.array_equal(
             baseline["selection_mask"], candidate["selection_mask"]
         )
+        same_composed_depth = (
+            baseline["composed_path"] == candidate["composed_path"]
+        )
         face_mask_contract = True
         if baseline["face_mask"] is not None:
             face_pixels = int(np.count_nonzero(baseline["face_mask"]))
@@ -387,11 +511,14 @@ def run(
             face_mask_contract = bool(
                 face_pixels > 0 and overlap / max(face_pixels, 1) >= 0.95
             )
+        protection_mask = baseline["selection_mask"].copy()
+        if baseline["face_mask"] is not None:
+            protection_mask |= baseline["face_mask"]
         pitch_mm = float(candidate["postprocess"]["mesh_sample_pitch_mm"])
         metrics = _detail_metrics(
             baseline["surface"],
             candidate["surface"],
-            baseline["selection_mask"],
+            protection_mask,
             Path(scene["source_image"]),
             candidate["detail_mm"],
             protection_halo_px=(
@@ -411,7 +538,8 @@ def run(
             candidate["postprocess"]["background_photo_detail"], 0.60
         )
         row_checks = {
-            "same_composed_depth": True,
+            "same_composed_depth": bool(same_composed_depth),
+            "private_input_provenance": True,
             "surface_grid_match": bool(transform_match),
             "selection_mask_match": bool(selection_match),
             "detail_metrics": bool(metrics["checks"]["passed"]),
@@ -512,8 +640,8 @@ def run(
         "matrix": {
             "scene_labels": [scene["label"] for scene in scenes],
             "protection_mask_semantics": (
-                "the selected-subject union is excluded from background scoring; "
-                "an available face region is gated separately"
+                "the exact production selection-plus-face union is excluded from "
+                "background scoring; an available face region is gated separately"
             ),
             "detail_levels_mm": list(DETAIL_LEVELS_MM),
             "relief_height_mm": float(relief_height_mm),

@@ -45,6 +45,11 @@ class PrivateBackgroundPhotoDetailReplayTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "covered by .gitignore"):
                 replay._require_ignored(Path(tmp_dir), repository)
 
+    def test_scene_labels_are_non_semantic(self):
+        repository = Path(replay.__file__).resolve().parents[2]
+        with self.assertRaisesRegex(ValueError, "scene-NN"):
+            replay._validate_scene({"label": "portrait"}, repository)
+
 
 if __name__ == "__main__":
     unittest.main()
