@@ -736,6 +736,46 @@ class ReliefStlControlsTest(unittest.TestCase):
 
         self.assertGreater(boosted[20, 20] - boosted[20, 19], plain[20, 20] - plain[20, 19])
 
+    def test_subject_normalization_is_invariant_to_background_height(self):
+        subject = np.zeros((32, 32), dtype=bool)
+        subject[7:25, 8:24] = True
+        subject_values = np.tile(
+            np.linspace(0.2, 0.8, 32, dtype=np.float32),
+            (32, 1),
+        )
+        low_background = np.full(subject.shape, -0.4, dtype=np.float32)
+        raised_background = np.full(subject.shape, 0.45, dtype=np.float32)
+        low_background[subject] = subject_values[subject]
+        raised_background[subject] = subject_values[subject]
+
+        low = _shape_relief_values(
+            low_background,
+            gamma=1.0,
+            detail_boost=0.0,
+            low_percentile=0.0,
+            high_percentile=100.0,
+            normalization_mask=subject,
+        )
+        raised = _shape_relief_values(
+            raised_background,
+            gamma=1.0,
+            detail_boost=0.0,
+            low_percentile=0.0,
+            high_percentile=100.0,
+            normalization_mask=subject,
+        )
+
+        np.testing.assert_array_equal(low[subject], raised[subject])
+        self.assertGreater(float(np.mean(raised[~subject])), float(np.mean(low[~subject])))
+
+    def test_subject_normalization_rejects_a_mismatched_mask(self):
+        with self.assertRaisesRegex(ValueError, "normalization mask"):
+            _shape_relief_values(
+                np.ones((12, 12), dtype=np.float32),
+                detail_boost=0.0,
+                normalization_mask=np.ones((8, 8), dtype=bool),
+            )
+
     def test_detail_boost_does_not_create_a_halo_at_depth_steps(self):
         step = np.full((41, 41), 0.2, dtype=np.float32)
         step[:, 21:] = 0.8

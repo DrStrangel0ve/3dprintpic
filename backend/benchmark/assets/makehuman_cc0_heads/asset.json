@@ -1,0 +1,158 @@
+{
+  "derivation": {
+    "axes": "+x anatomical left, +y up, +z forward",
+    "coordinate_units": "MakeHuman native decimeters",
+    "head_minimum_y": 5.35,
+    "render_groups": [
+      "body",
+      "helper-l-eye",
+      "helper-r-eye"
+    ],
+    "triangulation": "fan triangulation preserving OBJ face order"
+  },
+  "fixture": {
+    "face_count": 9262,
+    "faces_sha256": "48d90543b2f0a9fe77e32ec445c2ce37e99edfe0ddd1f34e9e1bf3dd37c058cb",
+    "file": "makehuman_cc0_heads.npz",
+    "part_support_vertices": {
+      "left_eye": 732,
+      "left_eyebrow": 429,
+      "mouth": 939,
+      "nose": 730,
+      "right_eye": 732,
+      "right_eyebrow": 409
+    },
+    "profiles": [
+      {
+        "bounds": [
+          -1.8984999656677246,
+          4.726300239562988,
+          -0.5187000036239624,
+          1.8984999656677246,
+          7.864299774169922,
+          1.5896999835968018
+        ],
+        "name": "caucasian_female_smile",
+        "skin_tone": [
+          0.74,
+          0.5,
+          0.39
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/caucasian-female-young.target",
+            "scale": 1.0,
+            "sha256": "6352040adcd91d48bc2266a65246ff0be39afb1f3d309311426204a95c1cbd77"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-corner-puller.target",
+            "scale": 0.55,
+            "sha256": "cb7e7ea90f88c5f3b5509e91b4767bbee5828215590134cc66d79520bf28ea9c"
+          }
+        ],
+        "vertices_sha256": "0a8ea529bfca80f8c6bb598d408786bad64c8be20b780262888f8bb862c2ac06"
+      },
+      {
+        "bounds": [
+          -2.195500135421753,
+          6.520299911499023,
+          -0.6554000377655029,
+          2.195500135421753,
+          9.958700180053711,
+          1.7286999225616455
+        ],
+        "name": "african_male_neutral",
+        "skin_tone": [
+          0.34,
+          0.2,
+          0.15
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/african-male-young.target",
+            "scale": 1.0,
+            "sha256": "8a48f5233dcc550a31f4ef2bf4ea2a7b089e9f9f0e6b555b34984d867f1cfc1a"
+          }
+        ],
+        "vertices_sha256": "cc149bfddbc1d7a05f8c1e40dc15f81abc2f3b75443715aacedefce48c1b6ea6"
+      },
+      {
+        "bounds": [
+          -1.7584999799728394,
+          3.8403000831604004,
+          -0.48469996452331543,
+          1.7584999799728394,
+          6.776299476623535,
+          1.429900050163269
+        ],
+        "name": "asian_female_asymmetric",
+        "skin_tone": [
+          0.66,
+          0.44,
+          0.32
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/asian-female-young.target",
+            "scale": 1.0,
+            "sha256": "60f2128a9b0e2e74b2bc513f014f2662be960b6cfa6fd11516632be7e0b241ac"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/asian/eyebrows-left-up.target",
+            "scale": 0.4,
+            "sha256": "8f00a3aa1975d9fd4819f42fb240fadf6393fdb197c22cd1a42c6b8d18e7ddf7"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/asian/mouth-corner-puller.target",
+            "scale": 0.3,
+            "sha256": "cb7e7ea90f88c5f3b5509e91b4767bbee5828215590134cc66d79520bf28ea9c"
+          }
+        ],
+        "vertices_sha256": "a32b971a9e25181a99f5e5872f9762525566eecfdf98eb477b4ad8c67cacb869"
+      }
+    ],
+    "sha256": "91d94d989a017c61cca2b27dddc14e78ad9f045ce6ca449af0b6d482d1622015",
+    "size_bytes": 144475,
+    "vertex_count": 4662
+  },
+  "license": "CC0-1.0",
+  "schema_version": 1,
+  "source": {
+    "asset_license_path": "LICENSE.ASSETS.md",
+    "asset_license_sha256": "5f3ab0cf6f7ebe92efe4b83213131c617d308d164eeefd5da230373640b0c226",
+    "base_mesh_path": "makehuman/data/3dobjs/base.obj",
+    "base_mesh_sha256": "bea00279464133e86b634220cd2774ebf3b470de280d11222a6b2269e4a8d950",
+    "commit": "a8bc2d54ff0ac92e78ff71431b1023eda42bf482",
+    "part_target_directories": {
+      "eyebrows": {
+        "file_count": 6,
+        "sha256": "7b6508e1c2a1858268a273eee7b3fa86c6701d75e59f92235bee37f7d7a973eb"
+      },
+      "left_eye": {
+        "file_count": 34,
+        "sha256": "45118291c8955e5e8acf2bc2166ec39d7b6dee8d498498dd238d1e43ef15378b"
+      },
+      "mouth": {
+        "file_count": 44,
+        "sha256": "023bef8466d53964b6ae96438ae8576fc576773d650d2eeaa061d9661149cbec"
+      },
+      "nose": {
+        "file_count": 42,
+        "sha256": "a13be7267caff5f69c702d5281692bbb246c4f2801f18bc43aa430e0b5c2211b"
+      },
+      "right_eye": {
+        "file_count": 34,
+        "sha256": "626919bc6761af97f55e42052fcc62d93dc66a0deab71b7d8a13a45d7c03da10"
+      }
+    },
+    "profile_target_files": {
+      "makehuman/data/targets/expression/units/asian/eyebrows-left-up.target": "8f00a3aa1975d9fd4819f42fb240fadf6393fdb197c22cd1a42c6b8d18e7ddf7",
+      "makehuman/data/targets/expression/units/asian/mouth-corner-puller.target": "cb7e7ea90f88c5f3b5509e91b4767bbee5828215590134cc66d79520bf28ea9c",
+      "makehuman/data/targets/expression/units/caucasian/mouth-corner-puller.target": "cb7e7ea90f88c5f3b5509e91b4767bbee5828215590134cc66d79520bf28ea9c",
+      "makehuman/data/targets/macrodetails/african-male-young.target": "8a48f5233dcc550a31f4ef2bf4ea2a7b089e9f9f0e6b555b34984d867f1cfc1a",
+      "makehuman/data/targets/macrodetails/asian-female-young.target": "60f2128a9b0e2e74b2bc513f014f2662be960b6cfa6fd11516632be7e0b241ac",
+      "makehuman/data/targets/macrodetails/caucasian-female-young.target": "6352040adcd91d48bc2266a65246ff0be39afb1f3d309311426204a95c1cbd77"
+    },
+    "repository": "https://github.com/makehumancommunity/makehuman"
+  }
+}

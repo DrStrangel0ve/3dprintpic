@@ -25,9 +25,14 @@ class CameraSpec:
 class RenderConfig:
     size: int = 256
     ortho_scale: float = 2.0
+    projection: str = "orthographic"
+    perspective_fov_y_deg: float = 35.0
+    camera_distance: float = 3.0
     background_rgb: tuple[float, float, float] = (0.91, 0.93, 0.96)
     ambient: float = 0.45
     diffuse: float = 0.55
+    specular: float = 0.0
+    shininess: float = 32.0
     light_direction: tuple[float, float, float] = (0.35, -0.45, 0.82)
 
 
@@ -222,14 +227,28 @@ def render_mesh(
     config: RenderConfig,
     base_color: tuple[int, int, int],
     vertex_part_weights: dict[str, np.ndarray] | None = None,
+    vertex_colors: np.ndarray | None = None,
 ) -> RenderResult:
     mesh = mesh_in_render_frame(mesh, camera)
-    rgb, depth, silhouette, surface_z, part_masks = _render_orthographic(
-        mesh,
-        config=config,
-        base_color=base_color,
-        vertex_part_weights=vertex_part_weights,
-    )
+    if config.projection == "orthographic":
+        if vertex_colors is not None:
+            raise ValueError("vertex_colors require perspective projection")
+        rgb, depth, silhouette, surface_z, part_masks = _render_orthographic(
+            mesh,
+            config=config,
+            base_color=base_color,
+            vertex_part_weights=vertex_part_weights,
+        )
+    elif config.projection == "perspective":
+        rgb, depth, silhouette, surface_z, part_masks = _render_perspective(
+            mesh,
+            config=config,
+            base_color=base_color,
+            vertex_part_weights=vertex_part_weights,
+            vertex_colors=vertex_colors,
+        )
+    else:
+        raise ValueError(f"Unsupported projection: {config.projection!r}")
     return RenderResult(
         rgb=rgb,
         depth=depth,
@@ -348,6 +367,174 @@ def _render_orthographic(
         depth[silhouette] = (z_near - z_buffer[silhouette]) / denom
 
     surface_z = np.where(silhouette, z_buffer, np.nan).astype(np.float32)
+    part_masks = {
+        name: (weights >= 0.5) & silhouette
+        for name, weights in part_buffers.items()
+    }
+    return rgb, depth, silhouette, surface_z, part_masks
+
+
+def _render_perspective(
+    mesh: trimesh.Trimesh,
+    config: RenderConfig,
+    base_color: tuple[int, int, int],
+    vertex_part_weights: dict[str, np.ndarray] | None = None,
+    vertex_colors: np.ndarray | None = None,
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    dict[str, np.ndarray],
+]:
+    """Rasterize a perspective view with perspective-correct smooth attributes."""
+    size = int(config.size)
+    if size <= 0:
+        raise ValueError("Render size must be positive")
+    if not 1.0 <= float(config.perspective_fov_y_deg) < 179.0:
+        raise ValueError("perspective_fov_y_deg must be in [1, 179)")
+
+    vertices = np.asarray(mesh.vertices, dtype=np.float32)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    camera_depth = float(config.camera_distance) - vertices[:, 2]
+    if np.any(camera_depth <= 1e-4):
+        raise ValueError("Perspective mesh intersects or crosses the camera plane")
+
+    colors = None
+    if vertex_colors is not None:
+        colors = np.asarray(vertex_colors, dtype=np.float32)
+        if colors.shape != (len(vertices), 3):
+            raise ValueError(
+                f"vertex_colors has shape {colors.shape}, expected {(len(vertices), 3)}"
+            )
+        if np.nanmax(colors) > 1.0:
+            colors = colors / 255.0
+        if not np.all(np.isfinite(colors)):
+            raise ValueError("vertex_colors must be finite")
+        colors = np.clip(colors, 0.0, 1.0)
+
+    part_weights: dict[str, np.ndarray] = {}
+    part_buffers: dict[str, np.ndarray] = {}
+    for name, values in (vertex_part_weights or {}).items():
+        weights = np.asarray(values, dtype=np.float32)
+        if weights.shape != (len(vertices),):
+            raise ValueError(
+                f"Vertex part {name!r} has shape {weights.shape}, "
+                f"expected {(len(vertices),)}"
+            )
+        part_weights[str(name)] = np.clip(weights, 0.0, 1.0)
+        part_buffers[str(name)] = np.zeros((size, size), dtype=np.float32)
+
+    focal = 0.5 * (size - 1) / np.tan(
+        np.deg2rad(float(config.perspective_fov_y_deg)) / 2.0
+    )
+    inv_depth = 1.0 / camera_depth
+    projected = np.empty((len(vertices), 3), dtype=np.float32)
+    projected[:, 0] = 0.5 * (size - 1) + focal * vertices[:, 0] * inv_depth
+    projected[:, 1] = 0.5 * (size - 1) - focal * vertices[:, 1] * inv_depth
+    projected[:, 2] = inv_depth
+
+    inv_depth_buffer = np.full((size, size), -np.inf, dtype=np.float32)
+    rgb = np.ones((size, size, 3), dtype=np.float32)
+    rgb[:] = np.asarray(config.background_rgb, dtype=np.float32)
+    vertex_normals = np.asarray(mesh.vertex_normals, dtype=np.float32)
+    light = np.asarray(config.light_direction, dtype=np.float32)
+    light /= max(1e-8, float(np.linalg.norm(light)))
+    view = np.asarray((0.0, 0.0, 1.0), dtype=np.float32)
+    half_vector = light + view
+    half_vector /= max(1e-8, float(np.linalg.norm(half_vector)))
+    flat_base = np.asarray(base_color, dtype=np.float32) / 255.0
+
+    for face in faces:
+        pts = projected[face]
+        min_x = max(0, int(np.floor(np.min(pts[:, 0]))))
+        max_x = min(size - 1, int(np.ceil(np.max(pts[:, 0]))))
+        min_y = max(0, int(np.floor(np.min(pts[:, 1]))))
+        max_y = min(size - 1, int(np.ceil(np.max(pts[:, 1]))))
+        if max_x < min_x or max_y < min_y:
+            continue
+
+        p0, p1, p2 = pts
+        denominator = (p1[1] - p2[1]) * (p0[0] - p2[0]) + (
+            p2[0] - p1[0]
+        ) * (p0[1] - p2[1])
+        if abs(float(denominator)) < 1e-8:
+            continue
+
+        xs, ys = np.meshgrid(
+            np.arange(min_x, max_x + 1), np.arange(min_y, max_y + 1)
+        )
+        w0 = (
+            (p1[1] - p2[1]) * (xs - p2[0])
+            + (p2[0] - p1[0]) * (ys - p2[1])
+        ) / denominator
+        w1 = (
+            (p2[1] - p0[1]) * (xs - p2[0])
+            + (p0[0] - p2[0]) * (ys - p2[1])
+        ) / denominator
+        w2 = 1.0 - w0 - w1
+        inside = (w0 >= -1e-4) & (w1 >= -1e-4) & (w2 >= -1e-4)
+        if not np.any(inside):
+            continue
+
+        q = w0 * p0[2] + w1 * p1[2] + w2 * p2[2]
+        current = inv_depth_buffer[min_y : max_y + 1, min_x : max_x + 1]
+        update = inside & (q > current) & (q > 0)
+        if not np.any(update):
+            continue
+
+        safe_q = np.maximum(q, np.finfo(np.float32).tiny)
+        a0 = w0 * p0[2] / safe_q
+        a1 = w1 * p1[2] / safe_q
+        a2 = w2 * p2[2] / safe_q
+        normals = (
+            a0[..., None] * vertex_normals[face[0]]
+            + a1[..., None] * vertex_normals[face[1]]
+            + a2[..., None] * vertex_normals[face[2]]
+        )
+        normal_length = np.linalg.norm(normals, axis=-1, keepdims=True)
+        normals /= np.maximum(normal_length, 1e-8)
+        diffuse = np.maximum(0.0, np.sum(normals * light, axis=-1))
+        specular = np.power(
+            np.maximum(0.0, np.sum(normals * half_vector, axis=-1)),
+            max(1.0, float(config.shininess)),
+        )
+        shade = float(config.ambient) + float(config.diffuse) * diffuse
+        if colors is None:
+            albedo = np.broadcast_to(flat_base, normals.shape)
+        else:
+            albedo = (
+                a0[..., None] * colors[face[0]]
+                + a1[..., None] * colors[face[1]]
+                + a2[..., None] * colors[face[2]]
+            )
+        face_rgb = np.clip(
+            albedo * shade[..., None] + float(config.specular) * specular[..., None],
+            0.0,
+            1.0,
+        )
+
+        current[update] = q[update]
+        rgb_region = rgb[min_y : max_y + 1, min_x : max_x + 1]
+        rgb_region[update] = face_rgb[update]
+        for name, weights in part_weights.items():
+            interpolated = (
+                a0 * weights[face[0]]
+                + a1 * weights[face[1]]
+                + a2 * weights[face[2]]
+            )
+            part_region = part_buffers[name][min_y : max_y + 1, min_x : max_x + 1]
+            part_region[update] = interpolated[update]
+
+    silhouette = np.isfinite(inv_depth_buffer)
+    depth = np.ones((size, size), dtype=np.float32)
+    surface_z = np.full((size, size), np.nan, dtype=np.float32)
+    if np.any(silhouette):
+        distance = 1.0 / inv_depth_buffer[silhouette]
+        near = float(np.min(distance))
+        far = float(np.max(distance))
+        depth[silhouette] = (distance - near) / max(far - near, 1e-6)
+        surface_z[silhouette] = -distance
     part_masks = {
         name: (weights >= 0.5) & silhouette
         for name, weights in part_buffers.items()

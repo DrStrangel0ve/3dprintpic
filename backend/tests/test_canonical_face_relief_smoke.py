@@ -70,6 +70,7 @@ class CanonicalFaceReliefSmokeTest(unittest.TestCase):
                 relief_height_mm=40.0,
                 render_size=256,
                 physical_size_mm=96.0,
+                background_depth_ratio=0.50,
             )
             postprocess = json.loads(
                 (root / row["row_id"] / "postprocess.json").read_text(

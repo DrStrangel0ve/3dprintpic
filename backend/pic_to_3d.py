@@ -37,9 +37,10 @@ RELIEF_VALUE_TRANSFORMS = {
 HIGH_RELIEF_FACE_SCREENING_WEIGHT = 0.25
 HIGH_RELIEF_FACE_CARDINAL_EDGE_RETRY_WEIGHT = 0.10
 HIGH_RELIEF_FACE_DETAIL_RETRY_WEIGHT = 8.0
+HIGH_RELIEF_FACE_MIN_DETAIL_CORRELATION = 0.85
 HIGH_RELIEF_SELECTION_SCREENING_WEIGHT = 2.0
 HIGH_RELIEF_SELECTION_DETAIL_GRADIENT_RETENTION = 0.9
-DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO = 0.50
+DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO = 0.65
 METRIC_FAR_HIGH_DEPTH_MODELS = frozenset(
     {
         DEPTHPRO_MODEL_ID,
@@ -1432,9 +1433,23 @@ def _target_shape_for_max_dimension(shape, target_dimension):
     return max(2, int(round(height * scale))), max(2, int(round(width * scale)))
 
 
-def _normalize_relief_values(values, low_percentile=1.0, high_percentile=99.0):
+def _normalize_relief_values(
+    values,
+    low_percentile=1.0,
+    high_percentile=99.0,
+    reference_mask=None,
+):
     normalized = values.astype(np.float32, copy=True)
-    finite = normalized[np.isfinite(normalized)]
+    finite_mask = np.isfinite(normalized)
+    reference = finite_mask
+    if reference_mask is not None:
+        reference_mask = np.asarray(reference_mask) > 0
+        if reference_mask.shape != normalized.shape:
+            raise ValueError("Relief normalization mask must match the depth grid")
+        masked_reference = finite_mask & reference_mask
+        if np.count_nonzero(masked_reference) >= 4:
+            reference = masked_reference
+    finite = normalized[reference]
     if finite.size == 0:
         return normalized
 
@@ -1472,12 +1487,14 @@ def _shape_relief_values(
     value_transform=RELIEF_VALUE_TRANSFORM_LINEAR,
     detail_protection_mask=None,
     background_detail_boost=1.0,
+    normalization_mask=None,
 ):
     transformed, reverses_order = _transform_relief_values(values, value_transform)
     relief = _normalize_relief_values(
         transformed,
         low_percentile=low_percentile,
         high_percentile=high_percentile,
+        reference_mask=normalization_mask,
     )
     if bool(invert) ^ reverses_order:
         relief = 1.0 - relief
@@ -5071,6 +5088,12 @@ def depth_data_to_3d_model(
         value_transform=resolved_value_transform,
         detail_protection_mask=detail_protection_mask,
         background_detail_boost=background_detail_boost,
+        normalization_mask=(
+            selected_region
+            if selected_region is not None
+            and float(selection_background_depth_ratio) > 0
+            else None
+        ),
     )
     photo_detail_ratio = (
         float(background_photo_detail_mm) / float(z_scale)
@@ -5164,6 +5187,7 @@ def depth_data_to_3d_model(
             structural_region_mask=head_region_mask,
             detail_region_mask=region_mask,
             screening_weight=HIGH_RELIEF_FACE_SCREENING_WEIGHT,
+            minimum_detail_correlation=HIGH_RELIEF_FACE_MIN_DETAIL_CORRELATION,
         )
         primary_gradient_compression_stats = gradient_compression_stats
         primary_quality_failures = set(
@@ -5194,6 +5218,9 @@ def depth_data_to_3d_model(
                     structural_region_mask=head_region_mask,
                     detail_region_mask=region_mask,
                     screening_weight=HIGH_RELIEF_FACE_CARDINAL_EDGE_RETRY_WEIGHT,
+                    minimum_detail_correlation=(
+                        HIGH_RELIEF_FACE_MIN_DETAIL_CORRELATION
+                    ),
                 )
                 retry_failures = retry_stats.get("quality_gates", {}).get(
                     "failures", []
@@ -5248,6 +5275,9 @@ def depth_data_to_3d_model(
                     structural_region_mask=head_region_mask,
                     detail_region_mask=region_mask,
                     screening_weight=HIGH_RELIEF_FACE_DETAIL_RETRY_WEIGHT,
+                    minimum_detail_correlation=(
+                        HIGH_RELIEF_FACE_MIN_DETAIL_CORRELATION
+                    ),
                     allow_edge_only_candidate=True,
                 )
                 retry_failures = retry_stats.get("quality_gates", {}).get(

@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "run": "makehuman_perspective_depth_provider_n1",
+  "privacy": "CC0 parametric synthetic head and deterministic procedural materials only",
+  "providers": {
+    "depth_anything_v2_large": {
+      "passed": false,
+      "minimum_named_part_shape_correlation": 0.9201,
+      "minimum_physical_gradient_correlation": 0.7456,
+      "maximum_p95_error_mm": 0.8674,
+      "background_correlation": -0.4930,
+      "background_gradient_correlation": 0.5436
+    },
+    "moge2_vitb_normal": {
+      "passed": false,
+      "minimum_named_part_shape_correlation": 0.8816,
+      "minimum_physical_gradient_correlation": 0.4534,
+      "maximum_p95_error_mm": 1.5024,
+      "background_correlation": -0.2955,
+      "background_gradient_correlation": 0.8208,
+      "inference_seconds": 0.206,
+      "peak_vram_gb": 1.866
+    },
+    "depth_anything_v3_base": {
+      "passed": false,
+      "model_revision": "6544606276a24280a81c2e8d6af456870ff34f4e",
+      "source_commit": "e74fd796e96b7e781a5506fd8503b6bd7232513c",
+      "minimum_named_part_shape_correlation": 0.7069225101939741,
+      "minimum_physical_gradient_correlation": 0.4073551638850197,
+      "maximum_p95_error_mm": 2.6987120385065735,
+      "background_correlation": -0.2149941872339549,
+      "background_gradient_correlation": 0.9472745943752655,
+      "background_rms_retention": 1.0968085037073714,
+      "background_span_retention": 1.0337123391883924,
+      "inference_seconds": 0.7729753000021446,
+      "peak_vram_gb": 0.8015093803405762
+    }
+  },
+  "artifacts": {
+    "tracked_harness_summary_sha256": "5f783defec77d85eafc1864ed63ac93a428ed6c0dad1c6b199b664ad17876e53",
+    "da3_raw_depth_sha256": "73e4d69f44a0b331aeaabe9895c720cb21a6afcaa59dd09091b59ed2b7b53509"
+  },
+  "decision": "hold_all_new_providers"
+}

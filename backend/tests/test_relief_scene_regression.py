@@ -1,4 +1,5 @@
 import unittest
+from inspect import signature
 
 import numpy as np
 
@@ -9,10 +10,18 @@ from backend.benchmark.run_relief_scene_regression import (
     _scene_checks,
     _scene_specs,
     _synthetic_scene,
+    run,
 )
+from backend.pic_to_3d import DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO
 
 
 class ReliefSceneRegressionTest(unittest.TestCase):
+    def test_runner_defaults_to_production_background_ratio(self):
+        self.assertEqual(
+            signature(run).parameters["background_depth_ratio"].default,
+            DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
+        )
+
     def test_scene_matrix_is_varied_and_deterministic(self):
         specs = _scene_specs()
 

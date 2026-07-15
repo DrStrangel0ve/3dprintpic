@@ -305,11 +305,13 @@ The named-part metric is schema v3 and its affine millimeter companion is
 independently versioned as schema v2, so the support-semantics change cannot be
 mistaken for historical v1 telemetry.
 
-The production selection-background default is now 50% instead of 45%. On the
-two previously marginal 40 mm frontal scenes, recoverable context coverage
-increases from 0.596/0.588 to 0.640/0.630. Background depth, RMS, span, and
-gradient retention remain effectively 1.0, the far-background cap is 20.01 mm
-at 40 mm relief, and feasible attachment steps remain at 0.8000002 mm or less.
+The previous varied-identity pass raised the selection-background default from
+45% to 50%. On its two marginal 40 mm frontal scenes, recoverable context
+coverage increased from 0.596/0.588 to 0.640/0.630. That historical setting is
+superseded by the 65% production default measured in the follow-up below.
+Background depth, RMS, span, and gradient retention remained effectively 1.0,
+the far-background cap was 20.01 mm at 40 mm relief, and feasible attachment
+steps remained at 0.8000002 mm or less.
 
 All 54 clean rows pass on revision
 `c0bc7ccb81ac724e6cdb3a99b7d406f9dbb2d36a`. Minimum named-part shape and
@@ -318,6 +320,34 @@ physical-gradient correlations are 0.9746 and 0.9697; worst p95 part error is
 watertight, winding-consistent positive volume with no nonmanifold edges or
 degenerate faces, and every exact shell check passes. Evidence is in
 `docs/benchmark-evidence/canonical_face_variants_height_v3_n54/`.
+
+## Perspective provider and background-prominence follow-up
+
+A new deterministic MakeHuman-derived CC0 fixture adds perspective projection,
+smooth vertex normals, procedural skin/eye/brow color, exact z-buffer depth,
+and exact source-derived facial-part supports. The orthographic renderer remains
+byte-identical when perspective mode is not requested. On the first 30 mm
+provider row, Depth Anything V2 remains the best face-depth model and narrowly
+misses only one eye-gradient gate. MoGe-2 and Apache-2.0 DA3 Base retain more
+background gradient structure but regress facial shape and reverse the broad
+synthetic background ordering, so neither is promoted. Compact evidence is in
+`docs/benchmark-evidence/makehuman_perspective_depth_provider_n1/`.
+
+The background compositor now defaults to a `0.65` scene budget instead of
+`0.50`. Positive-context normalization is anchored to the selected subject,
+so raising the background cannot rescale the face. The first 54-row attempt
+exposed a separate projected-nose blind spot: a whole-face correlation of
+`0.822` cleared the old `0.80` internal solver floor while the nose exceeded
+its millimeter gate. Raising only that internal floor to `0.85` selects the
+already-audited high-detail retry for 10 of 54 rows.
+
+The final 54-row matrix passes every face, named-part, background, physical-cap,
+shell, and printability gate. Median background height rises from `15.0` to
+`19.5` mm and median p05-p95 background span rises from `8.1601` to `11.4481`
+mm. Minimum face relighting correlation is `0.9961052`, worst named-part p95
+error is `1.2985969` mm, and all 54 STLs remain printable. The companion
+six-scene matrix also passes. Compact evidence is in
+`docs/benchmark-evidence/relief_background_prominence_v4/`.
 
 ## Validation
 
@@ -331,7 +361,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 467 passed, 44 subtests passed (2 existing warnings).
+- Backend: 484 passed, 44 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.

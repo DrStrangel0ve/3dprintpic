@@ -13,6 +13,7 @@ import numpy as np
 
 from backend.benchmark.mesh_rendering import load_mesh
 from backend.pic_to_3d import (
+    DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
     _background_relief_preservation_metrics,
     compose_selection_depth_with_context,
     depth_data_to_3d_model,
@@ -453,6 +454,7 @@ def run(
     summary_path: str | Path | None = None,
     limit: int = 6,
     allow_dirty: bool = False,
+    background_depth_ratio: float = DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
 ) -> dict:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -474,7 +476,7 @@ def run(
             relief_height_mm=30.0,
             sample_pitch_mm=0.4,
             max_slope_mm_per_mm=2.0,
-            background_depth_ratio=0.45,
+            background_depth_ratio=float(background_depth_ratio),
             background_feather_mm=1.5,
             background_smoothing_mm=0.6,
         )
@@ -498,7 +500,7 @@ def run(
             max_relief_slope=2.0,
             face_region_mask=face_mask,
             selection_region_mask=subject_mask,
-            selection_background_depth_ratio=0.45,
+            selection_background_depth_ratio=float(background_depth_ratio),
         )
 
         mesh = load_mesh(stl_path)
@@ -597,7 +599,7 @@ def run(
         "implementation_provenance": provenance,
         "allow_dirty": bool(allow_dirty),
         "relief_height_mm": 30.0,
-        "background_depth_ratio": 0.45,
+        "background_depth_ratio": float(background_depth_ratio),
         "sample_pitch_mm": 0.4,
         "scene_count": len(rows),
         "runtime_seconds": float(time.perf_counter() - started),
@@ -657,6 +659,11 @@ def main() -> None:
     )
     parser.add_argument("--summary-path")
     parser.add_argument("--limit", type=int, default=6)
+    parser.add_argument(
+        "--background-depth-ratio",
+        type=float,
+        default=DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
+    )
     parser.add_argument("--allow-dirty", action="store_true")
     args = parser.parse_args()
     run(
@@ -664,6 +671,7 @@ def main() -> None:
         summary_path=args.summary_path,
         limit=args.limit,
         allow_dirty=args.allow_dirty,
+        background_depth_ratio=args.background_depth_ratio,
     )
 
 

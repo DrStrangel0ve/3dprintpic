@@ -41,6 +41,7 @@ from backend.face_depth_refinement import (
     FACE_PART_NAMES,
 )
 from backend.pic_to_3d import (
+    DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
     _surface_lighting_agreement_metrics,
     compose_selection_depth_with_context,
     depth_data_to_3d_model,
@@ -267,6 +268,7 @@ def _run_row(
     physical_size_mm: float,
     render_ortho_scale: float = 1.8,
     background_phase_rad: float = 0.0,
+    background_depth_ratio: float = DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
 ) -> dict:
     started = time.perf_counter()
     row_id = f"yaw_{yaw_deg:+05.1f}_height_{relief_height_mm:04.1f}mm".replace(
@@ -314,7 +316,7 @@ def _run_row(
         relief_height_mm=float(relief_height_mm),
         sample_pitch_mm=input_pitch_mm,
         max_slope_mm_per_mm=2.0,
-        background_depth_ratio=0.50,
+        background_depth_ratio=float(background_depth_ratio),
         background_feather_mm=1.5,
         background_smoothing_mm=0.6,
     )
@@ -345,7 +347,7 @@ def _run_row(
         max_relief_slope=2.0,
         face_region_mask=face_mask,
         selection_region_mask=face_mask,
-        selection_background_depth_ratio=0.50,
+        selection_background_depth_ratio=float(background_depth_ratio),
         source_image=row_dir / "source.png",
         background_photo_detail_mm=0.0,
         feature_weight_mask=feature_weight,
@@ -520,6 +522,7 @@ def _run_row(
         "physical_size_mm": float(physical_size_mm),
         "render_ortho_scale": float(render_ortho_scale),
         "background_phase_rad": float(background_phase_rad),
+        "background_depth_ratio": float(background_depth_ratio),
         "runtime_seconds": float(time.perf_counter() - started),
         "checks": {**checks, "passed": bool(all(checks.values()))},
         "compose": {

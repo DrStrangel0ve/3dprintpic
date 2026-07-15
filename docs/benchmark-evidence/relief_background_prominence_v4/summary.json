@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "run": "relief_background_prominence_v4",
+  "privacy": "checksum-pinned canonical face plus deterministic analytic backgrounds only",
+  "settings": {
+    "background_depth_ratio_previous": 0.5,
+    "background_depth_ratio_selected": 0.65,
+    "face_detail_correlation_floor_previous": 0.8,
+    "face_detail_correlation_floor_selected": 0.85,
+    "relief_heights_mm": [20.0, 30.0, 40.0],
+    "yaws_deg": [-45.0, 0.0, 45.0],
+    "canonical_face_rows": 54,
+    "varied_scene_rows": 6
+  },
+  "background_comparison": {
+    "previous_median_height_above_base_mm": 15.0,
+    "selected_median_height_above_base_mm": 19.5,
+    "height_gain_ratio": 1.3,
+    "previous_median_p05_p95_span_mm": 8.160086154937744,
+    "selected_median_p05_p95_span_mm": 11.44811201095581,
+    "span_gain_ratio": 1.402941309626818
+  },
+  "canonical_face_matrix": {
+    "completed_rows": 54,
+    "failed_rows": 0,
+    "minimum_face_lighting_correlation": 0.9961052031522579,
+    "minimum_named_part_shape_correlation": 0.9744342201295846,
+    "minimum_named_part_gradient_correlation": 0.9701457675143201,
+    "maximum_named_part_p95_error_mm": 1.298596864929478,
+    "minimum_background_correlation": 0.9999999999999998,
+    "minimum_background_gradient_correlation": 0.9999999999999998,
+    "maximum_far_background_mm": 26.010000228881836,
+    "primary_face_solve_rows": 44,
+    "high_detail_retry_rows": 10,
+    "all_printable": true,
+    "local_summary_size_bytes": 1109563,
+    "local_summary_sha256": "5de5d9dc44a120a584b22100375bb7bd7e42170e326bad2ebfd5b94bb757088d"
+  },
+  "varied_scene_matrix": {
+    "completed_rows": 6,
+    "failed_rows": 0,
+    "minimum_face_correlation": 0.9705725905718369,
+    "minimum_recoverable_context_coverage_ratio": 0.862898516874927,
+    "minimum_background_correlation": 1.0,
+    "minimum_background_gradient_correlation": 0.9999999999999999,
+    "maximum_far_background_mm": 19.510000228881836,
+    "maximum_feasible_attachment_jump_mm": 0.8000001907348633,
+    "all_printable": true,
+    "local_summary_size_bytes": 21682,
+    "local_summary_sha256": "69cb33098d6de5da733f44db06c65474fa5cbe0be87d75726acfc6852b78d908"
+  }
+}
