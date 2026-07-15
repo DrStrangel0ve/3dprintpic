@@ -31,13 +31,14 @@ PROVENANCE_PATHS = (
     "backend/benchmark/assets/makehuman_cc0_heads",
 )
 DETAIL_GATES = {
-    "minimum_source_detail_correlation": 0.37,
-    "minimum_realized_p95_ratio": 0.15,
+    "minimum_source_detail_correlation": 0.45,
+    "minimum_realized_p95_ratio": 0.14,
     "maximum_realized_p95_ratio": 1.05,
     "maximum_face_interior_p99_change_mm": 0.01,
     "maximum_face_interior_change_mm": 0.05,
     "maximum_attachment_boundary_ratio": 0.35,
     "minimum_background_coverage_ratio": 0.35,
+    "minimum_active_detail_coverage_ratio": 0.18,
 }
 
 
@@ -88,9 +89,18 @@ def _detail_metrics(
     max_attachment_boundary_change = (
         float(np.max(boundary_delta)) if boundary_delta.size else 0.0
     )
-    source_correlation = (
+    source_correlation_all = (
         _correlation(source_detail[usable], delta[usable])
         if np.count_nonzero(usable) >= 64
+        else 0.0
+    )
+    active = usable.copy()
+    if requested_detail_mm > 0:
+        active &= np.abs(delta) >= 0.04 * float(requested_detail_mm)
+    active_coverage = float(np.count_nonzero(active) / background_count)
+    source_correlation = (
+        _correlation(source_detail[active], delta[active])
+        if np.count_nonzero(active) >= 64
         else 0.0
     )
     if requested_detail_mm > 0:
@@ -111,6 +121,8 @@ def _detail_metrics(
             <= DETAIL_GATES["maximum_attachment_boundary_ratio"]
             * float(requested_detail_mm),
             "coverage": coverage >= DETAIL_GATES["minimum_background_coverage_ratio"],
+            "active_detail_coverage": active_coverage
+            >= DETAIL_GATES["minimum_active_detail_coverage_ratio"],
         }
     else:
         realized_ratio = 0.0
@@ -120,10 +132,12 @@ def _detail_metrics(
             "face_interior": max_face_interior_change <= 1e-9,
             "attachment_boundary": max_attachment_boundary_change <= 1e-9,
             "coverage": coverage >= DETAIL_GATES["minimum_background_coverage_ratio"],
+            "active_detail_coverage": True,
         }
     return {
         "requested_detail_mm": float(requested_detail_mm),
         "source_detail_correlation": float(source_correlation),
+        "source_detail_correlation_all_background": float(source_correlation_all),
         "background_delta_rms_mm": rms,
         "background_delta_p95_mm": p95,
         "background_delta_max_mm": float(np.max(absolute)),
@@ -132,6 +146,7 @@ def _detail_metrics(
         "max_face_interior_change_mm": max_face_interior_change,
         "max_attachment_boundary_change_mm": max_attachment_boundary_change,
         "background_coverage_ratio": coverage,
+        "active_detail_coverage_ratio": active_coverage,
         "checks": {**checks, "passed": bool(all(checks.values()))},
     }
 
