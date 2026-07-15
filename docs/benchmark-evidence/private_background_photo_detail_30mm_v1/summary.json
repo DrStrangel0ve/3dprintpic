@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "run_kind": "private_background_photo_detail_replay",
+  "run_kind": "retained_private_artifact_background_photo_detail_replay",
   "privacy": "aggregate metrics only; source images, masks, paths, hashes, surfaces, and meshes remain in gitignored output",
   "implementation_provenance": {
     "available": true,
     "clean": true,
-    "revision": "0d654c4cba69fb911ecf6c38fb3362e42855f278",
+    "revision": "a1d4833ffd09ed696c55818c2553b81b2c74051e",
     "paths": [
       "backend/pic_to_3d.py",
       "backend/benchmark/run_background_photo_detail_sweep.py",
@@ -26,12 +26,35 @@
     ],
     "relief_height_mm": 30.0,
     "physical_size_mm": 128.0,
-    "background_depth_ratio": 0.65
+    "background_depth_ratio": 0.65,
+    "replay_semantics": "locally pinned retained artifacts with current detail/context overrides; not an authenticated historical-request reproduction",
+    "historical_controls_verified": {
+      "target_dimension": 512,
+      "sigma": 0.35,
+      "relief_height_mm": 30.0,
+      "physical_size_mm": 128.0,
+      "relief_gamma": 0.75,
+      "detail_boost": 0.8,
+      "background_detail_boost": 2.4
+    },
+    "intentional_overrides": {
+      "selection_background_depth_ratio": {
+        "historical": 0.45,
+        "replay": 0.65
+      },
+      "background_photo_detail_mm": {
+        "historical": 0.12,
+        "replay_pair": [
+          0.0,
+          0.6
+        ]
+      }
+    }
   },
   "records": [
     {
       "scene_label": "scene-01",
-      "runtime_seconds": 58.667916900005366,
+      "runtime_seconds": 58.834898600005545,
       "compose": {
         "background_context_enabled": true,
         "background_output_span_ratio": 0.6427624249223388
@@ -174,7 +197,7 @@
       },
       "checks": {
         "same_composed_depth": true,
-        "private_input_provenance": true,
+        "retained_artifact_bundle_verified": true,
         "surface_grid_match": true,
         "selection_mask_match": true,
         "detail_metrics": true,
@@ -196,7 +219,7 @@
     },
     {
       "scene_label": "scene-02",
-      "runtime_seconds": 275.7981998000032,
+      "runtime_seconds": 266.3976296000037,
       "compose": {
         "background_context_enabled": true,
         "background_output_span_ratio": 0.8281228216423692
@@ -339,7 +362,7 @@
       },
       "checks": {
         "same_composed_depth": true,
-        "private_input_provenance": true,
+        "retained_artifact_bundle_verified": true,
         "surface_grid_match": true,
         "selection_mask_match": true,
         "detail_metrics": true,

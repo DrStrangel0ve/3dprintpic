@@ -542,16 +542,22 @@ Exact summaries, privacy-safe sources, hashes, and fail-closed reproduction are
 in `docs/benchmark-evidence/background_photo_detail_sweep_30mm_n3_v5/` and
 `docs/benchmark-evidence/background_photo_detail_da2_s40_n1_v3/`.
 
-## Exact private background-detail confirmation
+## Pinned retained-artifact background-detail confirmation
 
-The current `0.60 mm` photo-detail algorithm was replayed at 30 mm on the two
-exact motivating scenes using their cached upstream depth and historical
-512-grid request settings. This validates that configuration, not every current
-endpoint default. The new runner keeps the config, every private input, and all
+The current `0.60 mm` photo-detail algorithm was replayed at 30 mm on locally
+retained motivating-scene artifacts. It keeps the historical 512-grid, sigma,
+footprint, gamma, and detail-boost controls while explicitly overriding the
+selection-background ratio (`0.45 -> 0.65`) and photo detail
+(`0.12 -> {0.00, 0.60} mm`). This is a pinned retained-artifact comparison, not
+an authenticated reproduction of the original requests, and it does not cover
+every current endpoint default. The new runner keeps the config, every private input, and all
 generated geometry under ignored output and publishes a scalar allowlist only.
-It locally checksum-pins every input, cross-checks selection fingerprints and
-the expected Depth Anything V2 identity, and never publishes those checksums or
-identifiers. It also replays the exporter's recorded resize, horizontal flip,
+It locally checksum-pins every retained input, cross-checks selection
+fingerprints, selection-job linkage, recorded mask identity, stable historical
+controls, and the expected Depth Anything V2 identity, and never publishes
+those checksums or identifiers. The original metadata has no request-time depth
+or mask digest, so the documentation does not claim that unavailable provenance.
+It also replays the exporter's recorded resize, horizontal flip,
 mesh resample, and crop when measuring source alignment; direct photo-to-final-
 grid resizing is no longer accepted for this evidence lane.
 
@@ -585,7 +591,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 543 passed, 69 subtests passed (2 existing warnings).
+- Backend: 545 passed, 69 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.

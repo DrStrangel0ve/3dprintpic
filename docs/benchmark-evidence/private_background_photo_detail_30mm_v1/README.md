@@ -1,8 +1,10 @@
-# Exact private background-detail replay
+# Pinned retained-artifact background-detail replay
 
 This evidence validates the current `0.60 mm` face-protected photo-detail
-algorithm under the exact 30 mm, 512-grid request configuration used for the
-two motivating scenes. It does not claim coverage of every endpoint default.
+algorithm on locally retained motivating-scene artifacts using the historical
+30 mm/512-grid controls plus two intentional current-algorithm overrides. This
+is not an authenticated reproduction of the original historical requests and
+does not claim coverage of every endpoint default.
 Only aggregate measurements are tracked. The source photos, semantic masks, cached
 depth, emitted surfaces, STL files, local paths, job identifiers, and content
 hashes remain under gitignored `backend/output/`.
@@ -19,13 +21,21 @@ hashes remain under gitignored `backend/output/`.
 - Photo evidence follows the recorded resize, horizontal flip, mesh resample,
   and crop transform before correlation is measured.
 
-The ignored config and every private input are locally checksum-pinned. Selection
-fingerprints, selection metadata, the cached request metadata, and the expected
-Depth Anything V2 model identity must agree before emission. No private checksum
-or identifier is copied into tracked evidence.
+The ignored config and every retained private input are locally checksum-pinned.
+Selection fingerprints, selection job linkage, recorded mask identity, cached
+request metadata, historical stable controls, and the expected Depth Anything
+V2 model identity must agree before emission. The original request metadata did
+not include depth or mask digests, so these checks authenticate the retained
+bundle against its local manifest rather than reconstructing unavailable
+request-time provenance. No private checksum or identifier is copied into
+tracked evidence.
+
+The explicit overrides are selection-background ratio `0.45 -> 0.65` and photo
+detail `0.12 -> {0.00, 0.60} mm`. All other listed request controls are held to
+their retained historical values.
 
 The run used clean implementation revision
-`0d654c4cba69fb911ecf6c38fb3362e42855f278`.
+`a1d4833ffd09ed696c55818c2553b81b2c74051e`.
 
 ## Results
 
