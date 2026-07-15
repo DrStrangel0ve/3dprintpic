@@ -579,6 +579,43 @@ misreported as strict success. Aggregate evidence and the generic reproduction
 contract are in
 `docs/benchmark-evidence/private_background_photo_detail_30mm_v1/`.
 
+## Isotropic near-subject background recovery
+
+The initial face-protection halo kept the subject stable, but its square
+maximum-filter support plus Gaussian recovery suppressed valid scenery too far
+from the silhouette. A stricter privacy-safe radial test measured only `0.5115`
+relative gain at `5-8 mm` and `0.3157` in the weakest local window. A first
+Euclidean replacement restored that detail but was rejected after an
+independent CC0 review found `0.1306-0.1875 mm` boundary movement.
+
+The selected gate therefore preserves an exact `2 mm` inner guard and then
+uses an isotropic Euclidean smoothstep to full gain at `5 mm`. On the clean
+analytic 30 mm regression, calibrated detail retention is `0.9215` at
+`5-8 mm` and `0.9862` at `8-12 mm`; the weakest local window is `0.6484`.
+There are zero new radial gradient reversals, full finite coverage, and all
+low-pass moat/overshoot limits pass. The metric follows halo research that
+treats edge artifacts as overshoot or gradient reversal and treats missing
+source-aligned structure outside the declared guard as overprotection:
+[RWDR (ICLR 2025)](https://proceedings.iclr.cc/paper_files/paper/2025/hash/22f5d8e689d2a011cd8ead552ed59052-Abstract-Conference.html)
+and [Mixed-Domain Edge-Aware Image Manipulation](https://cg.cs.tsinghua.edu.cn/papers/TIP_2013_Edge-Aware.pdf).
+
+The three-face CC0 matrix keeps worst subject-boundary movement to
+`0.013651 mm` and worst face-interior movement to `0.001457 mm`; every emitted
+STL passes cap, feasible attachment, topology, and exact-shell checks. The
+aggregate-only retained-photo replay independently passes all four emissions.
+Only its Scene 01 has an independent retained face-region mask; its maximum
+face movement is `0.000011 mm`, while Scene 02 is not counted as a private
+face-regression measurement.
+It improves Scene 01 source-aligned capture from `0.5430` to `0.5684` and
+Scene 02 from `0.6076` to `0.6174`, while reducing attachment-boundary movement
+from `0.0146/0.0129 mm` to `0.000083/0.000055 mm`. Broad background correlation
+remains `0.999994/0.999921` with complete coverage.
+
+Evidence and reproduction contracts are in
+`docs/benchmark-evidence/background_halo_continuity_30mm_v1/`,
+`docs/benchmark-evidence/background_photo_detail_cc0_euclidean_guard_n3/`, and
+`docs/benchmark-evidence/private_background_photo_detail_30mm_v2_euclidean_guard/`.
+
 ## Validation
 
 ```powershell
@@ -591,7 +628,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 545 passed, 69 subtests passed (2 existing warnings).
+- Backend: 556 passed, 72 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
