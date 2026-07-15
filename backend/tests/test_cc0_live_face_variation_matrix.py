@@ -136,6 +136,83 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
         self.assertEqual(len(coverage["occluded_rows"]), 1)
         self.assertTrue(coverage["unique_rows"])
 
+    def test_face_fusion_train_matrix_is_varied_and_disjoint_from_held_out(self):
+        specs = matrix.FACE_FUSION_TRAIN_MATRIX
+        coverage = matrix._matrix_coverage(specs)
+        held_out_ids = {spec.row_id for spec in matrix.VARIED_CONTEXT_MATRIX}
+        face_held_out = [
+            spec
+            for spec in matrix.VARIED_CONTEXT_MATRIX
+            if isinstance(spec, matrix.FaceSceneSpec)
+        ]
+
+        self.assertEqual(len(specs), 15)
+        self.assertEqual(coverage["scene_kinds"], ["face"])
+        self.assertEqual(coverage["target_dimensions"], [256, 384])
+        self.assertEqual(coverage["yaw_signs"], ["negative", "neutral", "positive"])
+        self.assertEqual(len(coverage["background_profiles"]), 3)
+        self.assertEqual(len(coverage["lighting_profiles"]), 3)
+        self.assertEqual(
+            {(spec.background_profile, spec.lighting_profile) for spec in specs},
+            {
+                (background, lighting)
+                for background in matrix.BACKGROUND_PROFILES
+                for lighting in matrix.LIGHTING_PROFILES
+            },
+        )
+        self.assertEqual(coverage["occluded_rows"], [])
+        self.assertTrue(coverage["unique_rows"])
+        self.assertFalse(held_out_ids & set(coverage["row_ids"]))
+        self.assertEqual(len({spec.profile_name for spec in specs}), 3)
+        for profile in {spec.profile_name for spec in specs}:
+            profile_specs = [spec for spec in specs if spec.profile_name == profile]
+            distances = [
+                spec.camera_distance / spec.camera_scale for spec in profile_specs
+            ]
+            self.assertEqual(
+                {spec.target_dimension for spec in profile_specs}, {256, 384}
+            )
+            self.assertEqual(
+                {
+                    "negative"
+                    if spec.camera_yaw_deg < 0
+                    else "positive"
+                    if spec.camera_yaw_deg > 0
+                    else "neutral"
+                    for spec in profile_specs
+                },
+                {"negative", "neutral", "positive"},
+            )
+            self.assertTrue(any(distance >= 6.5 for distance in distances))
+            self.assertTrue(any(4.0 <= distance < 5.0 for distance in distances))
+            self.assertTrue(any(distance < 3.5 for distance in distances))
+
+        for train_spec in specs:
+            for held_out_spec in face_held_out:
+                near_duplicate = all(
+                    (
+                        train_spec.profile_name == held_out_spec.profile_name,
+                        train_spec.target_dimension == held_out_spec.target_dimension,
+                        abs(
+                            train_spec.camera_yaw_deg
+                            - held_out_spec.camera_yaw_deg
+                        )
+                        <= 5.0,
+                        abs(
+                            train_spec.camera_distance / train_spec.camera_scale
+                            - held_out_spec.camera_distance / held_out_spec.camera_scale
+                        )
+                        <= 0.75,
+                        train_spec.background_profile
+                        == held_out_spec.background_profile,
+                        train_spec.lighting_profile == held_out_spec.lighting_profile,
+                    )
+                )
+                self.assertFalse(
+                    near_duplicate,
+                    f"{train_spec.row_id} is too close to {held_out_spec.row_id}",
+                )
+
     def test_varied_background_profiles_are_distinct_and_have_depth_span(self):
         shape = (96, 128)
         rendered_depth = np.full(shape, 0.4, dtype=np.float32)
