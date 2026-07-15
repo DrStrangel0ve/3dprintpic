@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "row_id": "asian_female_asymmetric_right_frame_40p0mm",
+  "baseline": {
+    "revision": "8ec1add45b4d135a516976b73402bc1890c6db53",
+    "summary_sha256": "d2b55ba7d587e273d9eae12d1f5b56b9720a059d3a64e7e86cde770a02de02c8",
+    "normal_angle_p95_deg": 64.24100617456459,
+    "minimum_lighting_correlation": 0.5572977885352051,
+    "failed_named_parts": [
+      "left_eye",
+      "left_eyebrow",
+      "mouth",
+      "nose",
+      "right_eye",
+      "right_eyebrow"
+    ],
+    "background_output_rms_mm": 4.332841198933568,
+    "background_output_span_p02_p98_mm": 16.40000057220459,
+    "background_correlation": 1.0,
+    "background_gradient_correlation": 1.0
+  },
+  "candidate": {
+    "revision": "6ddc5c45ff2753a1b90239f65248f3ca5e39d763",
+    "summary_sha256": "0c0e49eaa11ff6da9567d9c5663304700830c46f8c5dc1dc4204f529cdcf2c32",
+    "normal_angle_p95_deg": 5.460701271649481,
+    "minimum_lighting_correlation": 0.9897280130731597,
+    "failed_named_parts": [],
+    "background_output_rms_mm": 3.975279435807137,
+    "background_output_span_p02_p98_mm": 15.809509010314942,
+    "background_correlation": 0.9999930048957928,
+    "background_gradient_correlation": 0.9994997022954235,
+    "direction_reversal_projection": {
+      "iterations": 10,
+      "corrected_pixels": 248,
+      "initial_cardinal_reversals": 77,
+      "initial_diagonal_reversals": 73,
+      "final_cardinal_reversals": 0,
+      "final_diagonal_reversals": 0,
+      "passed": true
+    }
+  }
+}
+

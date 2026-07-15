@@ -407,6 +407,34 @@ lighting correlations `0.9896` and `0.9228`. Evidence, checksums, exact aggregat
 telemetry, and reproduction commands are in
 `docs/benchmark-evidence/relief_framing_boundary_selection_v6/`.
 
+## Cropped perspective identities at 30 and 40 mm
+
+The next privacy-safe pass uses the pinned MakeHuman CC0 head fixture instead
+of private photos. Three perspective identities cover different skin tones, a
+smile, a neutral face, and an asymmetric expression. The latter two are cropped
+far enough that the head itself touches the left or right frame while all exact
+eye, eyebrow, nose, and mouth supports remain visible. Structured background
+depth is present in every scene.
+
+This matrix exposed a new asymmetric 40 mm failure. The screened candidate
+retained facial detail but exceeded only cardinal edge max, then the legacy
+fallback damaged every named part. A bounded retry now projects only significant
+edge-direction reversals back toward the accepted source. The projected surface
+is used only when all reversals reach zero and the existing post-blend audit
+passes; failed or unavailable projection telemetry remains fail-closed.
+
+All six final rows pass at revision
+`6ddc5c45ff2753a1b90239f65248f3ca5e39d763`. The formerly failing row improves
+from `64.2410` to `5.4607` degrees p95 normal error and from `0.557298` to
+`0.989728` minimum relighting correlation. Its 150 measured reversals fall to
+zero after changing 248 pixels. Background depth/gradient correlation remains
+`0.999993`/`0.999500`, with `15.8095` mm p02-p98 span at 40 mm. Every row keeps
+one printable watertight component and an exact serialized STL shell.
+
+Research notes, CC0 previews, before/after aggregate telemetry, checksums, and
+reproduction commands are in
+`docs/benchmark-evidence/makehuman_face_relief_reversal_projection_n6/`.
+
 ## Validation
 
 ```powershell
@@ -419,7 +447,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 497 passed, 48 subtests passed (2 existing warnings).
+- Backend: 504 passed, 48 subtests passed (3 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
