@@ -33,8 +33,12 @@ DETAIL_LEVELS_MM = (0.0, 0.60)
 SMOKE_SCENES = (DEFAULT_SCENES[2],)
 PROVENANCE_PATHS = (
     "backend/pic_to_3d.py",
+    "backend/benchmark/face_part_metrics.py",
+    "backend/benchmark/makehuman_face_fixture.py",
+    "backend/benchmark/run_makehuman_face_depth_smoke.py",
     "backend/benchmark/run_makehuman_face_relief_smoke.py",
     "backend/benchmark/run_makehuman_face_provider_relief_smoke.py",
+    "backend/benchmark/run_relief_scene_regression.py",
     "backend/benchmark/run_background_photo_detail_sweep.py",
     "backend/benchmark/run_background_photo_detail_provider_smoke.py",
     "backend/benchmark/assets/makehuman_cc0_heads",
@@ -191,6 +195,11 @@ def run(
             "baseline_telemetry": bool(baseline_telemetry["passed"]),
             "candidate_telemetry": bool(candidate_telemetry["passed"]),
             "detail_delta": bool(detail_metrics["checks"]["passed"]),
+            "baseline_physical_cap": bool(
+                baseline["row"]["physical_cap"]["emission_passed"]
+            ),
+            "baseline_printable": bool(baseline["row"]["topology"]["printable"]),
+            "baseline_shell": bool(baseline["row"]["shell"]["passed"]),
             "physical_cap": bool(candidate["row"]["physical_cap"]["emission_passed"]),
             "printable": bool(candidate["row"]["topology"]["printable"]),
             "shell": bool(candidate["row"]["shell"]["passed"]),

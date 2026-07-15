@@ -28,7 +28,11 @@ DETAIL_LEVELS_MM = (0.0, 0.12, 0.30, 0.60)
 SWEEP_SCENES = DEFAULT_SCENES
 PROVENANCE_PATHS = (
     "backend/pic_to_3d.py",
+    "backend/benchmark/face_part_metrics.py",
+    "backend/benchmark/makehuman_face_fixture.py",
+    "backend/benchmark/run_makehuman_face_depth_smoke.py",
     "backend/benchmark/run_makehuman_face_relief_smoke.py",
+    "backend/benchmark/run_relief_scene_regression.py",
     "backend/benchmark/run_background_photo_detail_sweep.py",
     "backend/benchmark/assets/makehuman_cc0_heads",
 )
@@ -40,6 +44,7 @@ DETAIL_GATES = {
     "maximum_face_interior_change_mm": 0.05,
     "maximum_attachment_boundary_change_mm": 0.10,
     "minimum_background_coverage_ratio": 0.35,
+    "minimum_source_aligned_capture_ratio": 0.12,
 }
 
 
@@ -150,6 +155,8 @@ def _detail_metrics(
             "attachment_boundary": max_attachment_boundary_change
             <= DETAIL_GATES["maximum_attachment_boundary_change_mm"],
             "coverage": coverage >= DETAIL_GATES["minimum_background_coverage_ratio"],
+            "source_aligned_capture": source_aligned_capture_ratio
+            >= DETAIL_GATES["minimum_source_aligned_capture_ratio"],
         }
     else:
         realized_ratio = 0.0
@@ -159,6 +166,7 @@ def _detail_metrics(
             "face_interior": max_face_interior_change <= 1e-9,
             "attachment_boundary": max_attachment_boundary_change <= 1e-9,
             "coverage": coverage >= DETAIL_GATES["minimum_background_coverage_ratio"],
+            "source_aligned_capture": True,
         }
     return {
         "requested_detail_mm": float(requested_detail_mm),

@@ -23,6 +23,15 @@ class BackgroundPhotoDetailSweepTests(unittest.TestCase):
             _effective_background_photo_detail_mm(0.60, np.zeros((2, 2), dtype=bool)),
             0.12,
         )
+        self.assertEqual(
+            _effective_background_photo_detail_mm(2.0, np.ones((2, 2), dtype=bool)),
+            0.60,
+        )
+        for invalid in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                _effective_background_photo_detail_mm(
+                    invalid, np.ones((2, 2), dtype=bool)
+                )
 
     def test_photo_detail_halo_is_constant_in_physical_units(self):
         coarse_pitch, coarse_halo = _photo_detail_sampling(96.0, (256, 256))
@@ -135,9 +144,7 @@ class BackgroundPhotoDetailSweepTests(unittest.TestCase):
             )
 
         self.assertGreater(metrics["active_source_detail_correlation"], 0.9)
-        self.assertFalse(
-            metrics["checks"]["intended_background_source_detail_correlation"]
-        )
+        self.assertFalse(metrics["checks"]["source_aligned_capture"])
         self.assertFalse(metrics["checks"]["passed"])
 
     def test_intended_background_metric_excludes_declared_quiet_halo(self):

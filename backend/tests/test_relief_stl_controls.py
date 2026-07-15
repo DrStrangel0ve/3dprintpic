@@ -1172,6 +1172,22 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertGreater(low_change, 0.002)
         np.testing.assert_array_equal(fused[face_region], relief[face_region])
 
+    def test_photo_detail_fusion_treats_empty_mask_as_unprotected(self):
+        relief = np.full((24, 24), 0.3, dtype=np.float32)
+        photo = np.zeros((24, 24, 3), dtype=np.uint8)
+        photo[:, ::3] = 255
+
+        _fused, stats = _inject_photo_relief_detail(
+            relief,
+            photo,
+            max_detail_ratio=0.02,
+            protection_mask=np.zeros_like(relief, dtype=bool),
+        )
+
+        self.assertTrue(stats["enabled"])
+        self.assertFalse(stats["face_protected"])
+        self.assertEqual(stats["protection_halo_px"], 0.0)
+
     def test_top_silhouette_mask_removes_only_pixels_above_content(self):
         source = np.full((20, 24, 3), 255, dtype=np.uint8)
         source[8:, :12] = 30

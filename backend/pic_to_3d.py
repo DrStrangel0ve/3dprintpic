@@ -1551,7 +1551,10 @@ def _has_background_photo_detail_protection(protection_mask):
 
 
 def _effective_background_photo_detail_mm(requested_detail_mm, protection_mask):
-    requested = max(0.0, float(requested_detail_mm))
+    requested = float(requested_detail_mm)
+    if not np.isfinite(requested):
+        raise ValueError("background_photo_detail_mm must be finite")
+    requested = float(np.clip(requested, 0.0, 0.60))
     return (
         requested
         if _has_background_photo_detail_protection(protection_mask)
@@ -1622,9 +1625,14 @@ def _inject_photo_relief_detail(
 
     protected = None
     if protection_mask is not None:
-        protected = np.asarray(protection_mask) > 0
-        if protected.shape != relief.shape:
-            protected = _resize_binary_mask(protected, relief.shape)
+        candidate_protection = np.asarray(protection_mask) > 0
+        if candidate_protection.shape != relief.shape:
+            candidate_protection = _resize_binary_mask(
+                candidate_protection, relief.shape
+            )
+        if np.any(candidate_protection):
+            protected = candidate_protection
+    if protected is not None:
         # Leave a broad quiet halo around selected subjects. Background texture
         # close to the attachment boundary can otherwise make the later physical
         # cap move the outermost selected pixels even though detail injection did
@@ -5583,7 +5591,7 @@ def depth_data_to_3d_model(
             else None
         ),
     )
-    requested_photo_detail_mm = max(0.0, float(background_photo_detail_mm))
+    requested_photo_detail_mm = float(background_photo_detail_mm)
     has_photo_detail_protection = _has_background_photo_detail_protection(
         detail_protection_mask
     )

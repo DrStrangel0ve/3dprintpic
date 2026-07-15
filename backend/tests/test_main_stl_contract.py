@@ -212,6 +212,17 @@ class MainStlContractTest(unittest.TestCase):
             self.assertEqual(override_response.status_code, 200, override_response.text)
             self.assertEqual(observed_detail_mm, [0.60, 0.27])
 
+    def test_process_image_rejects_invalid_background_photo_detail_before_work(self):
+        client = TestClient(main_module.app)
+        for invalid in ("nan", "inf", "-inf", "-0.01", "0.61"):
+            with self.subTest(invalid=invalid):
+                response = client.post(
+                    "/process_image",
+                    files={"file": ("invalid.png", self.png_bytes(), "image/png")},
+                    data={"background_photo_detail_mm": invalid},
+                )
+                self.assertEqual(response.status_code, 422, response.text)
+
     def test_process_image_uses_original_context_then_masks_selected_depth(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_root = Path(temp_dir) / "output"
