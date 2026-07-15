@@ -467,6 +467,31 @@ and reproduction commands are in
 Both provider runs have clean implementation provenance at exact revision
 `d0528a7df0036750b687d9b4cf388cbe9b3d5c2b`.
 
+## Metric-depth follow-up
+
+The official Apache-2.0 DA3Metric-Large checkpoint was then added with exact
+source/model pins and run only on the centered 30/40 mm control. Absolute and
+incremental VRAM are tracked separately on the selected CUDA device, and raw
+face/background ordering is recorded as diagnostic-only telemetry. The oracle
+still cannot affect normalization, polarity, clipping, feature weighting, or
+STL generation.
+
+DA3Metric does not qualify for expansion. At 30 mm it reaches only `0.900212`
+normal mean cosine, `48.4292` degrees p95 normal error, and `0.725143` minimum
+relighting correlation; every named part fails shape and millimeter gates. Its
+background span is already `18.6208` mm, yet broad correlation is `-0.210890`.
+The 40 mm row worsens to `53.6326` degrees while background correlation remains
+negative at `-0.216549`. All emitted meshes themselves remain printable and
+pass context, cap, attachment, shell, and cross-height checks.
+
+The new ordering audit explains why another gain adjustment is inappropriate.
+DA2 follows its near-high contract on the face (`-0.982817` against far-high
+depth) but reverses that sign within the background (`+0.504785`). A polarity
+flip was rejected because the pinned DA3 source defines positive direct depth
+and choosing the flip from oracle scores would leak evaluation into emission.
+Clean evidence at implementation revision `5738972` is in
+`docs/benchmark-evidence/makehuman_da3metric_relief_centered_n1/`.
+
 ## Validation
 
 ```powershell
@@ -479,7 +504,7 @@ npm run test:ui
 
 Measured state on 2026-07-15:
 
-- Backend: 510 passed, 54 subtests passed (2 existing warnings).
+- Backend: 512 passed, 54 subtests passed (2 existing warnings).
 - Frontend typecheck: passed.
 - Frontend lint: passed with zero warnings.
 - Playwright: 9 passed, 1 intentionally skipped, including the delayed-compose replacement-photo race.
