@@ -351,6 +351,17 @@ six-scene matrix also passes. Compact evidence is in
 Both matrices were rerun with clean implementation provenance at exact revision
 `2dea653881460a6b4b39d67fe1c2d2ce8ae62f7d`.
 
+The two exact 30 mm inputs that originally exposed the portrait and llama-group
+failures were then replayed from clean head
+`535daf3cacbf3d57c2474240322290d06f8296c4`. Relative to the tracked `0.45`
+baseline, portrait background centered RMS and p02-p98 span rise from
+`4.6482`/`13.3445` to `6.8165`/`19.5000` mm; llama-group rises from
+`6.5078`/`21.6562` to `7.8375`/`22.0282` mm. Portrait face-component metrics
+improve, all four llama selected-component correlations and RMS retentions
+improve, and both STLs remain printable. Compact aggregate-only evidence is in
+`docs/benchmark-evidence/relief_background_prominence_exact_v5/`; no private
+image, mask, depth, response, preview, or mesh is tracked.
+
 ## Validation
 
 ```powershell
