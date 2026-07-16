@@ -1650,6 +1650,69 @@ def face_blend_weight(
     return weight.astype(np.float32), distance.astype(np.float32), feather_px
 
 
+def face_surface_support_mask(
+    face_mask: np.ndarray,
+    selection_mask: np.ndarray | None,
+) -> tuple[np.ndarray, dict]:
+    """Select the connected subject component that contains the detected face."""
+    face = (np.asarray(face_mask) > 0).astype(np.uint8)
+    face_pixels = int(np.count_nonzero(face))
+    if face_pixels == 0:
+        raise ValueError("Face surface support requires a non-empty face mask")
+    if selection_mask is None:
+        return face * 255, {
+            "mode": "detector-face",
+            "reason": "selection_mask_unavailable",
+            "face_pixels": face_pixels,
+            "support_pixels": face_pixels,
+            "support_expansion_ratio": 1.0,
+        }
+
+    selection = np.asarray(selection_mask)
+    if selection.shape != face.shape:
+        selection = _resize_mask(selection, face.shape)
+    selection = (selection > 0).astype(np.uint8)
+    component_count, labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        selection,
+        8,
+    )
+    best_component = None
+    best_overlap = 0
+    for component in range(1, component_count):
+        overlap = int(np.count_nonzero((labels == component) & (face > 0)))
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best_component = component
+    minimum_overlap = max(24, int(round(face_pixels * 0.25)))
+    if best_component is None or best_overlap < minimum_overlap:
+        return face * 255, {
+            "mode": "detector-face",
+            "reason": "selection_component_overlap_gate",
+            "face_pixels": face_pixels,
+            "selection_components": max(0, int(component_count - 1)),
+            "best_overlap_pixels": best_overlap,
+            "minimum_overlap_pixels": minimum_overlap,
+            "support_pixels": face_pixels,
+            "support_expansion_ratio": 1.0,
+        }
+
+    subject = (labels == best_component).astype(np.uint8)
+    support = np.maximum(subject, face)
+    support_pixels = int(np.count_nonzero(support))
+    return support * 255, {
+        "mode": "selection-subject",
+        "reason": "connected_selection_component",
+        "face_pixels": face_pixels,
+        "selection_components": max(0, int(component_count - 1)),
+        "selected_component_pixels": int(
+            stats[best_component, cv2.CC_STAT_AREA]
+        ),
+        "face_overlap_pixels": best_overlap,
+        "support_pixels": support_pixels,
+        "support_expansion_ratio": float(support_pixels / face_pixels),
+    }
+
+
 def fuse_face_depth(
     global_depth: np.ndarray,
     local_face_depth: np.ndarray,
@@ -1730,6 +1793,156 @@ def fuse_face_depth(
     return refined, weight, stats
 
 
+def fuse_face_surface_residual(
+    global_depth: np.ndarray,
+    local_face_depth: np.ndarray,
+    surface_residual: np.ndarray,
+    face_mask: np.ndarray,
+    *,
+    alignment_depth: np.ndarray | None = None,
+    feather_ratio: float = DEFAULT_FACE_FEATHER_RATIO,
+    max_correction_ratio: float = DEFAULT_FACE_MAX_CORRECTION_RATIO,
+) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Apply a bounded non-affine local-depth residual without moving the boundary."""
+    global_depth = np.asarray(global_depth, dtype=np.float32)
+    local_face_depth = np.asarray(local_face_depth, dtype=np.float32)
+    surface_residual = np.asarray(surface_residual, dtype=np.float32)
+    if global_depth.ndim != 2:
+        raise ValueError("Face surface residual fusion expects a 2D depth map")
+    if local_face_depth.shape != global_depth.shape:
+        local_face_depth = _resize_float(local_face_depth, global_depth.shape)
+    if surface_residual.shape != global_depth.shape:
+        surface_residual = _resize_float(surface_residual, global_depth.shape)
+    if face_mask.shape != global_depth.shape:
+        face_mask = _resize_mask(face_mask, global_depth.shape)
+    reference = (
+        global_depth
+        if alignment_depth is None
+        else np.asarray(alignment_depth, dtype=np.float32)
+    )
+    if reference.shape != global_depth.shape:
+        reference = _resize_float(reference, global_depth.shape)
+    if not np.all(np.isfinite(surface_residual)):
+        raise ValueError("Face surface residual contains non-finite values")
+
+    binary = (face_mask > 0).astype(np.uint8)
+    if not np.any(binary):
+        raise ValueError("Face surface residual mask is empty")
+    distance = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
+    rows, columns = np.nonzero(binary)
+    face_size = max(
+        1.0,
+        float(
+            min(
+                columns.max() - columns.min() + 1,
+                rows.max() - rows.min() + 1,
+            )
+        ),
+    )
+    feather_px = max(2.0, face_size * max(0.05, float(feather_ratio)))
+    weight = np.clip((distance - 1.0) / feather_px, 0.0, 1.0)
+    weight = weight * weight * (3.0 - 2.0 * weight) * binary
+    boundary = (distance > 0) & (distance <= 2.0)
+    weight[boundary] = 0.0
+
+    outer_radius = max(2, int(round(feather_px * 0.75)))
+    outer_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE,
+        (outer_radius * 2 + 1, outer_radius * 2 + 1),
+    )
+    outer_ring = (cv2.dilate(binary, outer_kernel) > 0) & (binary == 0)
+    outer_valid = (
+        outer_ring
+        & np.isfinite(local_face_depth)
+        & np.isfinite(reference)
+    )
+    if np.count_nonzero(outer_valid) >= 24:
+        anchor_mask = outer_valid
+        anchor_strategy = "outer-face-ring"
+    else:
+        anchor_mask = (
+            (distance > 0)
+            & (distance <= feather_px * 1.5)
+            & np.isfinite(local_face_depth)
+            & np.isfinite(reference)
+        )
+        anchor_strategy = "inner-boundary-fallback"
+    _aligned, alignment = _fit_face_depth(
+        local_face_depth,
+        reference,
+        anchor_mask,
+    )
+
+    face_valid = (
+        (binary > 0)
+        & np.isfinite(local_face_depth)
+        & np.isfinite(surface_residual)
+    )
+    if np.count_nonzero(face_valid) < 24:
+        raise ValueError("Face surface residual has insufficient finite support")
+    affine_design = np.column_stack(
+        (
+            local_face_depth[face_valid].astype(np.float64),
+            np.ones(np.count_nonzero(face_valid), dtype=np.float64),
+        )
+    )
+    residual_scale, residual_offset = np.linalg.lstsq(
+        affine_design,
+        surface_residual[face_valid].astype(np.float64),
+        rcond=None,
+    )[0]
+    non_affine_residual = surface_residual - (
+        float(residual_scale) * local_face_depth + float(residual_offset)
+    )
+    correction = non_affine_residual * float(alignment["scale"])
+    reference_span = max(
+        _robust_span(reference, face_valid),
+        _robust_span(global_depth, face_valid),
+    )
+    correction_limit = reference_span * max(
+        0.0,
+        float(max_correction_ratio),
+    )
+    if correction_limit > 0 and math.isfinite(correction_limit):
+        correction = np.clip(
+            correction,
+            -correction_limit,
+            correction_limit,
+        )
+    else:
+        correction = np.zeros_like(correction)
+    correction = np.nan_to_num(
+        correction,
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0,
+    ) * weight
+
+    refined = global_depth.copy()
+    valid = np.isfinite(global_depth)
+    refined[valid] = global_depth[valid] + correction[valid]
+    stats = {
+        **alignment,
+        "enabled": True,
+        "method": "bounded-non-affine-face-surface-residual",
+        "alignment_anchor": anchor_strategy,
+        "outer_anchor_pixels": int(np.count_nonzero(outer_valid)),
+        "residual_affine_scale": float(residual_scale),
+        "residual_affine_offset": float(residual_offset),
+        "face_pixels": int(np.count_nonzero(face_valid)),
+        "feather_px": float(feather_px),
+        "correction_limit": float(correction_limit),
+        "max_abs_correction": float(np.max(np.abs(correction))),
+        "mean_abs_correction": float(np.mean(np.abs(correction[face_valid]))),
+        "boundary_max_abs_correction": (
+            float(np.max(np.abs(correction[boundary])))
+            if np.any(boundary)
+            else 0.0
+        ),
+    }
+    return refined, weight.astype(np.float32), stats
+
+
 def _save_preview(values: np.ndarray, path: Path) -> None:
     finite = values[np.isfinite(values)]
     if not finite.size:
@@ -1757,6 +1970,7 @@ def refine_depth_for_faces(
     min_face_pixels: int = DEFAULT_MIN_FACE_PIXELS,
     detector: Callable[[np.ndarray], tuple[list[dict], list[str]] | list[dict]] | None = None,
     detection_roi_mask: str | Path | np.ndarray | None = None,
+    infer_surface_residual: Callable | None = None,
 ) -> tuple[str, dict]:
     mode = str(mode or "auto").strip().lower()
     if mode not in FACE_REFINEMENT_MODES:
@@ -1773,6 +1987,7 @@ def refine_depth_for_faces(
         "part_names": list(FACE_PART_NAMES),
         "part_mask_faces": 0,
         "selection_detail_fallback_regions": 0,
+        "surface_residual_faces": 0,
         "refined_selection_detail_regions": 0,
         "refined_regions_total": 0,
         "minimum_face_pixels": {
@@ -1796,6 +2011,28 @@ def refine_depth_for_faces(
         metadata["reason"] = f"input_unavailable:{type(exc).__name__}:{exc}"
         return str(depth_path), metadata
 
+    roi_mask = None
+    if detection_roi_mask is not None:
+        try:
+            if isinstance(detection_roi_mask, (str, Path)):
+                roi_mask = np.asarray(
+                    Image.open(detection_roi_mask).convert("L")
+                )
+            else:
+                roi_mask = np.asarray(detection_roi_mask)
+            if roi_mask.shape != image_rgb.shape[:2]:
+                roi_mask = _resize_mask(roi_mask, image_rgb.shape[:2])
+            metadata["selection_roi_detection"] = {
+                "enabled": True,
+                "reason": "mask_loaded",
+            }
+        except Exception as exc:
+            metadata["selection_roi_detection"] = {
+                "enabled": True,
+                "reason": "roi_mask_load_error",
+                "error": f"{type(exc).__name__}:selection_roi_mask_unavailable",
+            }
+
     effective_min_face_pixels = _effective_min_face_pixels(image_rgb.shape, min_face_pixels)
     metadata["minimum_face_pixels"]["effective"] = int(effective_min_face_pixels)
     def run_detector(values: np.ndarray, requested_faces: int, requested_minimum: int):
@@ -1813,12 +2050,8 @@ def refine_depth_for_faces(
     else:
         regions, detector_errors = detection_result, []
     metadata["detector_errors"] = [str(error) for error in detector_errors]
-    if not regions and detection_roi_mask is not None:
+    if not regions and roi_mask is not None:
         try:
-            if isinstance(detection_roi_mask, (str, Path)):
-                roi_mask = np.asarray(Image.open(detection_roi_mask).convert("L"))
-            else:
-                roi_mask = np.asarray(detection_roi_mask)
             regions, roi_errors, roi_stats = detect_face_regions_in_roi(
                 image_rgb,
                 roi_mask,
@@ -1908,6 +2141,17 @@ def refine_depth_for_faces(
             target_shape = (dy1 - dy0, dx1 - dx0)
             face_mask = _resize_mask(region["face_mask"][y0:y1, x0:x1], target_shape)
             feature_mask = _resize_mask(region["feature_mask"][y0:y1, x0:x1], target_shape)
+            selection_crop = (
+                _resize_mask(roi_mask[y0:y1, x0:x1], target_shape)
+                if roi_mask is not None
+                else None
+            )
+            surface_support_mask, surface_support_stats = (
+                face_surface_support_mask(
+                    face_mask,
+                    selection_crop,
+                )
+            )
             region_part_masks = region.get("part_masks") or {}
             local_part_masks = {
                 name: _resize_mask(
@@ -1918,6 +2162,54 @@ def refine_depth_for_faces(
                 if region_part_masks.get(name) is not None
             }
             local_depth = _resize_float(local_depth, target_shape)
+            surface_residual = None
+            surface_residual_inference = {
+                "enabled": False,
+                "reason": (
+                    "selection_detail_fallback"
+                    if is_selection_detail
+                    else "not_requested"
+                ),
+            }
+            if infer_surface_residual is not None and not is_selection_detail:
+                surface_output_dir = artifact_dir / f"face_{index:02d}_surface"
+                surface_output_dir.mkdir(parents=True, exist_ok=True)
+                inferred = infer_surface_residual(
+                    crop_path,
+                    local_depth.copy(),
+                    face_mask.copy(),
+                    feature_mask.copy(),
+                    surface_support_mask.copy(),
+                    surface_output_dir,
+                )
+                provider_stats = {}
+                if (
+                    isinstance(inferred, tuple)
+                    and len(inferred) == 2
+                    and isinstance(inferred[1], dict)
+                ):
+                    inferred, provider_stats = inferred
+                if isinstance(inferred, (str, Path)):
+                    inferred = np.squeeze(np.load(inferred)).astype(np.float32)
+                surface_residual = np.squeeze(
+                    np.asarray(inferred, dtype=np.float32)
+                )
+                if surface_residual.ndim != 2:
+                    raise ValueError(
+                        "Face surface residual inference must return a 2D array"
+                    )
+                surface_residual = _resize_float(
+                    surface_residual,
+                    target_shape,
+                )
+                if not np.all(np.isfinite(surface_residual)):
+                    raise ValueError(
+                        "Face surface residual inference returned non-finite values"
+                    )
+                surface_residual_inference = {
+                    "enabled": True,
+                    **provider_stats,
+                }
             source_shape_input = refined[dy0:dy1, dx0:dx1].copy()
             shape_input = source_shape_input
             shape_weight = np.zeros(target_shape, dtype=np.float32)
@@ -2004,6 +2296,52 @@ def refine_depth_for_faces(
                 feather_ratio=feather_ratio,
                 max_correction_ratio=max_correction_ratio,
             )
+            surface_weight = np.zeros(target_shape, dtype=np.float32)
+            surface_residual_stats = surface_residual_inference
+            if surface_residual is not None:
+                requested_support_mode = str(
+                    surface_residual_inference.get(
+                        "surface_support_mode",
+                        "detector-face",
+                    )
+                )
+                if requested_support_mode == "selection-subject":
+                    residual_support_mask = surface_support_mask
+                    residual_support_stats = surface_support_stats
+                elif requested_support_mode == "detector-face":
+                    residual_support_mask = face_mask
+                    residual_support_stats = {
+                        "mode": "detector-face",
+                        "reason": "checkpoint_contract",
+                        "face_pixels": int(np.count_nonzero(face_mask)),
+                        "support_pixels": int(np.count_nonzero(face_mask)),
+                        "support_expansion_ratio": 1.0,
+                    }
+                else:
+                    raise ValueError(
+                        "Unsupported face surface support mode "
+                        f"{requested_support_mode!r}"
+                    )
+                (
+                    refined_crop,
+                    surface_weight,
+                    residual_fusion_stats,
+                ) = fuse_face_surface_residual(
+                    refined_crop,
+                    local_depth,
+                    surface_residual,
+                    residual_support_mask,
+                    alignment_depth=shape_input,
+                    feather_ratio=feather_ratio,
+                    max_correction_ratio=max_correction_ratio,
+                )
+                surface_residual_stats = {
+                    **surface_residual_inference,
+                    **residual_fusion_stats,
+                    "surface_support": residual_support_stats,
+                    "surface_support_mode": requested_support_mode,
+                }
+                metadata["surface_residual_faces"] += 1
             eyewear_deocclusion_stats = {
                 "enabled": False,
                 "reason": "eyewear_not_detected",
@@ -2029,7 +2367,10 @@ def refine_depth_for_faces(
                         **reconstruction_stats,
                         "detection": eyewear_detection_stats,
                     }
-            detail_weight = np.maximum(weight, shape_weight)
+            detail_weight = np.maximum(
+                np.maximum(weight, shape_weight),
+                surface_weight,
+            )
             if eyewear_deocclusion_stats.get("enabled"):
                 detail_weight *= 1.0 - eyewear_weight
                 combined_occlusion[dy0:dy1, dx0:dx1] = np.maximum(
@@ -2069,6 +2410,7 @@ def refine_depth_for_faces(
                     "status": "refined",
                     "depth_bbox": [dx0, dy0, dx1, dy1],
                     "landmark_shape_prior": shape_prior_stats,
+                    "surface_residual": surface_residual_stats,
                     "eyewear_deocclusion": eyewear_deocclusion_stats,
                     "part_masks": {
                         "schema_version": 1,

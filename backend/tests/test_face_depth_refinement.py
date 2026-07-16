@@ -25,8 +25,10 @@ from backend.face_depth_refinement import (
     detect_face_regions,
     face_blend_weight,
     face_masks_from_box,
+    face_surface_support_mask,
     fuse_face_depth,
     fuse_face_landmark_shape_prior,
+    fuse_face_surface_residual,
     refine_depth_for_faces,
 )
 
@@ -38,6 +40,32 @@ def gaussian_peak(shape, center, sigma, amplitude):
 
 
 class FaceDepthRefinementTest(unittest.TestCase):
+    def test_surface_support_uses_only_selection_component_containing_face(self):
+        face = np.zeros((48, 64), dtype=np.uint8)
+        face[14:34, 20:40] = 255
+        selection = np.zeros_like(face)
+        selection[8:42, 12:48] = 255
+        selection[2:7, 55:62] = 255
+
+        support, stats = face_surface_support_mask(face, selection)
+
+        self.assertEqual(stats["mode"], "selection-subject")
+        self.assertGreater(stats["support_expansion_ratio"], 1.0)
+        self.assertTrue(np.all(support[face > 0] == 255))
+        self.assertEqual(int(np.max(support[2:7, 55:62])), 0)
+
+    def test_surface_support_falls_back_when_selection_misses_face(self):
+        face = np.zeros((48, 64), dtype=np.uint8)
+        face[14:34, 20:40] = 255
+        selection = np.zeros_like(face)
+        selection[2:7, 55:62] = 255
+
+        support, stats = face_surface_support_mask(face, selection)
+
+        self.assertEqual(stats["mode"], "detector-face")
+        self.assertEqual(stats["reason"], "selection_component_overlap_gate")
+        np.testing.assert_array_equal(support > 0, face > 0)
+
     def test_yunet_keypoint_gate_rejects_non_face_geometry(self):
         box = (20, 10, 120, 150)
         face_like = np.asarray(
@@ -729,6 +757,54 @@ class FaceDepthRefinementTest(unittest.TestCase):
         self.assertEqual(stats["detail_fusion"], "monotonic-excess")
         self.assertGreaterEqual(float(refined[54, 48]), float(global_depth[54, 48]) - 1e-7)
         self.assertLess(float(np.max(np.abs(refined - global_depth))), 1e-3)
+
+    def test_surface_residual_removes_affine_component_and_preserves_boundary(self):
+        shape = (96, 96)
+        yy, xx = np.indices(shape, dtype=np.float32)
+        global_depth = 0.3 + xx * 0.002 + yy * 0.0005
+        local_depth = 0.7 + xx * 0.006 + yy * 0.0015
+        face_mask, _feature_mask = face_masks_from_box(
+            shape,
+            (16, 6, 80, 90),
+        )
+        affine_residual = 0.4 * local_depth - 0.2
+
+        unchanged, _weight, affine_stats = fuse_face_surface_residual(
+            global_depth,
+            local_depth,
+            affine_residual,
+            face_mask,
+            max_correction_ratio=0.5,
+        )
+        non_affine = affine_residual + gaussian_peak(
+            shape,
+            (54, 48),
+            sigma=5.0,
+            amplitude=0.12,
+        )
+        refined, weight, stats = fuse_face_surface_residual(
+            global_depth,
+            local_depth,
+            non_affine,
+            face_mask,
+            max_correction_ratio=0.5,
+        )
+        correction = refined - global_depth
+
+        np.testing.assert_allclose(unchanged, global_depth, atol=1e-6)
+        self.assertEqual(
+            affine_stats["method"],
+            "bounded-non-affine-face-surface-residual",
+        )
+        self.assertEqual(stats["alignment_anchor"], "outer-face-ring")
+        self.assertGreater(float(abs(correction[54, 48])), 0.01)
+        self.assertEqual(float(np.max(np.abs(correction[face_mask == 0]))), 0.0)
+        self.assertLessEqual(stats["boundary_max_abs_correction"], 1e-7)
+        self.assertLessEqual(
+            float(np.max(np.abs(correction))),
+            stats["correction_limit"] + 1e-6,
+        )
+        self.assertGreater(float(weight[54, 48]), 0.5)
 
     def test_file_pipeline_writes_refined_depth_and_auditable_masks(self):
         with tempfile.TemporaryDirectory() as temp_dir:
