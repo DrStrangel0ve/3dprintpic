@@ -24,6 +24,27 @@ from backend.benchmark.train_face_depth_head import (
 from backend.face_depth_refinement import refine_depth_for_faces
 
 
+GNM_FUSION_METHOD = "gnm_dav2_multiscale_fusion_head"
+GNM_PRODUCTION_FUSION_METHOD = "gnm_dav2_production_surface_fusion_head"
+DIRECT_LOCAL_INTEGRATION = "direct-local"
+PAIRED_RESIDUAL_INTEGRATION = "paired-residual"
+SIZE_AWARE_PAIRED_RESIDUAL_INTEGRATION = "paired-residual-size-aware"
+SMALL_FACE_PAIRED_RESIDUAL_INTEGRATION = "paired-residual-small-face-only"
+INTEGRATION_MODES = (
+    DIRECT_LOCAL_INTEGRATION,
+    PAIRED_RESIDUAL_INTEGRATION,
+    SIZE_AWARE_PAIRED_RESIDUAL_INTEGRATION,
+    SMALL_FACE_PAIRED_RESIDUAL_INTEGRATION,
+)
+GNM_TRAINING_FACE_HEIGHT_ANCHOR_PIXELS = 90.0
+GNM_DETECTOR_SUPPORT_HEIGHT_RATIO = 0.5
+RESIDUAL_FULL_STRENGTH_SUPPORT_HEIGHT_PIXELS = (
+    GNM_TRAINING_FACE_HEIGHT_ANCHOR_PIXELS
+    * GNM_DETECTOR_SUPPORT_HEIGHT_RATIO
+)
+RESIDUAL_ZERO_STRENGTH_SUPPORT_HEIGHT_PIXELS = 55.0
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -53,6 +74,88 @@ def _correlation(left: np.ndarray, right: np.ndarray) -> float:
     return float(np.corrcoef(x, y)[0, 1])
 
 
+def _resize_depth(values: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    values = np.asarray(values, dtype=np.float32)
+    if values.shape == shape:
+        return values
+    image = Image.fromarray(values, mode="F")
+    resized = image.resize(
+        (int(shape[1]), int(shape[0])),
+        resample=Image.Resampling.BICUBIC,
+    )
+    return np.asarray(resized, dtype=np.float32)
+
+
+def _face_residual_scale(
+    face_mask: np.ndarray,
+    *,
+    full_strength_height_pixels: float = (
+        RESIDUAL_FULL_STRENGTH_SUPPORT_HEIGHT_PIXELS
+    ),
+) -> tuple[float, int]:
+    rows = np.flatnonzero(np.any(np.asarray(face_mask) > 0, axis=1))
+    if not rows.size:
+        raise ValueError("Cannot scale a face residual for an empty face mask")
+    support_height = int(rows[-1] - rows[0] + 1)
+    scale = min(
+        1.0,
+        max(0.0, float(full_strength_height_pixels))
+        / max(float(support_height), 1.0),
+    )
+    return float(scale), support_height
+
+
+def _small_face_residual_scale(
+    face_mask: np.ndarray,
+    *,
+    full_strength_height_pixels: float = (
+        RESIDUAL_FULL_STRENGTH_SUPPORT_HEIGHT_PIXELS
+    ),
+    zero_strength_height_pixels: float = (
+        RESIDUAL_ZERO_STRENGTH_SUPPORT_HEIGHT_PIXELS
+    ),
+) -> tuple[float, int]:
+    rows = np.flatnonzero(np.any(np.asarray(face_mask) > 0, axis=1))
+    if not rows.size:
+        raise ValueError("Cannot scale a face residual for an empty face mask")
+    support_height = int(rows[-1] - rows[0] + 1)
+    full_strength = max(float(full_strength_height_pixels), 1.0)
+    zero_strength = max(float(zero_strength_height_pixels), full_strength)
+    if support_height <= full_strength:
+        scale = 1.0
+    elif support_height >= zero_strength:
+        scale = 0.0
+    else:
+        scale = (zero_strength - support_height) / (
+            zero_strength - full_strength
+        )
+    return float(scale), support_height
+
+
+def _checkpoint_mode_and_alpha(checkpoint: dict) -> tuple[str, float]:
+    if checkpoint.get("method") in {
+        GNM_FUSION_METHOD,
+        GNM_PRODUCTION_FUSION_METHOD,
+    }:
+        required = ("fusion_stage_state_dict", "head_state_dict")
+        missing = [name for name in required if name not in checkpoint]
+        if missing:
+            raise ValueError(
+                "GNM fusion checkpoint is missing state dictionaries: "
+                + ", ".join(missing)
+            )
+        mode = "fusion-head"
+        alpha = float(checkpoint.get("selected_alpha", -1.0))
+    else:
+        if "head_state_dict" not in checkpoint:
+            raise ValueError("Face-head checkpoint is missing head_state_dict")
+        mode = "head-only"
+        alpha = float(checkpoint.get("blend_alpha", -1.0))
+    if not 0.0 <= alpha <= 1.0:
+        raise ValueError("Face-depth checkpoint blend alpha must be in [0, 1]")
+    return mode, alpha
+
+
 class BlendedFaceDepth:
     def __init__(self, checkpoint_path: Path, device: str):
         import torch
@@ -64,9 +167,7 @@ class BlendedFaceDepth:
             raise ValueError("Face-head checkpoint model id does not match DAv2 Large")
         if checkpoint.get("model_revision") != MODEL_REVISION:
             raise ValueError("Face-head checkpoint revision does not match the pinned model")
-        alpha = float(checkpoint.get("blend_alpha", 0.0))
-        if not 0.0 <= alpha <= 1.0:
-            raise ValueError("Face-head checkpoint blend alpha must be in [0, 1]")
+        mode, alpha = _checkpoint_mode_and_alpha(checkpoint)
         snapshot = snapshot_download(
             MODEL_ID,
             revision=MODEL_REVISION,
@@ -75,6 +176,7 @@ class BlendedFaceDepth:
         self.processor = AutoImageProcessor.from_pretrained(
             snapshot,
             local_files_only=True,
+            backend="pil",
         )
         self.device = device
         self.dtype = torch.float16 if device.startswith("cuda") else torch.float32
@@ -93,18 +195,48 @@ class BlendedFaceDepth:
             dtype=torch.float32,
         )
         self.trained_head.load_state_dict(checkpoint["head_state_dict"])
+        self.baseline_fusion = None
+        self.trained_fusion = None
+        if mode == "fusion-head":
+            self.baseline_fusion = copy.deepcopy(
+                self.model.neck.fusion_stage
+            ).to(device=device, dtype=torch.float32)
+            self.trained_fusion = copy.deepcopy(
+                self.model.neck.fusion_stage
+            ).to(device=device, dtype=torch.float32)
+            self.trained_fusion.load_state_dict(
+                checkpoint["fusion_stage_state_dict"]
+            )
+            self.baseline_fusion.eval()
+            self.trained_fusion.eval()
         self.baseline_head.eval()
         self.trained_head.eval()
+        self.mode = mode
         self.alpha = alpha
         self.snapshot = Path(snapshot)
         self.checkpoint = checkpoint
         self.timings = []
+        self._prediction_cache = {}
+        self.cache_hits = 0
+        self.cache_misses = 0
         if device.startswith("cuda"):
             torch.cuda.reset_peak_memory_stats(device)
 
-    def infer(self, image_path: Path, alpha: float | None = None) -> np.ndarray:
+    def _prediction_pair(self, image_path: Path) -> tuple[np.ndarray, np.ndarray]:
         import torch
 
+        image_path = Path(image_path)
+        stat = image_path.stat()
+        cache_key = (
+            str(image_path.resolve()),
+            int(stat.st_size),
+            int(stat.st_mtime_ns),
+        )
+        cached = self._prediction_cache.get(cache_key)
+        if cached is not None:
+            self.cache_hits += 1
+            return cached
+        self.cache_misses += 1
         image = Image.open(image_path).convert("RGB")
         pixel_values = self.processor(
             images=image,
@@ -115,38 +247,85 @@ class BlendedFaceDepth:
         started = time.perf_counter()
         with torch.inference_mode():
             backbone = self.model.backbone.forward_with_filtered_kwargs(pixel_values)
-            hidden = self.model.neck(
-                backbone.feature_maps,
-                patch_height,
-                patch_width,
-            )
-            feature = hidden[-1].to(dtype=torch.float32)
-            baseline = self.baseline_head(
-                [feature],
-                patch_height,
-                patch_width,
-            )
-            trained = self.trained_head(
-                [feature],
-                patch_height,
-                patch_width,
-            )
-            blend = self.alpha if alpha is None else float(alpha)
-            prediction = (1.0 - blend) * baseline + blend * trained
-            prediction = torch.nn.functional.interpolate(
-                prediction[:, None],
+            if self.mode == "fusion-head":
+                reassembled = self.model.neck.reassemble_stage(
+                    backbone.feature_maps,
+                    patch_height,
+                    patch_width,
+                )
+                features = [
+                    self.model.neck.convs[index](feature).to(
+                        dtype=torch.float32
+                    )
+                    for index, feature in enumerate(reassembled)
+                ]
+                baseline_hidden = self.baseline_fusion(features)
+                trained_hidden = self.trained_fusion(features)
+                baseline = self.baseline_head(
+                    baseline_hidden,
+                    patch_height,
+                    patch_width,
+                )
+                trained = self.trained_head(
+                    trained_hidden,
+                    patch_height,
+                    patch_width,
+                )
+            else:
+                hidden = self.model.neck(
+                    backbone.feature_maps,
+                    patch_height,
+                    patch_width,
+                )
+                feature = hidden[-1].to(dtype=torch.float32)
+                baseline = self.baseline_head(
+                    [feature],
+                    patch_height,
+                    patch_width,
+                )
+                trained = self.trained_head(
+                    [feature],
+                    patch_height,
+                    patch_width,
+                )
+            baseline = torch.nn.functional.interpolate(
+                baseline[:, None],
+                size=(image.height, image.width),
+                mode="bicubic",
+                align_corners=False,
+            )[0, 0]
+            trained = torch.nn.functional.interpolate(
+                trained[:, None],
                 size=(image.height, image.width),
                 mode="bicubic",
                 align_corners=False,
             )[0, 0]
         self.timings.append(time.perf_counter() - started)
-        return _minmax_normalize(prediction.float().cpu().numpy())
+        pair = (
+            baseline.float().cpu().numpy(),
+            trained.float().cpu().numpy(),
+        )
+        self._prediction_cache[cache_key] = pair
+        return pair
+
+    def infer(self, image_path: Path, alpha: float | None = None) -> np.ndarray:
+        baseline, trained = self._prediction_pair(Path(image_path))
+        blend = self.alpha if alpha is None else float(alpha)
+        prediction = (1.0 - blend) * baseline + blend * trained
+        return _minmax_normalize(prediction)
 
     def callback(self, image_path, output_dir):
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         path = output_dir / "output_depth_data.npy"
         np.save(path, self.infer(Path(image_path)))
+        return str(path)
+
+    def baseline_callback(self, image_path, output_dir):
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / "output_depth_data.npy"
+        np.save(path, self.infer(Path(image_path), alpha=0.0))
         return str(path)
 
     def provenance(self) -> dict:
@@ -158,6 +337,8 @@ class BlendedFaceDepth:
             else 0.0
         )
         return {
+            "checkpoint_method": self.checkpoint.get("method"),
+            "trainable_scope": self.mode,
             "model_id": MODEL_ID,
             "model_revision": MODEL_REVISION,
             "model_sha256": _sha256(self.snapshot / "model.safetensors"),
@@ -166,10 +347,123 @@ class BlendedFaceDepth:
             ),
             "blend_alpha": self.alpha,
             "inference_calls": len(self.timings),
+            "prediction_cache_hits": self.cache_hits,
+            "prediction_cache_misses": self.cache_misses,
             "mean_inference_seconds": (
                 float(np.mean(self.timings)) if self.timings else None
             ),
             "peak_vram_gb": peak_vram,
+        }
+
+
+class PairedFusionSurfaceResidual:
+    def __init__(
+        self,
+        provider: BlendedFaceDepth,
+        *,
+        size_aware: bool = False,
+        small_face_only: bool = False,
+    ):
+        if size_aware and small_face_only:
+            raise ValueError("Only one paired residual scale mode may be active")
+        self.provider = provider
+        self.size_aware = bool(size_aware)
+        self.small_face_only = bool(small_face_only)
+        self.calls = []
+
+    def callback(
+        self,
+        image_path,
+        local_depth,
+        face_mask,
+        _feature_mask,
+        _surface_support_mask,
+        output_dir,
+    ):
+        image_path = Path(image_path)
+        baseline = self.provider.infer(image_path, alpha=0.0)
+        candidate = self.provider.infer(image_path)
+        residual = candidate - baseline
+        residual_scale = 1.0
+        support_height = None
+        if self.small_face_only:
+            residual_scale, support_height = _small_face_residual_scale(
+                face_mask
+            )
+            residual = residual * residual_scale
+        elif self.size_aware:
+            residual_scale, support_height = _face_residual_scale(face_mask)
+            residual = residual * residual_scale
+        comparable_baseline = _resize_depth(
+            baseline,
+            np.asarray(local_depth).shape,
+        )
+        local_depth = np.asarray(local_depth, dtype=np.float32)
+        stats = {
+            "provider": "gnm-dav2-paired-fusion-depth-delta",
+            "selected_alpha": self.provider.alpha,
+            "residual_scale": residual_scale,
+            "size_aware_scaling": self.size_aware,
+            "small_face_only_scaling": self.small_face_only,
+            "support_height_pixels": support_height,
+            "full_strength_support_height_pixels": (
+                RESIDUAL_FULL_STRENGTH_SUPPORT_HEIGHT_PIXELS
+                if self.size_aware
+                else None
+            ),
+            "zero_strength_support_height_pixels": (
+                RESIDUAL_ZERO_STRENGTH_SUPPORT_HEIGHT_PIXELS
+                if self.small_face_only
+                else None
+            ),
+            "surface_support_mode": "detector-face",
+            "local_baseline_correlation": _correlation(
+                local_depth,
+                comparable_baseline,
+            ),
+            "local_baseline_maximum_absolute_difference": float(
+                np.max(np.abs(local_depth - comparable_baseline))
+            ),
+            "raw_scaled_residual_min": float(np.min(residual)),
+            "raw_scaled_residual_max": float(np.max(residual)),
+            "raw_scaled_residual_rms": float(
+                np.sqrt(np.mean(np.square(residual, dtype=np.float64)))
+            ),
+            "affine_component_removed_downstream": True,
+        }
+        self.calls.append(stats)
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        np.save(output_dir / "surface_residual.npy", residual)
+        return residual, stats
+
+    def provenance(self) -> dict:
+        return {
+            "method": "paired-trained-minus-baseline-depth-residual",
+            "size_aware_scaling": self.size_aware,
+            "small_face_only_scaling": self.small_face_only,
+            "full_strength_support_height_pixels": (
+                RESIDUAL_FULL_STRENGTH_SUPPORT_HEIGHT_PIXELS
+                if self.size_aware
+                else None
+            ),
+            "zero_strength_support_height_pixels": (
+                RESIDUAL_ZERO_STRENGTH_SUPPORT_HEIGHT_PIXELS
+                if self.small_face_only
+                else None
+            ),
+            "calls": self.calls,
+            "all_local_baselines_equivalent": bool(
+                self.calls
+                and all(
+                    call["local_baseline_correlation"] >= 0.999
+                    and call[
+                        "local_baseline_maximum_absolute_difference"
+                    ]
+                    <= 0.02
+                    for call in self.calls
+                )
+            ),
         }
 
 
@@ -221,13 +515,40 @@ def evaluate(
     output_dir: str | Path,
     *,
     device: str = "cuda",
+    integration_mode: str = DIRECT_LOCAL_INTEGRATION,
 ) -> dict:
     run_root = Path(run_root)
     checkpoint_path = Path(checkpoint_path)
     output_dir = Path(output_dir)
+    integration_mode = str(integration_mode).strip().lower()
+    if integration_mode not in INTEGRATION_MODES:
+        raise ValueError(
+            f"Unsupported integration mode {integration_mode!r}; "
+            f"expected one of {INTEGRATION_MODES}"
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
     run_summary = json.loads((run_root / "summary.json").read_text(encoding="utf-8"))
     provider = BlendedFaceDepth(checkpoint_path, device)
+    surface_provider = (
+        PairedFusionSurfaceResidual(
+            provider,
+            size_aware=(
+                integration_mode
+                == SIZE_AWARE_PAIRED_RESIDUAL_INTEGRATION
+            ),
+            small_face_only=(
+                integration_mode
+                == SMALL_FACE_PAIRED_RESIDUAL_INTEGRATION
+            ),
+        )
+        if integration_mode
+        in {
+            PAIRED_RESIDUAL_INTEGRATION,
+            SIZE_AWARE_PAIRED_RESIDUAL_INTEGRATION,
+            SMALL_FACE_PAIRED_RESIDUAL_INTEGRATION,
+        }
+        else None
+    )
     baseline_rows = []
     candidate_rows = []
     equivalence = []
@@ -268,9 +589,18 @@ def evaluate(
             run_root / row["source"]["path"],
             job_dir / "output_depth_data.npy",
             row_output,
-            infer_depth=provider.callback,
+            infer_depth=(
+                provider.baseline_callback
+                if surface_provider is not None
+                else provider.callback
+            ),
             mode="on",
             detection_roi_mask=run_root / row["selection_mask"]["path"],
+            infer_surface_residual=(
+                surface_provider.callback
+                if surface_provider is not None
+                else None
+            ),
         )
         candidate_rows.append(
             {
@@ -280,6 +610,9 @@ def evaluate(
                 "crop_bbox": metadata["faces"][0].get("crop_bbox"),
                 "max_abs_correction": metadata["faces"][0].get(
                     "max_abs_correction"
+                ),
+                "surface_residual": metadata["faces"][0].get(
+                    "surface_residual"
                 ),
                 **_quality(run_root, row, Path(refined_path)),
             }
@@ -310,14 +643,44 @@ def evaluate(
             < baseline_by_id[hard_row]["combined_part_failures"]
         ),
     }
+    if surface_provider is not None:
+        decision["paired_local_baseline_equivalent"] = bool(
+            surface_provider.provenance()["all_local_baselines_equivalent"]
+        )
     decision["eligible_for_full_stl_replay"] = bool(all(decision.values()))
+    if surface_provider is not None and surface_provider.small_face_only:
+        method = (
+            "trained_dav2_fusion_delta_through_small_face_only_"
+            "bounded_surface_residual"
+        )
+    elif surface_provider is not None and surface_provider.size_aware:
+        method = (
+            "trained_dav2_fusion_delta_through_size_aware_bounded_"
+            "surface_residual"
+        )
+    elif surface_provider is not None:
+        method = (
+            "trained_dav2_fusion_delta_through_bounded_surface_residual"
+        )
+    elif provider.mode == "fusion-head":
+        method = (
+            "trained_dav2_fusion_head_through_unchanged_face_refinement"
+        )
+    else:
+        method = "trained_dav2_head_blend_through_unchanged_face_refinement"
     evidence = {
         "schema_version": 1,
-        "method": "trained_dav2_head_blend_through_unchanged_face_refinement",
+        "method": method,
+        "integration_mode": integration_mode,
         "source_revision": run_summary["server_provenance"]["revision"],
         "source_summary_sha256": _sha256(run_root / "summary.json"),
         "checkpoint_sha256": _sha256(checkpoint_path),
         "provider": provider.provenance(),
+        "surface_residual_provider": (
+            surface_provider.provenance()
+            if surface_provider is not None
+            else None
+        ),
         "local_baseline_equivalence": equivalence,
         "baseline": baseline,
         "candidate": candidate,
@@ -337,12 +700,18 @@ def main() -> None:
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--integration-mode",
+        choices=INTEGRATION_MODES,
+        default=DIRECT_LOCAL_INTEGRATION,
+    )
     args = parser.parse_args()
     evidence = evaluate(
         args.run_root,
         args.checkpoint,
         args.output_dir,
         device=args.device,
+        integration_mode=args.integration_mode,
     )
     print(json.dumps(evidence["decision"], indent=2))
     if not evidence["decision"]["eligible_for_full_stl_replay"]:

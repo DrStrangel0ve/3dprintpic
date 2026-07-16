@@ -45,6 +45,12 @@ GNM_SAMPLER_RELATIVE_ROOT = (
 )
 GNM_IDENTITY_DECODER = "identity_decoder_model.h5"
 GNM_EXPRESSION_DECODER = "expression_decoder_model.h5"
+NOVEL_IDENTITY_SELECTION_STRATEGY = "novel-identity-stratified"
+ROW_SELECTION_STRATEGIES = (
+    "linspace",
+    "identity-stratified",
+    NOVEL_IDENTITY_SELECTION_STRATEGY,
+)
 
 DEMOGRAPHICS = (
     ("female", "middle_eastern"),
@@ -254,9 +260,11 @@ def build_identity_specs() -> tuple[GNMIdentitySpec, ...]:
 IDENTITIES = build_identity_specs()
 
 
-def build_training_matrix() -> tuple[GNMTrainingSceneSpec, ...]:
+def build_training_matrix(
+    identities: tuple[GNMIdentitySpec, ...] = IDENTITIES,
+) -> tuple[GNMTrainingSceneSpec, ...]:
     rows = []
-    for identity_index, identity in enumerate(IDENTITIES):
+    for identity_index, identity in enumerate(identities):
         for expression_index, expression in enumerate(EXPRESSIONS):
             for scene_index in range(len(SCENE_CONDITIONS)):
                 shifted_scene_index = (
@@ -297,21 +305,137 @@ def build_training_matrix() -> tuple[GNMTrainingSceneSpec, ...]:
 TRAINING_MATRIX = build_training_matrix()
 
 
+def build_novel_training_identities() -> tuple[GNMIdentitySpec, ...]:
+    variant_index = 5
+    identities = []
+    for demographic_index, (gender, ethnicity) in enumerate(DEMOGRAPHICS):
+        identities.append(
+            GNMIdentitySpec(
+                identity_group=(
+                    f"gnm_{gender}_{ethnicity}_v{variant_index:02d}"
+                ),
+                split="train",
+                gender=gender,
+                ethnicity=ethnicity,
+                variant_index=variant_index,
+                latent_seed=(
+                    CORPUS_SEED
+                    + demographic_index * 1009
+                    + variant_index * 7919
+                ),
+            )
+        )
+    return tuple(identities)
+
+
+NOVEL_TRAINING_IDENTITIES = build_novel_training_identities()
+NOVEL_TRAINING_MATRIX = build_training_matrix(NOVEL_TRAINING_IDENTITIES)
+
+
 def select_training_rows(
     *,
     split: str | None = None,
     limit: int | None = None,
+    strategy: str = "linspace",
 ) -> tuple[GNMTrainingSceneSpec, ...]:
+    if strategy == NOVEL_IDENTITY_SELECTION_STRATEGY:
+        if split not in (None, "train"):
+            raise ValueError(
+                "Novel identity rows are a training-only cohort"
+            )
+        rows = NOVEL_TRAINING_MATRIX
+        if limit is None or int(limit) >= len(rows):
+            return rows
+        count = max(int(limit), 0)
+        if count == 0:
+            return ()
+        return _select_identity_stratified_rows(rows, count)
     rows = tuple(
         row for row in TRAINING_MATRIX if split is None or row.split == split
     )
+    if strategy not in ROW_SELECTION_STRATEGIES:
+        raise ValueError(
+            f"Unsupported row selection strategy {strategy!r}; "
+            f"expected one of {ROW_SELECTION_STRATEGIES}"
+        )
     if limit is None or int(limit) >= len(rows):
         return rows
     count = max(int(limit), 0)
     if count == 0:
         return ()
+    if strategy == "identity-stratified":
+        return _select_identity_stratified_rows(rows, count)
     indices = np.linspace(0, len(rows) - 1, num=count, dtype=np.int64)
     return tuple(rows[int(index)] for index in indices)
+
+
+def _scene_condition_index(row: GNMTrainingSceneSpec) -> int:
+    for index, condition in enumerate(SCENE_CONDITIONS):
+        if (
+            row.target_dimension == condition.target_dimension
+            and row.camera_yaw_deg == condition.camera_yaw_deg
+            and row.camera_elevation_deg == condition.camera_elevation_deg
+            and row.camera_distance == condition.camera_distance
+            and row.horizontal_offset == condition.horizontal_offset
+            and row.background_profile == condition.background_profile
+            and row.lighting_profile == condition.lighting_profile
+            and row.occlusion == condition.occlusion
+        ):
+            return index
+    raise ValueError(f"Row {row.row_id!r} does not match a GNM scene condition")
+
+
+def _select_identity_stratified_rows(
+    rows: tuple[GNMTrainingSceneSpec, ...],
+    count: int,
+) -> tuple[GNMTrainingSceneSpec, ...]:
+    identity_groups = tuple(dict.fromkeys(row.identity_group for row in rows))
+    if not identity_groups:
+        return ()
+    base_quota, remainder = divmod(int(count), len(identity_groups))
+    if base_quota > len(EXPRESSIONS) * len(SCENE_CONDITIONS):
+        raise ValueError("Requested identity-stratified quota exceeds matrix size")
+    extra_indices = set(
+        int(index)
+        for index in (
+            np.linspace(
+                0,
+                len(identity_groups) - 1,
+                num=remainder,
+                dtype=np.int64,
+            )
+            if remainder
+            else ()
+        )
+    )
+    by_identity: dict[
+        str, dict[tuple[str, int], GNMTrainingSceneSpec]
+    ] = {}
+    for row in rows:
+        by_identity.setdefault(row.identity_group, {})[
+            (row.expression, _scene_condition_index(row))
+        ] = row
+
+    selected = []
+    global_slot = 0
+    for identity_index, identity_group in enumerate(identity_groups):
+        quota = base_quota + int(identity_index in extra_indices)
+        available = by_identity[identity_group]
+        for _ in range(quota):
+            expression = EXPRESSIONS[global_slot % len(EXPRESSIONS)]
+            scene_index = global_slot % len(SCENE_CONDITIONS)
+            key = (expression, scene_index)
+            if key not in available:
+                raise ValueError(
+                    f"Identity {identity_group!r} is missing matrix cell {key!r}"
+                )
+            selected.append(available[key])
+            global_slot += 1
+    if len(selected) != int(count) or len({row.row_id for row in selected}) != len(
+        selected
+    ):
+        raise RuntimeError("Identity-stratified row selection is incomplete")
+    return tuple(selected)
 
 
 def _asset_paths(gnm_root: Path) -> dict[str, Path]:
@@ -695,6 +819,7 @@ def render_training_slice(
     *,
     split: str | None = None,
     limit: int | None = None,
+    selection_strategy: str = "linspace",
 ) -> dict:
     root = Path(gnm_root).resolve()
     preflight = preflight_gnm_root(root)
@@ -708,7 +833,16 @@ def render_training_slice(
     asset_paths = _asset_paths(root)
     model = _load_gnm_model(root)
     part_weights = _face_part_weights(model)
-    selected = select_training_rows(split=split, limit=limit)
+    selected = select_training_rows(
+        split=split,
+        limit=limit,
+        strategy=selection_strategy,
+    )
+    selected_matrix = (
+        NOVEL_TRAINING_MATRIX
+        if selection_strategy == NOVEL_IDENTITY_SELECTION_STRATEGY
+        else TRAINING_MATRIX
+    )
     rows = []
     started = time.perf_counter()
     for spec in selected:
@@ -772,13 +906,14 @@ def render_training_slice(
         ),
         "source_geometry_training_and_evaluation_only": True,
         "corpus_seed": CORPUS_SEED,
-        "matrix_row_count": len(TRAINING_MATRIX),
+        "matrix_row_count": len(selected_matrix),
         "matrix_split_counts": {
-            name: sum(row.split == name for row in TRAINING_MATRIX)
+            name: sum(row.split == name for row in selected_matrix)
             for name in ("train", "validation", "sealed")
         },
         "requested_split": split,
         "requested_limit": limit,
+        "selection_strategy": selection_strategy,
         "row_count": len(rows),
         "runtime_seconds": float(time.perf_counter() - started),
         "preflight": preflight,
@@ -797,6 +932,11 @@ def main() -> None:
     parser.add_argument("--render-output")
     parser.add_argument("--split", choices=("train", "validation", "sealed"))
     parser.add_argument("--limit", type=int)
+    parser.add_argument(
+        "--selection-strategy",
+        choices=ROW_SELECTION_STRATEGIES,
+        default="linspace",
+    )
     parser.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args()
     if args.preflight_only:
@@ -810,6 +950,7 @@ def main() -> None:
         args.render_output,
         split=args.split,
         limit=args.limit,
+        selection_strategy=args.selection_strategy,
     )
     print(
         json.dumps(

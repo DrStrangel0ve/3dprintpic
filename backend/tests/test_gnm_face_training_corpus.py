@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 
 from backend.benchmark import gnm_face_training_corpus as corpus
@@ -135,6 +136,71 @@ class GNMFaceTrainingCorpusTests(unittest.TestCase):
             set(corpus.EXPRESSIONS),
         )
         self.assertEqual(len({row.row_id for row in selected}), 80)
+
+    def test_identity_stratified_selection_balances_the_80_row_audit(self):
+        selected = corpus.select_training_rows(
+            limit=80,
+            strategy="identity-stratified",
+        )
+        self.assertEqual(len(selected), 80)
+        self.assertEqual(
+            Counter(row.split for row in selected),
+            {"train": 48, "validation": 16, "sealed": 16},
+        )
+        self.assertEqual(
+            Counter(row.identity_group for row in selected),
+            {identity.identity_group: 2 for identity in corpus.IDENTITIES},
+        )
+        self.assertEqual(
+            Counter(row.expression for row in selected),
+            {expression: 10 for expression in corpus.EXPRESSIONS},
+        )
+        self.assertEqual(
+            Counter(corpus._scene_condition_index(row) for row in selected),
+            {index: 16 for index in range(len(corpus.SCENE_CONDITIONS))},
+        )
+        small_count = sum(
+            (
+                row.target_dimension == 256
+                and row.camera_distance >= 7.6
+            )
+            or (
+                row.target_dimension == 384
+                and row.camera_distance >= 13.0
+            )
+            for row in selected
+        )
+        self.assertEqual(small_count, 48)
+        self.assertEqual(len({row.row_id for row in selected}), 80)
+
+    def test_novel_identity_selection_is_disjoint_and_balanced(self):
+        selected = corpus.select_training_rows(
+            split="train",
+            limit=32,
+            strategy=corpus.NOVEL_IDENTITY_SELECTION_STRATEGY,
+        )
+        existing_identities = {
+            row.identity_group
+            for row in corpus.select_training_rows(
+                limit=80,
+                strategy="identity-stratified",
+            )
+        }
+        counts = Counter(row.identity_group for row in selected)
+
+        self.assertEqual(len(selected), 32)
+        self.assertEqual(len(counts), 8)
+        self.assertEqual(set(counts.values()), {4})
+        self.assertFalse(set(counts) & existing_identities)
+        self.assertTrue(all("_v05" in identity for identity in counts))
+        self.assertEqual(
+            Counter(corpus._scene_condition_index(row) for row in selected),
+            {0: 7, 1: 7, 2: 6, 3: 6, 4: 6},
+        )
+
+    def test_identity_stratified_selection_rejects_unknown_strategy(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported row selection"):
+            corpus.select_training_rows(limit=8, strategy="unknown")
 
     def test_preflight_fails_closed_for_missing_official_assets(self):
         with tempfile.TemporaryDirectory() as directory:

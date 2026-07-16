@@ -1971,6 +1971,7 @@ def refine_depth_for_faces(
     detector: Callable[[np.ndarray], tuple[list[dict], list[str]] | list[dict]] | None = None,
     detection_roi_mask: str | Path | np.ndarray | None = None,
     infer_surface_residual: Callable | None = None,
+    enable_gnm_foundation: bool = True,
 ) -> tuple[str, dict]:
     mode = str(mode or "auto").strip().lower()
     if mode not in FACE_REFINEMENT_MODES:
@@ -1988,6 +1989,7 @@ def refine_depth_for_faces(
         "part_mask_faces": 0,
         "selection_detail_fallback_regions": 0,
         "surface_residual_faces": 0,
+        "parametric_foundation_faces": 0,
         "refined_selection_detail_regions": 0,
         "refined_regions_total": 0,
         "minimum_face_pixels": {
@@ -2215,6 +2217,7 @@ def refine_depth_for_faces(
             shape_weight = np.zeros(target_shape, dtype=np.float32)
             shape_prior_stats = {"enabled": False, "reason": "no_relative_z_landmarks"}
             shape_context = None
+            landmark_points = None
             eyewear_weight = np.zeros(target_shape, dtype=np.float32)
             eyewear_detection_stats = {
                 "enabled": False,
@@ -2296,6 +2299,79 @@ def refine_depth_for_faces(
                 feather_ratio=feather_ratio,
                 max_correction_ratio=max_correction_ratio,
             )
+            parametric_weight = np.zeros(target_shape, dtype=np.float32)
+            parametric_foundation_stats = {
+                "enabled": False,
+                "reason": "not_eligible",
+            }
+            detector_name = str(region.get("detector") or "")
+            if not enable_gnm_foundation:
+                parametric_foundation_stats["reason"] = "disabled"
+            elif is_selection_detail:
+                parametric_foundation_stats["reason"] = "selection_detail_fallback"
+            elif "mediapipe" not in detector_name.lower():
+                parametric_foundation_stats["reason"] = "non_mediapipe_landmarks"
+            elif landmark_points is None or len(landmark_points) < 468:
+                parametric_foundation_stats["reason"] = "insufficient_landmarks"
+            else:
+                face_rows, face_columns = np.nonzero(face_mask > 0)
+                face_support = (
+                    max(
+                        int(face_rows.max() - face_rows.min() + 1),
+                        int(face_columns.max() - face_columns.min() + 1),
+                    )
+                    if len(face_rows)
+                    else 0
+                )
+                try:
+                    from .gnm_face_foundation import (
+                        GNM_MAX_FACE_SUPPORT_PIXELS,
+                        fuse_gnm_face_foundation,
+                        get_gnm_mean_face_foundation,
+                    )
+                except ImportError:
+                    from gnm_face_foundation import (
+                        GNM_MAX_FACE_SUPPORT_PIXELS,
+                        fuse_gnm_face_foundation,
+                        get_gnm_mean_face_foundation,
+                    )
+
+                if face_support > GNM_MAX_FACE_SUPPORT_PIXELS:
+                    parametric_foundation_stats = {
+                        "enabled": False,
+                        "reason": "face_support_above_small_face_gate",
+                        "support_pixels": face_support,
+                        "maximum_support_pixels": GNM_MAX_FACE_SUPPORT_PIXELS,
+                    }
+                else:
+                    try:
+                        gnm_surface, provider_stats = (
+                            get_gnm_mean_face_foundation().fit_and_render(
+                                landmark_points,
+                                face_mask,
+                            )
+                        )
+                        (
+                            refined_crop,
+                            parametric_weight,
+                            fusion_stats,
+                        ) = fuse_gnm_face_foundation(
+                            refined_crop,
+                            gnm_surface,
+                            face_mask,
+                        )
+                        parametric_foundation_stats = {
+                            **provider_stats,
+                            **fusion_stats,
+                        }
+                        if parametric_foundation_stats.get("enabled"):
+                            metadata["parametric_foundation_faces"] += 1
+                    except Exception as exc:
+                        parametric_foundation_stats = {
+                            "enabled": False,
+                            "reason": "provider_error",
+                            "error_type": type(exc).__name__,
+                        }
             surface_weight = np.zeros(target_shape, dtype=np.float32)
             surface_residual_stats = surface_residual_inference
             if surface_residual is not None:
@@ -2368,7 +2444,10 @@ def refine_depth_for_faces(
                         "detection": eyewear_detection_stats,
                     }
             detail_weight = np.maximum(
-                np.maximum(weight, shape_weight),
+                np.maximum(
+                    np.maximum(weight, shape_weight),
+                    parametric_weight,
+                ),
                 surface_weight,
             )
             if eyewear_deocclusion_stats.get("enabled"):
@@ -2410,6 +2489,7 @@ def refine_depth_for_faces(
                     "status": "refined",
                     "depth_bbox": [dx0, dy0, dx1, dy1],
                     "landmark_shape_prior": shape_prior_stats,
+                    "parametric_face_foundation": parametric_foundation_stats,
                     "surface_residual": surface_residual_stats,
                     "eyewear_deocclusion": eyewear_deocclusion_stats,
                     "part_masks": {
