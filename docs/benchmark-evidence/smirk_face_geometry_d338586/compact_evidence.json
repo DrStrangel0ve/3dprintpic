@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "implementation_commit": "d338586419839b7af9590d1b8c5fbd65035bbace",
+  "status": "research-pass-production-hold",
+  "privacy": "CC0 MakeHuman geometry and deterministic procedural scenes only",
+  "provider": {
+    "name": "SMIRK",
+    "source_url": "https://github.com/georgeretsi/smirk.git",
+    "source_revision": "c7de404c4389f073906a6db1adabf62efcea3f35",
+    "source_license": "MIT",
+    "checkpoint_google_drive_id": "1T65uEd9dVLHgVw5KiUYL66NUee-MCzoE",
+    "checkpoint_size_bytes": 140495895,
+    "checkpoint_sha256": "26b234e3cc31a5de226bcba4321bb5d7343a2ad48234c028b57a1c2f8c2d22d0",
+    "flame_model_sha256": "efcd14cc4a69f3a3d9af8ded80146b5b6b50df3bd74cf69108213b144eba725b",
+    "production_eligible": false,
+    "research_only_reasons": [
+      "Checkpoint terms require a separate audit",
+      "FLAME model is a research asset and is not redistributed"
+    ]
+  },
+  "policy": {
+    "variant_id": "pose045_jaw075_a0_a0.10_a0.25_s1",
+    "maximum_absolute_pose_y_radians": 0.45,
+    "minimum_jaw_open": 0.075,
+    "outside_pose_provider_alpha": 0.0,
+    "low_provider_alpha": 0.1,
+    "high_provider_alpha": 0.25,
+    "sigma_ratio": 0.018867924528301886,
+    "selection_scope": "24 train identities/contexts only",
+    "policy_counts": {
+      "high": 3,
+      "low": 5,
+      "pose_bypass": 24
+    }
+  },
+  "raw_challenge": {
+    "rows": 32,
+    "runtime_seconds": 56.7125245999996,
+    "full_evidence_size_bytes": 6345415,
+    "full_evidence_sha256": "6e852e6a7e90ff3f5e9009ad692941a920524c4599c9652c4578fd1d93768377",
+    "baseline": {
+      "combined_part_failures": 286,
+      "median_shape_correlation": 0.8366299818426559,
+      "median_gradient_correlation": 0.7214097099179737,
+      "median_normalized_rmse": 0.15684503193004112
+    },
+    "candidate": {
+      "combined_part_failures": 277,
+      "median_shape_correlation": 0.8366299818426559,
+      "median_gradient_correlation": 0.7214097099179737,
+      "median_normalized_rmse": 0.15684503193004112
+    },
+    "paired": {
+      "improved_rows": 5,
+      "tied_rows": 27,
+      "regressed_rows": 0,
+      "maximum_failure_regression": 0
+    },
+    "split_failures": {
+      "train": {
+        "baseline": 212,
+        "candidate": 204
+      },
+      "validation": {
+        "baseline": 36,
+        "candidate": 36
+      },
+      "sealed": {
+        "baseline": 38,
+        "candidate": 37
+      }
+    },
+    "landmark_bbox_iou_min": 0.3483462350457424,
+    "landmark_bbox_iou_max": 0.45285010555946514,
+    "provider_crop_coverage_min": 0.6117584745762712,
+    "provider_crop_coverage_max": 0.7435,
+    "checks": {
+      "train_selection_passes": true,
+      "aggregate_failures_improve": true,
+      "no_row_regresses": true,
+      "validation_non_regression": true,
+      "sealed_non_regression": true,
+      "median_shape_non_regression": true,
+      "median_gradient_non_regression": true,
+      "median_rmse_non_regression": true,
+      "background_exact": true,
+      "attachment_boundary_exact": true,
+      "landmark_registration_passes": true,
+      "provider_coverage_passes": true,
+      "rasterization_passes": true,
+      "eligible_for_30mm_replay": true
+    }
+  },
+  "physical_30mm": {
+    "rows": 3,
+    "runtime_seconds": 69.3977059999961,
+    "full_evidence_size_bytes": 1413586,
+    "full_evidence_sha256": "3f820f85f2a64d13f554518a4e653818cf8d005d34b71ec87e641ef503b4ad7c",
+    "decision": {
+      "three_split_rows": true,
+      "all_rows_pass": true,
+      "at_least_one_named_part_improvement": true,
+      "no_named_part_regression": true
+    },
+    "rows_detail": [
+      {
+        "row_id": "mh_caucasian_male__mouth_open_06",
+        "split": "train",
+        "face_height_pixels": 76,
+        "camera_yaw_deg": -22.0,
+        "baseline_named_part_failures": 8,
+        "candidate_named_part_failures": 7,
+        "background_correlation": 0.9999396420137361,
+        "background_rms_retention": 0.9934274203628906,
+        "surface_max_mm": 30.005672454833984,
+        "watertight": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "shell_passed": true
+      },
+      {
+        "row_id": "mh_mixed_female__mouth_open_02",
+        "split": "validation",
+        "face_height_pixels": 70,
+        "camera_yaw_deg": -38.0,
+        "baseline_named_part_failures": 12,
+        "candidate_named_part_failures": 12,
+        "background_correlation": 0.9999999999999999,
+        "background_rms_retention": 1.0,
+        "surface_max_mm": 30.009910583496094,
+        "watertight": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "shell_passed": true
+      },
+      {
+        "row_id": "mh_mixed_male__neutral_00",
+        "split": "sealed",
+        "face_height_pixels": 78,
+        "camera_yaw_deg": -22.0,
+        "baseline_named_part_failures": 9,
+        "candidate_named_part_failures": 9,
+        "background_correlation": 0.9999116460518139,
+        "background_rms_retention": 0.9939787083881014,
+        "surface_max_mm": 30.003446578979492,
+        "watertight": true,
+        "winding_consistent": true,
+        "component_count": 1,
+        "nonmanifold_edge_count": 0,
+        "degenerate_face_count": 0,
+        "shell_passed": true
+      }
+    ]
+  },
+  "comparison": {
+    "vggheads_raw_full_evidence_sha256": "9d5a7f4c038d5db8140f47af99e9e425d9a9ca4423142ad3a57d40064ed22ac2",
+    "vggheads_raw_failures": {
+      "baseline": 286,
+      "candidate": 276,
+      "improved_rows": 6,
+      "tied_rows": 26,
+      "regressed_rows": 0
+    },
+    "vggheads_physical_decision": "closed after tested reference-normalized 30 mm rows regressed"
+  },
+  "validation": {
+    "focused_tests": "27 passed",
+    "full_backend_tests": "703 passed, 72 subtests passed",
+    "full_backend_warnings": 2,
+    "ruff": "passed",
+    "compileall": "passed"
+  }
+}
