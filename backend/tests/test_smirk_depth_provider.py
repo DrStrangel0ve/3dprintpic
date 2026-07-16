@@ -6,6 +6,7 @@ from unittest.mock import patch
 import numpy as np
 
 from backend.benchmark.smirk_depth_provider import (
+    SMIRK_MEDIAPIPE_EMBEDDING,
     SMIRK_REQUIRED_SOURCE_FILES,
     SMIRK_SOURCE_REVISION,
     _crop_transform,
@@ -45,6 +46,10 @@ class SMIRKDepthProviderTests(unittest.TestCase):
         self.assertFalse(evidence["checks"]["flame_model_hash_pinned"])
         self.assertFalse(evidence["runnable"])
         self.assertTrue(evidence["license"]["research_only"])
+        self.assertIn(
+            SMIRK_MEDIAPIPE_EMBEDDING,
+            SMIRK_REQUIRED_SOURCE_FILES,
+        )
 
     def test_crop_transform_matches_official_square_crop_scale(self):
         crop = _crop_transform(

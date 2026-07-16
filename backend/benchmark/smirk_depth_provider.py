@@ -31,6 +31,11 @@ SMIRK_FLAME_MODEL_SHA256 = (
 )
 SMIRK_IMAGE_SIZE = 224
 SMIRK_CROP_SCALE = 1.4
+SMIRK_MEDIAPIPE_LANDMARK_COUNT = 105
+SMIRK_MEDIAPIPE_EMBEDDING = (
+    "assets/mediapipe_landmark_embedding/"
+    "mediapipe_landmark_embedding.npz"
+)
 SMIRK_REQUIRED_SOURCE_FILES = (
     "LICENSE",
     "src/smirk_encoder.py",
@@ -39,7 +44,7 @@ SMIRK_REQUIRED_SOURCE_FILES = (
     "assets/landmark_embedding.npy",
     "assets/l_eyelid.npy",
     "assets/r_eyelid.npy",
-    "assets/mediapipe_landmark_embedding/mediapipe_landmark_embedding.npz",
+    SMIRK_MEDIAPIPE_EMBEDDING,
 )
 SMIRK_REQUIRED_DEPENDENCIES = (
     "cv2",
@@ -369,6 +374,19 @@ class SMIRKProvider:
         self.faces = (
             self.flame.faces_tensor.detach().long().cpu().numpy()
         )
+        with np.load(
+            self.provider_root / SMIRK_MEDIAPIPE_EMBEDDING
+        ) as embedding:
+            self.mediapipe_landmark_indices = embedding[
+                "landmark_indices"
+            ].astype(np.int32)
+        if self.mediapipe_landmark_indices.shape != (
+            SMIRK_MEDIAPIPE_LANDMARK_COUNT,
+        ):
+            raise ValueError(
+                "SMIRK MediaPipe embedding must contain exactly "
+                f"{SMIRK_MEDIAPIPE_LANDMARK_COUNT} landmark indices"
+            )
         self.calls: list[dict] = []
         self.allocated_before_inference = (
             int(torch.cuda.memory_allocated(self.device))
@@ -443,12 +461,31 @@ class SMIRKProvider:
         canonical_vertices = (
             flame_output["vertices"][0].detach().float().cpu().numpy()
         )
+        canonical_landmarks_mp = (
+            flame_output["landmarks_mp"][0]
+            .detach()
+            .float()
+            .cpu()
+            .numpy()
+        )
         camera = outputs["cam"][0].detach().float().cpu().numpy()
         projected_vertices = project_smirk_vertices(
             canonical_vertices,
             camera,
             crop,
         )
+        projected_landmarks_mp = project_smirk_vertices(
+            canonical_landmarks_mp,
+            camera,
+            crop,
+        )
+        if len(projected_landmarks_mp) != len(
+            self.mediapipe_landmark_indices
+        ):
+            raise ValueError(
+                "SMIRK projected landmark count differs from its "
+                "MediaPipe embedding"
+            )
         peak_allocated = (
             int(torch.cuda.max_memory_allocated(self.device))
             if self.device.startswith("cuda")
@@ -488,12 +525,17 @@ class SMIRKProvider:
             ],
             "vertices": int(len(projected_vertices)),
             "faces": int(len(self.faces)),
+            "mediapipe_landmarks": int(len(projected_landmarks_mp)),
         }
         self.calls.append(metadata)
         return {
             "vertices": projected_vertices,
             "canonical_vertices": canonical_vertices.astype(np.float32),
             "faces": self.faces.copy(),
+            "projected_landmarks_mp": projected_landmarks_mp,
+            "mediapipe_landmark_indices": (
+                self.mediapipe_landmark_indices.copy()
+            ),
             "metadata": metadata,
         }
 

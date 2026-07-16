@@ -6,9 +6,13 @@ import numpy as np
 from backend.benchmark.evaluate_smirk_face_training_smoke import (
     SMOKE_ROW_IDS,
     _bbox_iou,
+    _similarity_matrix,
+    apply_xy_registration,
     detect_landmark_regions,
     effective_provider_alpha,
     final_decision,
+    fit_landmark_registration,
+    gate_provider_alpha_by_registration,
     select_evaluation_rows,
     select_landmark_region,
     select_smoke_rows,
@@ -49,6 +53,103 @@ def _summary(rows):
 
 
 class SMIRKFaceTrainingSmokeTests(unittest.TestCase):
+    def test_similarity_matrix_recovers_known_transform(self):
+        source = np.array(
+            [
+                [10.0, 20.0],
+                [40.0, 20.0],
+                [10.0, 70.0],
+                [55.0, 65.0],
+            ],
+            dtype=np.float64,
+        )
+        angle = np.deg2rad(12.0)
+        scale = 1.15
+        linear = scale * np.array(
+            [
+                [np.cos(angle), -np.sin(angle)],
+                [np.sin(angle), np.cos(angle)],
+            ]
+        )
+        translation = np.array([7.5, -3.0])
+        target = source @ linear.T + translation
+
+        matrix = _similarity_matrix(source, target)
+
+        np.testing.assert_allclose(matrix[:, :2], linear, atol=1e-10)
+        np.testing.assert_allclose(matrix[:, 2], translation, atol=1e-10)
+
+    def test_xy_registration_preserves_provider_depth(self):
+        points = np.array(
+            [[1.0, 2.0, -0.4], [3.0, 4.0, 0.8]],
+            dtype=np.float32,
+        )
+        matrix = np.array(
+            [[2.0, 0.0, 5.0], [0.0, 2.0, -1.0]],
+            dtype=np.float32,
+        )
+
+        registered = apply_xy_registration(points, matrix)
+
+        np.testing.assert_allclose(
+            registered[:, :2],
+            np.array([[7.0, 3.0], [11.0, 7.0]]),
+        )
+        np.testing.assert_array_equal(registered[:, 2], points[:, 2])
+
+    def test_robust_landmark_registration_rejects_outliers(self):
+        indices = np.arange(105, dtype=np.int32)
+        grid_x, grid_y = np.meshgrid(
+            np.linspace(30.0, 170.0, 15),
+            np.linspace(20.0, 180.0, 7),
+        )
+        source = np.column_stack(
+            (
+                grid_x.reshape(-1),
+                grid_y.reshape(-1),
+                np.linspace(-0.5, 0.5, 105),
+            )
+        ).astype(np.float32)
+        angle = np.deg2rad(-8.0)
+        scale = 1.08
+        linear = scale * np.array(
+            [
+                [np.cos(angle), -np.sin(angle)],
+                [np.sin(angle), np.cos(angle)],
+            ]
+        )
+        translation = np.array([9.0, 6.0])
+        target_pixels = source[:, :2] @ linear.T + translation
+        target_pixels[:15] += np.array([45.0, -30.0])
+        detected = np.zeros((478, 3), dtype=np.float32)
+        detected[indices, 0] = target_pixels[:, 0] / 255.0
+        detected[indices, 1] = target_pixels[:, 1] / 255.0
+
+        matrix, evidence = fit_landmark_registration(
+            source,
+            detected,
+            indices,
+            image_width=256,
+            image_height=256,
+        )
+
+        self.assertTrue(evidence["checks"]["passed"])
+        self.assertGreaterEqual(evidence["inlier_ratio"], 0.80)
+        np.testing.assert_allclose(matrix[:, :2], linear, atol=1e-5)
+        np.testing.assert_allclose(matrix[:, 2], translation, atol=1e-4)
+
+    def test_failed_registration_forces_provider_bypass(self):
+        alpha, policy = gate_provider_alpha_by_registration(
+            0.25,
+            {"branch": "high", "effective_provider_alpha": 0.25},
+            "similarity",
+            {"checks": {"passed": False}},
+        )
+
+        self.assertEqual(alpha, 0.0)
+        self.assertEqual(policy["branch"], "registration-bypass")
+        self.assertEqual(policy["branch_before_registration"], "high")
+
     def test_smoke_rows_lock_split_coverage(self):
         rows = []
         for index, row_id in enumerate(SMOKE_ROW_IDS):
@@ -236,6 +337,7 @@ class SMIRKFaceTrainingSmokeTests(unittest.TestCase):
                 "provider": {
                     "landmark_bbox_iou": 0.5,
                     "refinement_crop_coverage": 0.7,
+                    "registration": {"checks": {"passed": True}},
                     "raster": {
                         "finite_pixels": 100,
                         "degenerate_faces": 0,
