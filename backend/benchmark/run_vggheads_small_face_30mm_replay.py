@@ -339,10 +339,25 @@ def _compact_variant(variant: dict) -> dict:
     }
 
 
+def _eligible_for_replay(evidence: dict) -> bool:
+    decision = evidence.get("decision", {})
+    if "eligible_for_30mm_stl_replay" in decision:
+        return bool(decision["eligible_for_30mm_stl_replay"])
+    return bool(
+        decision.get("checks", {}).get(
+            "eligible_for_30mm_stl_replay",
+            False,
+        )
+    )
+
+
 def evaluate(
     exact_gate_root: str | Path,
     baseline_root: str | Path,
     output_dir: str | Path,
+    *,
+    candidate_depth_path: str | Path | None = None,
+    eligibility_evidence_path: str | Path | None = None,
 ) -> dict:
     exact_gate_root = Path(exact_gate_root)
     baseline_root = Path(baseline_root)
@@ -363,10 +378,19 @@ def evaluate(
         baseline_dir / "output_depth_data_face_refined.npy"
     )
     candidate_depth_path = (
-        exact_gate_root
-        / "rows"
-        / HARD_SMALL_FACE_ROW
-        / "candidate_depth.npy"
+        Path(candidate_depth_path)
+        if candidate_depth_path is not None
+        else (
+            exact_gate_root
+            / "rows"
+            / HARD_SMALL_FACE_ROW
+            / "candidate_depth.npy"
+        )
+    )
+    eligibility_evidence_path = (
+        Path(eligibility_evidence_path)
+        if eligibility_evidence_path is not None
+        else exact_gate_root / "evidence.json"
     )
     face_region_path = (
         baseline_dir / "output_face_refinement_region.png"
@@ -386,6 +410,7 @@ def evaluate(
         face_region_path,
         feature_weight_path,
         feature_exclusion_path,
+        eligibility_evidence_path,
         *part_mask_paths.values(),
     )
     missing = [str(path) for path in required if not path.is_file()]
@@ -449,11 +474,13 @@ def evaluate(
     )
     checks = {
         "exact_gate_eligible": bool(
-            json.loads(
-                (exact_gate_root / "evidence.json").read_text(
-                    encoding="utf-8"
+            _eligible_for_replay(
+                json.loads(
+                    eligibility_evidence_path.read_text(
+                        encoding="utf-8"
+                    )
                 )
-            )["decision"]["eligible_for_30mm_stl_replay"]
+            )
         ),
         "candidate_named_parts_improve": bool(
             candidate_quality["combined_named_part_failures"]
@@ -496,6 +523,9 @@ def evaluate(
             "exact_depth_sha256": _sha256(exact_depth_path),
             "baseline_depth_sha256": _sha256(baseline_depth_path),
             "candidate_depth_sha256": _sha256(candidate_depth_path),
+            "eligibility_evidence_sha256": _sha256(
+                eligibility_evidence_path
+            ),
         },
         "oracle": _compact_variant(oracle),
         "baseline": {
@@ -522,11 +552,15 @@ def main() -> None:
     parser.add_argument("--exact-gate-root", required=True)
     parser.add_argument("--baseline-root", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--candidate-depth")
+    parser.add_argument("--eligibility-evidence")
     args = parser.parse_args()
     evidence = evaluate(
         args.exact_gate_root,
         args.baseline_root,
         args.output_dir,
+        candidate_depth_path=args.candidate_depth,
+        eligibility_evidence_path=args.eligibility_evidence,
     )
     print(json.dumps(evidence["checks"], indent=2))
     if not evidence["checks"]["passed"]:

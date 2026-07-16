@@ -9,6 +9,7 @@ from backend.benchmark.vggheads_depth_provider import (
     VGGHEADS_REQUIRED_SOURCE_FILES,
     VGGHEADS_SOURCE_REVISION,
     fill_depth_nearest,
+    flame_expression_summary,
     normalize_front_depth,
     rasterize_projected_mesh_depth,
     small_face_policy,
@@ -18,6 +19,20 @@ from backend.benchmark.vggheads_depth_provider import (
 
 
 class VGGHeadsDepthProviderTests(unittest.TestCase):
+    def test_flame_expression_summary_records_observable_coefficients(self):
+        import torch
+
+        class Params:
+            expression = torch.tensor([[3.0, 4.0, 0.0]])
+            jaw = torch.tensor([[0.0, -2.0, 0.0]])
+
+        summary = flame_expression_summary(Params())
+
+        self.assertEqual(summary["expression_l2"], 5.0)
+        self.assertEqual(summary["expression_max_abs"], 4.0)
+        self.assertEqual(summary["jaw_l2"], 2.0)
+        self.assertEqual(summary["jaw"], [0.0, -2.0, 0.0])
+
     def test_preflight_rejects_unpinned_model_contents(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

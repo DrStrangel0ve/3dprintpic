@@ -449,6 +449,21 @@ def _bbox_iou(box_a: np.ndarray, box_b: np.ndarray) -> float:
     return float(intersection / union) if union > 0 else 0.0
 
 
+def flame_expression_summary(parsed_params) -> dict:
+    expression = (
+        parsed_params.expression.detach().float().cpu().numpy().reshape(-1)
+    )
+    jaw = parsed_params.jaw.detach().float().cpu().numpy().reshape(-1)
+    return {
+        "expression_l2": float(np.linalg.norm(expression)),
+        "expression_max_abs": float(
+            np.max(np.abs(expression), initial=0.0)
+        ),
+        "jaw_l2": float(np.linalg.norm(jaw)),
+        "jaw": [float(value) for value in jaw],
+    }
+
+
 class VGGHeadsProvider:
     """Pinned, local-path VGGHeads inference without the optional Sim3DR import."""
 
@@ -645,6 +660,7 @@ class VGGHeadsProvider:
                 "pitch": float(pose.pitch),
                 "yaw": float(pose.yaw),
             },
+            "flame_expression": flame_expression_summary(parsed_params),
             "detections": int(len(boxes_np)),
             "selection_method": selection_method,
             "target_ious": target_ious,

@@ -5,12 +5,32 @@ import numpy as np
 
 from backend.benchmark.run_vggheads_small_face_30mm_replay import (
     _correlation,
+    _eligible_for_replay,
     _named_part_failure_count,
     _variant_quality,
 )
 
 
 class RunVGGHeadsSmallFace30mmReplayTests(unittest.TestCase):
+    def test_eligibility_supports_legacy_and_generalization_evidence(self):
+        self.assertTrue(
+            _eligible_for_replay(
+                {"decision": {"eligible_for_30mm_stl_replay": True}}
+            )
+        )
+        self.assertTrue(
+            _eligible_for_replay(
+                {
+                    "decision": {
+                        "checks": {
+                            "eligible_for_30mm_stl_replay": True
+                        }
+                    }
+                }
+            )
+        )
+        self.assertFalse(_eligible_for_replay({"decision": {}}))
+
     def test_centered_correlation_ignores_translation(self):
         first = np.arange(16, dtype=np.float64)
         second = first + 8.0
