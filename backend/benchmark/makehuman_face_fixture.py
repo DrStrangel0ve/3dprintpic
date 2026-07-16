@@ -179,9 +179,26 @@ def _deterministic_npz(path: Path, arrays: dict[str, np.ndarray]) -> None:
             archive.writestr(info, payload.getvalue(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
 
 
-def build_makehuman_face_fixture(source_root: str | Path, output_dir: str | Path) -> dict:
+def build_makehuman_face_fixture(
+    source_root: str | Path,
+    output_dir: str | Path,
+    *,
+    profiles: tuple[MakeHumanProfileSpec, ...] = MAKEHUMAN_PROFILES,
+    fixture_filename: str = "makehuman_cc0_heads.npz",
+) -> dict:
     source_root = Path(source_root)
     output_dir = Path(output_dir)
+    profiles = tuple(profiles)
+    if not profiles:
+        raise ValueError("At least one MakeHuman profile is required")
+    profile_names = [profile.name for profile in profiles]
+    if len(profile_names) != len(set(profile_names)):
+        raise ValueError("MakeHuman profile names must be unique")
+    if (
+        Path(fixture_filename).name != fixture_filename
+        or not fixture_filename.endswith(".npz")
+    ):
+        raise ValueError("fixture_filename must be a local .npz filename")
     source_revision = _verify_source_commit(source_root)
     base_path = source_root / BASE_MESH_RELATIVE_PATH
     license_path = source_root / ASSET_LICENSE_RELATIVE_PATH
@@ -251,7 +268,7 @@ def build_makehuman_face_fixture(source_root: str | Path, output_dir: str | Path
 
     target_records = {}
     profile_records = []
-    for profile in MAKEHUMAN_PROFILES:
+    for profile in profiles:
         profile_vertices = vertices.copy()
         applied = []
         for relative, scale in profile.targets:
@@ -278,7 +295,7 @@ def build_makehuman_face_fixture(source_root: str | Path, output_dir: str | Path
             }
         )
 
-    fixture_path = output_dir / "makehuman_cc0_heads.npz"
+    fixture_path = output_dir / fixture_filename
     _deterministic_npz(fixture_path, arrays)
     license_output = output_dir / "LICENSE.ASSETS.md"
     license_output.write_bytes(license_path.read_bytes())
