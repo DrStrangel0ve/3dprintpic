@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "status": "hold",
+  "method": "smirk-robust-105-point-mediapipe-similarity",
+  "implementation_commit": "14855ddce990705082e7c7b94b2f67bd31f83ff3",
+  "production_changed": false,
+  "privacy": {
+    "inputs": "CC0 MakeHuman synthetic heads and deterministic procedural scenes only",
+    "private_artifacts_published": false,
+    "source_geometry_runtime_eligible": false
+  },
+  "run": {
+    "rows": 32,
+    "device": "cuda",
+    "runtime_seconds": 85.89559040000313,
+    "provider_inference_runtime_seconds_sum": 1.5980314999833354,
+    "provider_inference_runtime_seconds_median": 0.036151950000203215,
+    "peak_vram_gib": 0.16862106323242188,
+    "raw_evidence_path": "backend/output/smirk_face_training_registered_challenge_n32_20260717/evidence.json",
+    "raw_evidence_bytes": 11469478,
+    "raw_evidence_sha256": "0016f8477938ccf7a7d95d6a9e167b052e3b3f0d390d942095ecf68fca77a7e9"
+  },
+  "registration": {
+    "landmarks": 105,
+    "rows_passed": 32,
+    "rows_total": 32,
+    "median_before_rms_pixels": 0.9660915921170108,
+    "median_after_rms_pixels": 0.6716998654441739,
+    "median_after_before_ratio": 0.737960551562194,
+    "minimum_inlier_ratio": 0.9333333333333333,
+    "scale_range": [
+      0.8934740318807597,
+      1.107218822177009
+    ],
+    "rotation_deg_range": [
+      -3.8534933688454123,
+      2.6168445955383355
+    ],
+    "minimum_control_crop_coverage": 0.6117584745762712,
+    "minimum_registered_crop_coverage": 0.5914848698099929,
+    "median_registered_coverage_delta": -0.00383723555211557
+  },
+  "baseline": {
+    "combined_part_failures": 286,
+    "median_shape_correlation": 0.8366299818426559,
+    "median_gradient_correlation": 0.7214097099179737,
+    "median_normalized_rmse": 0.15684503193004112
+  },
+  "registered_variants": [
+    {
+      "variant_id": "registered_global_a0.10_s1",
+      "applied_rows": 32,
+      "combined_part_failures": 287,
+      "improved_rows": 5,
+      "tied_rows": 22,
+      "regressed_rows": 5,
+      "maximum_failure_regression": 2
+    },
+    {
+      "variant_id": "registered_global_a0.25_s1",
+      "applied_rows": 32,
+      "combined_part_failures": 288,
+      "improved_rows": 6,
+      "tied_rows": 16,
+      "regressed_rows": 10,
+      "maximum_failure_regression": 2
+    },
+    {
+      "variant_id": "registered_pose060_jaw075_a0_a0.10_a0.25_s1",
+      "applied_rows": 18,
+      "combined_part_failures": 280,
+      "improved_rows": 5,
+      "tied_rows": 26,
+      "regressed_rows": 1,
+      "maximum_failure_regression": 1,
+      "regressed_row": "mh_caucasian_female__mouth_open_06"
+    },
+    {
+      "variant_id": "registered_pose075_jaw075_a0_a0.10_a0.25_s1",
+      "applied_rows": 32,
+      "combined_part_failures": 288,
+      "improved_rows": 5,
+      "tied_rows": 19,
+      "regressed_rows": 8,
+      "maximum_failure_regression": 2
+    }
+  ],
+  "decision": {
+    "selected_variant_id": "pose045_jaw075_a0_a0.10_a0.25_s1",
+    "selected_variant_is_registered": false,
+    "selected_combined_part_failures": 277,
+    "selected_improved_rows": 5,
+    "selected_regressed_rows": 0,
+    "registered_candidate_promoted": false,
+    "new_30mm_replay_run": false,
+    "closed_finding": "Turned-face error is provider shape or visibility, not global image-plane similarity alignment.",
+    "next_lane": "Pose-invariant camera-aligned upstream face geometry provider"
+  },
+  "validation": {
+    "backend_tests_passed": 707,
+    "backend_subtests_passed": 72,
+    "focused_tests_passed": 16,
+    "existing_warnings": 2,
+    "ruff": "passed",
+    "compileall": "passed"
+  }
+}

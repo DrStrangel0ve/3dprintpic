@@ -55,6 +55,38 @@ The selected policy used the high blend on 3 rows, the low blend on 5 rows,
 and bypassed 24 turned faces. This matters: the ungated SMIRK candidate
 improved six rows but regressed seven, so unrestricted application is closed.
 
+## Turned-face registration ablation
+
+SMIRK exposes the same 105 projected MediaPipe correspondences used by its
+official training loss. A follow-up ablation robustly fit scale, rotation, and
+translation from those provider landmarks to the independently detected
+MediaPipe landmarks, then rasterized both original and registered meshes.
+Registration fails closed when inlier coverage, scale, rotation, or RMS checks
+do not pass.
+
+All 32 fits passed. Median landmark RMS fell from `0.966092` to `0.671700`
+pixels, a median ratio of `0.737961`. The minimum inlier ratio was `0.933333`;
+scale stayed within `0.893474` to `1.107219`, and rotation stayed within
+`-3.853493` to `2.616845` degrees. Registered face-crop coverage remained above
+the required `0.50` at `0.591485` minimum.
+
+Better image-plane alignment did not produce better depth geometry:
+
+| Registered policy | Applied rows | Failures | Improved | Regressed |
+| --- | ---: | ---: | ---: | ---: |
+| global blend `0.10` | 32 | 287 | 5 | 5 |
+| global blend `0.25` | 32 | 288 | 6 | 10 |
+| pose `<=0.60`, jaw-gated | 18 | 280 | 5 | 1 |
+| pose `<=0.75`, jaw-gated | 32 | 288 | 5 | 8 |
+
+The narrowest useful candidate still added one failure on
+`mh_caucasian_female__mouth_open_06`, so it failed the strict per-row
+non-regression gate. The original pose-`0.45` policy remained selected at
+`277` failures. No registered candidate was promoted and no new 30 mm STL
+replay was run. This closes global 2D similarity registration as the explanation
+for turned-face failure: the remaining error is provider shape and visibility,
+not landmark placement.
+
 ## 30 mm STL result
 
 Three rows representing train, validation, and sealed splits were replayed
@@ -114,5 +146,6 @@ backend\.venv\Scripts\python.exe -m backend.benchmark.run_smirk_face_training_30
 ```
 
 Compact hashes and metrics are in
-`docs/benchmark-evidence/smirk_face_geometry_d338586/compact_evidence.json`.
-
+`docs/benchmark-evidence/smirk_face_geometry_d338586/compact_evidence.json`
+and
+`docs/benchmark-evidence/smirk_landmark_registration_14855dd_n32/compact_evidence.json`.
