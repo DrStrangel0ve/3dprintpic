@@ -126,6 +126,50 @@ def _face_feather(face: np.ndarray, ratio: float = FACE_FEATHER_RATIO) -> np.nda
     return (weight * binary).astype(np.float32)
 
 
+def _infer_variable_crop_depths(
+    processor,
+    model,
+    images: list[Image.Image],
+    *,
+    device: str,
+    dtype,
+):
+    import torch
+
+    grouped: dict[tuple[int, ...], list[tuple[int, torch.Tensor]]] = {}
+    for index, image in enumerate(images):
+        pixel_values = processor(images=image, return_tensors="pt")[
+            "pixel_values"
+        ]
+        if pixel_values.ndim != 4 or pixel_values.shape[0] != 1:
+            raise ValueError(
+                "Face crop processor must emit one [1,C,H,W] tensor, "
+                f"got {tuple(pixel_values.shape)}"
+            )
+        grouped.setdefault(tuple(pixel_values.shape[1:]), []).append(
+            (index, pixel_values)
+        )
+
+    predictions: list[torch.Tensor | None] = [None] * len(images)
+    with torch.inference_mode():
+        for group in grouped.values():
+            pixel_values = torch.cat(
+                [values for _, values in group],
+                dim=0,
+            ).to(device=device, dtype=dtype)
+            predicted = model(pixel_values=pixel_values).predicted_depth
+            if predicted.ndim != 3 or predicted.shape[0] != len(group):
+                raise ValueError(
+                    "Face depth model must emit [B,H,W], "
+                    f"got {tuple(predicted.shape)}"
+                )
+            for batch_index, (source_index, _values) in enumerate(group):
+                predictions[source_index] = predicted[batch_index]
+    if any(prediction is None for prediction in predictions):
+        raise RuntimeError("Face crop inference did not return every prediction")
+    return predictions
+
+
 def _cache_matches(
     cache_root: Path,
     *,
@@ -255,15 +299,17 @@ def prepare_cache(
                 }
             )
 
-        pixel_values = processor(images=images, return_tensors="pt")[
-            "pixel_values"
-        ].to(device=device, dtype=dtype)
-        with torch.inference_mode():
-            predicted = model(pixel_values=pixel_values).predicted_depth
+        predicted = _infer_variable_crop_depths(
+            processor,
+            model,
+            images,
+            device=device,
+            dtype=dtype,
+        )
         for item_index, item in enumerate(batch):
             crop = item["crop"]
             native = torch.nn.functional.interpolate(
-                predicted[item_index : item_index + 1, None],
+                predicted[item_index][None, None],
                 size=(crop.height, crop.width),
                 mode="bicubic",
                 align_corners=False,

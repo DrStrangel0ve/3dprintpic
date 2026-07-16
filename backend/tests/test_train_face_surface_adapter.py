@@ -1,9 +1,11 @@
 import numpy as np
 import torch
+from PIL import Image
 
 from backend.benchmark.train_face_surface_adapter import (
     _candidate_full_surface,
     _face_feather,
+    _infer_variable_crop_depths,
     build_surface_adapter,
     positive_affine_fit,
     remove_affine_residual,
@@ -120,3 +122,54 @@ def test_candidate_surface_maps_network_crop_into_source_grid():
     outside = candidate.copy()
     outside[4:12, 3:11] = 0.0
     assert np.count_nonzero(outside) == 0
+
+
+def test_variable_crop_inference_groups_processor_shapes_and_restores_order():
+    class Processor:
+        def __call__(self, *, images, return_tensors):
+            assert return_tensors == "pt"
+            width, height = images.size
+            output_width = 12 if width > height else 8
+            return {
+                "pixel_values": torch.full(
+                    (1, 3, 8, output_width),
+                    float(width),
+                )
+            }
+
+    class Model:
+        def __init__(self):
+            self.batch_shapes = []
+
+        def __call__(self, *, pixel_values):
+            self.batch_shapes.append(tuple(pixel_values.shape))
+            return type(
+                "DepthOutput",
+                (),
+                {"predicted_depth": pixel_values.mean(dim=1)},
+            )()
+
+    images = [
+        Image.new("RGB", (16, 16)),
+        Image.new("RGB", (24, 16)),
+        Image.new("RGB", (20, 20)),
+    ]
+    model = Model()
+
+    predictions = _infer_variable_crop_depths(
+        Processor(),
+        model,
+        images,
+        device="cpu",
+        dtype=torch.float32,
+    )
+
+    assert model.batch_shapes == [(2, 3, 8, 8), (1, 3, 8, 12)]
+    assert [tuple(values.shape) for values in predictions] == [
+        (8, 8),
+        (8, 12),
+        (8, 8),
+    ]
+    assert torch.all(predictions[0] == 16.0)
+    assert torch.all(predictions[1] == 24.0)
+    assert torch.all(predictions[2] == 20.0)
