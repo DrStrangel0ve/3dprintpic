@@ -2,9 +2,8 @@
 
 Status: **production unchanged**. Subject-supported residual fusion is retained
 as tested infrastructure, but every learned residual checkpoint remains on
-hold. FaceLift is integrated only as a pinned, research-only upstream provider
-preflight and Gaussian-to-depth normalizer; no FaceLift model inference has
-been claimed or enabled.
+hold. FaceLift was subsequently measured through its official Space and remains
+research-only and on hold.
 
 ## Why the support changed
 
@@ -99,8 +98,23 @@ noncommercial research-only, so this provider is always marked
 `production_eligible=false`.
 
 The local preflight verified the exact clean source revision and all required
-source files. It correctly reports `runnable=false` because no model root or
-weights were supplied. No unverified model was downloaded or executed.
+source files. It correctly reports `runnable=false` because no local model root
+or weights were supplied. A separate official Space smoke completed on the
+privacy-safe 76 px face row at Space revision
+`268d06a78f9f23decf831e42ec33482c9ac3dd64`: 50 steps, seed 4, guidance 3.0,
+54.229 seconds, and 140,410 output Gaussians.
+
+The first 256 px diagnostic exposed an intrinsics bug in this harness: it reused
+the native 512 px `fx`, `fy`, `cx`, and `cy`. The loader now records native
+camera resolution and scales intrinsics independently for the requested render
+width and height. Focused fixtures cover non-square scaling.
+
+With corrected intrinsics, direct camera-depth rows had 11, 12, and 12 combined
+named-part failures for camera indices 1, 2, and 3, versus 10 for the production
+baseline. Bounded detector-face and selected-subject fusion stayed at 10
+failures for every tested alpha from 0.02 through 0.20. FaceLift therefore
+remains a negative provider result for this relief metric; no 30 mm STL
+expansion was run.
 
 ## Gaussian depth normalization
 
@@ -122,14 +136,15 @@ ellipsoid rotation and does not optimize splat appearance.
 
 The current production 30 mm face and background path is unchanged. Subject
 support is retained because it is backward compatible, boundary exact, and
-demonstrably more expressive, but no learned checkpoint is selected.
+demonstrably more expressive, but no learned residual checkpoint is selected.
+FaceLift is closed for this metric after its bounded one-row smoke.
 
-The next provider experiment is one privacy-safe FaceLift smoke on an isolated
-compatible GPU after all pinned weights pass preflight. It must compare raw
-front depth and bounded production fusion on the exact six named parts and
-affine-mm metrics, while preserving background depth, 30 mm face height,
-cap/attachment, topology, exact shell, object/llama depth, dark-skin, eyewear,
-and cast-shadow controls. It stops at one row unless every gate passes.
+The next measured provider lane is documented in
+[`vggheads_small_face_exact_20260716`](../vggheads_small_face_exact_20260716/README.md).
+Its small-face VGGHeads correction passes an exact depth gate and a 30 mm STL
+replay only after subject and background normalization are decoupled. It remains
+research-only pending provider asset/weight licensing and broader privacy-safe
+identity coverage.
 
 Source geometry remains training/evaluation-only. No private image, scan,
 landmark, biometric embedding, model output, or checkpoint is published.
@@ -148,3 +163,6 @@ landmark, biometric embedding, model output, or checkpoint is published.
 | FaceLift local preflight | `74e79274b83ec974cc67da9525b21c56bf1a63bf058b6cc8bcd441202f8ca5b1` |
 | FaceLift Apache license | `1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6` |
 | Adobe Research License v1.2 | `340b4a0d7a866b43e52128cfebb788925b20e451428eb118035d930e05eff806` |
+| FaceLift official Space result | `a1c7ce6cf46e9f1f23a5062bf3bc0e089456fe91f7ab1d51e118c74fc127f452` |
+| FaceLift direct-depth diagnostic | `51e60ba09f5519ff8251f003bab85ea46a121553610d667867c7d130afb957a7` |
+| FaceLift bounded-fusion diagnostic | `92bb145b5ac44f1ddf3ca40fb229ca7de529fe161192567ecca10de5918f00db` |

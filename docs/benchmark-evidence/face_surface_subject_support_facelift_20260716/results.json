@@ -205,14 +205,42 @@
       "ellipsoid_rotation_used": false,
       "purpose": "diagnostic camera-depth comparison"
     },
-    "inference_run_completed": false
+    "inference_run_completed": true,
+    "official_space_smoke": {
+      "space_revision": "268d06a78f9f23decf831e42ec33482c9ac3dd64",
+      "runtime_seconds": 54.229020833969116,
+      "random_seed": 4,
+      "num_steps": 50,
+      "guidance_scale": 3.0,
+      "gaussian_count": 140410,
+      "camera_intrinsics_scaled_from_512_to_256": true,
+      "baseline_named_part_failures": 10,
+      "direct_depth_named_part_failures_by_camera": {
+        "1": 11,
+        "2": 12,
+        "3": 12
+      },
+      "bounded_fusion_named_part_failures": 10,
+      "bounded_fusion_supports": [
+        "detector-face",
+        "selection-subject"
+      ],
+      "bounded_fusion_alphas": [
+        0.02,
+        0.05,
+        0.1,
+        0.2
+      ],
+      "decision": "hold"
+    }
   },
   "decision": {
     "subject_support_retained": true,
     "learned_residual_selected": false,
     "residual_family_closed": true,
-    "facelift_provider_selected_for_one_row_smoke": true,
-    "next_gate": "one privacy-safe row on an isolated compatible GPU after exact source and weight preflight",
+    "facelift_provider_selected_for_one_row_smoke": false,
+    "facelift_provider_hold": true,
+    "next_gate": "bounded VGGHeads small-face exact and 30 mm STL replay",
     "production_30mm_background_path_must_remain_green": true
   }
 }

@@ -16,6 +16,7 @@ from backend.benchmark.facelift_depth_provider import (
     load_facelift_gaussians,
     normalize_depth,
     rasterize_gaussian_center_depth,
+    scale_camera_intrinsics,
 )
 
 
@@ -66,6 +67,8 @@ class FaceLiftDepthProviderTests(unittest.TestCase):
                         "fy": 110.0 + index,
                         "cx": 16.0,
                         "cy": 16.0,
+                        "w": 32,
+                        "h": 32,
                         "w2c": np.eye(4).tolist(),
                     }
                 )
@@ -79,6 +82,28 @@ class FaceLiftDepthProviderTests(unittest.TestCase):
         self.assertEqual(camera["index"], FACELIFT_FRONT_CAMERA_INDEX)
         self.assertEqual(camera["fx"], 102.0)
         self.assertEqual(camera["fy"], 112.0)
+        self.assertEqual(camera["source_width"], 32.0)
+        self.assertEqual(camera["source_height"], 32.0)
+
+    def test_camera_intrinsics_scale_with_output_resolution(self):
+        camera = {
+            "w2c": np.eye(4),
+            "fx": 548.0,
+            "fy": 550.0,
+            "cx": 256.0,
+            "cy": 256.0,
+            "source_width": 512.0,
+            "source_height": 512.0,
+        }
+
+        scaled = scale_camera_intrinsics(camera, height=256, width=128)
+
+        self.assertEqual(scaled["fx"], 137.0)
+        self.assertEqual(scaled["fy"], 275.0)
+        self.assertEqual(scaled["cx"], 64.0)
+        self.assertEqual(scaled["cy"], 128.0)
+        self.assertEqual(scaled["render_width"], 128)
+        self.assertEqual(scaled["render_height"], 256)
 
     def test_front_to_back_composition_prefers_near_gaussian(self):
         xyz = np.array(

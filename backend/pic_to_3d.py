@@ -41,6 +41,8 @@ HIGH_RELIEF_FACE_MIN_DETAIL_CORRELATION = 0.85
 HIGH_RELIEF_SELECTION_SCREENING_WEIGHT = 2.0
 HIGH_RELIEF_SELECTION_DETAIL_GRADIENT_RETENTION = 0.9
 DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO = 0.65
+NORMALIZATION_REFERENCE_BOUNDARY_PX = 1.0
+NORMALIZATION_REFERENCE_TAPER_PX = 4.0
 METRIC_FAR_HIGH_DEPTH_MODELS = frozenset(
     {
         DEPTHPRO_MODEL_ID,
@@ -1438,18 +1440,30 @@ def _normalize_relief_values(
     low_percentile=1.0,
     high_percentile=99.0,
     reference_mask=None,
+    reference_values=None,
 ):
     normalized = values.astype(np.float32, copy=True)
     finite_mask = np.isfinite(normalized)
-    reference = finite_mask
+    if reference_values is None:
+        normalization_reference = normalized
+    else:
+        normalization_reference = np.asarray(
+            reference_values,
+            dtype=np.float32,
+        )
+        if normalization_reference.shape != normalized.shape:
+            raise ValueError(
+                "Relief normalization reference must match the depth grid"
+            )
+    reference = finite_mask & np.isfinite(normalization_reference)
     if reference_mask is not None:
         reference_mask = np.asarray(reference_mask) > 0
         if reference_mask.shape != normalized.shape:
             raise ValueError("Relief normalization mask must match the depth grid")
-        masked_reference = finite_mask & reference_mask
+        masked_reference = reference & reference_mask
         if np.count_nonzero(masked_reference) >= 4:
             reference = masked_reference
-    finite = normalized[reference]
+    finite = normalization_reference[reference]
     if finite.size == 0:
         return normalized
 
@@ -1464,6 +1478,29 @@ def _normalize_relief_values(
 
     normalized = (normalized - low) / (high - low)
     return np.clip(normalized, 0.0, 1.0)
+
+
+def _normalization_reference_subject_weight(reference_mask):
+    selected = np.asarray(reference_mask) > 0
+    if selected.ndim != 2 or not np.any(selected):
+        raise ValueError(
+            "Relief normalization blend expects a non-empty 2D mask"
+        )
+    distance = distance_transform_edt(selected)
+    weight = np.clip(
+        (
+            distance - NORMALIZATION_REFERENCE_BOUNDARY_PX
+        )
+        / NORMALIZATION_REFERENCE_TAPER_PX,
+        0.0,
+        1.0,
+    )
+    weight = weight * weight * (3.0 - 2.0 * weight)
+    weight *= selected
+    weight[
+        distance <= NORMALIZATION_REFERENCE_BOUNDARY_PX
+    ] = 0.0
+    return weight.astype(np.float32, copy=False)
 
 
 def _detail_edge_window_size(detail_radius):
@@ -1488,14 +1525,45 @@ def _shape_relief_values(
     detail_protection_mask=None,
     background_detail_boost=1.0,
     normalization_mask=None,
+    normalization_reference_values=None,
 ):
     transformed, reverses_order = _transform_relief_values(values, value_transform)
-    relief = _normalize_relief_values(
+    transformed_reference = None
+    if normalization_reference_values is not None:
+        transformed_reference, reference_reverses_order = (
+            _transform_relief_values(
+                normalization_reference_values,
+                value_transform,
+            )
+        )
+        if reference_reverses_order != reverses_order:
+            raise ValueError(
+                "Relief normalization reference has incompatible semantics"
+            )
+    reference_relief = _normalize_relief_values(
         transformed,
         low_percentile=low_percentile,
         high_percentile=high_percentile,
         reference_mask=normalization_mask,
+        reference_values=transformed_reference,
     )
+    relief = reference_relief
+    if (
+        transformed_reference is not None
+        and normalization_mask is not None
+    ):
+        candidate_relief = _normalize_relief_values(
+            transformed,
+            low_percentile=low_percentile,
+            high_percentile=high_percentile,
+            reference_mask=normalization_mask,
+        )
+        subject_weight = _normalization_reference_subject_weight(
+            normalization_mask
+        )
+        relief = reference_relief + subject_weight * (
+            candidate_relief - reference_relief
+        )
     if bool(invert) ^ reverses_order:
         relief = 1.0 - relief
 
@@ -5551,10 +5619,33 @@ def depth_data_to_3d_model(
     feature_exclusion_mask=None,
     surface_output_path=None,
     reference_surface_output_path=None,
+    normalization_reference_depth=None,
 ):
     # Load the .npy file
     data = np.load(npy_file).astype(np.float32)
     input_depth_shape = [int(data.shape[0]), int(data.shape[1])]
+    normalization_reference = None
+    if normalization_reference_depth is not None:
+        if isinstance(
+            normalization_reference_depth,
+            (str, os.PathLike),
+        ):
+            normalization_reference = np.load(
+                normalization_reference_depth
+            ).astype(np.float32)
+        else:
+            normalization_reference = np.asarray(
+                normalization_reference_depth,
+                dtype=np.float32,
+            )
+        normalization_reference = np.squeeze(normalization_reference)
+        if (
+            normalization_reference.ndim != 2
+            or normalization_reference.shape != data.shape
+        ):
+            raise ValueError(
+                "Normalization reference depth must match the input depth grid"
+            )
     region_mask = None
     if face_region_mask is not None:
         if isinstance(face_region_mask, (str, os.PathLike)):
@@ -5580,6 +5671,11 @@ def depth_data_to_3d_model(
         if target_shape != data.shape:
             print(f"Resizing depth grid from {data.shape} to {target_shape}")
             data = _resize_nan_aware(data, target_shape)
+            if normalization_reference is not None:
+                normalization_reference = _resize_nan_aware(
+                    normalization_reference,
+                    target_shape,
+                )
             if region_mask is not None:
                 region_mask = _resize_binary_mask(region_mask, target_shape)
             if selected_region is not None:
@@ -5592,6 +5688,11 @@ def depth_data_to_3d_model(
 
     # Flip the x axis
     data = np.flip(data, axis=1)
+    if normalization_reference is not None:
+        normalization_reference = np.flip(
+            normalization_reference,
+            axis=1,
+        )
     if region_mask is not None:
         region_mask = np.flip(region_mask, axis=1)
     if selected_region is not None:
@@ -5629,6 +5730,7 @@ def depth_data_to_3d_model(
             and float(selection_background_depth_ratio) > 0
             else None
         ),
+        normalization_reference_values=normalization_reference,
     )
     requested_photo_detail_mm = float(background_photo_detail_mm)
     has_photo_detail_protection = _has_background_photo_detail_protection(
@@ -6733,6 +6835,32 @@ def depth_data_to_3d_model(
         "background_photo_detail_mm": float(background_photo_detail_mm),
         "background_photo_detail": photo_detail_stats,
         "selection_background_depth_ratio": float(selection_background_depth_ratio),
+        "normalization_reference_depth": {
+            "enabled": normalization_reference is not None,
+            "method": (
+                "external-pre-refinement-depth-subject-interior-blend"
+                if normalization_reference is not None
+                and selected_region is not None
+                and float(selection_background_depth_ratio) > 0
+                else "external-pre-refinement-depth"
+                if normalization_reference is not None
+                else "input-depth"
+            ),
+            "subject_boundary_px": (
+                NORMALIZATION_REFERENCE_BOUNDARY_PX
+                if normalization_reference is not None
+                and selected_region is not None
+                and float(selection_background_depth_ratio) > 0
+                else None
+            ),
+            "subject_taper_px": (
+                NORMALIZATION_REFERENCE_TAPER_PX
+                if normalization_reference is not None
+                and selected_region is not None
+                and float(selection_background_depth_ratio) > 0
+                else None
+            ),
+        },
         "selection_background_physical_cap": selection_background_cap_stats,
         "background_depth_preservation": background_preservation_stats,
         "surface_appearance_agreement": surface_appearance_stats,

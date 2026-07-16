@@ -207,6 +207,15 @@ def load_facelift_camera(
     )
     if not np.all(np.isfinite(intrinsics)) or np.any(intrinsics[:2] <= 0):
         raise ValueError("FaceLift camera intrinsics are invalid")
+    source_width = float(frame.get("w", 2.0 * intrinsics[2]))
+    source_height = float(frame.get("h", 2.0 * intrinsics[3]))
+    if (
+        not np.isfinite(source_width)
+        or not np.isfinite(source_height)
+        or source_width <= 0
+        or source_height <= 0
+    ):
+        raise ValueError("FaceLift camera resolution is invalid")
     return {
         "index": int(camera_index),
         "w2c": w2c,
@@ -214,8 +223,47 @@ def load_facelift_camera(
         "fy": float(intrinsics[1]),
         "cx": float(intrinsics[2]),
         "cy": float(intrinsics[3]),
+        "source_width": source_width,
+        "source_height": source_height,
         "source_path": str(camera_path.resolve()),
     }
+
+
+def scale_camera_intrinsics(
+    camera: dict,
+    *,
+    height: int,
+    width: int,
+) -> dict:
+    height = int(height)
+    width = int(width)
+    if height <= 0 or width <= 0:
+        raise ValueError("Depth dimensions must be positive")
+    source_width = float(camera.get("source_width", width))
+    source_height = float(camera.get("source_height", height))
+    if (
+        not np.isfinite(source_width)
+        or not np.isfinite(source_height)
+        or source_width <= 0
+        or source_height <= 0
+    ):
+        raise ValueError("FaceLift camera resolution is invalid")
+    scale_x = float(width) / source_width
+    scale_y = float(height) / source_height
+    scaled = dict(camera)
+    scaled.update(
+        {
+            "fx": float(camera["fx"]) * scale_x,
+            "fy": float(camera["fy"]) * scale_y,
+            "cx": float(camera["cx"]) * scale_x,
+            "cy": float(camera["cy"]) * scale_y,
+            "render_width": width,
+            "render_height": height,
+            "intrinsics_scale_x": scale_x,
+            "intrinsics_scale_y": scale_y,
+        }
+    )
+    return scaled
 
 
 def load_facelift_gaussians(path: str | Path) -> dict[str, np.ndarray]:
@@ -432,10 +480,16 @@ def write_depth_outputs(
     output_metadata: str | Path | None = None,
     height: int = 512,
     width: int = 512,
+    camera_index: int = FACELIFT_FRONT_CAMERA_INDEX,
 ) -> dict:
     gaussian_path = Path(gaussian_path)
     output_depth = Path(output_depth)
-    camera = load_facelift_camera(provider_root)
+    native_camera = load_facelift_camera(provider_root, camera_index)
+    camera = scale_camera_intrinsics(
+        native_camera,
+        height=height,
+        width=width,
+    )
     gaussians = load_facelift_gaussians(gaussian_path)
     raw_depth, alpha, render_stats = rasterize_gaussian_center_depth(
         gaussians["xyz"],
@@ -480,6 +534,12 @@ def write_depth_outputs(
             "cx": camera["cx"],
             "cy": camera["cy"],
             "w2c": camera["w2c"].tolist(),
+            "source_width": camera["source_width"],
+            "source_height": camera["source_height"],
+            "render_width": camera["render_width"],
+            "render_height": camera["render_height"],
+            "intrinsics_scale_x": camera["intrinsics_scale_x"],
+            "intrinsics_scale_y": camera["intrinsics_scale_y"],
         },
         "render": render_stats,
         "normalization": normalization,
@@ -515,6 +575,11 @@ def main() -> None:
     depth_parser.add_argument("--output-metadata")
     depth_parser.add_argument("--height", type=int, default=512)
     depth_parser.add_argument("--width", type=int, default=512)
+    depth_parser.add_argument(
+        "--camera-index",
+        type=int,
+        default=FACELIFT_FRONT_CAMERA_INDEX,
+    )
 
     args = parser.parse_args()
     if args.command == "preflight":
@@ -539,6 +604,7 @@ def main() -> None:
         output_metadata=args.output_metadata,
         height=args.height,
         width=args.width,
+        camera_index=args.camera_index,
     )
     print(json.dumps(evidence, indent=2))
 
