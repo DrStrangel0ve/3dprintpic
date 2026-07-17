@@ -37,6 +37,8 @@ GNM_MAXIMUM_ALIGNMENT_NORMALIZED_RMSE = 0.35
 GNM_HIGH_CONFIDENCE_ALIGNMENT_CORRELATION = 0.80
 GNM_HIGH_CONFIDENCE_ALIGNMENT_NORMALIZED_RMSE = 0.26
 GNM_GUARDED_CORRECTION_STRENGTH = 0.25
+GNM_CENTRAL_CORRECTION_DILATION_PIXELS = 3
+GNM_CENTRAL_CORRECTION_FEATHER_SIGMA_PIXELS = 0.5
 
 # MediaPipe-to-dlib68 correspondence from PeizhiYan/Mediapipe_2_Dlib_Landmarks.
 # A tuple with two entries is averaged before fitting.
@@ -477,6 +479,8 @@ def fuse_gnm_face_foundation(
     gnm_surface: np.ndarray,
     face_mask: np.ndarray,
     *,
+    correction_region_mask: np.ndarray | None = None,
+    preserve_detail_mask: np.ndarray | None = None,
     max_face_support_pixels: int = GNM_MAX_FACE_SUPPORT_PIXELS,
     maximum_correction_ratio: float = GNM_MAXIMUM_CORRECTION_RATIO,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
@@ -594,13 +598,104 @@ def fuse_gnm_face_foundation(
     weight = weight * weight * (3.0 - 2.0 * weight)
     weight *= mask
     correction *= weight * correction_strength
+    correction_region_weight = mask.astype(np.float32)
+    correction_region_core = np.zeros_like(mask, dtype=bool)
+    if correction_region_mask is not None:
+        correction_region_core = np.asarray(correction_region_mask) > 0
+        if correction_region_core.shape != depth.shape:
+            raise ValueError(
+                "GNM correction region must match the face-depth crop"
+            )
+        correction_region_core &= mask
+        if not np.any(correction_region_core):
+            return depth.copy(), np.zeros_like(depth), {
+                "enabled": False,
+                "reason": "empty_correction_region",
+                "support_height_pixels": support_height,
+                "support_width_pixels": support_width,
+                "maximum_support_pixels": int(max_face_support_pixels),
+                "coverage_ratio": coverage,
+                "alignment_scale": float(scale),
+                "alignment_offset": float(offset),
+                "active_span": active_span,
+                "reliability_tier": "high" if high_confidence else "guarded",
+                "correction_strength": 0.0,
+                "requested_correction_strength": correction_strength,
+                "correction_region": {
+                    "enabled": False,
+                    "method": "detected-central-face-parts-dilated-feather",
+                    "core_pixels": 0,
+                    "weighted_pixels": 0,
+                    "dilation_radius_pixels": (
+                        GNM_CENTRAL_CORRECTION_DILATION_PIXELS
+                    ),
+                    "feather_sigma_pixels": (
+                        GNM_CENTRAL_CORRECTION_FEATHER_SIGMA_PIXELS
+                    ),
+                },
+                **reliability,
+            }
+        diameter = GNM_CENTRAL_CORRECTION_DILATION_PIXELS * 2 + 1
+        expanded = cv2.dilate(
+            correction_region_core.astype(np.uint8),
+            cv2.getStructuringElement(
+                cv2.MORPH_ELLIPSE,
+                (diameter, diameter),
+            ),
+        ).astype(np.float32)
+        correction_region_weight = cv2.GaussianBlur(
+            expanded,
+            (0, 0),
+            sigmaX=GNM_CENTRAL_CORRECTION_FEATHER_SIGMA_PIXELS,
+            sigmaY=GNM_CENTRAL_CORRECTION_FEATHER_SIGMA_PIXELS,
+            borderType=cv2.BORDER_REPLICATE,
+        )
+        correction_region_weight = np.clip(
+            correction_region_weight,
+            0.0,
+            1.0,
+        )
+        correction_region_weight *= mask.astype(np.float32)
+        correction *= correction_region_weight
+    detail_preservation_weight = np.zeros_like(depth, dtype=np.float32)
+    detail_preservation_core = np.zeros_like(mask, dtype=bool)
+    if preserve_detail_mask is not None:
+        detail_preservation_core = np.asarray(preserve_detail_mask) > 0
+        if detail_preservation_core.shape != depth.shape:
+            raise ValueError(
+                "GNM detail-preservation mask must match the face-depth crop"
+            )
+        detail_preservation_core &= mask
+        if np.any(detail_preservation_core):
+            expanded = cv2.dilate(
+                detail_preservation_core.astype(np.uint8),
+                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)),
+            ).astype(np.float32)
+            detail_preservation_weight = cv2.GaussianBlur(
+                expanded,
+                (0, 0),
+                sigmaX=0.75,
+                sigmaY=0.75,
+                borderType=cv2.BORDER_REPLICATE,
+            )
+            maximum_weight = float(np.max(detail_preservation_weight))
+            if maximum_weight > 1e-8:
+                detail_preservation_weight /= maximum_weight
+            detail_preservation_weight = np.maximum(
+                detail_preservation_weight,
+                detail_preservation_core.astype(np.float32),
+            )
+            detail_preservation_weight *= mask.astype(np.float32)
+            correction *= 1.0 - detail_preservation_weight
     refined = depth.copy()
     finite_depth = np.isfinite(depth)
     refined[finite_depth] = (
         depth[finite_depth].astype(np.float64) + correction[finite_depth]
     ).astype(np.float32)
     boundary = mask & (distance <= 1.0 + 1e-6)
-    return refined, weight.astype(np.float32), {
+    applied_weight = weight.astype(np.float32) * correction_region_weight
+    applied_weight *= 1.0 - detail_preservation_weight
+    return refined, applied_weight, {
         "enabled": True,
         "method": "bounded-camera-aligned-gnm-mean-face",
         "support_height_pixels": support_height,
@@ -612,6 +707,33 @@ def fuse_gnm_face_foundation(
         "active_span": active_span,
         "reliability_tier": "high" if high_confidence else "guarded",
         "correction_strength": correction_strength,
+        "correction_region": {
+            "enabled": correction_region_mask is not None,
+            "method": "detected-central-face-parts-dilated-feather",
+            "core_pixels": int(np.count_nonzero(correction_region_core)),
+            "weighted_pixels": int(
+                np.count_nonzero(correction_region_weight > 1e-4)
+            ),
+            "dilation_radius_pixels": (
+                GNM_CENTRAL_CORRECTION_DILATION_PIXELS
+            ),
+            "feather_sigma_pixels": (
+                GNM_CENTRAL_CORRECTION_FEATHER_SIGMA_PIXELS
+            ),
+        },
+        "detail_preservation": {
+            "enabled": bool(np.any(detail_preservation_core)),
+            "method": "detected-expression-parts-hard-core-feathered-margin",
+            "core_pixels": int(np.count_nonzero(detail_preservation_core)),
+            "weighted_pixels": int(
+                np.count_nonzero(detail_preservation_weight > 1e-4)
+            ),
+            "maximum_core_abs_correction": (
+                float(np.max(np.abs(correction[detail_preservation_core])))
+                if np.any(detail_preservation_core)
+                else 0.0
+            ),
+        },
         **reliability,
         "maximum_correction_ratio": float(maximum_correction_ratio),
         "correction_limit": correction_limit,

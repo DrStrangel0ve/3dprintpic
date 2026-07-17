@@ -22,6 +22,8 @@ from backend.face_depth_refinement import (
     refine_depth_for_faces,
 )
 from backend.gnm_face_foundation import (
+    GNM_CENTRAL_CORRECTION_DILATION_PIXELS,
+    GNM_CENTRAL_CORRECTION_FEATHER_SIGMA_PIXELS,
     GNM_GUARDED_CORRECTION_STRENGTH,
     GNM_HIGH_CONFIDENCE_ALIGNMENT_CORRELATION,
     GNM_HIGH_CONFIDENCE_ALIGNMENT_NORMALIZED_RMSE,
@@ -286,6 +288,17 @@ def evaluate(
             ),
             "guarded_correction_strength": (
                 GNM_GUARDED_CORRECTION_STRENGTH
+            ),
+            "central_correction_parts": [
+                "nose",
+                "left_eye",
+                "right_eye",
+            ],
+            "central_correction_dilation_pixels": (
+                GNM_CENTRAL_CORRECTION_DILATION_PIXELS
+            ),
+            "central_correction_feather_sigma_pixels": (
+                GNM_CENTRAL_CORRECTION_FEATHER_SIGMA_PIXELS
             ),
         },
         "historical": historical,

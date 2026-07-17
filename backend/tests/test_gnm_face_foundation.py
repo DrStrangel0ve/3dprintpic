@@ -91,6 +91,106 @@ class GNMFaceFoundationTests(unittest.TestCase):
         np.testing.assert_array_equal(refined[mask == 0], depth[mask == 0])
         self.assertEqual(float(np.max(weight[8, 8:32])), 0.0)
 
+    def test_bounded_fusion_preserves_detected_expression_parts(self):
+        rows, columns = np.indices((40, 40), dtype=np.float32)
+        mask = np.zeros((40, 40), dtype=np.uint8)
+        mask[8:32, 8:32] = 255
+        preserve = np.zeros_like(mask)
+        preserve[18:24, 15:25] = 255
+        depth = 0.2 + columns * 0.01 + rows * 0.004
+        depth += 0.08 * np.exp(
+            -((rows - 20.0) ** 2 + (columns - 20.0) ** 2) / 18.0
+        )
+        surface = 0.5 + columns * 0.02 + rows * 0.008
+        surface[mask == 0] = np.nan
+
+        refined, _weight, stats = gnm.fuse_gnm_face_foundation(
+            depth,
+            surface,
+            mask,
+            preserve_detail_mask=preserve,
+        )
+
+        self.assertTrue(stats["enabled"])
+        self.assertTrue(stats["detail_preservation"]["enabled"])
+        self.assertEqual(
+            stats["detail_preservation"]["maximum_core_abs_correction"],
+            0.0,
+        )
+        np.testing.assert_array_equal(refined[preserve > 0], depth[preserve > 0])
+        self.assertGreater(float(np.max(np.abs(refined - depth))), 0.0)
+
+    def test_bounded_fusion_limits_correction_to_central_face_parts(self):
+        rows, columns = np.indices((40, 40), dtype=np.float32)
+        mask = np.zeros((40, 40), dtype=np.uint8)
+        mask[8:32, 8:32] = 255
+        correction_region = np.zeros_like(mask)
+        correction_region[17:23, 17:23] = 255
+        depth = 0.2 + columns * 0.01 + rows * 0.004
+        depth += 0.08 * np.exp(
+            -((rows - 20.0) ** 2 + (columns - 20.0) ** 2) / 18.0
+        )
+        surface = 0.5 + columns * 0.02 + rows * 0.008
+        surface[mask == 0] = np.nan
+
+        refined, weight, stats = gnm.fuse_gnm_face_foundation(
+            depth,
+            surface,
+            mask,
+            correction_region_mask=correction_region,
+        )
+
+        self.assertTrue(stats["enabled"])
+        self.assertTrue(stats["correction_region"]["enabled"])
+        self.assertEqual(stats["correction_region"]["core_pixels"], 36)
+        self.assertEqual(
+            stats["correction_region"]["dilation_radius_pixels"],
+            gnm.GNM_CENTRAL_CORRECTION_DILATION_PIXELS,
+        )
+        self.assertGreater(float(np.max(weight)), 0.0)
+        self.assertEqual(float(np.max(weight[:10, :])), 0.0)
+        self.assertEqual(
+            float(np.max(np.abs(refined[:10, :] - depth[:10, :]))),
+            0.0,
+        )
+
+    def test_bounded_fusion_fails_closed_on_empty_correction_region(self):
+        rows, columns = np.indices((40, 40), dtype=np.float32)
+        mask = np.zeros((40, 40), dtype=np.uint8)
+        mask[8:32, 8:32] = 255
+        depth = 0.2 + columns * 0.01 + rows * 0.004
+        surface = 0.5 + columns * 0.02 + rows * 0.008
+        surface[mask == 0] = np.nan
+
+        refined, weight, stats = gnm.fuse_gnm_face_foundation(
+            depth,
+            surface,
+            mask,
+            correction_region_mask=np.zeros_like(mask),
+        )
+
+        self.assertFalse(stats["enabled"])
+        self.assertEqual(stats["reason"], "empty_correction_region")
+        self.assertFalse(stats["correction_region"]["enabled"])
+        np.testing.assert_array_equal(refined, depth)
+        self.assertEqual(float(np.max(weight)), 0.0)
+
+    def test_bounded_fusion_rejects_misaligned_correction_region(self):
+        rows, columns = np.indices((40, 40), dtype=np.float32)
+        mask = np.zeros((40, 40), dtype=np.uint8)
+        mask[8:32, 8:32] = 255
+        depth = 0.2 + columns * 0.01 + rows * 0.004
+        surface = 0.5 + columns * 0.02 + rows * 0.008
+        surface[mask == 0] = np.nan
+
+        with self.assertRaisesRegex(ValueError, "must match"):
+            gnm.fuse_gnm_face_foundation(
+                depth,
+                surface,
+                mask,
+                correction_region_mask=np.ones((20, 20), dtype=np.uint8),
+            )
+
     def test_bounded_fusion_skips_faces_above_small_face_gate(self):
         depth = np.arange(80 * 80, dtype=np.float32).reshape(80, 80)
         mask = np.zeros_like(depth, dtype=np.uint8)
@@ -245,6 +345,19 @@ class GNMFaceFoundationTests(unittest.TestCase):
             "bounded-camera-aligned-gnm-mean-face",
         )
         self.assertLessEqual(foundation["boundary_max_abs_correction"], 1e-7)
+        self.assertTrue(foundation["detail_preservation"]["enabled"])
+        self.assertTrue(foundation["correction_region"]["enabled"])
+        self.assertGreater(foundation["correction_region"]["core_pixels"], 0)
+        self.assertGreater(
+            foundation["detail_preservation"]["core_pixels"],
+            0,
+        )
+        self.assertEqual(
+            foundation["detail_preservation"][
+                "maximum_core_abs_correction"
+            ],
+            0.0,
+        )
 
 
 if __name__ == "__main__":

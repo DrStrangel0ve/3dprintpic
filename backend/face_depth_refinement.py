@@ -2359,6 +2359,17 @@ def refine_depth_for_faces(
                             refined_crop,
                             gnm_surface,
                             face_mask,
+                            correction_region_mask=np.maximum.reduce(
+                                [
+                                    local_part_masks[name]
+                                    for name in (
+                                        "nose",
+                                        "left_eye",
+                                        "right_eye",
+                                    )
+                                ]
+                            ),
+                            preserve_detail_mask=local_part_masks.get("mouth"),
                         )
                         parametric_foundation_stats = {
                             **provider_stats,

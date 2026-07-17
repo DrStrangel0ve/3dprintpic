@@ -23,6 +23,8 @@ from backend.benchmark.run_vggheads_small_face_30mm_replay import (
     _variant_quality,
 )
 from backend.gnm_face_foundation import (
+    GNM_CENTRAL_CORRECTION_DILATION_PIXELS,
+    GNM_CENTRAL_CORRECTION_FEATHER_SIGMA_PIXELS,
     GNM_GUARDED_CORRECTION_STRENGTH,
     GNM_HIGH_CONFIDENCE_ALIGNMENT_CORRELATION,
     GNM_HIGH_CONFIDENCE_ALIGNMENT_NORMALIZED_RMSE,
@@ -77,9 +79,16 @@ def evaluate(
     candidate_dir = paired_root / "candidate"
     baseline_depth_path = baseline_dir / "output_depth_data_face_refined.npy"
     candidate_depth_path = candidate_dir / "output_depth_data_face_refined.npy"
-    face_region_path = baseline_dir / "output_face_refinement_region.png"
-    feature_weight_path = baseline_dir / "output_face_refinement_weight.png"
-    feature_exclusion_path = baseline_dir / "output_face_refinement_occlusion.png"
+    baseline_face_region_path = baseline_dir / "output_face_refinement_region.png"
+    baseline_feature_weight_path = baseline_dir / "output_face_refinement_weight.png"
+    baseline_feature_exclusion_path = (
+        baseline_dir / "output_face_refinement_occlusion.png"
+    )
+    candidate_face_region_path = candidate_dir / "output_face_refinement_region.png"
+    candidate_feature_weight_path = candidate_dir / "output_face_refinement_weight.png"
+    candidate_feature_exclusion_path = (
+        candidate_dir / "output_face_refinement_occlusion.png"
+    )
     required = (
         source_summary_path,
         exact_evidence_path,
@@ -88,9 +97,12 @@ def evaluate(
         exact_depth_path,
         baseline_depth_path,
         candidate_depth_path,
-        face_region_path,
-        feature_weight_path,
-        feature_exclusion_path,
+        baseline_face_region_path,
+        baseline_feature_weight_path,
+        baseline_feature_exclusion_path,
+        candidate_face_region_path,
+        candidate_feature_weight_path,
+        candidate_feature_exclusion_path,
         *part_mask_paths.values(),
     )
     missing = [str(path) for path in required if not path.is_file()]
@@ -108,9 +120,9 @@ def evaluate(
         invert=True,
         source_path=source_path,
         selection_mask_path=selection_mask_path,
-        face_region_path=face_region_path,
-        feature_weight_path=feature_weight_path,
-        feature_exclusion_path=feature_exclusion_path,
+        face_region_path=baseline_face_region_path,
+        feature_weight_path=baseline_feature_weight_path,
+        feature_exclusion_path=baseline_feature_exclusion_path,
     )
     baseline = _emit_variant(
         "baseline",
@@ -119,9 +131,9 @@ def evaluate(
         invert=False,
         source_path=source_path,
         selection_mask_path=selection_mask_path,
-        face_region_path=face_region_path,
-        feature_weight_path=feature_weight_path,
-        feature_exclusion_path=feature_exclusion_path,
+        face_region_path=baseline_face_region_path,
+        feature_weight_path=baseline_feature_weight_path,
+        feature_exclusion_path=baseline_feature_exclusion_path,
     )
     candidate = _emit_variant(
         "candidate",
@@ -130,9 +142,9 @@ def evaluate(
         invert=False,
         source_path=source_path,
         selection_mask_path=selection_mask_path,
-        face_region_path=face_region_path,
-        feature_weight_path=feature_weight_path,
-        feature_exclusion_path=feature_exclusion_path,
+        face_region_path=candidate_face_region_path,
+        feature_weight_path=candidate_feature_weight_path,
+        feature_exclusion_path=candidate_feature_exclusion_path,
         normalization_reference_depth=baseline_depth_path,
     )
     baseline_quality = _variant_quality(
@@ -205,6 +217,17 @@ def evaluate(
             "guarded_correction_strength": (
                 GNM_GUARDED_CORRECTION_STRENGTH
             ),
+            "central_correction_parts": [
+                "nose",
+                "left_eye",
+                "right_eye",
+            ],
+            "central_correction_dilation_pixels": (
+                GNM_CENTRAL_CORRECTION_DILATION_PIXELS
+            ),
+            "central_correction_feather_sigma_pixels": (
+                GNM_CENTRAL_CORRECTION_FEATHER_SIGMA_PIXELS
+            ),
         },
         "configuration": {
             "relief_height_mm": RELIEF_HEIGHT_MM,
@@ -224,6 +247,12 @@ def evaluate(
             "exact_depth_sha256": _sha256(exact_depth_path),
             "baseline_depth_sha256": _sha256(baseline_depth_path),
             "candidate_depth_sha256": _sha256(candidate_depth_path),
+            "baseline_feature_weight_sha256": _sha256(
+                baseline_feature_weight_path
+            ),
+            "candidate_feature_weight_sha256": _sha256(
+                candidate_feature_weight_path
+            ),
         },
         "oracle": _compact_variant(oracle),
         "baseline": {
