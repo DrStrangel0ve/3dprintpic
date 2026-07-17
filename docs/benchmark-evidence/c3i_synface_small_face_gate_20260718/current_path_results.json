@@ -1,0 +1,1061 @@
+{
+  "corpus": {
+    "demo_asset_license": "not stated in source repository",
+    "provider": "c3i-synface-official-demo-depth",
+    "raw_dataset_reference": {
+      "doi": "10.17632/z4454fyd8b.1",
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "title": "C3I-SynFace female data part 1"
+    },
+    "row_count": 10,
+    "source_revision": "dc8adfffbfd38818b72d0ad3776eb66724fafe95",
+    "summary_sha256": "1b7a35d45f0a1e45f05694ecc711869b223a5f9f319ebf90968ee8b12d054bb9"
+  },
+  "current_refined": {
+    "available_rows": 10,
+    "combined_part_failures": 104,
+    "median_gradient_correlation": 0.5630079854274175,
+    "median_normalized_rmse": 0.07968363207747728,
+    "median_shape_correlation": 0.9512273399638838,
+    "part_failure_opportunities": 120,
+    "part_failure_rate": 0.8666666666666667,
+    "row_count": 10
+  },
+  "decision": {
+    "checks": {
+      "absolute_part_failure_rate_within_limit": false,
+      "all_current_metrics_finite": true,
+      "all_current_rows_available": true,
+      "all_current_rows_have_expected_orientation": true,
+      "all_current_rows_have_full_coverage": true,
+      "at_least_one_strict_improvement": true,
+      "full_corpus_evaluated": true,
+      "median_gradient_no_regression": true,
+      "median_rmse_no_regression": true,
+      "median_shape_no_regression": true,
+      "paired_rows_complete": true,
+      "part_failures_no_regression": true,
+      "per_row_gradient_regression_bounded": true,
+      "per_row_part_failures_no_regression": false,
+      "per_row_rmse_regression_bounded": true,
+      "per_row_shape_regression_bounded": true
+    },
+    "failed_checks": [
+      "per_row_part_failures_no_regression",
+      "absolute_part_failure_rate_within_limit"
+    ],
+    "status": "hold"
+  },
+  "depth_target_provenance": {
+    "not_claimed": [
+      "raw EXR precision",
+      "metric-scale validation",
+      "identity-disjoint training evidence"
+    ],
+    "representation": "official 8-bit grayscale demo preview",
+    "use": "bounded relative-shape screen only"
+  },
+  "global_depth": {
+    "available_rows": 10,
+    "combined_part_failures": 109,
+    "median_gradient_correlation": 0.5480516395039834,
+    "median_normalized_rmse": 0.08070660678096139,
+    "median_shape_correlation": 0.9507069561715434,
+    "part_failure_opportunities": 120,
+    "part_failure_rate": 0.9083333333333333,
+    "row_count": 10
+  },
+  "method": "c3i-synface-demo-current-face-depth-gate",
+  "model": {
+    "id": "depth-anything/Depth-Anything-V2-Large-hf",
+    "model_sha256": "4e01e34ed5549b529b70b92d53226bc370f03041977b390d3dde45d47f516cf9",
+    "processor_sha256": "d41175c0d889477ca8fc67191e540faef14baf6275157b3fdecf78469e6bbf84",
+    "revision": "7581137eff8d4e94f6e796d3baea0e9fa79b22d2"
+  },
+  "rows": [
+    {
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5891469211374566,
+        "normalized_rmse": 0.06660579965785297,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9664046935323279,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [],
+        "roi": {
+          "enabled": false,
+          "reason": "full_image_face_detected"
+        },
+        "scope": "full-image"
+      },
+      "face_height_pixels": 78,
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5505046444663045,
+        "normalized_rmse": 0.07148341142612259,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9612014267019034,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "part_failure_delta": -1,
+      "refinement": {
+        "detector_face_height_pixels": 77,
+        "parametric_foundation": null,
+        "refined_faces": 1,
+        "skipped_faces": null
+      },
+      "row_id": "c3i_demo_0000"
+    },
+    {
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.57751768849434,
+        "normalized_rmse": 0.07105716568384199,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9506464069127389,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [],
+        "roi": {
+          "enabled": false,
+          "reason": "full_image_face_detected"
+        },
+        "scope": "full-image"
+      },
+      "face_height_pixels": 78,
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5526270540307612,
+        "normalized_rmse": 0.06990226517256398,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9522775754611255,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "part_failure_delta": 0,
+      "refinement": {
+        "detector_face_height_pixels": 75,
+        "parametric_foundation": null,
+        "refined_faces": 1,
+        "skipped_faces": null
+      },
+      "row_id": "c3i_demo_0001"
+    },
+    {
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 8,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5809873650263924,
+        "normalized_rmse": 0.079064494155001,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9518082730150285,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye"
+        ]
+      },
+      "detection": {
+        "errors": [
+          "opencv-haar:RuntimeError:OpenCV face detector cascade is unavailable"
+        ],
+        "roi": {
+          "attempts": [
+            {
+              "component_bbox": [
+                91,
+                79,
+                167,
+                157
+              ],
+              "detected_faces": 1,
+              "effective_minimum_face_pixels": 69,
+              "input_shape": [
+                384,
+                384
+              ],
+              "roi_bbox": [
+                55,
+                44,
+                203,
+                192
+              ]
+            }
+          ],
+          "detected_faces": 1,
+          "eligible_components": 1,
+          "enabled": true,
+          "fallback_errors_clean": true,
+          "selection_detail_fallback_regions": 0,
+          "validated_face_regions": 1
+        },
+        "scope": "selection-roi"
+      },
+      "face_height_pixels": 78,
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5565103643387812,
+        "normalized_rmse": 0.0811711316216771,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9491363368819614,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "part_failure_delta": -2,
+      "refinement": {
+        "detector_face_height_pixels": 75,
+        "parametric_foundation": null,
+        "refined_faces": 1,
+        "skipped_faces": null
+      },
+      "row_id": "c3i_demo_0002"
+    },
+    {
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eye",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.7412239966819792,
+        "normalized_rmse": 0.050663819710251155,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9756502652959844,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [
+          "opencv-haar:RuntimeError:OpenCV face detector cascade is unavailable"
+        ],
+        "roi": {
+          "attempts": [
+            {
+              "component_bbox": [
+                90,
+                79,
+                167,
+                157
+              ],
+              "detected_faces": 1,
+              "effective_minimum_face_pixels": 69,
+              "input_shape": [
+                381,
+                384
+              ],
+              "roi_bbox": [
+                54,
+                44,
+                203,
+                192
+              ]
+            }
+          ],
+          "detected_faces": 1,
+          "eligible_components": 1,
+          "enabled": true,
+          "fallback_errors_clean": true,
+          "selection_detail_fallback_regions": 0,
+          "validated_face_regions": 1
+        },
+        "scope": "selection-roi"
+      },
+      "face_height_pixels": 78,
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "mouth",
+          "nose",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.7440549831033344,
+        "normalized_rmse": 0.05360723179439251,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9726979911975828,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "part_failure_delta": 0,
+      "refinement": {
+        "detector_face_height_pixels": 75,
+        "parametric_foundation": null,
+        "refined_faces": 1,
+        "skipped_faces": null
+      },
+      "row_id": "c3i_demo_0003"
+    },
+    {
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5416238833973052,
+        "normalized_rmse": 0.08030276999995357,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9594339035129367,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [
+          "opencv-haar:RuntimeError:OpenCV face detector cascade is unavailable"
+        ],
+        "roi": {
+          "attempts": [
+            {
+              "component_bbox": [
+                90,
+                79,
+                168,
+                157
+              ],
+              "detected_faces": 1,
+              "effective_minimum_face_pixels": 71,
+              "input_shape": [
+                384,
+                384
+              ],
+              "roi_bbox": [
+                55,
+                44,
+                203,
+                192
+              ]
+            }
+          ],
+          "detected_faces": 1,
+          "eligible_components": 1,
+          "enabled": true,
+          "fallback_errors_clean": true,
+          "selection_detail_fallback_regions": 0,
+          "validated_face_regions": 1
+        },
+        "scope": "selection-roi"
+      },
+      "face_height_pixels": 78,
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eye"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5252390627490834,
+        "normalized_rmse": 0.08234279828543035,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9573001249129701,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "part_failure_delta": 2,
+      "refinement": {
+        "detector_face_height_pixels": 75,
+        "parametric_foundation": null,
+        "refined_faces": 1,
+        "skipped_faces": null
+      },
+      "row_id": "c3i_demo_0015"
+    },
+    {
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.6151445463687754,
+        "normalized_rmse": 0.08088838766113388,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9449849345292372,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [],
+        "roi": {
+          "enabled": false,
+          "reason": "full_image_face_detected"
+        },
+        "scope": "full-image"
+      },
+      "face_height_pixels": 78,
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.613045850645036,
+        "normalized_rmse": 0.0802420819402457,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9458856329255079,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "part_failure_delta": 0,
+      "refinement": {
+        "detector_face_height_pixels": 76,
+        "parametric_foundation": null,
+        "refined_faces": 1,
+        "skipped_faces": null
+      },
+      "row_id": "c3i_demo_0036"
+    },
+    {
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 8,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.4391294314312992,
+        "normalized_rmse": 0.08917297352370658,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9389247752326155,
+        "shape_failed_parts": [
+          "left_eye",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [],
+        "roi": {
+          "enabled": false,
+          "reason": "full_image_face_detected"
+        },
+        "scope": "full-image"
+      },
+      "face_height_pixels": 78,
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.43639753930095276,
+        "normalized_rmse": 0.08858624465668447,
+        "shape_check_failures": {},
+        "shape_correlation": 0.939751530872062,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "part_failure_delta": -3,
+      "refinement": {
+        "detector_face_height_pixels": 76,
+        "parametric_foundation": null,
+        "refined_faces": 1,
+        "skipped_faces": null
+      },
+      "row_id": "c3i_demo_0037"
+    },
+    {
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5484982823604948,
+        "normalized_rmse": 0.07159757280311098,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9574620881131668,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [
+          "opencv-haar:RuntimeError:OpenCV face detector cascade is unavailable"
+        ],
+        "roi": {
+          "attempts": [
+            {
+              "component_bbox": [
+                89,
+                79,
+                168,
+                158
+              ],
+              "detected_faces": 1,
+              "effective_minimum_face_pixels": 70,
+              "input_shape": [
+                384,
+                384
+              ],
+              "roi_bbox": [
+                53,
+                43,
+                204,
+                194
+              ]
+            }
+          ],
+          "detected_faces": 1,
+          "eligible_components": 1,
+          "enabled": true,
+          "fallback_errors_clean": true,
+          "selection_detail_fallback_regions": 0,
+          "validated_face_regions": 1
+        },
+        "scope": "selection-roi"
+      },
+      "face_height_pixels": 78,
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5455986345416621,
+        "normalized_rmse": 0.07162581879804367,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9574277718524601,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "part_failure_delta": 0,
+      "refinement": {
+        "detector_face_height_pixels": 75,
+        "parametric_foundation": null,
+        "refined_faces": 1,
+        "skipped_faces": null
+      },
+      "row_id": "c3i_demo_0039"
+    },
+    {
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.2766067000699564,
+        "normalized_rmse": 0.13329539597248213,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9287869682483118,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [],
+        "roi": {
+          "enabled": false,
+          "reason": "full_image_face_detected"
+        },
+        "scope": "full-image"
+      },
+      "face_height_pixels": 78,
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.27777783159803887,
+        "normalized_rmse": 0.13551279102039823,
+        "shape_check_failures": {},
+        "shape_correlation": 0.926303068793056,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "part_failure_delta": 0,
+      "refinement": {
+        "detector_face_height_pixels": 71,
+        "parametric_foundation": null,
+        "refined_faces": 1,
+        "skipped_faces": null
+      },
+      "row_id": "c3i_demo_0052"
+    },
+    {
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.44103650366938607,
+        "normalized_rmse": 0.08131413531226633,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9484728785358199,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [],
+        "roi": {
+          "enabled": false,
+          "reason": "full_image_face_detected"
+        },
+        "scope": "full-image"
+      },
+      "face_height_pixels": 78,
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.44378927820102726,
+        "normalized_rmse": 0.08401550555794711,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9448910988034889,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "part_failure_delta": -1,
+      "refinement": {
+        "detector_face_height_pixels": 74,
+        "parametric_foundation": null,
+        "refined_faces": 1,
+        "skipped_faces": null
+      },
+      "row_id": "c3i_demo_0097"
+    }
+  ],
+  "runtime": {
+    "device": "cuda",
+    "peak_torch_allocated_inference_gib": 0.863213062286377,
+    "seconds": 8.05643009999767
+  },
+  "schema_version": 1,
+  "source_geometry_training_and_evaluation_only": true,
+  "status": "hold"
+}

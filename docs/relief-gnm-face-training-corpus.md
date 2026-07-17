@@ -229,3 +229,51 @@ correlation and retained eight named-part failures. Production therefore stays
 on the central-part mean-GNM provider, and the green background/30 mm path is
 unchanged. Compact evidence is under
 `docs/benchmark-evidence/gnm_face_camera_and_corpus_expansion_20260717`.
+
+## C3I calibrated-depth lead and FaceDepth screen
+
+C3I-SynFace is the first raw-data lead found in this pass that directly targets
+the measured failure regime with camera-aligned facial depth. The published
+six-part collection contains 37,670 synthetic RGB/raw-EXR depth pairs across
+identity, pose, expression, illumination, and complex backgrounds. The planned
+first raw slice is the separately published female data part 1, approximately
+13,000 pairs from 12 identities under CC BY 4.0. The official GitHub demo
+repository does not state a license, so that raw-data license is not imputed to
+its ten demo pairs.
+
+The tracked adapter pins the official source revision and demo hashes, applies
+one full-frame geometric transform to RGB, depth, face, and six facial-part
+masks, and constructs a ten-row 78 px synthetic-identity smoke. Demo filenames
+do not publish identity, so every row carries one explicit unknown identity
+group and cannot be treated as identity-disjoint.
+
+On those ten lossy 8-bit demo previews, current production refinement improved
+the global DAv2 baseline from 109 to 104 combined named-part failures and
+improved median shape/gradient/RMSE from
+0.950707/0.548052/0.080707 to 0.951227/0.563008/0.079684. It remains a hold:
+the absolute failure rate is 86.7% and one row regresses by two checks. These
+previews are a relative-shape screen only, not metric or identity-disjoint
+training evidence.
+
+Every replay authenticates the source, mask, depth, and six part masks against
+the portable corpus manifest. Promotion now also requires complete one-to-one
+row pairing, finite metrics, full coverage, and correct depth orientation.
+
+The C3I FaceDepth checkpoint was also evaluated through an exact-byte research
+mirror because its publisher link now returns 404. RGB/BGR, documented stretch,
+aspect-preserving input, raw output, and production fusion were all measured.
+The best aspect-preserving BGR fusion regressed to 106 failures and
+0.950727/0.555085/0.079993; its raw geometry failed 118/120 part checks. This
+checkpoint lane is closed without a 30 mm run or production change. Raw crop
+diagnostics are explicitly ineligible for promotion.
+
+The raw 7.7 GB C3I archive remains the stronger supervised-training lead. One
+corrupt redirected resume was rejected by exact size and SHA-256, and fresh
+transfers were bounded out when the host throttled near 30 KB/s. The importer
+now fails closed on the publisher's advertised byte count and checksum before
+extraction. Once those raw EXR bytes are available, the next experiment is an
+identity-disjoint 60-120 row small-face slice; the demo previews must not be
+used for training.
+
+Compact evidence is under
+`docs/benchmark-evidence/c3i_synface_small_face_gate_20260718`.

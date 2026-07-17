@@ -1,0 +1,161 @@
+{
+  "actual_revision": "dc8adfffbfd38818b72d0ad3776eb66724fafe95",
+  "checks": {
+    "all_assets_present": true,
+    "all_assets_verified": true,
+    "revision_exact": true,
+    "tracked_source_clean": true
+  },
+  "demo_asset_license": "not stated in source repository",
+  "files": {
+    "Image0001.jpg": {
+      "exists": true,
+      "expected_sha256": "370c5085c8edec795104e1a5f95bc97911a9da38f78d57452b1f49a096e0d2b4",
+      "path": "FaceDepth/rgb_syn_test/Image0001.jpg",
+      "sha256": "370c5085c8edec795104e1a5f95bc97911a9da38f78d57452b1f49a096e0d2b4",
+      "verified": true
+    },
+    "Image0015.jpg": {
+      "exists": true,
+      "expected_sha256": "efa4f779ad23a87c1b0f9479e8fdace585d0e32e6b2825810af92c8d1800ea25",
+      "path": "FaceDepth/rgb_syn_test/Image0015.jpg",
+      "sha256": "efa4f779ad23a87c1b0f9479e8fdace585d0e32e6b2825810af92c8d1800ea25",
+      "verified": true
+    },
+    "depth_0000.png": {
+      "exists": true,
+      "expected_sha256": "f835ff6b436847821d85f18895a3d5d9d6063aea701f0f75817fc07124983cbc",
+      "path": "FaceDepth/gt_syn_test/depth_0000.png",
+      "sha256": "f835ff6b436847821d85f18895a3d5d9d6063aea701f0f75817fc07124983cbc",
+      "verified": true
+    },
+    "depth_0001.png": {
+      "exists": true,
+      "expected_sha256": "016beb50c4688a9244809329fc320cac483412de1ce6e5e84fd5f896ce131831",
+      "path": "FaceDepth/gt_syn_test/depth_0001.png",
+      "sha256": "016beb50c4688a9244809329fc320cac483412de1ce6e5e84fd5f896ce131831",
+      "verified": true
+    },
+    "depth_0002.png": {
+      "exists": true,
+      "expected_sha256": "99ad25ad1ff8e8dfe315ab4d4b3e140ea61a4ef40ed31dd7445b7a01948db51c",
+      "path": "FaceDepth/gt_syn_test/depth_0002.png",
+      "sha256": "99ad25ad1ff8e8dfe315ab4d4b3e140ea61a4ef40ed31dd7445b7a01948db51c",
+      "verified": true
+    },
+    "depth_0003.png": {
+      "exists": true,
+      "expected_sha256": "ae655bfd3a3a427a0d38e3b9ab2febd29bc13587fd8411c44579182d21b9e9cc",
+      "path": "FaceDepth/gt_syn_test/depth_0003.png",
+      "sha256": "ae655bfd3a3a427a0d38e3b9ab2febd29bc13587fd8411c44579182d21b9e9cc",
+      "verified": true
+    },
+    "depth_0015.png": {
+      "exists": true,
+      "expected_sha256": "338eab156f06b6cc5718aa06d789c02d1a5d3e23963ac92d66c09845545505bb",
+      "path": "FaceDepth/gt_syn_test/depth_0015.png",
+      "sha256": "338eab156f06b6cc5718aa06d789c02d1a5d3e23963ac92d66c09845545505bb",
+      "verified": true
+    },
+    "depth_0036.png": {
+      "exists": true,
+      "expected_sha256": "e12c50def49259c5d0b74f05d44a432ec3a81ec0b5253840d6143a79407a5e0d",
+      "path": "FaceDepth/gt_syn_test/depth_0036.png",
+      "sha256": "e12c50def49259c5d0b74f05d44a432ec3a81ec0b5253840d6143a79407a5e0d",
+      "verified": true
+    },
+    "depth_0037.png": {
+      "exists": true,
+      "expected_sha256": "28a7ab62d52a54522f1660554f2b94b6b89e47c50fc88eeecffd9ebb95cb1fc5",
+      "path": "FaceDepth/gt_syn_test/depth_0037.png",
+      "sha256": "28a7ab62d52a54522f1660554f2b94b6b89e47c50fc88eeecffd9ebb95cb1fc5",
+      "verified": true
+    },
+    "depth_0039.png": {
+      "exists": true,
+      "expected_sha256": "ad01f670c94aab441d77e39458efb6b014b74bfed9cec2ff3c5573877ca9c7a5",
+      "path": "FaceDepth/gt_syn_test/depth_0039.png",
+      "sha256": "ad01f670c94aab441d77e39458efb6b014b74bfed9cec2ff3c5573877ca9c7a5",
+      "verified": true
+    },
+    "depth_0052.png": {
+      "exists": true,
+      "expected_sha256": "59786a6b9e92aa096dfbe426d4951e1e062bdfe40841218b0e8dddd36872bb30",
+      "path": "FaceDepth/gt_syn_test/depth_0052.png",
+      "sha256": "59786a6b9e92aa096dfbe426d4951e1e062bdfe40841218b0e8dddd36872bb30",
+      "verified": true
+    },
+    "depth_0097.png": {
+      "exists": true,
+      "expected_sha256": "6eaf18b29385dad916099ba6c11182de2a293a7ecfcd5ae60dfe4f77a09e4e6f",
+      "path": "FaceDepth/gt_syn_test/depth_0097.png",
+      "sha256": "6eaf18b29385dad916099ba6c11182de2a293a7ecfcd5ae60dfe4f77a09e4e6f",
+      "verified": true
+    },
+    "image0000.jpg": {
+      "exists": true,
+      "expected_sha256": "b54c8b50fa6268b58e78d44c0436a25f74db45c932f38f52606cd7cc623cb7a2",
+      "path": "FaceDepth/rgb_syn_test/image0000.jpg",
+      "sha256": "b54c8b50fa6268b58e78d44c0436a25f74db45c932f38f52606cd7cc623cb7a2",
+      "verified": true
+    },
+    "image0002.jpg": {
+      "exists": true,
+      "expected_sha256": "0f3ff1847dfd201a6f31bc6f08d63b1280b9937c0584299573ff5f334c3d64b4",
+      "path": "FaceDepth/rgb_syn_test/image0002.jpg",
+      "sha256": "0f3ff1847dfd201a6f31bc6f08d63b1280b9937c0584299573ff5f334c3d64b4",
+      "verified": true
+    },
+    "image0003.jpg": {
+      "exists": true,
+      "expected_sha256": "415c17633c1ac787cba16eba4bf4c670653475680e971b68804b1add59a041e8",
+      "path": "FaceDepth/rgb_syn_test/image0003.jpg",
+      "sha256": "415c17633c1ac787cba16eba4bf4c670653475680e971b68804b1add59a041e8",
+      "verified": true
+    },
+    "image0036.jpg": {
+      "exists": true,
+      "expected_sha256": "60b9f92268bc60be3b1a1eb3bf88b4536f506c48d87ea11a37e394d9fc4d4911",
+      "path": "FaceDepth/rgb_syn_test/image0036.jpg",
+      "sha256": "60b9f92268bc60be3b1a1eb3bf88b4536f506c48d87ea11a37e394d9fc4d4911",
+      "verified": true
+    },
+    "image0037.jpg": {
+      "exists": true,
+      "expected_sha256": "8acbf0a98e7736d35b0111382b15bdb4c902b55f286e73ad0256f24b4fe8a878",
+      "path": "FaceDepth/rgb_syn_test/image0037.jpg",
+      "sha256": "8acbf0a98e7736d35b0111382b15bdb4c902b55f286e73ad0256f24b4fe8a878",
+      "verified": true
+    },
+    "image0039.jpg": {
+      "exists": true,
+      "expected_sha256": "46115373ff65f6210b0102e398a5f7a495707d737aa8b5a7a797c8fd7420614f",
+      "path": "FaceDepth/rgb_syn_test/image0039.jpg",
+      "sha256": "46115373ff65f6210b0102e398a5f7a495707d737aa8b5a7a797c8fd7420614f",
+      "verified": true
+    },
+    "image0052.jpg": {
+      "exists": true,
+      "expected_sha256": "ad4c99f266f7c30e2091f1aedca03f04b1b8faaa6e2208c1a45d58bb167beabb",
+      "path": "FaceDepth/rgb_syn_test/image0052.jpg",
+      "sha256": "ad4c99f266f7c30e2091f1aedca03f04b1b8faaa6e2208c1a45d58bb167beabb",
+      "verified": true
+    },
+    "image0097.jpg": {
+      "exists": true,
+      "expected_sha256": "20ccd8c7a6c77a855df7feffbdf9914b27f55659ab3606e4f1b45b44e33e71bb",
+      "path": "FaceDepth/rgb_syn_test/image0097.jpg",
+      "sha256": "20ccd8c7a6c77a855df7feffbdf9914b27f55659ab3606e4f1b45b44e33e71bb",
+      "verified": true
+    }
+  },
+  "raw_dataset_reference": {
+    "doi": "10.17632/z4454fyd8b.1",
+    "license": "CC BY 4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "title": "C3I-SynFace female data part 1"
+  },
+  "ready": true,
+  "required_revision": "dc8adfffbfd38818b72d0ad3776eb66724fafe95",
+  "source_repository": "https://github.com/khan9048/Facial_depth_estimation"
+}
