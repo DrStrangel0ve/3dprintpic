@@ -155,3 +155,57 @@ as the reliability-calibrated small-face production candidate. The algorithm
 should change again only for a measured regression in face detail, background
 depth, 30 mm cap/attachment, topology, exact shell, object/llama depth,
 dark-skin, eyewear, or cast-shadow controls.
+
+## One-pass expression-conditioned geometry
+
+The next bounded lane replaced crop redetection with the maintained MediaPipe
+Face Landmarker Tasks API's same-pass output: the same face index now supplies
+478 landmarks and, only when requested by a compatible checkpoint, 52 ordered
+blendshapes. Default production detection is unchanged. Checkpoints pin the
+MediaPipe version, task and name hashes, feature schema, and dimension, and
+the exact, varied, and corpus evaluators preserve the same-pass vector when
+they replay a frozen detector callback.
+
+A strict train-only target contract and 160 additional identity-stratified
+rows produced 228 detector-clean training rows. The selected rank-16 identity
+and expression heads improved small-face validation RMSE from 0.010953 to
+0.008095 and sealed RMSE from 0.008484 to 0.007009, with no named-part median
+regression. This establishes that the richer signal predicts synthetic GNM
+geometry.
+
+Real-photo transfer was much smaller. With identity strength zero and
+expression strength 0.125, the exact hard row Pareto-improved shape, raw
+gradient, and normalized RMSE by 0.000030, 0.000011, and 0.000012 respectively,
+but retained eight part failures. The varied and all-small replays recovered
+no additional part pass relative to the incumbent; the all-small absolute
+failure rate remained 0.9542. At 30 mm it preserved the background, cap,
+attachment, one-component watertight topology, and exact shell, but again had
+the incumbent's eight named-part failures.
+
+The checkpoint is therefore held rather than wired into production. Its
+synthetic gain does not justify the added DAv2 inference cost without a
+measurable real-photo naturalness gain. Compact evidence is under
+`docs/benchmark-evidence/gnm_structured_geometry_onepass_20260717`.
+
+## MapAnything Apache provider screen
+
+The next official provider screen used Meta MapAnything source revision
+`c845b8f4f6cde0c20aecd87573656c3f69f5b2b0` and the explicit Apache checkpoint
+revision `00f9c245bbcb60522d1ed7f9e9d88462c6e3f38a`. Its raw single-image output
+has a stronger camera contract than a relative-depth map: camera-frame points,
+camera-Z depth, unit rays, intrinsics, and pose all passed finite and geometric
+consistency checks. One full 518 px view ran on the RTX 3080 Ti in 1.252 seconds
+at 5.635 GiB peak VRAM.
+
+The checked-in adapter additionally pins official DINOv2 source revision
+`7764ea0f912e53c92e82eb78a2a1631e92725fc8`. It replaces UniCeption's mutable
+Torch Hub source lookup with a verified local checkout, disables external
+DINOv2 weights, and requires the exact MapAnything checkpoint hash. Its replay
+produced the evaluated depth array bit-for-bit.
+
+The hard face nevertheless failed before STL emission. Shape correlation and
+normalized RMSE improved to 0.809426 and 0.174121, but gradient correlation
+fell from 0.626152 to 0.574901 and named-part failures rose from eight to ten.
+The lane was closed without a crop, fusion, parameter sweep, or 30 mm run.
+Compact evidence is under
+`docs/benchmark-evidence/mapanything_apache_face_smoke_20260717`.

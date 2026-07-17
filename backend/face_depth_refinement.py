@@ -28,6 +28,61 @@ FACE_LANDMARKER_MODEL_URL = (
     "face_landmarker/float16/latest/face_landmarker.task"
 )
 FACE_LANDMARKER_MODEL_SHA256 = "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+FACE_LANDMARKER_LICENSE = "Apache-2.0"
+FACE_BLENDSHAPE_NAMES = (
+    "_neutral",
+    "browDownLeft",
+    "browDownRight",
+    "browInnerUp",
+    "browOuterUpLeft",
+    "browOuterUpRight",
+    "cheekPuff",
+    "cheekSquintLeft",
+    "cheekSquintRight",
+    "eyeBlinkLeft",
+    "eyeBlinkRight",
+    "eyeLookDownLeft",
+    "eyeLookDownRight",
+    "eyeLookInLeft",
+    "eyeLookInRight",
+    "eyeLookOutLeft",
+    "eyeLookOutRight",
+    "eyeLookUpLeft",
+    "eyeLookUpRight",
+    "eyeSquintLeft",
+    "eyeSquintRight",
+    "eyeWideLeft",
+    "eyeWideRight",
+    "jawForward",
+    "jawLeft",
+    "jawOpen",
+    "jawRight",
+    "mouthClose",
+    "mouthDimpleLeft",
+    "mouthDimpleRight",
+    "mouthFrownLeft",
+    "mouthFrownRight",
+    "mouthFunnel",
+    "mouthLeft",
+    "mouthLowerDownLeft",
+    "mouthLowerDownRight",
+    "mouthPressLeft",
+    "mouthPressRight",
+    "mouthPucker",
+    "mouthRight",
+    "mouthRollLower",
+    "mouthRollUpper",
+    "mouthShrugLower",
+    "mouthShrugUpper",
+    "mouthSmileLeft",
+    "mouthSmileRight",
+    "mouthStretchLeft",
+    "mouthStretchRight",
+    "mouthUpperUpLeft",
+    "mouthUpperUpRight",
+    "noseSneerLeft",
+    "noseSneerRight",
+)
 FACE_LANDMARKER_MODEL_MAX_BYTES = 16 * 1024 * 1024
 YUNET_MODEL_REVISION = "47534e27c9851bb1128ccc0102f1145e27f23f98"
 YUNET_MODEL_URL = (
@@ -386,7 +441,13 @@ def _landmark_region(
     }
 
 
-def _detect_faces_mediapipe_tasks(image_rgb: np.ndarray, max_faces: int, min_face_pixels: int) -> list[dict]:
+def _detect_faces_mediapipe_tasks(
+    image_rgb: np.ndarray,
+    max_faces: int,
+    min_face_pixels: int,
+    *,
+    output_face_blendshapes: bool = False,
+) -> list[dict]:
     import mediapipe as mp
     from mediapipe.tasks import python as mp_python
     from mediapipe.tasks.python import vision
@@ -398,15 +459,21 @@ def _detect_faces_mediapipe_tasks(image_rgb: np.ndarray, max_faces: int, min_fac
         min_face_detection_confidence=0.5,
         min_face_presence_confidence=0.5,
         min_tracking_confidence=0.5,
-        output_face_blendshapes=False,
+        output_face_blendshapes=bool(output_face_blendshapes),
         output_facial_transformation_matrixes=False,
     )
     with vision.FaceLandmarker.create_from_options(options) as detector:
         result = detector.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb))
 
     height, width = image_rgb.shape[:2]
+    result_landmarks = list(result.face_landmarks or ())
+    result_blendshapes = list(result.face_blendshapes or ())
+    if output_face_blendshapes and len(result_blendshapes) != len(result_landmarks):
+        raise ValueError(
+            "MediaPipe face landmark/blendshape result counts disagree"
+        )
     regions = []
-    for landmarks in result.face_landmarks or ():
+    for face_index, landmarks in enumerate(result_landmarks):
         landmarks_xyz = np.asarray(
             [[landmark.x, landmark.y, landmark.z] for landmark in landmarks],
             dtype=np.float32,
@@ -425,19 +492,48 @@ def _detect_faces_mediapipe_tasks(image_rgb: np.ndarray, max_faces: int, min_fac
         if region is None:
             continue
         region["landmarks_xyz"] = landmarks_xyz
+        if output_face_blendshapes:
+            categories = {
+                str(category.category_name): float(category.score)
+                for category in result_blendshapes[face_index]
+            }
+            if tuple(sorted(categories)) != FACE_BLENDSHAPE_NAMES:
+                raise ValueError("MediaPipe blendshape category schema changed")
+            scores = [categories[name] for name in FACE_BLENDSHAPE_NAMES]
+            if not np.all(np.isfinite(scores)):
+                raise ValueError("MediaPipe blendshape scores are non-finite")
+            region["blendshape_names"] = list(FACE_BLENDSHAPE_NAMES)
+            region["blendshape_scores"] = scores
         x0, y0, x1, y1 = region["bbox"]
         if min(x1 - x0, y1 - y0) >= min_face_pixels:
             regions.append(region)
     return regions
 
 
-def _detect_faces_mediapipe(image_rgb: np.ndarray, max_faces: int, min_face_pixels: int) -> list[dict]:
+def _detect_faces_mediapipe(
+    image_rgb: np.ndarray,
+    max_faces: int,
+    min_face_pixels: int,
+    *,
+    output_face_blendshapes: bool = False,
+) -> list[dict]:
     import mediapipe as mp
 
     solutions = getattr(mp, "solutions", None)
     face_mesh_api = getattr(solutions, "face_mesh", None) if solutions is not None else None
-    if face_mesh_api is None:
-        return _detect_faces_mediapipe_tasks(image_rgb, max_faces, min_face_pixels)
+    if face_mesh_api is None or output_face_blendshapes:
+        if output_face_blendshapes:
+            return _detect_faces_mediapipe_tasks(
+                image_rgb,
+                max_faces,
+                min_face_pixels,
+                output_face_blendshapes=True,
+            )
+        return _detect_faces_mediapipe_tasks(
+            image_rgb,
+            max_faces,
+            min_face_pixels,
+        )
 
     height, width = image_rgb.shape[:2]
     regions = []
@@ -645,11 +741,24 @@ def detect_face_regions(
     *,
     max_faces: int = 3,
     min_face_pixels: int = DEFAULT_MIN_FACE_PIXELS,
+    output_face_blendshapes: bool = False,
 ) -> tuple[list[dict], list[str]]:
     min_face_pixels = _effective_min_face_pixels(image_rgb.shape, min_face_pixels)
     errors = []
     try:
-        regions = _detect_faces_mediapipe(image_rgb, max_faces, min_face_pixels)
+        if output_face_blendshapes:
+            regions = _detect_faces_mediapipe(
+                image_rgb,
+                max_faces,
+                min_face_pixels,
+                output_face_blendshapes=True,
+            )
+        else:
+            regions = _detect_faces_mediapipe(
+                image_rgb,
+                max_faces,
+                min_face_pixels,
+            )
         if regions:
             return regions, errors
     except Exception as exc:
@@ -661,6 +770,7 @@ def detect_face_regions(
                 image_rgb,
                 regions,
                 max_faces=max_faces,
+                output_face_blendshapes=output_face_blendshapes,
             )
             return upgraded or regions, errors
     except Exception as exc:
@@ -774,6 +884,7 @@ def _upgrade_yunet_regions_with_mediapipe(
     regions: list[dict],
     *,
     max_faces: int,
+    output_face_blendshapes: bool = False,
 ) -> list[dict]:
     image_height, image_width = image_rgb.shape[:2]
     upgraded = []
@@ -794,11 +905,19 @@ def _upgrade_yunet_regions_with_mediapipe(
             crop, (target_width, target_height), interpolation=cv2.INTER_CUBIC
         )
         try:
-            local_regions = _detect_faces_mediapipe(
-                resized,
-                1,
-                MIN_FACE_PIXELS_FLOOR,
-            )
+            if output_face_blendshapes:
+                local_regions = _detect_faces_mediapipe(
+                    resized,
+                    1,
+                    MIN_FACE_PIXELS_FLOOR,
+                    output_face_blendshapes=True,
+                )
+            else:
+                local_regions = _detect_faces_mediapipe(
+                    resized,
+                    1,
+                    MIN_FACE_PIXELS_FLOOR,
+                )
         except Exception:
             continue
         guide_mask = np.asarray(guide.get("face_mask"), dtype=np.uint8) > 0
@@ -832,6 +951,7 @@ def detect_face_regions_in_roi(
     min_face_pixels: int = DEFAULT_MIN_FACE_PIXELS,
     detector: Callable[[np.ndarray, int, int], tuple[list[dict], list[str]] | list[dict]] | None = None,
     allow_selection_detail_fallback: bool = False,
+    output_face_blendshapes: bool = False,
 ) -> tuple[list[dict], list[str], dict]:
     image_height, image_width = image_rgb.shape[:2]
     mask = np.asarray(roi_mask, dtype=np.uint8)
@@ -885,10 +1005,19 @@ def detect_face_regions_in_roi(
         detection_result = (
             detector(resized, max_faces, effective_minimum)
             if detector is not None
-            else detect_face_regions(
-                resized,
-                max_faces=max_faces,
-                min_face_pixels=effective_minimum,
+            else (
+                detect_face_regions(
+                    resized,
+                    max_faces=max_faces,
+                    min_face_pixels=effective_minimum,
+                    output_face_blendshapes=True,
+                )
+                if output_face_blendshapes
+                else detect_face_regions(
+                    resized,
+                    max_faces=max_faces,
+                    min_face_pixels=effective_minimum,
+                )
             )
         )
         if isinstance(detection_result, tuple):
@@ -2037,14 +2166,39 @@ def refine_depth_for_faces(
 
     effective_min_face_pixels = _effective_min_face_pixels(image_rgb.shape, min_face_pixels)
     metadata["minimum_face_pixels"]["effective"] = int(effective_min_face_pixels)
+    request_face_blendshapes = False
+    if enable_gnm_foundation:
+        try:
+            try:
+                from backend.gnm_face_foundation import (
+                    active_gnm_conditioned_feature_requirements,
+                )
+            except ImportError:
+                from gnm_face_foundation import (
+                    active_gnm_conditioned_feature_requirements,
+                )
+            request_face_blendshapes = bool(
+                active_gnm_conditioned_feature_requirements().get(
+                    "face_blendshapes",
+                    False,
+                )
+            )
+        except Exception:
+            request_face_blendshapes = False
+    metadata["conditioned_feature_requirements"] = {
+        "face_blendshapes": request_face_blendshapes,
+        "same_pass_as_landmarks": True,
+    }
     def run_detector(values: np.ndarray, requested_faces: int, requested_minimum: int):
         if detector is not None:
             return detector(values)
-        return detect_face_regions(
-            values,
-            max_faces=requested_faces,
-            min_face_pixels=requested_minimum,
-        )
+        kwargs = {
+            "max_faces": requested_faces,
+            "min_face_pixels": requested_minimum,
+        }
+        if request_face_blendshapes:
+            kwargs["output_face_blendshapes"] = True
+        return detect_face_regions(values, **kwargs)
 
     detection_result = run_detector(image_rgb, max_faces, effective_min_face_pixels)
     if isinstance(detection_result, tuple):
@@ -2054,13 +2208,18 @@ def refine_depth_for_faces(
     metadata["detector_errors"] = [str(error) for error in detector_errors]
     if not regions and roi_mask is not None:
         try:
+            roi_kwargs = {
+                "max_faces": max_faces,
+                "min_face_pixels": min_face_pixels,
+                "detector": run_detector,
+                "allow_selection_detail_fallback": mode == "auto",
+            }
+            if request_face_blendshapes:
+                roi_kwargs["output_face_blendshapes"] = True
             regions, roi_errors, roi_stats = detect_face_regions_in_roi(
                 image_rgb,
                 roi_mask,
-                max_faces=max_faces,
-                min_face_pixels=min_face_pixels,
-                detector=run_detector,
-                allow_selection_detail_fallback=mode == "auto",
+                **roi_kwargs,
             )
             metadata["detector_errors"].extend(str(error) for error in roi_errors)
             metadata["selection_roi_detection"] = roi_stats
@@ -2326,14 +2485,18 @@ def refine_depth_for_faces(
                 try:
                     from .gnm_face_foundation import (
                         GNM_MAX_FACE_SUPPORT_PIXELS,
+                        GNMSurfaceCandidateSet,
                         fuse_gnm_face_foundation,
                         get_gnm_mean_face_foundation,
+                        select_gnm_surface_candidate,
                     )
                 except ImportError:
                     from gnm_face_foundation import (
                         GNM_MAX_FACE_SUPPORT_PIXELS,
+                        GNMSurfaceCandidateSet,
                         fuse_gnm_face_foundation,
                         get_gnm_mean_face_foundation,
+                        select_gnm_surface_candidate,
                     )
 
                 if face_support > GNM_MAX_FACE_SUPPORT_PIXELS:
@@ -2345,12 +2508,57 @@ def refine_depth_for_faces(
                     }
                 else:
                     try:
-                        gnm_surface, provider_stats = (
-                            get_gnm_mean_face_foundation().fit_and_render(
+                        provider = get_gnm_mean_face_foundation()
+                        conditioned = getattr(
+                            provider,
+                            "fit_and_render_conditioned",
+                            None,
+                        )
+                        if callable(conditioned):
+                            gnm_surface, provider_stats = conditioned(
+                                landmark_points,
+                                face_mask,
+                                media_pipe_landmarks_xyz=landmarks_xyz,
+                                face_image_rgb=image_rgb[y0:y1, x0:x1],
+                                media_pipe_blendshape_names=region.get(
+                                    "blendshape_names"
+                                ),
+                                media_pipe_blendshape_scores=region.get(
+                                    "blendshape_scores"
+                                ),
+                            )
+                            if isinstance(
+                                gnm_surface,
+                                GNMSurfaceCandidateSet,
+                            ):
+                                (
+                                    gnm_surface,
+                                    selected_provider_stats,
+                                    surface_selection,
+                                ) = select_gnm_surface_candidate(
+                                    refined_crop,
+                                    gnm_surface,
+                                    face_mask,
+                                )
+                                structured_stats = dict(
+                                    provider_stats.get(
+                                        "structured_geometry",
+                                        {},
+                                    )
+                                )
+                                structured_stats["surface_selection"] = (
+                                    surface_selection
+                                )
+                                provider_stats = {
+                                    **selected_provider_stats,
+                                    **provider_stats,
+                                    "structured_geometry": structured_stats,
+                                }
+                        else:
+                            gnm_surface, provider_stats = provider.fit_and_render(
                                 landmark_points,
                                 face_mask,
                             )
-                        )
                         (
                             refined_crop,
                             parametric_weight,

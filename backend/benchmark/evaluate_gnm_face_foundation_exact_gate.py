@@ -37,6 +37,7 @@ from backend.gnm_face_foundation import (
     GNM_REVISION,
     MEDIAPIPE_DLIB_MAPPING_LICENSE,
     MEDIAPIPE_DLIB_MAPPING_REVISION,
+    active_gnm_detection_kwargs,
     get_gnm_mean_face_foundation,
 )
 
@@ -109,6 +110,7 @@ def evaluate(
             selection,
             max_faces=1,
             min_face_pixels=96,
+            **active_gnm_detection_kwargs(),
         )
         if detector_errors or len(regions) != 1:
             raise RuntimeError(

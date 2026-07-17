@@ -1,0 +1,185 @@
+import unittest
+
+import numpy as np
+
+from backend.benchmark import train_gnm_structured_geometry as structured
+from backend.benchmark.gnm_structured_geometry_provider import (
+    predict_checkpoint_head,
+)
+from backend.benchmark.mediapipe_expression_features import BLENDSHAPE_NAMES
+
+
+class StructuredGNMTrainingTests(unittest.TestCase):
+    def test_landmark_features_are_translation_and_scale_invariant(self):
+        indices = np.arange(478, dtype=np.float64)
+        landmarks = np.column_stack(
+            (
+                0.45 + 0.16 * np.cos(indices * 0.07),
+                0.51 + 0.22 * np.sin(indices * 0.09),
+                0.04 * np.sin(indices * 0.13),
+            )
+        )
+        transformed = landmarks.copy()
+        transformed[:, :2] = transformed[:, :2] * 2.75 + (1.2, -0.8)
+        transformed[:, 2] = transformed[:, 2] * 4.0 + 0.7
+
+        first = structured.normalized_landmark_features(landmarks)
+        second = structured.normalized_landmark_features(transformed)
+
+        np.testing.assert_allclose(first, second, atol=1e-5)
+        self.assertEqual(first.shape, (68 * 3,))
+        self.assertTrue(np.all(np.isfinite(first)))
+
+    def test_full_landmark_features_keep_all_468_points(self):
+        indices = np.arange(478, dtype=np.float64)
+        landmarks = np.column_stack(
+            (
+                0.45 + 0.16 * np.cos(indices * 0.07),
+                0.51 + 0.22 * np.sin(indices * 0.09),
+                0.04 * np.sin(indices * 0.13),
+            )
+        )
+        transformed = landmarks.copy()
+        transformed[:, :2] = transformed[:, :2] * 2.75 + (1.2, -0.8)
+        transformed[:, 2] = transformed[:, 2] * 4.0 + 0.7
+
+        first = structured.normalized_landmark_features(
+            landmarks,
+            feature_kind=structured.LANDMARK_FEATURE_FULL468,
+        )
+        second = structured.normalized_landmark_features(
+            transformed,
+            feature_kind=structured.LANDMARK_FEATURE_FULL468,
+        )
+
+        np.testing.assert_allclose(first, second, atol=1e-5)
+        self.assertEqual(first.shape, (468 * 3,))
+        self.assertTrue(np.all(np.isfinite(first)))
+
+    def test_landmark_features_reject_unknown_schema(self):
+        landmarks = np.zeros((478, 3), dtype=np.float64)
+
+        with self.assertRaisesRegex(ValueError, "feature kind"):
+            structured.normalized_landmark_features(
+                landmarks,
+                feature_kind="unknown-v1",
+            )
+
+    def test_blendshape_schema_appends_52_bounded_features(self):
+        indices = np.arange(478, dtype=np.float64)
+        landmarks = np.column_stack(
+            (
+                0.45 + 0.16 * np.cos(indices * 0.07),
+                0.51 + 0.22 * np.sin(indices * 0.09),
+                0.04 * np.sin(indices * 0.13),
+            )
+        )
+        scores = np.linspace(0.0, 1.0, 52, dtype=np.float32)
+
+        features, stats = structured.structured_face_features(
+            landmarks,
+            feature_kind=(
+                structured.LANDMARK_FEATURE_DLIB68_BLENDSHAPES52
+            ),
+            blendshape_names=BLENDSHAPE_NAMES,
+            blendshape_scores=scores,
+        )
+
+        self.assertEqual(features.shape, (68 * 3 + 52,))
+        np.testing.assert_array_equal(features[-52:], scores)
+        self.assertTrue(stats["blendshapes_enabled"])
+
+    def test_identity_split_audit_rejects_overlap(self):
+        clean = structured.audit_identity_splits(
+            [
+                {"identity_group": "train-a", "split": "train"},
+                {"identity_group": "validation-a", "split": "validation"},
+                {"identity_group": "sealed-a", "split": "sealed"},
+            ]
+        )
+        self.assertTrue(clean["passed"])
+
+        overlap = structured.audit_identity_splits(
+            [
+                {"identity_group": "shared", "split": "train"},
+                {"identity_group": "shared", "split": "validation"},
+                {"identity_group": "sealed-a", "split": "sealed"},
+            ]
+        )
+        self.assertFalse(overlap["passed"])
+        self.assertIn("shared", overlap["conflicting_identities"])
+
+    def test_ridge_head_fits_a_bounded_linear_target(self):
+        features = np.asarray(
+            [
+                [-2.0, 1.0],
+                [-1.0, 0.5],
+                [0.0, 0.0],
+                [1.0, -0.5],
+                [2.0, -1.0],
+            ],
+            dtype=np.float64,
+        )
+        targets = np.column_stack(
+            (features[:, 0] * 0.4, features[:, 1] * -0.6)
+        )
+        head = structured.fit_ridge_head(
+            features,
+            targets,
+            target_mean=np.zeros(2),
+            components=np.eye(2),
+            rank=2,
+            alpha=1e-6,
+            sample_weights=np.ones(len(features)),
+        )
+
+        predicted = head.predict_targets(features)
+
+        np.testing.assert_allclose(predicted, targets, atol=1e-5)
+        self.assertEqual(head.rank, 2)
+
+    def test_zero_rank_head_emits_training_mean(self):
+        features = np.asarray([[0.0], [1.0], [2.0]])
+        targets = np.asarray([[1.0, 2.0], [2.0, 3.0], [3.0, 4.0]])
+        mean = np.asarray([2.0, 3.0])
+        head = structured.fit_ridge_head(
+            features,
+            targets,
+            target_mean=mean,
+            components=np.eye(2),
+            rank=0,
+            alpha=1.0,
+            sample_weights=np.ones(len(features)),
+        )
+
+        predicted = head.predict_targets(np.asarray([[10.0], [-4.0]]))
+
+        np.testing.assert_array_equal(predicted, np.broadcast_to(mean, (2, 2)))
+        self.assertEqual(head.rank, 0)
+
+    def test_checkpoint_head_clips_scores_before_decoding(self):
+        arrays = {
+            "feature_mean": np.asarray([0.0, 0.0]),
+            "feature_scale": np.asarray([1.0, 2.0]),
+            "target_mean": np.asarray([0.5, -0.5]),
+            "components": np.asarray([[1.0, 2.0]]),
+            "score_mean": np.asarray([0.0]),
+            "weights": np.asarray([[2.0], [0.0]]),
+            "score_minimum": np.asarray([-1.0]),
+            "score_maximum": np.asarray([1.0]),
+        }
+
+        target, scores = predict_checkpoint_head(
+            np.asarray([10.0, 4.0]),
+            arrays,
+        )
+
+        np.testing.assert_array_equal(scores, np.asarray([1.0], dtype=np.float32))
+        np.testing.assert_array_equal(
+            target,
+            np.asarray([1.5, 1.5], dtype=np.float32),
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

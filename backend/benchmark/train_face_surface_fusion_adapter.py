@@ -129,21 +129,27 @@ def _load_mask(path: Path) -> np.ndarray:
 def _detect_production_region(
     image_rgb: np.ndarray,
     selection_mask: np.ndarray,
+    *,
+    output_face_blendshapes: bool = False,
 ) -> tuple[dict, dict]:
-    regions, errors = detect_face_regions(
-        image_rgb,
-        max_faces=1,
-        min_face_pixels=96,
-    )
+    detection_kwargs = {"max_faces": 1, "min_face_pixels": 96}
+    if output_face_blendshapes:
+        detection_kwargs["output_face_blendshapes"] = True
+    regions, errors = detect_face_regions(image_rgb, **detection_kwargs)
     detection_scope = "full-image"
     roi_stats = {"enabled": False, "reason": "full_image_face_detected"}
     if not regions:
+        roi_kwargs = {
+            "max_faces": 1,
+            "min_face_pixels": 96,
+            "allow_selection_detail_fallback": False,
+        }
+        if output_face_blendshapes:
+            roi_kwargs["output_face_blendshapes"] = True
         regions, roi_errors, roi_stats = detect_face_regions_in_roi(
             image_rgb,
             selection_mask,
-            max_faces=1,
-            min_face_pixels=96,
-            allow_selection_detail_fallback=False,
+            **roi_kwargs,
         )
         errors.extend(roi_errors)
         detection_scope = "selection-roi"
@@ -189,10 +195,15 @@ def _detect_production_region(
                     (target_width, target_height),
                     interpolation=cv2.INTER_CUBIC,
                 )
+                local_kwargs = {
+                    "max_faces": 1,
+                    "min_face_pixels": MIN_FACE_PIXELS_FLOOR,
+                }
+                if output_face_blendshapes:
+                    local_kwargs["output_face_blendshapes"] = True
                 local_regions, local_errors = detect_face_regions(
                     resized,
-                    max_faces=1,
-                    min_face_pixels=MIN_FACE_PIXELS_FLOOR,
+                    **local_kwargs,
                 )
                 errors.extend(
                     f"tight-roi-{padding_ratio:.2f}:{error}"

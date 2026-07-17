@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 import math
 import os
@@ -39,6 +40,8 @@ GNM_HIGH_CONFIDENCE_ALIGNMENT_NORMALIZED_RMSE = 0.26
 GNM_GUARDED_CORRECTION_STRENGTH = 0.25
 GNM_CENTRAL_CORRECTION_DILATION_PIXELS = 3
 GNM_CENTRAL_CORRECTION_FEATHER_SIGMA_PIXELS = 0.5
+GNM_IDENTITY_DIMENSION = 253
+GNM_EXPRESSION_DIMENSION = 383
 
 # MediaPipe-to-dlib68 correspondence from PeizhiYan/Mediapipe_2_Dlib_Landmarks.
 # A tuple with two entries is averaged before fitting.
@@ -112,6 +115,14 @@ MEDIAPIPE_TO_DLIB68 = (
     (14,),
     (87,),
 )
+
+
+@dataclass(frozen=True)
+class GNMSurfaceCandidateSet:
+    candidate_surface: np.ndarray
+    candidate_stats: dict
+    fallback_surface: np.ndarray
+    fallback_stats: dict
 
 
 def _sha256_file(path: Path) -> str:
@@ -319,11 +330,176 @@ def _rasterize_front_surface(
     return surface
 
 
+def _apply_geometry_coefficients(
+    template_vertices: np.ndarray,
+    identity_basis: np.ndarray,
+    expression_basis: np.ndarray,
+    identity: np.ndarray,
+    expression: np.ndarray,
+) -> np.ndarray:
+    template = np.asarray(template_vertices, dtype=np.float64)
+    identity_basis = np.asarray(identity_basis)
+    expression_basis = np.asarray(expression_basis)
+    identity = np.asarray(identity, dtype=np.float64)
+    expression = np.asarray(expression, dtype=np.float64)
+    if template.ndim != 2 or template.shape[1] != 3:
+        raise ValueError("GNM template vertices have an invalid shape")
+    if identity_basis.shape != (GNM_IDENTITY_DIMENSION, *template.shape):
+        raise ValueError("GNM identity basis has an invalid shape")
+    if expression_basis.shape != (GNM_EXPRESSION_DIMENSION, *template.shape):
+        raise ValueError("GNM expression basis has an invalid shape")
+    if identity.shape != (GNM_IDENTITY_DIMENSION,):
+        raise ValueError("GNM identity coefficients have an invalid shape")
+    if expression.shape != (GNM_EXPRESSION_DIMENSION,):
+        raise ValueError("GNM expression coefficients have an invalid shape")
+    if not np.all(np.isfinite(identity)) or not np.all(np.isfinite(expression)):
+        raise ValueError("GNM geometry coefficients must be finite")
+    vertices = (
+        template
+        + np.einsum("i,ivk->vk", identity, identity_basis)
+        + np.einsum("i,ivk->vk", expression, expression_basis)
+    )
+    if not np.all(np.isfinite(vertices)):
+        raise ValueError("GNM conditioned vertices must be finite")
+    return vertices
+
+
+def gnm_surface_alignment_quality(
+    depth: np.ndarray,
+    surface: np.ndarray,
+    face_mask: np.ndarray,
+) -> dict:
+    depth = np.asarray(depth, dtype=np.float32)
+    surface = np.asarray(surface, dtype=np.float32)
+    mask = np.asarray(face_mask) > 0
+    if depth.ndim != 2 or surface.shape != depth.shape or mask.shape != depth.shape:
+        raise ValueError("GNM alignment inputs must be matching two-dimensional arrays")
+    valid = mask & np.isfinite(depth) & np.isfinite(surface)
+    face_pixels = int(np.count_nonzero(mask))
+    coverage = float(np.count_nonzero(valid) / max(face_pixels, 1))
+    if coverage < GNM_MINIMUM_RENDER_COVERAGE:
+        raise ValueError(
+            f"GNM alignment surface coverage failed: {coverage:.6f} "
+            f"< {GNM_MINIMUM_RENDER_COVERAGE:.6f}"
+        )
+    design = np.column_stack(
+        (
+            surface[valid].astype(np.float64),
+            np.ones(np.count_nonzero(valid), dtype=np.float64),
+        )
+    )
+    scale, offset = np.linalg.lstsq(
+        design,
+        depth[valid].astype(np.float64),
+        rcond=None,
+    )[0]
+    if not math.isfinite(scale) or scale <= 0.0 or not math.isfinite(offset):
+        raise ValueError("GNM surface alignment is not positive and finite")
+    aligned = surface.astype(np.float64) * float(scale) + float(offset)
+    active_values = depth[valid]
+    low, high = np.percentile(active_values, (5.0, 95.0))
+    active_span = float(high - low)
+    if not math.isfinite(active_span) or active_span <= 1e-8:
+        raise ValueError("GNM alignment depth has no usable span")
+    aligned_valid = aligned[valid]
+    depth_valid = depth[valid].astype(np.float64)
+    aligned_centered = aligned_valid - np.mean(aligned_valid)
+    depth_centered = depth_valid - np.mean(depth_valid)
+    denominator = float(
+        np.linalg.norm(aligned_centered) * np.linalg.norm(depth_centered)
+    )
+    correlation = (
+        float(np.dot(aligned_centered, depth_centered) / denominator)
+        if denominator > 1e-12
+        else 0.0
+    )
+    normalized_rmse = float(
+        np.sqrt(np.mean(np.square(aligned_valid - depth_valid))) / active_span
+    )
+    return {
+        "coverage_ratio": coverage,
+        "alignment_scale": float(scale),
+        "alignment_offset": float(offset),
+        "active_span": active_span,
+        "alignment_depth_correlation": correlation,
+        "alignment_normalized_rmse": normalized_rmse,
+    }
+
+
+def select_gnm_surface_candidate(
+    depth: np.ndarray,
+    candidates: GNMSurfaceCandidateSet,
+    face_mask: np.ndarray,
+    *,
+    minimum_strict_improvement: float = 1e-6,
+) -> tuple[np.ndarray, dict, dict]:
+    fallback_quality = gnm_surface_alignment_quality(
+        depth,
+        candidates.fallback_surface,
+        face_mask,
+    )
+    try:
+        candidate_quality = gnm_surface_alignment_quality(
+            depth,
+            candidates.candidate_surface,
+            face_mask,
+        )
+        correlation_delta = float(
+            candidate_quality["alignment_depth_correlation"]
+            - fallback_quality["alignment_depth_correlation"]
+        )
+        rmse_delta = float(
+            candidate_quality["alignment_normalized_rmse"]
+            - fallback_quality["alignment_normalized_rmse"]
+        )
+        pareto = bool(
+            correlation_delta >= 0.0
+            and rmse_delta <= 0.0
+            and (
+                correlation_delta >= float(minimum_strict_improvement)
+                or rmse_delta <= -float(minimum_strict_improvement)
+            )
+        )
+        candidate_error = None
+    except Exception as exc:
+        candidate_quality = None
+        correlation_delta = None
+        rmse_delta = None
+        pareto = False
+        candidate_error = type(exc).__name__
+    if pareto:
+        surface = candidates.candidate_surface
+        provider_stats = candidates.candidate_stats
+        selected = "conditioned"
+        reason = "candidate_pareto_dominates_live_depth_alignment"
+    else:
+        surface = candidates.fallback_surface
+        provider_stats = candidates.fallback_stats
+        selected = "mean_fallback"
+        reason = (
+            "candidate_alignment_error"
+            if candidate_error is not None
+            else "candidate_does_not_pareto_dominate_live_depth_alignment"
+        )
+    return surface, provider_stats, {
+        "selected": selected,
+        "reason": reason,
+        "minimum_strict_improvement": float(minimum_strict_improvement),
+        "candidate": candidate_quality,
+        "fallback": fallback_quality,
+        "correlation_delta": correlation_delta,
+        "normalized_rmse_delta": rmse_delta,
+        "candidate_error_type": candidate_error,
+    }
+
+
 class GNMMeanFaceFoundation:
     def __init__(
         self,
         model_path: str | Path | None = None,
         landmarks_path: str | Path | None = None,
+        *,
+        load_geometry_bases: bool = False,
     ) -> None:
         model_path = Path(model_path) if model_path is not None else resolve_gnm_model()
         landmarks_path = (
@@ -336,9 +512,23 @@ class GNMMeanFaceFoundation:
                 "vertex_groups",
                 "vertex_group_names",
             }
+            if load_geometry_bases:
+                required.update(
+                    {"vertex_identity_basis", "expression_basis"}
+                )
             if not required.issubset(data.files):
                 raise ValueError("GNM model is missing required geometry arrays")
             vertices = np.asarray(data["template_vertex_positions"], dtype=np.float64)
+            identity_basis = (
+                np.asarray(data["vertex_identity_basis"], dtype=np.float32)
+                if load_geometry_bases
+                else None
+            )
+            expression_basis = (
+                np.asarray(data["expression_basis"], dtype=np.float32)
+                if load_geometry_bases
+                else None
+            )
             triangles = np.asarray(data["triangles"], dtype=np.int32)
             groups = np.asarray(data["vertex_groups"], dtype=np.float32)
             group_names = [str(value) for value in data["vertex_group_names"].tolist()]
@@ -364,14 +554,46 @@ class GNMMeanFaceFoundation:
             raise ValueError("GNM model has no skin triangles")
 
         self.vertices = vertices
+        self.identity_basis = identity_basis
+        self.expression_basis = expression_basis
         self.skin_triangles = skin_triangles
         self.landmarks = landmarks
+        self.landmark_indices = landmark_indices
+        self.landmark_weights = landmark_weights
 
     def fit_and_render(
         self,
         media_pipe_landmarks_xy: np.ndarray,
         face_mask: np.ndarray,
+        *,
+        identity: np.ndarray | None = None,
+        expression: np.ndarray | None = None,
     ) -> tuple[np.ndarray, dict]:
+        geometry_conditioned = identity is not None or expression is not None
+        if geometry_conditioned:
+            if identity is None or expression is None:
+                raise ValueError(
+                    "GNM conditioning requires both identity and expression"
+                )
+            if self.identity_basis is None or self.expression_basis is None:
+                raise RuntimeError(
+                    "GNM geometry bases were not requested for this provider"
+                )
+            vertices = _apply_geometry_coefficients(
+                self.vertices,
+                self.identity_basis,
+                self.expression_basis,
+                identity,
+                expression,
+            )
+            landmark_vertices = vertices[self.landmark_indices]
+            landmarks = np.sum(
+                landmark_vertices * self.landmark_weights[..., None],
+                axis=1,
+            )
+        else:
+            vertices = self.vertices
+            landmarks = self.landmarks
         target_pixels = mediapipe_to_dlib68(media_pipe_landmarks_xy)
         face_mask = (np.asarray(face_mask) > 0).astype(np.uint8)
         if face_mask.ndim != 2 or not np.any(face_mask):
@@ -390,7 +612,7 @@ class GNMMeanFaceFoundation:
 
         def residual(parameters: np.ndarray) -> np.ndarray:
             rotation = _axis_angle_rotation(parameters[:3])
-            rotated = self.landmarks @ rotation.T
+            rotated = landmarks @ rotation.T
             scale = math.exp(float(parameters[3]))
             projected = scale * np.column_stack(
                 (rotated[:, 0], -rotated[:, 1])
@@ -425,7 +647,7 @@ class GNMMeanFaceFoundation:
             )
 
         rotation = _axis_angle_rotation(result.x[:3])
-        rotated_vertices = self.vertices @ rotation.T
+        rotated_vertices = vertices @ rotation.T
         normalized_scale = math.exp(float(result.x[3]))
         projected_normalized = normalized_scale * np.column_stack(
             (rotated_vertices[:, 0], -rotated_vertices[:, 1])
@@ -448,7 +670,12 @@ class GNMMeanFaceFoundation:
             )
         return surface, {
             "enabled": True,
-            "method": "gnm-mean-head-weak-perspective-zbuffer",
+            "method": (
+                "gnm-conditioned-head-weak-perspective-zbuffer"
+                if geometry_conditioned
+                else "gnm-mean-head-weak-perspective-zbuffer"
+            ),
+            "geometry_conditioned": geometry_conditioned,
             "gnm_revision": GNM_REVISION,
             "gnm_license": GNM_LICENSE,
             "mapping_revision": MEDIAPIPE_DLIB_MAPPING_REVISION,
@@ -461,10 +688,39 @@ class GNMMeanFaceFoundation:
             "covered_pixels": covered_pixels,
             "coverage_ratio": coverage,
             "skin_triangles": int(len(self.skin_triangles)),
+            "identity_coefficient_rms": (
+                float(np.sqrt(np.mean(np.square(identity))))
+                if identity is not None
+                else 0.0
+            ),
+            "expression_coefficient_rms": (
+                float(np.sqrt(np.mean(np.square(expression))))
+                if expression is not None
+                else 0.0
+            ),
         }
 
 
 _DEFAULT_PROVIDER: GNMMeanFaceFoundation | None = None
+
+
+def active_gnm_conditioned_feature_requirements() -> dict:
+    provider = _DEFAULT_PROVIDER
+    return {
+        "face_blendshapes": bool(
+            provider is not None
+            and getattr(provider, "requires_face_blendshapes", False)
+        )
+    }
+
+
+def active_gnm_detection_kwargs() -> dict:
+    requirements = active_gnm_conditioned_feature_requirements()
+    return (
+        {"output_face_blendshapes": True}
+        if requirements["face_blendshapes"]
+        else {}
+    )
 
 
 def get_gnm_mean_face_foundation() -> GNMMeanFaceFoundation:

@@ -40,6 +40,7 @@ from backend.gnm_face_foundation import (
     GNM_MINIMUM_ALIGNMENT_CORRELATION,
     GNM_MODEL_SHA256,
     GNM_REVISION,
+    active_gnm_detection_kwargs,
 )
 
 
@@ -387,6 +388,7 @@ def evaluate(
         region, detection = _detect_production_region(
             selected_rgb,
             selection.astype(np.uint8) * 255,
+            **active_gnm_detection_kwargs(),
         )
         detection_scopes[detection["scope"]] = (
             detection_scopes.get(detection["scope"], 0) + 1

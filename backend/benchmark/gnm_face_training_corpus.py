@@ -45,6 +45,14 @@ GNM_SAMPLER_RELATIVE_ROOT = (
 )
 GNM_IDENTITY_DECODER = "identity_decoder_model.h5"
 GNM_EXPRESSION_DECODER = "expression_decoder_model.h5"
+GNM_IDENTITY_DIMENSION = 253
+GNM_EXPRESSION_DIMENSION = 383
+GNM_GEOMETRY_TARGET_DIMENSION = (
+    GNM_IDENTITY_DIMENSION + GNM_EXPRESSION_DIMENSION
+)
+GNM_GEOMETRY_TARGET_DTYPE = np.dtype("<f4")
+GNM_GEOMETRY_TARGET_CONTRACT_VERSION = 1
+TRAINING_SUPERVISION_SCHEMA_VERSION = 1
 NOVEL_IDENTITY_SELECTION_STRATEGY = "novel-identity-stratified"
 ROW_SELECTION_STRATEGIES = (
     "linspace",
@@ -222,6 +230,64 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _geometry_target_contract() -> dict:
+    return {
+        "version": GNM_GEOMETRY_TARGET_CONTRACT_VERSION,
+        "enabled": True,
+        "training_only": True,
+        "compact_evidence_must_exclude_raw_targets": True,
+        "provenance": {
+            "provider": "google-gnm-head-v3",
+            "gnm_revision": GNM_SOURCE_REVISION,
+            "model_sha256": GNM_MODEL_SHA256,
+            "identity_decoder_sha256": GNM_IDENTITY_DECODER_SHA256,
+            "expression_decoder_sha256": GNM_EXPRESSION_DECODER_SHA256,
+        },
+        "rng": {
+            "bit_generator": "numpy.PCG64",
+            "normal_sampler": "numpy.random.Generator.normal",
+            "latent_dimension": 64,
+            "latent_dtype": GNM_GEOMETRY_TARGET_DTYPE.str,
+            "seed_fields": {
+                "identity": "identity_latent_seed",
+                "expression": "expression_latent_seed",
+            },
+        },
+        "target_layout": {
+            "artifact_format": "npy",
+            "dtype": GNM_GEOMETRY_TARGET_DTYPE.str,
+            "dimensions": {
+                "identity": GNM_IDENTITY_DIMENSION,
+                "expression": GNM_EXPRESSION_DIMENSION,
+                "combined": GNM_GEOMETRY_TARGET_DIMENSION,
+            },
+            "block_order": ["identity", "expression"],
+            "block_slices": {
+                "identity": [0, GNM_IDENTITY_DIMENSION],
+                "expression": [
+                    GNM_IDENTITY_DIMENSION,
+                    GNM_GEOMETRY_TARGET_DIMENSION,
+                ],
+            },
+            "coefficient_blocks": {
+                "identity": {
+                    "head": [0, 170],
+                    "eyes": [170, 173],
+                    "teeth": [173, 253],
+                },
+                "expression": {
+                    "left_eye": [0, 100],
+                    "right_eye": [100, 200],
+                    "lower_face": [200, 350],
+                    "tongue": [350, 382],
+                    "pupils": [382, 383],
+                },
+            },
+            "slice_semantics": "zero-based half-open [start, stop)",
+        },
+    }
 
 
 def _identity_split(variant_index: int) -> str:
@@ -699,19 +765,20 @@ def _render_row(
     model,
     part_weights: dict[str, np.ndarray],
     asset_paths: dict[str, Path],
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, np.ndarray], dict]:
-    identity_rng = np.random.default_rng(spec.identity_latent_seed)
-    expression_rng = np.random.default_rng(spec.expression_latent_seed)
-    identity = _decode_h5(
-        asset_paths["identity_decoder"],
-        identity_rng.normal(size=(1, 64)).astype(np.float32),
-        _identity_condition(spec),
-    )[0]
-    expression = _decode_h5(
-        asset_paths["expression_decoder"],
-        expression_rng.normal(size=(1, 64)).astype(np.float32),
-        _expression_condition(spec),
-    )[0]
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    dict[str, np.ndarray],
+    dict,
+    np.ndarray,
+    np.ndarray,
+]:
+    identity, expression = decode_geometry_targets(
+        spec,
+        model=model,
+        asset_paths=asset_paths,
+    )
     vertices = model(
         identity=identity,
         expression=expression,
@@ -810,7 +877,206 @@ def _render_row(
         exact_depth.astype(np.float32),
         exact_parts,
         geometry,
+        identity.astype(np.float32),
+        expression.astype(np.float32),
     )
+
+
+def decode_geometry_targets(
+    spec: GNMTrainingSceneSpec,
+    *,
+    model,
+    asset_paths: dict[str, Path],
+) -> tuple[np.ndarray, np.ndarray]:
+    identity_rng = np.random.Generator(
+        np.random.PCG64(spec.identity_latent_seed)
+    )
+    expression_rng = np.random.Generator(
+        np.random.PCG64(spec.expression_latent_seed)
+    )
+    identity = _decode_h5(
+        asset_paths["identity_decoder"],
+        identity_rng.normal(size=(1, 64)).astype(
+            GNM_GEOMETRY_TARGET_DTYPE
+        ),
+        _identity_condition(spec),
+    )[0]
+    expression = _decode_h5(
+        asset_paths["expression_decoder"],
+        expression_rng.normal(size=(1, 64)).astype(
+            GNM_GEOMETRY_TARGET_DTYPE
+        ),
+        _expression_condition(spec),
+    )[0]
+    _validate_geometry_targets(identity, expression, model=model)
+    return (
+        np.ascontiguousarray(identity, dtype=GNM_GEOMETRY_TARGET_DTYPE),
+        np.ascontiguousarray(expression, dtype=GNM_GEOMETRY_TARGET_DTYPE),
+    )
+
+
+def _validate_geometry_targets(
+    identity: np.ndarray,
+    expression: np.ndarray,
+    *,
+    model,
+) -> None:
+    identity = np.asarray(identity)
+    expression = np.asarray(expression)
+    expected_identity = int(getattr(model, "identity_dim", -1))
+    expected_expression = int(getattr(model, "expression_dim", -1))
+    if expected_identity != GNM_IDENTITY_DIMENSION:
+        raise ValueError(
+            "Pinned GNM identity dimension changed: "
+            f"{expected_identity} != {GNM_IDENTITY_DIMENSION}"
+        )
+    if expected_expression != GNM_EXPRESSION_DIMENSION:
+        raise ValueError(
+            "Pinned GNM expression dimension changed: "
+            f"{expected_expression} != {GNM_EXPRESSION_DIMENSION}"
+        )
+    if identity.shape != (expected_identity,):
+        raise ValueError(
+            "GNM identity target has an invalid shape: "
+            f"{identity.shape} != {(expected_identity,)}"
+        )
+    if expression.shape != (expected_expression,):
+        raise ValueError(
+            "GNM expression target has an invalid shape: "
+            f"{expression.shape} != {(expected_expression,)}"
+        )
+    if not np.all(np.isfinite(identity)) or not np.all(np.isfinite(expression)):
+        raise ValueError("GNM geometry targets must be finite")
+
+
+def _require_training_rows_for_geometry_targets(
+    rows: tuple[GNMTrainingSceneSpec, ...],
+) -> None:
+    rejected = [
+        f"{row.row_id} ({row.split})" for row in rows if row.split != "train"
+    ]
+    if rejected:
+        raise ValueError(
+            "Geometry targets are training-only; every selected row must have "
+            "split='train'. Rejected rows: " + ", ".join(rejected)
+        )
+
+
+def _encoded_geometry_target(name: str, values: np.ndarray) -> np.ndarray:
+    dimensions = {
+        "identity": GNM_IDENTITY_DIMENSION,
+        "expression": GNM_EXPRESSION_DIMENSION,
+    }
+    if name not in dimensions:
+        raise ValueError(f"Unsupported GNM geometry target block: {name!r}")
+    encoded = np.ascontiguousarray(values, dtype=GNM_GEOMETRY_TARGET_DTYPE)
+    expected_shape = (dimensions[name],)
+    if encoded.shape != expected_shape:
+        raise ValueError(
+            f"GNM {name} target has an invalid shape: "
+            f"{encoded.shape} != {expected_shape}"
+        )
+    if encoded.dtype.str != GNM_GEOMETRY_TARGET_DTYPE.str:
+        raise ValueError(
+            f"GNM {name} target has an invalid dtype: {encoded.dtype.str}"
+        )
+    if not np.all(np.isfinite(encoded)):
+        raise ValueError(f"GNM {name} target must be finite")
+    return encoded
+
+
+def _write_geometry_targets(
+    row_dir: Path,
+    output_root: Path,
+    identity: np.ndarray,
+    expression: np.ndarray,
+) -> dict:
+    target_dir = row_dir / "geometry_targets"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    records = {}
+    for name, values in (
+        ("identity", identity),
+        ("expression", expression),
+    ):
+        path = target_dir / f"{name}.npy"
+        encoded = _encoded_geometry_target(name, values)
+        np.save(path, encoded, allow_pickle=False)
+        loaded = np.load(path, allow_pickle=False)
+        if (
+            loaded.dtype.str != GNM_GEOMETRY_TARGET_DTYPE.str
+            or not np.array_equal(loaded, encoded)
+        ):
+            raise RuntimeError(f"GNM {name} target did not round-trip exactly")
+        records[name] = {
+            "path": path.relative_to(output_root).as_posix(),
+            "sha256": _sha256(path),
+        }
+    return records
+
+
+def _training_target_reference(
+    output_root: Path,
+    name: str,
+    record: dict,
+) -> dict:
+    relative_path = Path(str(record.get("path", "")))
+    if (
+        not relative_path.parts
+        or relative_path.is_absolute()
+        or ".." in relative_path.parts
+    ):
+        raise ValueError(f"GNM {name} target path must be output-relative")
+    artifact_path = output_root / relative_path
+    expected_hash = str(record.get("sha256", ""))
+    if not artifact_path.is_file() or _sha256(artifact_path) != expected_hash:
+        raise ValueError(f"GNM {name} target artifact hash mismatch")
+    return {
+        "path": relative_path.as_posix(),
+        "sha256": expected_hash,
+    }
+
+
+def _write_training_supervision_manifest(
+    output_root: Path,
+    rows: list[tuple[GNMTrainingSceneSpec, dict]],
+) -> dict:
+    _require_training_rows_for_geometry_targets(
+        tuple(spec for spec, _targets in rows)
+    )
+    manifest_rows = []
+    for spec, targets in rows:
+        if set(targets) != {"identity", "expression"}:
+            raise ValueError(
+                f"GNM row {spec.row_id!r} has incomplete geometry targets"
+            )
+        manifest_rows.append(
+            {
+                "row_id": spec.row_id,
+                "spec": asdict(spec),
+                "targets": {
+                    name: _training_target_reference(
+                        output_root,
+                        name,
+                        targets[name],
+                    )
+                    for name in ("identity", "expression")
+                },
+            }
+        )
+    manifest = {
+        "schema_version": TRAINING_SUPERVISION_SCHEMA_VERSION,
+        "geometry_target_contract": _geometry_target_contract(),
+        "rows": manifest_rows,
+    }
+    manifest_path = output_root / "training_supervision.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "path": manifest_path.relative_to(output_root).as_posix(),
+        "sha256": _sha256(manifest_path),
+    }
 
 
 def render_training_slice(
@@ -820,6 +1086,7 @@ def render_training_slice(
     split: str | None = None,
     limit: int | None = None,
     selection_strategy: str = "linspace",
+    emit_geometry_targets: bool = False,
 ) -> dict:
     root = Path(gnm_root).resolve()
     preflight = preflight_gnm_root(root)
@@ -828,25 +1095,36 @@ def render_training_slice(
             "GNM source preflight failed: "
             + json.dumps(preflight["checks"], sort_keys=True)
         )
-    output_root = Path(output_dir)
-    output_root.mkdir(parents=True, exist_ok=True)
-    asset_paths = _asset_paths(root)
-    model = _load_gnm_model(root)
-    part_weights = _face_part_weights(model)
     selected = select_training_rows(
         split=split,
         limit=limit,
         strategy=selection_strategy,
     )
+    if emit_geometry_targets:
+        _require_training_rows_for_geometry_targets(selected)
+    output_root = Path(output_dir)
+    output_root.mkdir(parents=True, exist_ok=True)
+    asset_paths = _asset_paths(root)
+    model = _load_gnm_model(root)
+    part_weights = _face_part_weights(model)
     selected_matrix = (
         NOVEL_TRAINING_MATRIX
         if selection_strategy == NOVEL_IDENTITY_SELECTION_STRATEGY
         else TRAINING_MATRIX
     )
     rows = []
+    supervision_rows = []
     started = time.perf_counter()
     for spec in selected:
-        source, selection, exact, parts, geometry = _render_row(
+        (
+            source,
+            selection,
+            exact,
+            parts,
+            geometry,
+            identity,
+            expression,
+        ) = _render_row(
             spec,
             model=model,
             part_weights=part_weights,
@@ -861,6 +1139,18 @@ def render_training_slice(
         Image.fromarray(source).save(source_path)
         Image.fromarray(selection).save(selection_path)
         np.save(exact_path, exact)
+        geometry_targets = (
+            _write_geometry_targets(
+                row_dir,
+                output_root,
+                identity,
+                expression,
+            )
+            if emit_geometry_targets
+            else None
+        )
+        if geometry_targets is not None:
+            supervision_rows.append((spec, geometry_targets))
         part_records = {}
         for name, mask in sorted(parts.items()):
             part_path = parts_dir / f"{name}.png"
@@ -870,33 +1160,35 @@ def render_training_slice(
                 "sha256": _sha256(part_path),
                 "pixels": int(np.count_nonzero(mask)),
             }
-        rows.append(
-            {
-                "row_id": spec.row_id,
-                "split": spec.split,
-                "identity_group": spec.identity_group,
-                "expression": spec.expression,
-                "spec": asdict(spec),
-                "render": geometry,
-                "source": {
-                    "path": source_path.relative_to(output_root).as_posix(),
-                    "sha256": _sha256(source_path),
-                },
-                "selection_mask": {
-                    "path": selection_path.relative_to(
-                        output_root
-                    ).as_posix(),
-                    "sha256": _sha256(selection_path),
-                },
-                "exact_depth": {
-                    "path": exact_path.relative_to(output_root).as_posix(),
-                    "sha256": _sha256(exact_path),
-                },
-                "exact_face_parts": part_records,
-            }
-        )
+        row_record = {
+            "row_id": spec.row_id,
+            "split": spec.split,
+            "identity_group": spec.identity_group,
+            "expression": spec.expression,
+            "spec": asdict(spec),
+            "render": geometry,
+            "source": {
+                "path": source_path.relative_to(output_root).as_posix(),
+                "sha256": _sha256(source_path),
+            },
+            "selection_mask": {
+                "path": selection_path.relative_to(output_root).as_posix(),
+                "sha256": _sha256(selection_path),
+            },
+            "exact_depth": {
+                "path": exact_path.relative_to(output_root).as_posix(),
+                "sha256": _sha256(exact_path),
+            },
+            "exact_face_parts": part_records,
+        }
+        rows.append(row_record)
+    training_supervision = (
+        _write_training_supervision_manifest(output_root, supervision_rows)
+        if emit_geometry_targets
+        else None
+    )
     summary = {
-        "schema_version": 1,
+        "schema_version": 2 if emit_geometry_targets else 1,
         "provider": "google-gnm-head-v3",
         "source_revision": GNM_SOURCE_REVISION,
         "license": GNM_LICENSE,
@@ -905,6 +1197,11 @@ def render_training_slice(
             "procedural scenes only"
         ),
         "source_geometry_training_and_evaluation_only": True,
+        "geometry_target_contract": (
+            _geometry_target_contract()
+            if emit_geometry_targets
+            else {"enabled": False}
+        ),
         "corpus_seed": CORPUS_SEED,
         "matrix_row_count": len(selected_matrix),
         "matrix_split_counts": {
@@ -919,6 +1216,8 @@ def render_training_slice(
         "preflight": preflight,
         "rows": rows,
     }
+    if training_supervision is not None:
+        summary["training_supervision"] = training_supervision
     (output_root / "summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -938,6 +1237,14 @@ def main() -> None:
         default="linspace",
     )
     parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument(
+        "--emit-geometry-targets",
+        action="store_true",
+        help=(
+            "Emit deterministic identity/expression coefficient labels for "
+            "local structured-geometry training"
+        ),
+    )
     args = parser.parse_args()
     if args.preflight_only:
         result = preflight_gnm_root(args.gnm_root)
@@ -951,6 +1258,7 @@ def main() -> None:
         split=args.split,
         limit=args.limit,
         selection_strategy=args.selection_strategy,
+        emit_geometry_targets=args.emit_geometry_targets,
     )
     print(
         json.dumps(

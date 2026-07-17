@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 from PIL import Image
@@ -11,6 +11,22 @@ from backend.face_depth_refinement import face_masks_from_box, refine_depth_for_
 
 
 class GNMFaceFoundationTests(unittest.TestCase):
+    def test_active_detection_kwargs_are_opt_in_only(self):
+        original = gnm._DEFAULT_PROVIDER
+        try:
+            gnm._DEFAULT_PROVIDER = None
+            self.assertEqual(gnm.active_gnm_detection_kwargs(), {})
+
+            provider = Mock()
+            provider.requires_face_blendshapes = True
+            gnm._DEFAULT_PROVIDER = provider
+            self.assertEqual(
+                gnm.active_gnm_detection_kwargs(),
+                {"output_face_blendshapes": True},
+            )
+        finally:
+            gnm._DEFAULT_PROVIDER = original
+
     def test_mediapipe_mapping_uses_pinned_correspondence_and_pair_averages(self):
         points = np.column_stack(
             (
@@ -61,6 +77,112 @@ class GNMFaceFoundationTests(unittest.TestCase):
 
         self.assertEqual(float(surface[2, 2]), 2.0)
         self.assertTrue(np.isnan(surface[7, 7]))
+
+    def test_geometry_coefficients_apply_the_pinned_linear_bases(self):
+        template = np.zeros((2, 3), dtype=np.float64)
+        identity_basis = np.zeros(
+            (gnm.GNM_IDENTITY_DIMENSION, 2, 3),
+            dtype=np.float64,
+        )
+        expression_basis = np.zeros(
+            (gnm.GNM_EXPRESSION_DIMENSION, 2, 3),
+            dtype=np.float64,
+        )
+        identity_basis[0, 0, 2] = 2.0
+        expression_basis[0, 1, 1] = -3.0
+        identity = np.zeros(gnm.GNM_IDENTITY_DIMENSION)
+        expression = np.zeros(gnm.GNM_EXPRESSION_DIMENSION)
+        identity[0] = 0.5
+        expression[0] = 2.0
+
+        vertices = gnm._apply_geometry_coefficients(
+            template,
+            identity_basis,
+            expression_basis,
+            identity,
+            expression,
+        )
+
+        np.testing.assert_array_equal(
+            vertices,
+            np.asarray([[0.0, 0.0, 1.0], [0.0, -6.0, 0.0]]),
+        )
+
+    def test_geometry_coefficients_fail_closed_on_partial_or_nonfinite_input(self):
+        template = np.zeros((2, 3), dtype=np.float64)
+        identity_basis = np.zeros((gnm.GNM_IDENTITY_DIMENSION, 2, 3))
+        expression_basis = np.zeros((gnm.GNM_EXPRESSION_DIMENSION, 2, 3))
+        with self.assertRaisesRegex(ValueError, "identity coefficients"):
+            gnm._apply_geometry_coefficients(
+                template,
+                identity_basis,
+                expression_basis,
+                np.zeros(gnm.GNM_IDENTITY_DIMENSION - 1),
+                np.zeros(gnm.GNM_EXPRESSION_DIMENSION),
+            )
+        identity = np.zeros(gnm.GNM_IDENTITY_DIMENSION)
+        identity[0] = np.nan
+        with self.assertRaisesRegex(ValueError, "must be finite"):
+            gnm._apply_geometry_coefficients(
+                template,
+                identity_basis,
+                expression_basis,
+                identity,
+                np.zeros(gnm.GNM_EXPRESSION_DIMENSION),
+            )
+
+    def test_surface_selector_requires_pareto_live_depth_alignment(self):
+        rows, columns = np.indices((32, 32), dtype=np.float32)
+        mask = np.zeros((32, 32), dtype=np.uint8)
+        mask[4:28, 4:28] = 255
+        depth = 0.2 + rows * 0.01 + columns * 0.02
+        fallback = 0.5 + rows * 0.02 + columns * 0.04
+        candidate = fallback.copy()
+        candidate += 0.002 * np.sin(rows * 0.4)
+        fallback[mask == 0] = np.nan
+        candidate[mask == 0] = np.nan
+        candidates = gnm.GNMSurfaceCandidateSet(
+            candidate_surface=candidate,
+            candidate_stats={"method": "candidate"},
+            fallback_surface=fallback,
+            fallback_stats={"method": "fallback"},
+        )
+
+        selected, stats, selection = gnm.select_gnm_surface_candidate(
+            depth,
+            candidates,
+            mask,
+        )
+
+        np.testing.assert_array_equal(selected, fallback)
+        self.assertEqual(stats["method"], "fallback")
+        self.assertEqual(selection["selected"], "mean_fallback")
+
+    def test_surface_selector_accepts_strict_pareto_improvement(self):
+        rows, columns = np.indices((32, 32), dtype=np.float32)
+        mask = np.zeros((32, 32), dtype=np.uint8)
+        mask[4:28, 4:28] = 255
+        depth = 0.2 + rows * 0.01 + columns * 0.02
+        fallback = depth + 0.04 * np.sin(rows * 0.45)
+        candidate = depth + 0.01 * np.sin(rows * 0.45)
+        fallback[mask == 0] = np.nan
+        candidate[mask == 0] = np.nan
+        candidates = gnm.GNMSurfaceCandidateSet(
+            candidate_surface=candidate,
+            candidate_stats={"method": "candidate"},
+            fallback_surface=fallback,
+            fallback_stats={"method": "fallback"},
+        )
+
+        selected, stats, selection = gnm.select_gnm_surface_candidate(
+            depth,
+            candidates,
+            mask,
+        )
+
+        np.testing.assert_array_equal(selected, candidate)
+        self.assertEqual(stats["method"], "candidate")
+        self.assertEqual(selection["selected"], "conditioned")
 
     def test_bounded_fusion_preserves_boundary_and_caps_correction(self):
         rows, columns = np.indices((40, 40), dtype=np.float32)
