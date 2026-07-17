@@ -44,6 +44,14 @@ ENCODER_MODEL_SHA256 = (
     "3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70"
 )
 ENCODER_LICENSE = "Apache-2.0"
+ENCODER_FEATURE_DIMENSION = 768
+FEATURE_ENCODER_DAV2_SMALL = "dav2-small"
+FEATURE_ENCODER_NONE = "none"
+FEATURE_ENCODER_KINDS = (
+    FEATURE_ENCODER_DAV2_SMALL,
+    FEATURE_ENCODER_NONE,
+)
+CHECKPOINT_SCHEMA_VERSION = 4
 IDENTITY_SKIN_DIMENSION = 170
 EXPRESSION_SKIN_DIMENSION = 350
 LANDMARK_FEATURE_DLIB68 = "mediapipe-to-dlib68-v1"
@@ -51,10 +59,14 @@ LANDMARK_FEATURE_FULL468 = "mediapipe-full468-v1"
 LANDMARK_FEATURE_DLIB68_BLENDSHAPES52 = (
     "mediapipe-to-dlib68-plus-blendshapes52-v1"
 )
+LANDMARK_FEATURE_DLIB68_BLENDSHAPES52_POSE9 = (
+    "mediapipe-to-dlib68-plus-blendshapes52-plus-pose9-v1"
+)
 LANDMARK_FEATURE_KINDS = (
     LANDMARK_FEATURE_DLIB68,
     LANDMARK_FEATURE_FULL468,
     LANDMARK_FEATURE_DLIB68_BLENDSHAPES52,
+    LANDMARK_FEATURE_DLIB68_BLENDSHAPES52_POSE9,
 )
 SMALL_FACE_MINIMUM_PIXELS = 55
 SMALL_FACE_MAXIMUM_PIXELS = 100
@@ -69,6 +81,20 @@ PART_GROUPS = {
     "nose": ("nose_region",),
     "mouth": ("upper_lip_region", "lower_lip_region", "mouth_sock"),
 }
+
+
+def landmark_feature_dimension(feature_kind: str) -> int:
+    if feature_kind == LANDMARK_FEATURE_DLIB68:
+        return 68 * 3
+    if feature_kind == LANDMARK_FEATURE_FULL468:
+        return 468 * 3
+    if feature_kind == LANDMARK_FEATURE_DLIB68_BLENDSHAPES52:
+        return 68 * 3 + 52
+    if feature_kind == LANDMARK_FEATURE_DLIB68_BLENDSHAPES52_POSE9:
+        return 68 * 3 + 52 + 9
+    raise ValueError(
+        f"Unsupported structured GNM landmark feature kind: {feature_kind}"
+    )
 
 
 @dataclass
@@ -135,6 +161,7 @@ def normalized_landmark_features(
     if feature_kind in (
         LANDMARK_FEATURE_DLIB68,
         LANDMARK_FEATURE_DLIB68_BLENDSHAPES52,
+        LANDMARK_FEATURE_DLIB68_BLENDSHAPES52_POSE9,
     ):
         mapped = np.asarray(
             [
@@ -179,22 +206,49 @@ def structured_face_features(
     feature_kind: str,
     blendshape_names=None,
     blendshape_scores=None,
+    facial_transformation_matrix=None,
 ) -> tuple[np.ndarray, dict]:
     landmarks = normalized_landmark_features(
         landmarks_xyz,
         feature_kind=feature_kind,
     )
-    if feature_kind != LANDMARK_FEATURE_DLIB68_BLENDSHAPES52:
+    if feature_kind not in (
+        LANDMARK_FEATURE_DLIB68_BLENDSHAPES52,
+        LANDMARK_FEATURE_DLIB68_BLENDSHAPES52_POSE9,
+    ):
         return landmarks, {"blendshapes_enabled": False}
     blendshapes = validated_blendshape_features(
         blendshape_names,
         blendshape_scores,
     )
-    combined = np.concatenate((landmarks, blendshapes)).astype(np.float32)
-    return combined, {
+    components = [landmarks, blendshapes]
+    stats = {
         "blendshapes_enabled": True,
         "blendshape": blendshape_provenance(),
     }
+    if feature_kind == LANDMARK_FEATURE_DLIB68_BLENDSHAPES52_POSE9:
+        matrix = np.asarray(facial_transformation_matrix, dtype=np.float64)
+        if matrix.shape != (4, 4) or not np.all(np.isfinite(matrix)):
+            raise ValueError(
+                "Structured GNM pose features require a finite 4x4 transform"
+            )
+        rotation = matrix[:3, :3]
+        gram_error = float(np.max(np.abs(rotation.T @ rotation - np.eye(3))))
+        determinant = float(np.linalg.det(rotation))
+        if (
+            not np.allclose(matrix[3], (0.0, 0.0, 0.0, 1.0), atol=1e-3)
+            or gram_error > 1e-2
+            or not 0.99 <= determinant <= 1.01
+        ):
+            raise ValueError("Structured GNM pose transform is not rigid")
+        components.append(rotation.reshape(-1).astype(np.float32))
+        stats["pose_transform_enabled"] = True
+        stats["pose_rotation_determinant"] = determinant
+        stats["pose_rotation_gram_error"] = gram_error
+    else:
+        stats["pose_transform_enabled"] = False
+    combined = np.concatenate(components).astype(np.float32)
+    return combined, stats
 
 
 def audit_identity_splits(rows: list[dict]) -> dict:
@@ -302,7 +356,14 @@ def _prepare_rows(
     prepared = []
     excluded = []
     request_blendshapes = (
-        landmark_feature_kind == LANDMARK_FEATURE_DLIB68_BLENDSHAPES52
+        landmark_feature_kind
+        in (
+            LANDMARK_FEATURE_DLIB68_BLENDSHAPES52,
+            LANDMARK_FEATURE_DLIB68_BLENDSHAPES52_POSE9,
+        )
+    )
+    request_pose_transform = bool(
+        landmark_feature_kind == LANDMARK_FEATURE_DLIB68_BLENDSHAPES52_POSE9
     )
     for root, row in corpus_rows:
         row_id = str(row["row_id"])
@@ -316,6 +377,7 @@ def _prepare_rows(
                 np.asarray(selected),
                 np.asarray(selection),
                 output_face_blendshapes=request_blendshapes,
+                output_facial_transformation_matrixes=request_pose_transform,
             )
             landmarks = np.asarray(region.get("landmarks_xyz"), dtype=np.float32)
             crop_box = _padded_box(
@@ -330,6 +392,9 @@ def _prepare_rows(
                 feature_kind=landmark_feature_kind,
                 blendshape_names=region.get("blendshape_names"),
                 blendshape_scores=region.get("blendshape_scores"),
+                facial_transformation_matrix=region.get(
+                    "facial_transformation_matrix"
+                ),
             )
             spec = GNMTrainingSceneSpec(**row["spec"])
             identity, expression = decode_geometry_targets(
@@ -448,7 +513,14 @@ def _extract_embeddings(
     if any(value is None for value in embeddings):
         raise RuntimeError("Structured GNM embedding inference lost a crop")
     values = np.stack(embeddings)
+    if values.shape[1] != ENCODER_FEATURE_DIMENSION:
+        raise ValueError(
+            "Structured GNM encoder feature dimension changed: "
+            f"{values.shape[1]} != {ENCODER_FEATURE_DIMENSION}"
+        )
     return values, {
+        "kind": FEATURE_ENCODER_DAV2_SMALL,
+        "enabled": True,
         "model_id": ENCODER_ID,
         "revision": ENCODER_REVISION,
         "model_sha256": ENCODER_MODEL_SHA256,
@@ -709,6 +781,8 @@ def _save_checkpoint(
     *,
     selection: dict,
     landmark_feature_kind: str,
+    feature_encoder_kind: str,
+    feature_encoder_dimension: int,
 ) -> dict:
     path = output_dir / "structured_geometry_checkpoint.npz"
     arrays = {}
@@ -728,7 +802,10 @@ def _save_checkpoint(
                 f"{prefix}_score_maximum": head.score_maximum.astype(np.float32),
             }
         )
-    arrays["metadata_schema_version"] = np.asarray(2, dtype=np.int32)
+    arrays["metadata_schema_version"] = np.asarray(
+        CHECKPOINT_SCHEMA_VERSION,
+        dtype=np.int32,
+    )
     arrays["metadata_landmark_feature_kind"] = np.asarray(
         landmark_feature_kind
     )
@@ -736,10 +813,47 @@ def _save_checkpoint(
         identity_head.feature_mean.shape[0],
         dtype=np.int32,
     )
+    arrays["metadata_feature_encoder_kind"] = np.asarray(
+        feature_encoder_kind
+    )
+    arrays["metadata_feature_encoder_dimension"] = np.asarray(
+        feature_encoder_dimension,
+        dtype=np.int32,
+    )
+    encoder_metadata = (
+        {
+            "model_id": ENCODER_ID,
+            "revision": ENCODER_REVISION,
+            "model_sha256": ENCODER_MODEL_SHA256,
+            "license": ENCODER_LICENSE,
+        }
+        if feature_encoder_kind == FEATURE_ENCODER_DAV2_SMALL
+        else {
+            "model_id": "",
+            "revision": "",
+            "model_sha256": "",
+            "license": "",
+        }
+    )
+    arrays["metadata_feature_encoder_model_id"] = np.asarray(
+        encoder_metadata["model_id"]
+    )
+    arrays["metadata_feature_encoder_revision"] = np.asarray(
+        encoder_metadata["revision"]
+    )
+    arrays["metadata_feature_encoder_model_sha256"] = np.asarray(
+        encoder_metadata["model_sha256"]
+    )
+    arrays["metadata_feature_encoder_license"] = np.asarray(
+        encoder_metadata["license"]
+    )
     arrays["metadata_mediapipe_version"] = np.asarray(
         package_version("mediapipe")
     )
-    if landmark_feature_kind == LANDMARK_FEATURE_DLIB68_BLENDSHAPES52:
+    if landmark_feature_kind in (
+        LANDMARK_FEATURE_DLIB68_BLENDSHAPES52,
+        LANDMARK_FEATURE_DLIB68_BLENDSHAPES52_POSE9,
+    ):
         provenance = blendshape_provenance()
         arrays["metadata_face_landmarker_sha256"] = np.asarray(
             provenance["model_sha256"]
@@ -756,6 +870,8 @@ def _save_checkpoint(
         "expression_rank": int(expression_head.rank),
         "ridge_alpha": float(selection["ridge_alpha"]),
         "landmark_feature_kind": landmark_feature_kind,
+        "feature_encoder_kind": feature_encoder_kind,
+        "feature_encoder_dimension": int(feature_encoder_dimension),
         "training_only": True,
     }
 
@@ -768,6 +884,7 @@ def train_and_evaluate(
     device: str = "cuda",
     batch_size: int = 8,
     landmark_feature_kind: str = LANDMARK_FEATURE_DLIB68,
+    feature_encoder_kind: str = FEATURE_ENCODER_DAV2_SMALL,
     expression_only: bool = False,
 ) -> dict:
     started = time.perf_counter()
@@ -778,6 +895,11 @@ def train_and_evaluate(
         raise ValueError(
             f"Unsupported structured GNM landmark feature kind: "
             f"{landmark_feature_kind}"
+        )
+    if feature_encoder_kind not in FEATURE_ENCODER_KINDS:
+        raise ValueError(
+            f"Unsupported structured GNM feature encoder kind: "
+            f"{feature_encoder_kind}"
         )
     preflight = preflight_gnm_root(gnm_root)
     if not preflight["runnable"]:
@@ -802,11 +924,24 @@ def train_and_evaluate(
     )
     if not prepared_split_audit["passed"]:
         raise ValueError("Detector-clean rows broke the identity split contract")
-    embeddings, encoder = _extract_embeddings(
-        rows,
-        device=device,
-        batch_size=batch_size,
-    )
+    if feature_encoder_kind == FEATURE_ENCODER_DAV2_SMALL:
+        embeddings, encoder = _extract_embeddings(
+            rows,
+            device=device,
+            batch_size=batch_size,
+        )
+    else:
+        embeddings = np.empty((len(rows), 0), dtype=np.float32)
+        encoder = {
+            "kind": FEATURE_ENCODER_NONE,
+            "enabled": False,
+            "feature": "none",
+            "dimension": 0,
+            "batch_size": 0,
+            "device": "cpu",
+            "runtime_seconds": 0.0,
+            "peak_vram_gib": 0.0,
+        }
     landmark_features = np.stack([row.landmark_features for row in rows])
     features = np.concatenate((embeddings, landmark_features), axis=1)
     identity_targets = np.stack(
@@ -1108,6 +1243,8 @@ def train_and_evaluate(
         selected_heads[1],
         selection=selected,
         landmark_feature_kind=landmark_feature_kind,
+        feature_encoder_kind=feature_encoder_kind,
+        feature_encoder_dimension=int(embeddings.shape[1]),
     )
     evidence = {
         "schema_version": 1,
@@ -1144,12 +1281,16 @@ def train_and_evaluate(
             "detector_scope_counts": dict(Counter(row.detector_scope for row in rows)),
             "detector_name_counts": dict(Counter(row.detector_name for row in rows)),
             "feature_dimension": int(features.shape[1]),
+            "feature_encoder_kind": feature_encoder_kind,
+            "feature_encoder_dimension": int(embeddings.shape[1]),
             "landmark_feature_dimension": int(landmark_features.shape[1]),
             "landmark_feature_kind": landmark_feature_kind,
             "blendshape_provenance": (
                 blendshape_provenance()
                 if landmark_feature_kind
                 == LANDMARK_FEATURE_DLIB68_BLENDSHAPES52
+                or landmark_feature_kind
+                == LANDMARK_FEATURE_DLIB68_BLENDSHAPES52_POSE9
                 else {"enabled": False}
             ),
         },
@@ -1191,6 +1332,12 @@ def main() -> None:
         default=LANDMARK_FEATURE_DLIB68,
     )
     parser.add_argument(
+        "--feature-encoder-kind",
+        choices=FEATURE_ENCODER_KINDS,
+        default=FEATURE_ENCODER_DAV2_SMALL,
+        help="Optional image encoder prepended to the structured face features",
+    )
+    parser.add_argument(
         "--expression-only",
         action="store_true",
         help="Fit only the GNM expression head; keep identity at training mean",
@@ -1203,6 +1350,7 @@ def main() -> None:
         device=args.device,
         batch_size=args.batch_size,
         landmark_feature_kind=args.landmark_feature_kind,
+        feature_encoder_kind=args.feature_encoder_kind,
         expression_only=args.expression_only,
     )
     print(

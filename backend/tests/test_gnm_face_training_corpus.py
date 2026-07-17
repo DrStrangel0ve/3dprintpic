@@ -206,6 +206,155 @@ class GNMFaceTrainingCorpusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported row selection"):
             corpus.select_training_rows(limit=8, strategy="unknown")
 
+    def test_excluded_row_ids_are_pinned_and_deduplicated(self):
+        selected = corpus.select_training_rows(
+            split="train",
+            limit=12,
+            strategy="identity-stratified",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "first.json"
+            second = root / "second.json"
+            base = {
+                "schema_version": 1,
+                "provider": "google-gnm-head-v3",
+                "source_revision": corpus.GNM_SOURCE_REVISION,
+                "source_geometry_training_and_evaluation_only": True,
+                "corpus_seed": corpus.CORPUS_SEED,
+                "preflight": {"runnable": True},
+            }
+            first.write_text(
+                json.dumps(
+                    {
+                        **base,
+                        "row_count": 8,
+                        "rows": [
+                            {
+                                "row_id": row.row_id,
+                                "spec": corpus.asdict(row),
+                            }
+                            for row in selected[:8]
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            second.write_text(
+                json.dumps(
+                    {
+                        **base,
+                        "row_count": 6,
+                        "rows": [
+                            {
+                                "row_id": row.row_id,
+                                "spec": corpus.asdict(row),
+                            }
+                            for row in selected[6:]
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            row_ids, sources = corpus._excluded_row_ids(
+                (first, second),
+                (corpus._sha256(first), corpus._sha256(second)),
+            )
+
+        self.assertEqual(row_ids, {row.row_id for row in selected})
+        self.assertEqual([source["row_count"] for source in sources], [8, 6])
+        self.assertEqual([source["unique_row_ids"] for source in sources], [8, 6])
+        self.assertTrue(all(len(source["sha256"]) == 64 for source in sources))
+
+    def test_excluded_row_ids_reject_unpinned_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "foreign.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "provider": "google-gnm-head-v3",
+                        "source_revision": "foreign",
+                        "source_geometry_training_and_evaluation_only": True,
+                        "rows": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "unpinned"):
+                corpus._excluded_row_ids((path,), (corpus._sha256(path),))
+
+    def test_excluded_row_ids_reject_checksum_mismatch_and_duplicates(self):
+        selected = corpus.select_training_rows(
+            split="train",
+            limit=1,
+            strategy="identity-stratified",
+        )[0]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "duplicate.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "provider": "google-gnm-head-v3",
+                        "source_revision": corpus.GNM_SOURCE_REVISION,
+                        "source_geometry_training_and_evaluation_only": True,
+                        "corpus_seed": corpus.CORPUS_SEED,
+                        "preflight": {"runnable": True},
+                        "row_count": 2,
+                        "rows": [
+                            {
+                                "row_id": selected.row_id,
+                                "spec": corpus.asdict(selected),
+                            },
+                            {
+                                "row_id": selected.row_id,
+                                "spec": corpus.asdict(selected),
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                corpus._excluded_row_ids((path,), ("0" * 64,))
+            with self.assertRaisesRegex(ValueError, "duplicate"):
+                corpus._excluded_row_ids(
+                    (path,),
+                    (corpus._sha256(path),),
+                )
+
+    def test_render_fails_before_model_load_when_exclusions_remove_all_rows(self):
+        selected = corpus.select_training_rows(
+            split="train",
+            limit=1,
+            strategy="identity-stratified",
+        )
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            corpus,
+            "preflight_gnm_root",
+            return_value={"runnable": True},
+        ), patch.object(
+            corpus,
+            "select_training_rows",
+            return_value=selected,
+        ), patch.object(
+            corpus,
+            "_excluded_row_ids",
+            return_value=({selected[0].row_id}, []),
+        ), patch.object(corpus, "_load_gnm_model") as load_model:
+            with self.assertRaisesRegex(ValueError, "empty after exclusions"):
+                corpus.render_training_slice(
+                    Path(directory) / "gnm",
+                    Path(directory) / "output",
+                    split="train",
+                    limit=1,
+                )
+
+        load_model.assert_not_called()
+
     def test_preflight_fails_closed_for_missing_official_assets(self):
         with tempfile.TemporaryDirectory() as directory:
             result = corpus.preflight_gnm_root(Path(directory))

@@ -709,18 +709,28 @@ def active_gnm_conditioned_feature_requirements() -> dict:
     return {
         "face_blendshapes": bool(
             provider is not None
-            and getattr(provider, "requires_face_blendshapes", False)
-        )
+            and getattr(provider, "requires_face_blendshapes", False) is True
+        ),
+        "facial_transformation_matrixes": bool(
+            provider is not None
+            and getattr(
+                provider,
+                "requires_facial_transformation_matrix",
+                False,
+            )
+            is True
+        ),
     }
 
 
 def active_gnm_detection_kwargs() -> dict:
     requirements = active_gnm_conditioned_feature_requirements()
-    return (
-        {"output_face_blendshapes": True}
-        if requirements["face_blendshapes"]
-        else {}
-    )
+    kwargs = {}
+    if requirements["face_blendshapes"]:
+        kwargs["output_face_blendshapes"] = True
+    if requirements["facial_transformation_matrixes"]:
+        kwargs["output_facial_transformation_matrixes"] = True
+    return kwargs
 
 
 def get_gnm_mean_face_foundation() -> GNMMeanFaceFoundation:

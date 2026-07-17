@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "run_id": "gnm_face_camera_and_corpus_expansion_20260717",
+  "status": "hold",
+  "production_default_unchanged": true,
+  "privacy": "procedural scan-derived training rows and public CC0 exact controls only",
+  "source_geometry_policy": "training and evaluation only",
+  "research": {
+    "mediapipe_version": "0.10.35",
+    "same_pass_outputs": {
+      "landmarks": 478,
+      "blendshapes": 52,
+      "transformation_matrix_shape": [4, 4]
+    },
+    "hard_row_transform_probe": {
+      "detector": "selection-roi:mediapipe-face-landmarker",
+      "rotation_determinant": 1.0000007476685107,
+      "rotation_gram_max_error": 8.372300084324991e-7,
+      "runtime_seconds": 1.283222800004296
+    },
+    "three_row_opt_in_invariance": {
+      "rows": 3,
+      "bbox_equal": true,
+      "detector_equal": true,
+      "maximum_landmark_delta": 0.0,
+      "maximum_blendshape_delta": 0.0
+    },
+    "direct_landmark_z_screen": {
+      "status": "closed",
+      "baseline_failures": 8,
+      "candidate_failures": 9,
+      "reason": "all dense-Z blends increased named-part failures"
+    }
+  },
+  "checkpoint_contract": {
+    "new_schema_version": 4,
+    "historical_schema_v1_v2_compatibility": "pinned DAv2 legacy path",
+    "schema_v3": "rejected after provenance review",
+    "feature_encoder_choices": ["dav2-small", "none"],
+    "pose_feature_kind": "mediapipe-to-dlib68-plus-blendshapes52-plus-pose9-v1",
+    "pose_feature_dimension": 1033,
+    "expanded_feature_dimension": 1024
+  },
+  "structured_only": {
+    "status": "closed",
+    "prepared_rows": {"train": 228, "validation": 46, "sealed": 48},
+    "validation_small": {
+      "median_normalized_vertex_rmse": 0.010082225739948991,
+      "median_z_shape_correlation": 0.9996121103753195,
+      "paired_rmse_win_rate": 0.8529411764705882
+    },
+    "sealed_small": {
+      "median_normalized_vertex_rmse": 0.008546600995639364,
+      "median_z_shape_correlation": 0.9996420922715962,
+      "paired_rmse_win_rate": 0.55,
+      "regressed_parts": ["left_eye", "left_eyebrow", "right_eye", "right_eyebrow"]
+    },
+    "raw_evidence_sha256": "64136d003974733875fffce4aa72f7dfb1580661779e44bc09f51d6223a8e9ab",
+    "experimental_schema_v3_checkpoint_sha256": "8f163602231bc6e38817b87420b0ab2e2e21bc583d23075fc92fdc702d2853a1"
+  },
+  "pose9": {
+    "status": "closed",
+    "prepared_rows": {"train": 228, "validation": 46, "sealed": 48},
+    "validation_small_rmse": 0.008089649411193238,
+    "sealed_small_rmse": 0.007008150762792567,
+    "sealed_small_paired_win_rate": 0.8,
+    "exact_reproduction": {
+      "prior_candidate_arrays_equal": true,
+      "maximum_absolute_delta": 0.0
+    },
+    "hard_row_strengths": [
+      {"strength": 0.125, "shape": 0.8066324520569664, "gradient": 0.6261636245694889, "rmse": 0.17525736322256139, "failures": 8},
+      {"strength": 0.25, "shape": 0.8066482301501564, "gradient": 0.6261235359825259, "rmse": 0.17525097815874624, "failures": 8},
+      {"strength": 0.5, "shape": 0.8065286733612657, "gradient": 0.6261377958566192, "rmse": 0.17529935137984476, "failures": 8},
+      {"strength": 1.0, "shape": 0.8063920621488967, "gradient": 0.6260672219537717, "rmse": 0.17535459978978135, "failures": 10}
+    ],
+    "training_evidence_sha256": "cc0d51a846eae0a6fdfcb383c82cbdd27361acd74da6457a30f785e85a7108f1",
+    "exact_sweep_sha256": "a0c3b677817db72ad46d7dc00df60f76c942d18bad6edf2ba7cf0e7afa02d86b",
+    "reproduction_evidence_sha256": "a7bfb8076067808e1d18ce25a505470f52f94490ac7ba9a4b2674e4c53f51b90",
+    "experimental_schema_v3_checkpoint_sha256": "ca682d7974bca06006269bb8e3257db4c30c8359ef73dcbd41fa3207082d641f"
+  },
+  "corpus_expansion": {
+    "status": "sealed",
+    "source_summary_sha256s": [
+      "c15d826f7240904284ffbdeb78eeae1a2b193b1eb5c2b62852bc0b9bcf9e5049",
+      "92f46a5d92f1690205c6b1920ffe2248ed47362ea364f19521fd46d16e65889a"
+    ],
+    "requested_rows": 240,
+    "excluded_existing_rows": 49,
+    "rendered_rows": 191,
+    "unique_rows": 191,
+    "all_train": true,
+    "source_overlap": 0,
+    "asset_hash_failures": 0,
+    "identity_count_range": [3, 10],
+    "runtime_seconds": 952.6498011000076,
+    "summary_sha256": "683087359d25f12db6702ad6d774b7c3cce49e70c307db9cfcc33f37d7b259de"
+  },
+  "expanded_schema_v4": {
+    "status": "hold_after_exact_gate",
+    "prepared_rows": {"train": 417, "validation": 46, "sealed": 48},
+    "selected": {"identity_rank": 16, "expression_rank": 24, "ridge_alpha": 1000.0},
+    "validation_small": {
+      "median_normalized_vertex_rmse": 0.00748864925807324,
+      "median_z_shape_correlation": 0.9997358622114815,
+      "paired_rmse_win_rate": 1.0
+    },
+    "sealed_small": {
+      "median_normalized_vertex_rmse": 0.006695241791904041,
+      "median_z_shape_correlation": 0.999730007756529,
+      "paired_rmse_win_rate": 0.75
+    },
+    "hard_row_controls": {
+      "production_mean_gnm": {"shape": 0.8066024259968169, "gradient": 0.626152053674374, "rmse": 0.175269513152677, "failures": 8},
+      "prior_structured_0_125": {"shape": 0.8066325026647415, "gradient": 0.626162723091168, "rmse": 0.17525734274322635, "failures": 8}
+    },
+    "hard_row_strengths": [
+      {"strength": 0.0625, "shape": 0.8066131911763683, "gradient": 0.6261256045323577, "rmse": 0.17526515721290986, "failures": 8},
+      {"strength": 0.125, "shape": 0.806623802433432, "gradient": 0.6260976807915745, "rmse": 0.17526086339231045, "failures": 8},
+      {"strength": 0.25, "shape": 0.8066522920976436, "gradient": 0.6260912100069338, "rmse": 0.17524933431581266, "failures": 8},
+      {"strength": 0.5, "shape": 0.8066347093760986, "gradient": 0.6253772106616003, "rmse": 0.17525644975470733, "failures": 8},
+      {"strength": 1.0, "shape": 0.8065337863182871, "gradient": 0.6257259397539833, "rmse": 0.17529728307412443, "failures": 8}
+    ],
+    "training_runtime_seconds": 322.70291979999456,
+    "checkpoint_sha256": "07b2f58df8ab5d2f6340fa471800856d001787ed6198d9072e22edac1e077519",
+    "training_evidence_sha256": "c3d162a7945e9ec93f9bd174f7b8719229eea212afc2439b1cadf1dce0a7656c",
+    "exact_sweep_sha256": "cab1c0c8eaddacefcd9f3f94a06386138c419351187786981968e95f35dea559"
+  },
+  "decision": {
+    "production_promoted": false,
+    "reason": "Synthetic geometry improved, but no real-photo strength preserved the incumbent raw-gradient metric or recovered a named-part pass.",
+    "background_30mm_path_replayed": false,
+    "background_30mm_path_unchanged": true,
+    "closed_lanes": [
+      "direct dense MediaPipe landmark-Z depth",
+      "structured-only GNM regression",
+      "MediaPipe pose9 conditioning",
+      "further tuning of the expanded checkpoint without new real-image supervision"
+    ]
+  },
+  "validation": {
+    "focused_tests": 91,
+    "focused_subtests": 2,
+    "focused_passed": true,
+    "real_checkpoint_loads": ["schema-v2", "schema-v4"],
+    "full_backend": {
+      "passed": 777,
+      "failed": 0,
+      "subtests_passed": 84,
+      "warnings": 2,
+      "exact_staged_snapshot": true
+    }
+  }
+}

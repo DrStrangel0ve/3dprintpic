@@ -24,6 +24,15 @@ class GNMFaceFoundationTests(unittest.TestCase):
                 gnm.active_gnm_detection_kwargs(),
                 {"output_face_blendshapes": True},
             )
+
+            provider.requires_facial_transformation_matrix = True
+            self.assertEqual(
+                gnm.active_gnm_detection_kwargs(),
+                {
+                    "output_face_blendshapes": True,
+                    "output_facial_transformation_matrixes": True,
+                },
+            )
         finally:
             gnm._DEFAULT_PROVIDER = original
 
@@ -479,6 +488,102 @@ class GNMFaceFoundationTests(unittest.TestCase):
                 "maximum_core_abs_correction"
             ],
             0.0,
+        )
+
+    def test_conditioned_provider_without_transform_capability_keeps_interface(self):
+        class LegacyConditionedProvider:
+            requires_facial_transformation_matrix = False
+
+            def __init__(self):
+                self.calls = 0
+
+            def fit_and_render_conditioned(
+                self,
+                landmarks,
+                face_mask,
+                *,
+                media_pipe_landmarks_xyz,
+                face_image_rgb,
+                media_pipe_blendshape_names,
+                media_pipe_blendshape_scores,
+            ):
+                self.calls += 1
+                self.landmarks_xyz = np.asarray(media_pipe_landmarks_xyz)
+                rows, columns = np.indices(face_mask.shape, dtype=np.float32)
+                surface = 0.4 + columns * 0.02 + rows * 0.006
+                surface[face_mask == 0] = np.nan
+                return surface, {"enabled": True, "method": "legacy-conditioned"}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = root / "portrait.png"
+            depth_path = root / "depth.npy"
+            Image.fromarray(np.full((96, 96, 3), 180, dtype=np.uint8)).save(
+                image_path
+            )
+            rows, columns = np.indices((48, 48), dtype=np.float32)
+            np.save(depth_path, 0.2 + columns * 0.008 + rows * 0.003)
+            face_mask, feature_mask = face_masks_from_box(
+                (96, 96, 3),
+                (28, 22, 68, 72),
+            )
+            angles = np.linspace(0.0, 8.0 * np.pi, 478, endpoint=False)
+            landmarks = np.column_stack(
+                (
+                    0.5 + 0.16 * np.cos(angles),
+                    0.5 + 0.22 * np.sin(angles),
+                    np.zeros_like(angles),
+                )
+            ).astype(np.float32)
+
+            def detector(_image):
+                return [
+                    {
+                        "bbox": [28, 22, 68, 72],
+                        "face_mask": face_mask,
+                        "feature_mask": feature_mask,
+                        "part_masks": {},
+                        "detector": "mediapipe-face-landmarker",
+                        "landmark_count": 478,
+                        "landmarks_xyz": landmarks,
+                    }
+                ]
+
+            def infer_depth(crop_path, output_dir):
+                crop = Image.open(crop_path)
+                crop_rows, crop_columns = np.indices(
+                    (crop.height, crop.width),
+                    dtype=np.float32,
+                )
+                output_path = Path(output_dir) / "output_depth_data.npy"
+                np.save(
+                    output_path,
+                    0.5 + crop_columns * 0.01 + crop_rows * 0.003,
+                )
+                return output_path
+
+            provider = LegacyConditionedProvider()
+            with patch.object(
+                gnm,
+                "get_gnm_mean_face_foundation",
+                return_value=provider,
+            ):
+                _output, metadata = refine_depth_for_faces(
+                    image_path,
+                    depth_path,
+                    root,
+                    infer_depth=infer_depth,
+                    detector=detector,
+                    mode="on",
+                )
+
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(provider.landmarks_xyz.shape, (478, 3))
+        self.assertNotEqual(
+            metadata["faces"][0]["parametric_face_foundation"].get(
+                "reason"
+            ),
+            "provider_error",
         )
 
 

@@ -441,12 +441,29 @@ def _landmark_region(
     }
 
 
+def _validated_face_transformation_matrix(values) -> np.ndarray:
+    matrix = np.asarray(values, dtype=np.float64)
+    if matrix.shape != (4, 4) or not np.all(np.isfinite(matrix)):
+        raise ValueError("MediaPipe face transformation matrix is invalid")
+    if not np.allclose(matrix[3], (0.0, 0.0, 0.0, 1.0), atol=1e-3):
+        raise ValueError("MediaPipe face transformation matrix is not affine")
+    rotation = matrix[:3, :3]
+    gram_error = float(
+        np.max(np.abs(rotation.T @ rotation - np.eye(3, dtype=np.float64)))
+    )
+    determinant = float(np.linalg.det(rotation))
+    if gram_error > 1e-2 or not 0.99 <= determinant <= 1.01:
+        raise ValueError("MediaPipe face transformation rotation is invalid")
+    return matrix.astype(np.float32)
+
+
 def _detect_faces_mediapipe_tasks(
     image_rgb: np.ndarray,
     max_faces: int,
     min_face_pixels: int,
     *,
     output_face_blendshapes: bool = False,
+    output_facial_transformation_matrixes: bool = False,
 ) -> list[dict]:
     import mediapipe as mp
     from mediapipe.tasks import python as mp_python
@@ -460,7 +477,9 @@ def _detect_faces_mediapipe_tasks(
         min_face_presence_confidence=0.5,
         min_tracking_confidence=0.5,
         output_face_blendshapes=bool(output_face_blendshapes),
-        output_facial_transformation_matrixes=False,
+        output_facial_transformation_matrixes=bool(
+            output_facial_transformation_matrixes
+        ),
     )
     with vision.FaceLandmarker.create_from_options(options) as detector:
         result = detector.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb))
@@ -468,9 +487,18 @@ def _detect_faces_mediapipe_tasks(
     height, width = image_rgb.shape[:2]
     result_landmarks = list(result.face_landmarks or ())
     result_blendshapes = list(result.face_blendshapes or ())
+    result_transforms = list(
+        getattr(result, "facial_transformation_matrixes", None) or ()
+    )
     if output_face_blendshapes and len(result_blendshapes) != len(result_landmarks):
         raise ValueError(
             "MediaPipe face landmark/blendshape result counts disagree"
+        )
+    if output_facial_transformation_matrixes and len(result_transforms) != len(
+        result_landmarks
+    ):
+        raise ValueError(
+            "MediaPipe face landmark/transformation result counts disagree"
         )
     regions = []
     for face_index, landmarks in enumerate(result_landmarks):
@@ -492,6 +520,12 @@ def _detect_faces_mediapipe_tasks(
         if region is None:
             continue
         region["landmarks_xyz"] = landmarks_xyz
+        if output_facial_transformation_matrixes:
+            region["facial_transformation_matrix"] = (
+                _validated_face_transformation_matrix(
+                    result_transforms[face_index]
+                )
+            )
         if output_face_blendshapes:
             categories = {
                 str(category.category_name): float(category.score)
@@ -516,23 +550,27 @@ def _detect_faces_mediapipe(
     min_face_pixels: int,
     *,
     output_face_blendshapes: bool = False,
+    output_facial_transformation_matrixes: bool = False,
 ) -> list[dict]:
     import mediapipe as mp
 
     solutions = getattr(mp, "solutions", None)
     face_mesh_api = getattr(solutions, "face_mesh", None) if solutions is not None else None
-    if face_mesh_api is None or output_face_blendshapes:
+    if (
+        face_mesh_api is None
+        or output_face_blendshapes
+        or output_facial_transformation_matrixes
+    ):
+        task_kwargs = {}
         if output_face_blendshapes:
-            return _detect_faces_mediapipe_tasks(
-                image_rgb,
-                max_faces,
-                min_face_pixels,
-                output_face_blendshapes=True,
-            )
+            task_kwargs["output_face_blendshapes"] = True
+        if output_facial_transformation_matrixes:
+            task_kwargs["output_facial_transformation_matrixes"] = True
         return _detect_faces_mediapipe_tasks(
             image_rgb,
             max_faces,
             min_face_pixels,
+            **task_kwargs,
         )
 
     height, width = image_rgb.shape[:2]
@@ -742,23 +780,22 @@ def detect_face_regions(
     max_faces: int = 3,
     min_face_pixels: int = DEFAULT_MIN_FACE_PIXELS,
     output_face_blendshapes: bool = False,
+    output_facial_transformation_matrixes: bool = False,
 ) -> tuple[list[dict], list[str]]:
     min_face_pixels = _effective_min_face_pixels(image_rgb.shape, min_face_pixels)
     errors = []
     try:
+        mediapipe_kwargs = {}
         if output_face_blendshapes:
-            regions = _detect_faces_mediapipe(
-                image_rgb,
-                max_faces,
-                min_face_pixels,
-                output_face_blendshapes=True,
-            )
-        else:
-            regions = _detect_faces_mediapipe(
-                image_rgb,
-                max_faces,
-                min_face_pixels,
-            )
+            mediapipe_kwargs["output_face_blendshapes"] = True
+        if output_facial_transformation_matrixes:
+            mediapipe_kwargs["output_facial_transformation_matrixes"] = True
+        regions = _detect_faces_mediapipe(
+            image_rgb,
+            max_faces,
+            min_face_pixels,
+            **mediapipe_kwargs,
+        )
         if regions:
             return regions, errors
     except Exception as exc:
@@ -771,6 +808,9 @@ def detect_face_regions(
                 regions,
                 max_faces=max_faces,
                 output_face_blendshapes=output_face_blendshapes,
+                output_facial_transformation_matrixes=(
+                    output_facial_transformation_matrixes
+                ),
             )
             return upgraded or regions, errors
     except Exception as exc:
@@ -885,6 +925,7 @@ def _upgrade_yunet_regions_with_mediapipe(
     *,
     max_faces: int,
     output_face_blendshapes: bool = False,
+    output_facial_transformation_matrixes: bool = False,
 ) -> list[dict]:
     image_height, image_width = image_rgb.shape[:2]
     upgraded = []
@@ -905,19 +946,19 @@ def _upgrade_yunet_regions_with_mediapipe(
             crop, (target_width, target_height), interpolation=cv2.INTER_CUBIC
         )
         try:
+            local_kwargs = {}
             if output_face_blendshapes:
-                local_regions = _detect_faces_mediapipe(
-                    resized,
-                    1,
-                    MIN_FACE_PIXELS_FLOOR,
-                    output_face_blendshapes=True,
-                )
-            else:
-                local_regions = _detect_faces_mediapipe(
-                    resized,
-                    1,
-                    MIN_FACE_PIXELS_FLOOR,
-                )
+                local_kwargs["output_face_blendshapes"] = True
+            if output_facial_transformation_matrixes:
+                local_kwargs[
+                    "output_facial_transformation_matrixes"
+                ] = True
+            local_regions = _detect_faces_mediapipe(
+                resized,
+                1,
+                MIN_FACE_PIXELS_FLOOR,
+                **local_kwargs,
+            )
         except Exception:
             continue
         guide_mask = np.asarray(guide.get("face_mask"), dtype=np.uint8) > 0
@@ -952,6 +993,7 @@ def detect_face_regions_in_roi(
     detector: Callable[[np.ndarray, int, int], tuple[list[dict], list[str]] | list[dict]] | None = None,
     allow_selection_detail_fallback: bool = False,
     output_face_blendshapes: bool = False,
+    output_facial_transformation_matrixes: bool = False,
 ) -> tuple[list[dict], list[str], dict]:
     image_height, image_width = image_rgb.shape[:2]
     mask = np.asarray(roi_mask, dtype=np.uint8)
@@ -1002,24 +1044,23 @@ def detect_face_regions_in_roi(
             _effective_min_face_pixels(resized.shape, min_face_pixels),
             roi_component_cap,
         )
-        detection_result = (
-            detector(resized, max_faces, effective_minimum)
-            if detector is not None
-            else (
-                detect_face_regions(
-                    resized,
-                    max_faces=max_faces,
-                    min_face_pixels=effective_minimum,
-                    output_face_blendshapes=True,
-                )
-                if output_face_blendshapes
-                else detect_face_regions(
-                    resized,
-                    max_faces=max_faces,
-                    min_face_pixels=effective_minimum,
-                )
+        if detector is not None:
+            detection_result = detector(resized, max_faces, effective_minimum)
+        else:
+            detection_kwargs = {
+                "max_faces": max_faces,
+                "min_face_pixels": effective_minimum,
+            }
+            if output_face_blendshapes:
+                detection_kwargs["output_face_blendshapes"] = True
+            if output_facial_transformation_matrixes:
+                detection_kwargs[
+                    "output_facial_transformation_matrixes"
+                ] = True
+            detection_result = detect_face_regions(
+                resized,
+                **detection_kwargs,
             )
-        )
         if isinstance(detection_result, tuple):
             local_regions, local_errors = detection_result
         else:
@@ -2167,6 +2208,7 @@ def refine_depth_for_faces(
     effective_min_face_pixels = _effective_min_face_pixels(image_rgb.shape, min_face_pixels)
     metadata["minimum_face_pixels"]["effective"] = int(effective_min_face_pixels)
     request_face_blendshapes = False
+    request_facial_transformation_matrixes = False
     if enable_gnm_foundation:
         try:
             try:
@@ -2177,16 +2219,29 @@ def refine_depth_for_faces(
                 from gnm_face_foundation import (
                     active_gnm_conditioned_feature_requirements,
                 )
+            conditioned_requirements = (
+                active_gnm_conditioned_feature_requirements()
+            )
             request_face_blendshapes = bool(
-                active_gnm_conditioned_feature_requirements().get(
+                conditioned_requirements.get(
                     "face_blendshapes",
+                    False,
+                )
+            )
+            request_facial_transformation_matrixes = bool(
+                conditioned_requirements.get(
+                    "facial_transformation_matrixes",
                     False,
                 )
             )
         except Exception:
             request_face_blendshapes = False
+            request_facial_transformation_matrixes = False
     metadata["conditioned_feature_requirements"] = {
         "face_blendshapes": request_face_blendshapes,
+        "facial_transformation_matrixes": (
+            request_facial_transformation_matrixes
+        ),
         "same_pass_as_landmarks": True,
     }
     def run_detector(values: np.ndarray, requested_faces: int, requested_minimum: int):
@@ -2198,6 +2253,8 @@ def refine_depth_for_faces(
         }
         if request_face_blendshapes:
             kwargs["output_face_blendshapes"] = True
+        if request_facial_transformation_matrixes:
+            kwargs["output_facial_transformation_matrixes"] = True
         return detect_face_regions(values, **kwargs)
 
     detection_result = run_detector(image_rgb, max_faces, effective_min_face_pixels)
@@ -2216,6 +2273,8 @@ def refine_depth_for_faces(
             }
             if request_face_blendshapes:
                 roi_kwargs["output_face_blendshapes"] = True
+            if request_facial_transformation_matrixes:
+                roi_kwargs["output_facial_transformation_matrixes"] = True
             regions, roi_errors, roi_stats = detect_face_regions_in_roi(
                 image_rgb,
                 roi_mask,
@@ -2515,17 +2574,30 @@ def refine_depth_for_faces(
                             None,
                         )
                         if callable(conditioned):
+                            conditioned_kwargs = {
+                                "media_pipe_landmarks_xyz": landmarks_xyz,
+                                "face_image_rgb": image_rgb[y0:y1, x0:x1],
+                                "media_pipe_blendshape_names": region.get(
+                                    "blendshape_names"
+                                ),
+                                "media_pipe_blendshape_scores": region.get(
+                                    "blendshape_scores"
+                                ),
+                            }
+                            if getattr(
+                                provider,
+                                "requires_facial_transformation_matrix",
+                                False,
+                            ) is True:
+                                conditioned_kwargs[
+                                    "media_pipe_facial_transformation_matrix"
+                                ] = region.get(
+                                    "facial_transformation_matrix"
+                                )
                             gnm_surface, provider_stats = conditioned(
                                 landmark_points,
                                 face_mask,
-                                media_pipe_landmarks_xyz=landmarks_xyz,
-                                face_image_rgb=image_rgb[y0:y1, x0:x1],
-                                media_pipe_blendshape_names=region.get(
-                                    "blendshape_names"
-                                ),
-                                media_pipe_blendshape_scores=region.get(
-                                    "blendshape_scores"
-                                ),
+                                **conditioned_kwargs,
                             )
                             if isinstance(
                                 gnm_surface,

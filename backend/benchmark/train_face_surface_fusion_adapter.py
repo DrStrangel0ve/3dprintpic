@@ -131,10 +131,13 @@ def _detect_production_region(
     selection_mask: np.ndarray,
     *,
     output_face_blendshapes: bool = False,
+    output_facial_transformation_matrixes: bool = False,
 ) -> tuple[dict, dict]:
     detection_kwargs = {"max_faces": 1, "min_face_pixels": 96}
     if output_face_blendshapes:
         detection_kwargs["output_face_blendshapes"] = True
+    if output_facial_transformation_matrixes:
+        detection_kwargs["output_facial_transformation_matrixes"] = True
     regions, errors = detect_face_regions(image_rgb, **detection_kwargs)
     detection_scope = "full-image"
     roi_stats = {"enabled": False, "reason": "full_image_face_detected"}
@@ -146,6 +149,8 @@ def _detect_production_region(
         }
         if output_face_blendshapes:
             roi_kwargs["output_face_blendshapes"] = True
+        if output_facial_transformation_matrixes:
+            roi_kwargs["output_facial_transformation_matrixes"] = True
         regions, roi_errors, roi_stats = detect_face_regions_in_roi(
             image_rgb,
             selection_mask,
@@ -201,6 +206,10 @@ def _detect_production_region(
                 }
                 if output_face_blendshapes:
                     local_kwargs["output_face_blendshapes"] = True
+                if output_facial_transformation_matrixes:
+                    local_kwargs[
+                        "output_facial_transformation_matrixes"
+                    ] = True
                 local_regions, local_errors = detect_face_regions(
                     resized,
                     **local_kwargs,

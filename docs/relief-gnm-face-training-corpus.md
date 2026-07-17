@@ -209,3 +209,23 @@ fell from 0.626152 to 0.574901 and named-part failures rose from eight to ten.
 The lane was closed without a crop, fusion, parameter sweep, or 30 mm run.
 Compact evidence is under
 `docs/benchmark-evidence/mapanything_apache_face_smoke_20260717`.
+
+## Camera conditioning and larger procedural supervision
+
+The next bounded pass separated the generic image encoder from the structured
+face signal, captured MediaPipe's optional canonical-face transform in the same
+landmark pass, and rendered 191 additional unique train-only GNM rows. The
+checkpoint contract is now schema v4: encoder identity/revision/hash, MediaPipe
+version, Face Landmarker/name hashes, feature kinds, and dimensions are all
+validated exactly. Historical schema v1/v2 checkpoints retain their pinned
+DAv2 compatibility path; incomplete experimental schema v3 is rejected.
+
+Structured-only training failed sealed RMSE, paired-win, and eye/brow part
+gates. Pose9 conditioning passed synthetic checks but did not Pareto-improve the
+hard exact face at any tested strength. The expanded 417-row detector-clean
+training pool improved validation-small RMSE to 0.007489 and sealed-small RMSE
+to 0.006695, but its best hard-row shape/RMSE setting reduced raw-gradient
+correlation and retained eight named-part failures. Production therefore stays
+on the central-part mean-GNM provider, and the green background/30 mm path is
+unchanged. Compact evidence is under
+`docs/benchmark-evidence/gnm_face_camera_and_corpus_expansion_20260717`.

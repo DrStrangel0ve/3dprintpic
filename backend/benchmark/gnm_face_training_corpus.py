@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from dataclasses import asdict, dataclass
 import hashlib
 import json
@@ -433,6 +434,67 @@ def select_training_rows(
         return _select_identity_stratified_rows(rows, count)
     indices = np.linspace(0, len(rows) - 1, num=count, dtype=np.int64)
     return tuple(rows[int(index)] for index in indices)
+
+
+def _excluded_row_ids(
+    summary_paths: tuple[str | Path, ...],
+    expected_sha256s: tuple[str, ...],
+) -> tuple[set[str], list[dict]]:
+    if len(summary_paths) != len(expected_sha256s):
+        raise ValueError(
+            "Every excluded GNM summary requires an expected SHA-256"
+        )
+    canonical_rows = {
+        row.row_id: asdict(row)
+        for row in (*TRAINING_MATRIX, *NOVEL_TRAINING_MATRIX)
+    }
+    row_ids: set[str] = set()
+    sources = []
+    for value, expected_sha256 in zip(summary_paths, expected_sha256s):
+        path = Path(value)
+        expected_sha256 = str(expected_sha256).strip().lower()
+        if len(expected_sha256) != 64 or any(
+            character not in "0123456789abcdef"
+            for character in expected_sha256
+        ):
+            raise ValueError(f"{path} has an invalid expected SHA-256")
+        actual_sha256 = _sha256(path)
+        if actual_sha256 != expected_sha256:
+            raise ValueError(f"{path} checksum mismatch")
+        summary = json.loads(path.read_text(encoding="utf-8"))
+        if summary.get("provider") != "google-gnm-head-v3":
+            raise ValueError(f"{path} is not a GNM v3 corpus summary")
+        if summary.get("source_revision") != GNM_SOURCE_REVISION:
+            raise ValueError(f"{path} uses an unpinned GNM source revision")
+        if summary.get("source_geometry_training_and_evaluation_only") is not True:
+            raise ValueError(f"{path} lacks the source-geometry usage contract")
+        if summary.get("schema_version") not in (1, 2):
+            raise ValueError(f"{path} uses an unsupported corpus schema")
+        if summary.get("corpus_seed") != CORPUS_SEED:
+            raise ValueError(f"{path} uses an unexpected corpus seed")
+        if (summary.get("preflight") or {}).get("runnable") is not True:
+            raise ValueError(f"{path} lacks a successful source preflight")
+        source_rows = list(summary.get("rows") or ())
+        if int(summary.get("row_count", -1)) != len(source_rows):
+            raise ValueError(f"{path} row count does not match its rows")
+        source_ids = [str(row.get("row_id")) for row in source_rows]
+        if len(set(source_ids)) != len(source_ids):
+            raise ValueError(f"{path} contains duplicate row IDs")
+        for row_id, row in zip(source_ids, source_rows):
+            canonical = canonical_rows.get(row_id)
+            if canonical is None or row.get("spec") != canonical:
+                raise ValueError(f"{path} contains a noncanonical GNM row")
+        row_ids.update(source_ids)
+        sources.append(
+            {
+                "path": str(path),
+                "expected_sha256": expected_sha256,
+                "sha256": actual_sha256,
+                "row_count": len(source_rows),
+                "unique_row_ids": len(source_ids),
+            }
+        )
+    return row_ids, sources
 
 
 def _scene_condition_index(row: GNMTrainingSceneSpec) -> int:
@@ -1087,6 +1149,8 @@ def render_training_slice(
     limit: int | None = None,
     selection_strategy: str = "linspace",
     emit_geometry_targets: bool = False,
+    exclude_summary_paths: tuple[str | Path, ...] = (),
+    exclude_summary_sha256s: tuple[str, ...] = (),
 ) -> dict:
     root = Path(gnm_root).resolve()
     preflight = preflight_gnm_root(root)
@@ -1095,11 +1159,20 @@ def render_training_slice(
             "GNM source preflight failed: "
             + json.dumps(preflight["checks"], sort_keys=True)
         )
-    selected = select_training_rows(
+    requested_selection = select_training_rows(
         split=split,
         limit=limit,
         strategy=selection_strategy,
     )
+    excluded_ids, exclusion_sources = _excluded_row_ids(
+        tuple(exclude_summary_paths),
+        tuple(exclude_summary_sha256s),
+    )
+    selected = tuple(
+        row for row in requested_selection if row.row_id not in excluded_ids
+    )
+    if not selected:
+        raise ValueError("GNM corpus selection is empty after exclusions")
     if emit_geometry_targets:
         _require_training_rows_for_geometry_targets(selected)
     output_root = Path(output_dir)
@@ -1211,6 +1284,17 @@ def render_training_slice(
         "requested_split": split,
         "requested_limit": limit,
         "selection_strategy": selection_strategy,
+        "requested_selection_row_count": len(requested_selection),
+        "excluded_existing_row_count": (
+            len(requested_selection) - len(selected)
+        ),
+        "exclude_summaries": exclusion_sources,
+        "selected_identity_counts": dict(
+            sorted(Counter(row.identity_group for row in selected).items())
+        ),
+        "selected_expression_counts": dict(
+            sorted(Counter(row.expression for row in selected).items())
+        ),
         "row_count": len(rows),
         "runtime_seconds": float(time.perf_counter() - started),
         "preflight": preflight,
@@ -1245,6 +1329,24 @@ def main() -> None:
             "local structured-geometry training"
         ),
     )
+    parser.add_argument(
+        "--exclude-summary",
+        action="append",
+        default=[],
+        help=(
+            "Skip row IDs already present in a pinned GNM corpus summary; "
+            "repeat for multiple immutable sources"
+        ),
+    )
+    parser.add_argument(
+        "--exclude-summary-sha256",
+        action="append",
+        default=[],
+        help=(
+            "Expected SHA-256 for the corresponding --exclude-summary; "
+            "repeat in the same order"
+        ),
+    )
     args = parser.parse_args()
     if args.preflight_only:
         result = preflight_gnm_root(args.gnm_root)
@@ -1259,6 +1361,8 @@ def main() -> None:
         limit=args.limit,
         selection_strategy=args.selection_strategy,
         emit_geometry_targets=args.emit_geometry_targets,
+        exclude_summary_paths=tuple(args.exclude_summary),
+        exclude_summary_sha256s=tuple(args.exclude_summary_sha256),
     )
     print(
         json.dumps(
