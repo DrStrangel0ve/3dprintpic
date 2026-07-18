@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import inspect
 import json
 import random
 import time
@@ -13,7 +14,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, __version__ as PILLOW_VERSION
 
 from backend.benchmark.c3i_synface_corpus import verified_corpus_asset
 from backend.benchmark.mhr_face_training_corpus import (
@@ -42,6 +43,13 @@ SELECTION_OBJECTIVES = (
 )
 SMALL_FACE_HEIGHT_MAX_PIXELS = 77
 SMALL_FACE_GRADIENT_PLATEAU_TOLERANCE = 0.002
+MAXIMUM_TRAINING_AUGMENTATIONS_PER_ROW = 4
+PHOTO_DOMAIN_AUGMENTATION = "deterministic-photo-domain-v1"
+PHOTOMETRIC_AUGMENTATION = "deterministic-photometric-v2"
+TRAINING_AUGMENTATION_PROFILES = (
+    PHOTO_DOMAIN_AUGMENTATION,
+    PHOTOMETRIC_AUGMENTATION,
+)
 
 
 @dataclass
@@ -55,6 +63,7 @@ class CachedFace:
     patch_height: int
     patch_width: int
     bbox: tuple[int, int, int, int]
+    augmentation_id: str = "original"
 
 
 def _sha256(path: Path) -> str:
@@ -82,12 +91,108 @@ def _padded_box(
     )
 
 
-def _resize(values: np.ndarray, shape: tuple[int, int], interpolation: int) -> np.ndarray:
+def _resize(
+    values: np.ndarray, shape: tuple[int, int], interpolation: int
+) -> np.ndarray:
     return cv2.resize(
         np.asarray(values),
         (shape[1], shape[0]),
         interpolation=interpolation,
     )
+
+
+def _augment_training_crop(
+    image: Image.Image,
+    row_id: str,
+    augmentation_index: int,
+    profile: str = PHOTO_DOMAIN_AUGMENTATION,
+) -> Image.Image:
+    index = int(augmentation_index)
+    if index == 0:
+        return image.copy()
+    if not 0 <= index < MAXIMUM_TRAINING_AUGMENTATIONS_PER_ROW:
+        raise ValueError("Training augmentation index is out of bounds")
+    profile = str(profile)
+    if profile not in TRAINING_AUGMENTATION_PROFILES:
+        raise ValueError(f"Unknown training augmentation profile: {profile}")
+    seed_bytes = hashlib.sha256(
+        f"{TRAINING_SEED}:{row_id}:{index}:{profile}".encode()
+    ).digest()[:8]
+    rng = np.random.Generator(np.random.PCG64(int.from_bytes(seed_bytes, "little")))
+    values = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    height, width = values.shape[:2]
+    if profile == PHOTO_DOMAIN_AUGMENTATION:
+        scale = float(rng.uniform(0.52, 0.82))
+        reduced_width = max(16, int(round(width * scale)))
+        reduced_height = max(16, int(round(height * scale)))
+        values = cv2.resize(
+            values,
+            (reduced_width, reduced_height),
+            interpolation=cv2.INTER_AREA,
+        )
+        values = cv2.resize(
+            values,
+            (width, height),
+            interpolation=cv2.INTER_CUBIC,
+        )
+        gamma_range = (0.72, 1.38)
+        exposure_range = (0.78, 1.22)
+        color_range = (0.82, 1.18)
+        blur_range = (0.35, 1.15)
+        noise_range = (1.5, 5.0)
+        jpeg_range = (58, 86)
+    else:
+        gamma_range = (0.82, 1.24)
+        exposure_range = (0.86, 1.16)
+        color_range = (0.90, 1.10)
+        blur_range = (0.0, 0.28)
+        noise_range = (0.5, 2.0)
+        jpeg_range = (82, 97)
+    gamma = float(rng.uniform(*gamma_range))
+    exposure = float(rng.uniform(*exposure_range))
+    color = rng.uniform(*color_range, size=(1, 1, 3)).astype(np.float32)
+    values = np.power(np.clip(values, 0.0, 1.0), gamma) * exposure * color
+    sigma = float(rng.uniform(*blur_range))
+    if sigma > 0.05:
+        values = cv2.GaussianBlur(values, (0, 0), sigmaX=sigma, sigmaY=sigma)
+    noise = rng.normal(0.0, rng.uniform(*noise_range) / 255.0, values.shape)
+    values = np.clip(values + noise.astype(np.float32), 0.0, 1.0)
+    encoded_values = np.rint(values * 255.0).astype(np.uint8)
+    quality = int(rng.integers(*jpeg_range))
+    ok, encoded = cv2.imencode(
+        ".jpg",
+        cv2.cvtColor(encoded_values, cv2.COLOR_RGB2BGR),
+        [cv2.IMWRITE_JPEG_QUALITY, quality],
+    )
+    if not ok:
+        raise RuntimeError("Deterministic photo-domain JPEG encoding failed")
+    decoded = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+    if decoded is None or decoded.shape[:2] != (height, width):
+        raise RuntimeError("Deterministic photo-domain JPEG decoding failed")
+    return Image.fromarray(cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB))
+
+
+def _augmentation_variant_indices(
+    split: str,
+    augmentations_per_training_row: int,
+) -> range:
+    count = int(augmentations_per_training_row)
+    if split == "train":
+        return range(count)
+    if split in {"validation", "sealed"}:
+        return range(1)
+    raise ValueError(f"Unknown face-depth training split: {split}")
+
+
+def _augmentation_provenance(profile: str) -> dict:
+    source = inspect.getsource(_augment_training_crop).encode("utf-8")
+    return {
+        "profile": str(profile),
+        "implementation_sha256": hashlib.sha256(source).hexdigest(),
+        "numpy_version": np.__version__,
+        "opencv_version": cv2.__version__,
+        "pillow_version": PILLOW_VERSION,
+    }
 
 
 def _near_high_target(exact_depth: np.ndarray, face_mask: np.ndarray) -> np.ndarray:
@@ -150,12 +255,8 @@ def _training_loss(
 
     valid_x = face[:, 1:] * face[:, :-1]
     valid_y = face[1:, :] * face[:-1, :]
-    gradient_x = (fitted[:, 1:] - fitted[:, :-1]) - (
-        target[:, 1:] - target[:, :-1]
-    )
-    gradient_y = (fitted[1:, :] - fitted[:-1, :]) - (
-        target[1:, :] - target[:-1, :]
-    )
+    gradient_x = (fitted[:, 1:] - fitted[:, :-1]) - (target[:, 1:] - target[:, :-1])
+    gradient_y = (fitted[1:, :] - fitted[:-1, :]) - (target[1:, :] - target[:-1, :])
     gradient_loss = _masked_mean(torch.abs(gradient_x), valid_x)
     gradient_loss += _masked_mean(torch.abs(gradient_y), valid_y)
 
@@ -256,7 +357,8 @@ def _validate_training_corpus_summary(summary: dict) -> dict:
         and identity_audit["row_ids_unique"]
         and identity_audit["identities_disjoint"]
         and identity_audit["identity_count"] == 40
-        and split_identity_counts == {
+        and split_identity_counts
+        == {
             "train": 30,
             "validation": 5,
             "sealed": 5,
@@ -269,8 +371,7 @@ def _validate_training_corpus_summary(summary: dict) -> dict:
         "corpus_complete": summary.get("corpus_complete") is True,
         "training_eligible": summary.get("training_eligible") is True,
         "identity_disjoint": (
-            summary.get("identity_disjoint_splits") is True
-            and identity_audit["passed"]
+            summary.get("identity_disjoint_splits") is True and identity_audit["passed"]
         ),
         "deterministic_cpu": (
             (summary.get("deterministic_generation") or {}).get(
@@ -282,9 +383,7 @@ def _validate_training_corpus_summary(summary: dict) -> dict:
     }
     if not all(checks.values()):
         failed = [name for name, passed in checks.items() if not passed]
-        raise ValueError(
-            "MHR training corpus contract failed: " + ", ".join(failed)
-        )
+        raise ValueError("MHR training corpus contract failed: " + ", ".join(failed))
     return {
         "provider": provider,
         "target_depth": "floating-normalized-camera-z",
@@ -301,9 +400,7 @@ def _crop_row(corpus_root: Path, row: dict) -> dict:
     exact = np.load(verified_corpus_asset(corpus_root, target_record)).astype(
         np.float32
     )
-    face = _load_mask(
-        verified_corpus_asset(corpus_root, row["selection_mask"])
-    )
+    face = _load_mask(verified_corpus_asset(corpus_root, row["selection_mask"]))
     if exact.shape != face.shape or exact.shape != (source.height, source.width):
         raise ValueError("Face training source, target, and mask shapes must match")
     bbox = _padded_box(
@@ -329,7 +426,14 @@ def _crop_row(corpus_root: Path, row: dict) -> dict:
     }
 
 
-def _prepare_training_items(corpus_root: Path, rows: list[dict], device: str):
+def _prepare_training_items(
+    corpus_root: Path,
+    rows: list[dict],
+    device: str,
+    *,
+    augmentations_per_training_row: int = 1,
+    training_augmentation: str = PHOTO_DOMAIN_AUGMENTATION,
+):
     import torch
     from huggingface_hub import snapshot_download
     from transformers import AutoImageProcessor, AutoModelForDepthEstimation
@@ -353,65 +457,89 @@ def _prepare_training_items(corpus_root: Path, rows: list[dict], device: str):
         parameter.requires_grad_(False)
     cached = []
     peak_vram = 0.0
-    for index, row in enumerate(rows):
+    prepared_count = 0
+    for row in rows:
         prepared = _crop_row(corpus_root, row)
-        pixel_values = processor(
-            images=prepared["source_crop"],
-            return_tensors="pt",
-        )["pixel_values"].to(device=device, dtype=dtype)
-        patch_height = pixel_values.shape[-2] // model.config.patch_size
-        patch_width = pixel_values.shape[-1] // model.config.patch_size
-        with torch.inference_mode():
-            backbone = model.backbone.forward_with_filtered_kwargs(pixel_values)
-            hidden = model.neck(
-                backbone.feature_maps,
-                patch_height,
-                patch_width,
+        for augmentation_index in _augmentation_variant_indices(
+            str(row["split"]),
+            augmentations_per_training_row,
+        ):
+            source_crop = _augment_training_crop(
+                prepared["source_crop"],
+                str(row["row_id"]),
+                augmentation_index,
+                training_augmentation,
             )
-            baseline = model.head(hidden, patch_height, patch_width)
-        output_shape = tuple(int(value) for value in baseline.shape[-2:])
-        target = _resize(
-            prepared["target_crop"],
-            output_shape,
-            cv2.INTER_CUBIC,
-        )
-        face = _resize(
-            prepared["face_crop"].astype(np.uint8),
-            output_shape,
-            cv2.INTER_NEAREST,
-        ).astype(bool)
-        part = _resize(
-            prepared["part_crop"].astype(np.uint8),
-            output_shape,
-            cv2.INTER_NEAREST,
-        ).astype(bool)
-        cached.append(
-            CachedFace(
-                row=row,
-                feature=hidden[-1][0].detach().cpu().to(torch.float16),
-                baseline=baseline[0].detach().cpu().to(torch.float16),
-                target=torch.from_numpy(target.astype(np.float32)),
-                face_mask=torch.from_numpy(face),
-                part_weight=torch.from_numpy(part.astype(np.float32)),
-                patch_height=int(patch_height),
-                patch_width=int(patch_width),
-                bbox=prepared["bbox"],
+            pixel_values = processor(
+                images=source_crop,
+                return_tensors="pt",
+            )["pixel_values"].to(device=device, dtype=dtype)
+            patch_height = pixel_values.shape[-2] // model.config.patch_size
+            patch_width = pixel_values.shape[-1] // model.config.patch_size
+            with torch.inference_mode():
+                backbone = model.backbone.forward_with_filtered_kwargs(pixel_values)
+                hidden = model.neck(
+                    backbone.feature_maps,
+                    patch_height,
+                    patch_width,
+                )
+                baseline = model.head(hidden, patch_height, patch_width)
+            output_shape = tuple(int(value) for value in baseline.shape[-2:])
+            target = _resize(
+                prepared["target_crop"],
+                output_shape,
+                cv2.INTER_CUBIC,
             )
-        )
-        if device.startswith("cuda"):
-            peak_vram = max(
-                peak_vram,
-                float(torch.cuda.max_memory_allocated(device) / (1024**3)),
+            face = _resize(
+                prepared["face_crop"].astype(np.uint8),
+                output_shape,
+                cv2.INTER_NEAREST,
+            ).astype(bool)
+            part = _resize(
+                prepared["part_crop"].astype(np.uint8),
+                output_shape,
+                cv2.INTER_NEAREST,
+            ).astype(bool)
+            cached.append(
+                CachedFace(
+                    row=row,
+                    feature=hidden[-1][0].detach().cpu().to(torch.float16),
+                    baseline=baseline[0].detach().cpu().to(torch.float16),
+                    target=torch.from_numpy(target.astype(np.float32)),
+                    face_mask=torch.from_numpy(face),
+                    part_weight=torch.from_numpy(part.astype(np.float32)),
+                    patch_height=int(patch_height),
+                    patch_width=int(patch_width),
+                    bbox=prepared["bbox"],
+                    augmentation_id=(
+                        "original"
+                        if augmentation_index == 0
+                        else f"{training_augmentation}-{augmentation_index}"
+                    ),
+                )
             )
-        if (index + 1) % 40 == 0:
-            print(f"prepared {index + 1}/{len(rows)} rows", flush=True)
+            prepared_count += 1
+            if device.startswith("cuda"):
+                peak_vram = max(
+                    peak_vram,
+                    float(torch.cuda.max_memory_allocated(device) / (1024**3)),
+                )
+            if prepared_count % 80 == 0:
+                print(f"prepared {prepared_count} feature rows", flush=True)
     model.head.to(dtype=torch.float32)
-    return cached, model, {
-        "snapshot": str(snapshot),
-        "snapshot_model_sha256": _sha256(Path(snapshot) / "model.safetensors"),
-        "processor_sha256": _sha256(Path(snapshot) / "preprocessor_config.json"),
-        "peak_vram_gb": peak_vram,
-    }
+    return (
+        cached,
+        model,
+        {
+            "snapshot": str(snapshot),
+            "snapshot_model_sha256": _sha256(Path(snapshot) / "model.safetensors"),
+            "processor_sha256": _sha256(Path(snapshot) / "preprocessor_config.json"),
+            "peak_vram_gb": peak_vram,
+            "prepared_feature_rows": len(cached),
+            "augmentations_per_training_row": int(augmentations_per_training_row),
+            "training_augmentation": training_augmentation,
+        },
+    )
 
 
 def _head_prediction(model, item: CachedFace, device: str):
@@ -552,9 +680,9 @@ def _evaluate_blend(
     records = []
     for item, trained in zip(items, trained_predictions, strict=True):
         baseline = item.baseline.float().numpy()
-        prediction = (
-            (1.0 - float(alpha)) * baseline + float(alpha) * trained
-        ).astype(np.float32)
+        prediction = ((1.0 - float(alpha)) * baseline + float(alpha) * trained).astype(
+            np.float32
+        )
         records.append(
             _quality(
                 corpus_root,
@@ -574,8 +702,7 @@ def _strictly_improves(candidate: dict, baseline: dict) -> bool:
         >= baseline["median_shape_correlation"]
         and candidate["median_gradient_correlation"]
         >= baseline["median_gradient_correlation"]
-        and candidate["median_normalized_rmse"]
-        <= baseline["median_normalized_rmse"]
+        and candidate["median_normalized_rmse"] <= baseline["median_normalized_rmse"]
     )
 
 
@@ -619,9 +746,7 @@ def _select_blend_candidate(candidates: list[dict], objective: str) -> dict:
         "small-face-gradient-conservative",
     }:
         eligible = [
-            candidate
-            for candidate in eligible
-            if candidate["small_face_eligible"]
+            candidate for candidate in eligible if candidate["small_face_eligible"]
         ]
         if objective == "small-face-gradient-conservative" and eligible:
             best_gradient = max(
@@ -654,6 +779,7 @@ def _select_blend_candidate(candidates: list[dict], objective: str) -> dict:
                     candidate["alpha"],
                 )
     else:
+
         def key(candidate):
             return (
                 candidate["combined_part_failures"],
@@ -661,6 +787,7 @@ def _select_blend_candidate(candidates: list[dict], objective: str) -> dict:
                 -candidate["median_shape_correlation"],
                 candidate["alpha"],
             )
+
     return min(eligible, key=key) if eligible else candidates[0]
 
 
@@ -676,6 +803,8 @@ def train(
     gradient_loss_weight: float = GRADIENT_LOSS_WEIGHT,
     laplacian_loss_weight: float = LAPLACIAN_LOSS_WEIGHT,
     selection_objective: str = "global-failures",
+    augmentations_per_training_row: int = 1,
+    training_augmentation: str = PHOTO_DOMAIN_AUGMENTATION,
 ) -> dict:
     import torch
 
@@ -686,11 +815,27 @@ def train(
         "laplacian": float(laplacian_loss_weight),
     }
     if any(not np.isfinite(value) or value < 0.0 for value in loss_weights.values()):
-        raise ValueError("Face depth training loss weights must be finite and nonnegative")
+        raise ValueError(
+            "Face depth training loss weights must be finite and nonnegative"
+        )
     if selection_objective not in SELECTION_OBJECTIVES:
         raise ValueError(
             f"Unknown face-depth selection objective: {selection_objective}"
         )
+    if (
+        not 1
+        <= int(augmentations_per_training_row)
+        <= (MAXIMUM_TRAINING_AUGMENTATIONS_PER_ROW)
+    ):
+        raise ValueError(
+            "Training augmentations per row must be between 1 and "
+            f"{MAXIMUM_TRAINING_AUGMENTATIONS_PER_ROW}"
+        )
+    if training_augmentation not in TRAINING_AUGMENTATION_PROFILES:
+        raise ValueError(
+            f"Unknown training augmentation profile: {training_augmentation}"
+        )
+    augmentation_provenance = _augmentation_provenance(training_augmentation)
     corpus_root = Path(corpus_root)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -719,6 +864,8 @@ def train(
         corpus_root,
         rows,
         device,
+        augmentations_per_training_row=augmentations_per_training_row,
+        training_augmentation=training_augmentation,
     )
     by_split = {
         name: [item for item in cached if item.row["split"] == name]
@@ -863,6 +1010,9 @@ def train(
             "small_face_gradient_plateau_tolerance": (
                 SMALL_FACE_GRADIENT_PLATEAU_TOLERANCE
             ),
+            "augmentations_per_training_row": int(augmentations_per_training_row),
+            "training_augmentation": training_augmentation,
+            "training_augmentation_provenance": augmentation_provenance,
         },
         checkpoint_path,
     )
@@ -884,19 +1034,23 @@ def train(
             ),
             "contract": corpus_contract,
             "split_counts": split_counts,
+            "prepared_split_counts": {
+                name: len(by_split[name]) for name in split_counts
+            },
         },
         "training": {
             "seed": TRAINING_SEED,
             "epochs": int(epochs),
             "learning_rate": float(learning_rate),
             "part_weight": loss_weights["part"],
-            "background_distillation_weight": loss_weights[
-                "background_distillation"
-            ],
+            "background_distillation_weight": loss_weights["background_distillation"],
             "gradient_loss_weight": loss_weights["gradient"],
             "laplacian_loss_weight": loss_weights["laplacian"],
             "selected_epoch": best_epoch,
             "selection_objective": selection_objective,
+            "augmentations_per_training_row": int(augmentations_per_training_row),
+            "training_augmentation": training_augmentation,
+            "augmentation_provenance": augmentation_provenance,
             "epochs_record": epochs_record,
         },
         "blend_selection": {
@@ -984,6 +1138,16 @@ def main() -> None:
         choices=SELECTION_OBJECTIVES,
         default="global-failures",
     )
+    parser.add_argument(
+        "--augmentations-per-training-row",
+        type=int,
+        default=1,
+    )
+    parser.add_argument(
+        "--training-augmentation",
+        choices=TRAINING_AUGMENTATION_PROFILES,
+        default=PHOTO_DOMAIN_AUGMENTATION,
+    )
     args = parser.parse_args()
     evidence = train(
         args.corpus_root,
@@ -996,6 +1160,8 @@ def main() -> None:
         gradient_loss_weight=args.gradient_loss_weight,
         laplacian_loss_weight=args.laplacian_loss_weight,
         selection_objective=args.selection_objective,
+        augmentations_per_training_row=args.augmentations_per_training_row,
+        training_augmentation=args.training_augmentation,
     )
     print(json.dumps(evidence["decision"], indent=2))
     if not evidence["decision"]["eligible_for_exact_production_gate"]:

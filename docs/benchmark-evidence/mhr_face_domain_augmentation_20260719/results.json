@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "date": "2026-07-19",
+  "privacy": "CC0 MakeHuman synthetic heads and existing privacy-safe exact fixtures only",
+  "production_changed": false,
+  "decision": "hold",
+  "parametric_oracle": {
+    "status": "diagnostic-only",
+    "source_geometry": "evaluation-only",
+    "search_scope": "finite sampled coefficients, camera offsets, and fusion strengths",
+    "repository": "https://github.com/facebookresearch/MHR",
+    "source_revision": "4998cec385b1aaa07abdefba71bfba2f83c7db32",
+    "license": "Apache-2.0",
+    "model_sha256": "352e271a6c42729c68554ceaea0c955e866970160c31e35506d782dc0f7377bc",
+    "head_mask_sha256": "60a64a305731dcc1c09f167dfa844246443b3115ae05abebe3813aa64a9ba2ae",
+    "candidate_count": 392,
+    "background_bit_exact": true,
+    "strict_all_metric_candidate_found": false,
+    "continuous_family_upper_bound_established": false,
+    "baseline": {
+      "combined_part_failures": 10,
+      "shape_correlation": 0.8047738479934161,
+      "gradient_correlation": 0.625533466645662,
+      "normalized_rmse": 0.17600701052848092
+    },
+    "best": {
+      "combined_part_failures": 9,
+      "shape_correlation": 0.8043676545627102,
+      "gradient_correlation": 0.6254616139529725,
+      "normalized_rmse": 0.1761701898204721
+    },
+    "evidence_sha256": "d7c9157152b0cbfd74bfa423486862685833e15806876855313aeff3a5f8cbfe"
+  },
+  "photometric_training": {
+    "profile": "deterministic-photometric-v2",
+    "augmentations_per_training_row": 2,
+    "validation_and_sealed_augmented": false,
+    "augmentation_provenance": {
+      "implementation_sha256": "90db2d70114060479d46741fed495dec74ec57fb75033e9db370a0477bd4c128",
+      "numpy_version": "2.4.4",
+      "opencv_version": "5.0.0",
+      "pillow_version": "12.2.0"
+    },
+    "selected_epoch": 1,
+    "selected_alpha": 0.4,
+    "checkpoint_sha256": "07b06f50e65704e0f601180a6d247043fe157c18ec1236f9c1306e48e7059b09",
+    "sealed": {
+      "baseline": {
+        "combined_part_failures": 431,
+        "median_shape_correlation": 0.9391193473298798,
+        "median_gradient_correlation": 0.8680499802844798,
+        "median_normalized_rmse": 0.11503052005981071
+      },
+      "candidate": {
+        "combined_part_failures": 376,
+        "median_shape_correlation": 0.9533231598301055,
+        "median_gradient_correlation": 0.879018567429755,
+        "median_normalized_rmse": 0.09884503254639082
+      }
+    },
+    "sealed_small_face": {
+      "baseline_combined_part_failures": 225,
+      "candidate_combined_part_failures": 200,
+      "candidate_median_shape_correlation": 0.9528176524372778,
+      "candidate_median_gradient_correlation": 0.8832408855803362,
+      "candidate_median_normalized_rmse": 0.10129649753618991
+    },
+    "evidence_sha256": "26b14baa2d24651af322c912c1f8e71612217f0410450bda366439117e464cac"
+  },
+  "exact_hard_row": {
+    "eligible_for_full_stl_replay": true,
+    "baseline": {
+      "combined_part_failures": 10,
+      "shape_correlation": 0.8047738479934161,
+      "gradient_correlation": 0.625533466645662,
+      "normalized_rmse": 0.17600701052848092
+    },
+    "candidate": {
+      "combined_part_failures": 9,
+      "shape_correlation": 0.8070424627502255,
+      "gradient_correlation": 0.6257282586247791,
+      "normalized_rmse": 0.17509132430787358
+    },
+    "incumbent": {
+      "combined_part_failures": 9,
+      "shape_correlation": 0.80701199809,
+      "gradient_correlation": 0.62579863455,
+      "normalized_rmse": 0.17510366967
+    },
+    "evidence_sha256": "a89216e2af41a8d57dec41e842debf585cb5509ed186584c088a885f781dc653"
+  },
+  "relief_30mm_replay": {
+    "status": "pass",
+    "baseline_combined_part_failures": 9,
+    "candidate_combined_part_failures": 8,
+    "surface_max_mm": 29.726009368896484,
+    "watertight": true,
+    "manifold": true,
+    "component_count": 1,
+    "degenerate_face_count": 0,
+    "exact_shell": true,
+    "far_background_cap_passed": true,
+    "far_background_cap_violation_mm": 0.0,
+    "feasible_attachment_constraints_passed": true,
+    "feasible_attachment_jump_max_mm": 0.8000001907348633,
+    "attachment_constraints_passed": false,
+    "attachment_constraint_conflicts": 9,
+    "physical_cap_combined_passed": false,
+    "background_correlation": 0.9999829349080673,
+    "background_rms_retention": 1.0001833796056439,
+    "replay_harness_checks_passed": true,
+    "runtime_seconds": 20.19573010000022,
+    "evidence_sha256": "f9bf6f5c64b94d3f0d1d002cbb4bf9a8a821341cab70e3fbfee621633bc4ca01"
+  }
+}

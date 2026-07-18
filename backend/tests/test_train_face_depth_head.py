@@ -4,6 +4,8 @@ import numpy as np
 
 from backend.benchmark.train_face_depth_head import (
     CachedFace,
+    _augmentation_variant_indices,
+    _augment_training_crop,
     _epoch_rank,
     _near_high_target,
     _padded_box,
@@ -13,6 +15,7 @@ from backend.benchmark.train_face_depth_head import (
     _training_loss,
     _validate_training_corpus_summary,
 )
+from PIL import Image
 
 
 class TrainFaceDepthHeadTests(unittest.TestCase):
@@ -73,6 +76,52 @@ class TrainFaceDepthHeadTests(unittest.TestCase):
                 np.eye(8, dtype=bool),
             )
 
+    def test_photo_domain_augmentation_is_deterministic_and_shape_preserving(self):
+        values = np.tile(
+            np.arange(32, dtype=np.uint8)[None, :, None],
+            (24, 1, 3),
+        )
+        image = Image.fromarray(values, mode="RGB")
+        original = _augment_training_crop(image, "row-a", 0)
+        first = _augment_training_crop(image, "row-a", 1)
+        second = _augment_training_crop(image, "row-a", 1)
+        different = _augment_training_crop(image, "row-a", 2)
+        self.assertEqual(first.size, image.size)
+        np.testing.assert_array_equal(np.asarray(original), values)
+        np.testing.assert_array_equal(np.asarray(first), np.asarray(second))
+        self.assertFalse(np.array_equal(np.asarray(first), values))
+        self.assertFalse(np.array_equal(np.asarray(first), np.asarray(different)))
+        with self.assertRaisesRegex(ValueError, "out of bounds"):
+            _augment_training_crop(image, "row-a", 4)
+        with self.assertRaisesRegex(ValueError, "Unknown training augmentation"):
+            _augment_training_crop(image, "row-a", 1, "unknown")
+
+    def test_photometric_profile_preserves_more_edge_energy(self):
+        values = np.zeros((48, 48, 3), dtype=np.uint8)
+        values[:, 24:] = 255
+        image = Image.fromarray(values, mode="RGB")
+        domain = np.asarray(_augment_training_crop(image, "edge", 1))
+        photometric = np.asarray(
+            _augment_training_crop(
+                image,
+                "edge",
+                1,
+                "deterministic-photometric-v2",
+            )
+        )
+        domain_edge = np.max(np.abs(np.diff(domain.astype(np.float32), axis=1)))
+        photometric_edge = np.max(
+            np.abs(np.diff(photometric.astype(np.float32), axis=1))
+        )
+        self.assertGreater(photometric_edge, domain_edge)
+
+    def test_augmentation_variants_are_training_only(self):
+        self.assertEqual(list(_augmentation_variant_indices("train", 3)), [0, 1, 2])
+        self.assertEqual(list(_augmentation_variant_indices("validation", 3)), [0])
+        self.assertEqual(list(_augmentation_variant_indices("sealed", 3)), [0])
+        with self.assertRaisesRegex(ValueError, "Unknown face-depth training split"):
+            _augmentation_variant_indices("test", 3)
+
     def test_mhr_rows_prefer_floating_camera_z_targets(self):
         camera = {"path": "camera.npy", "sha256": "a" * 64}
         scene = {"path": "scene.npy", "sha256": "b" * 64}
@@ -81,9 +130,7 @@ class TrainFaceDepthHeadTests(unittest.TestCase):
         )
         self.assertIs(record, camera)
         self.assertEqual(representation, "floating-normalized-camera-z")
-        legacy, legacy_representation = _target_depth_record(
-            {"exact_depth": scene}
-        )
+        legacy, legacy_representation = _target_depth_record({"exact_depth": scene})
         self.assertIs(legacy, scene)
         self.assertEqual(legacy_representation, "normalized-scene-depth")
 
@@ -136,9 +183,7 @@ class TrainFaceDepthHeadTests(unittest.TestCase):
             _validate_training_corpus_summary(missing_id)
 
         leaked = {**summary, "rows": [dict(row) for row in summary["rows"]]}
-        leaked["rows"][-1]["identity_group"] = leaked["rows"][0][
-            "identity_group"
-        ]
+        leaked["rows"][-1]["identity_group"] = leaked["rows"][0]["identity_group"]
         with self.assertRaisesRegex(ValueError, "identity_disjoint"):
             _validate_training_corpus_summary(leaked)
 
