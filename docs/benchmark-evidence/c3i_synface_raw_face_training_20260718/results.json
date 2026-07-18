@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "status": "hold",
+  "production_change": false,
+  "implementation_commits": {
+    "raw_corpus_and_metric_gate": "c18a7e9a8907c4aa8bceb2015cf2da4ba052f6c9",
+    "geometry_only_ablation": "5949dc9e8c5a516f389f786006127d4caa2caca1"
+  },
+  "corpus": {
+    "provider": "c3i-synface-female-part2-raw-exr",
+    "doi": "10.17632/yzjdjj5w39.1",
+    "license": "CC BY 4.0",
+    "archive_bytes": 7425750802,
+    "archive_sha256": "971c643a253e7939f357fb21831b73d44445ae935939cc6f50b662d8b89735a9",
+    "rows": 120,
+    "train_rows": 60,
+    "validation_rows": 30,
+    "sealed_rows": 30,
+    "asset_manifest_sha256": "cfc3e978bb6f1486e8f297dce5d2f61768d9cf7dd02d8fccdbfe4dd50e2e4255",
+    "summary_sha256": "547511b2edfacd19fab5cf6018799652056827ea0852748f9e0f7dc72315dfa7"
+  },
+  "rgb_adapter": {
+    "selected_epoch": 22,
+    "selected_alpha": 0.2,
+    "training_runtime_seconds": 13.54093560000183,
+    "training_peak_vram_gib": 1.2028884887695312,
+    "checkpoint_sha256": "fecc0dd9f468792fb69b5a54e578e965882fa201b517bb4bc856be07c32fd63f",
+    "evidence_sha256": "b8ebffcff03a6ed6f433cf1e628a31bdbc973773be4334e155bdda7eb4b46faa",
+    "validation": {
+      "baseline_failures": 344,
+      "candidate_failures": 343,
+      "baseline_shape": 0.9621897294035715,
+      "candidate_shape": 0.9665496477886211,
+      "baseline_gradient": 0.8383168646024672,
+      "candidate_gradient": 0.8417989943974404,
+      "baseline_rmse": 0.07672571470195805,
+      "candidate_rmse": 0.07254786250391793,
+      "per_row_non_regression_ratio": 1.0
+    },
+    "sealed": {
+      "baseline_failures": 353,
+      "candidate_failures": 352,
+      "baseline_shape": 0.956007154389958,
+      "candidate_shape": 0.9594864304790198,
+      "baseline_gradient": 0.7898202348591694,
+      "candidate_gradient": 0.792438285319899,
+      "baseline_rmse": 0.08615604496974547,
+      "candidate_rmse": 0.0829534966012512,
+      "per_row_non_regression_ratio": 1.0
+    }
+  },
+  "geometry_only_adapter": {
+    "selected_epoch": 19,
+    "selected_alpha": 0.2,
+    "checkpoint_sha256": "9b59dbbf64c623bb856e917254ee3c288bb03643cfa076008f57f736c557d890",
+    "evidence_sha256": "daeb885f8f7f3761da22cf709449c2acc268fb9627a03a5ab8aa14672fa65a37",
+    "validation_failures": [344, 343],
+    "sealed_failures": [353, 353],
+    "eligible_for_exact_production_replay": false
+  },
+  "exact_production_replay": {
+    "source_revision": "c18a7e9a8907c4aa8bceb2015cf2da4ba052f6c9",
+    "source_summary_sha256": "e6b85dcc5870cf65d95788160b6ea45973a28972685e71e42ca6d0894ac5c5eb",
+    "baseline_failures": 25,
+    "hard_face_baseline_failures": 10,
+    "baseline_shape": 0.8956416778,
+    "baseline_gradient": 0.6260815484,
+    "baseline_rmse": 0.1349104279,
+    "strengths": [
+      {
+        "alpha": 0.05,
+        "candidate_failures": 25,
+        "candidate_shape": 0.8956334621091593,
+        "candidate_gradient": 0.6258686670248309,
+        "candidate_rmse": 0.1349154459137153,
+        "hard_face_failures": 10,
+        "evidence_sha256": "2c4c3baf48cb3669afed5fc73f33b3f059d7e816232df821728a898f47a23044"
+      },
+      {
+        "alpha": 0.1,
+        "candidate_failures": 25,
+        "candidate_shape": 0.8955975130418272,
+        "candidate_gradient": 0.6256268866043476,
+        "candidate_rmse": 0.13493740023007697,
+        "hard_face_failures": 10,
+        "evidence_sha256": "bade1fac07a9b7302581e4e1da2e0a012ddc054c8a8bc098364cc6e36079082a"
+      },
+      {
+        "alpha": 0.2,
+        "candidate_failures": 26,
+        "candidate_shape": 0.8954416407299891,
+        "candidate_gradient": 0.6250565919303865,
+        "candidate_rmse": 0.13503254093123648,
+        "hard_face_failures": 10,
+        "evidence_sha256": "ebff1221e6df635c0dc7219bc76c021e8b4a80827ab3c3d1db702d625ba8542e"
+      }
+    ],
+    "eligible_for_full_stl_replay": false
+  },
+  "decision": {
+    "rgb_adapter_closed": true,
+    "geometry_only_adapter_closed": true,
+    "checkpoint_shipped": false,
+    "adapter_30mm_stl_replay_run": false,
+    "production_incumbent_unchanged": true
+  }
+}

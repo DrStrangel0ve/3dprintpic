@@ -277,3 +277,36 @@ used for training.
 
 Compact evidence is under
 `docs/benchmark-evidence/c3i_synface_small_face_gate_20260718`.
+
+## Raw C3I EXR supervised adapter
+
+The publisher's female part 2 archive was subsequently acquired and verified:
+7,425,750,802 bytes, SHA256
+`971c643a253e7939f357fb21831b73d44445ae935939cc6f50b662d8b89735a9`.
+It contains 6,650 RGB/float-EXR/pose triplets under CC BY 4.0. A balanced
+120-row corpus crosses four synthetic identities, two backgrounds, five
+expressions, and three motion families at 75 px face height. Identities are
+disjoint across 60 train, 30 validation, and 30 sealed rows.
+
+The raw EXRs exposed a metric bug that the lossy demos could not: Blender
+encodes no-hit pixels near `1e10`. Exact face normalization now uses only
+finite selected reference support, candidate coverage remains independent,
+and unavailable metrics fail all six parts with structured hold evidence.
+The importer removes no-hit support before resampling, and training targets are
+finite outside supervised geometry. The focused touched-path suite passes 93
+tests.
+
+An RGB/depth/mask residual adapter improved validation failures from 344 to 343
+and sealed failures from 353 to 352 at blend 0.2, with 1.0 per-row
+non-regression and improved median shape, gradient, and RMSE on both splits.
+The exact production replay nevertheless regressed: at blend 0.2 aggregate
+failures rose from 25 to 26, the hard 75 px face stayed at 10 failures, and all
+three aggregate depth metrics worsened. Blends 0.05 and 0.10 avoided the added
+failure but still did not improve the hard face or aggregate metrics.
+
+A geometry-only ablation removed synthetic RGB appearance from both training
+and inference. It improved validation but left sealed failures unchanged at
+353, so it stopped before production replay. Both adapter lanes are closed,
+no checkpoint is shipped, and the green production GNM/background/30 mm path
+is unchanged. Compact evidence is under
+`docs/benchmark-evidence/c3i_synface_raw_face_training_20260718`.
