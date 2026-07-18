@@ -16,6 +16,7 @@ from backend.benchmark.evaluate_face_depth_head_exact_gate import (
     _minmax_normalize,
     _resize_depth,
     _small_face_residual_scale,
+    _small_face_only_decision_contract,
 )
 
 
@@ -197,6 +198,56 @@ class EvaluateFaceDepthHeadExactGateTests(unittest.TestCase):
             ),
         )
         self.assertEqual(_small_face_residual_scale(large), (0.0, 80))
+
+    def test_small_face_contract_uses_affected_gain_and_zero_replay_equivalence(self):
+        baseline = [
+            {
+                "row_id": "small",
+                "combined_part_failures": 10,
+                "shape_correlation": 0.80,
+                "gradient_correlation": 0.60,
+                "normalized_rmse": 0.20,
+            },
+            {
+                "row_id": "large",
+                "combined_part_failures": 5,
+                "shape_correlation": 0.90,
+                "gradient_correlation": 0.70,
+                "normalized_rmse": 0.10,
+            },
+        ]
+        candidate = [
+            {
+                "row_id": "small",
+                "combined_part_failures": 9,
+                "shape_correlation": 0.81,
+                "gradient_correlation": 0.61,
+                "normalized_rmse": 0.19,
+                "surface_residual": {
+                    "residual_scale": 0.5,
+                    "max_abs_correction": 0.02,
+                },
+            },
+            {
+                "row_id": "large",
+                "combined_part_failures": 5,
+                "shape_correlation": 0.8995,
+                "gradient_correlation": 0.7005,
+                "normalized_rmse": 0.1005,
+                "surface_residual": {
+                    "residual_scale": 0.0,
+                    "max_abs_correction": 0.0,
+                },
+            },
+        ]
+        contract = _small_face_only_decision_contract(baseline, candidate)
+        self.assertTrue(contract["passes"])
+        self.assertEqual(contract["affected_row_ids"], ["small"])
+        self.assertTrue(contract["zero_strength_rows"][0]["equivalent"])
+        candidate[1]["surface_residual"]["max_abs_correction"] = 1e-4
+        rejected = _small_face_only_decision_contract(baseline, candidate)
+        self.assertFalse(rejected["passes"])
+        self.assertFalse(rejected["checks"]["zero_strength_rows_equivalent"])
 
 
 if __name__ == "__main__":

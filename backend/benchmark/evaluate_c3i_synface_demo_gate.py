@@ -19,6 +19,11 @@ from backend.benchmark.c3i_synface_corpus import (
     DEMO_ASSET_LICENSE,
     verified_corpus_asset,
 )
+from backend.benchmark.mhr_face_training_corpus import (
+    MHR_LICENSE,
+    MHR_PROVIDER,
+    MHR_SOURCE_REVISION,
+)
 from backend.benchmark.train_face_depth_head import (
     MODEL_ID,
     MODEL_REVISION,
@@ -117,6 +122,57 @@ def _corpus_profile(corpus: dict) -> dict:
                     "training eligibility",
                     "millimetre scale without published calibration",
                     "pixel-perfect RGB/depth registration",
+                ],
+            },
+        }
+    if provider == MHR_PROVIDER:
+        source = corpus.get("source") or {}
+        preflight = corpus.get("preflight") or {}
+        part_provenance = corpus.get("face_part_provenance") or {}
+        depth_provenance = corpus.get("depth_target_provenance") or {}
+        corpus_complete = corpus.get("corpus_complete") is True
+        incomplete_contract_valid = bool(
+            not corpus_complete
+            and corpus.get("training_eligible") is False
+            and corpus.get("identity_disjoint_splits") is False
+        )
+        complete_contract_valid = bool(
+            corpus_complete
+            and corpus.get("identity_disjoint_splits") is True
+        )
+        if (
+            source.get("license") != MHR_LICENSE
+            or corpus.get("source_revision") != MHR_SOURCE_REVISION
+            or corpus.get("privacy_safe_synthetic") is not True
+            or corpus.get("experimental_corpus") is not True
+            or corpus.get("promotion_eligible") is not False
+            or corpus.get("source_geometry_training_and_evaluation_only") is not True
+            or preflight.get("runnable") is not True
+            or not all((preflight.get("checks") or {}).values())
+            or part_provenance.get("stable_across_identity_and_expression") is not True
+            or part_provenance.get("not_claimed")
+            != "official MHR semantic segmentation"
+            or depth_provenance.get("metric_scale_claimed") is not False
+            or not (incomplete_contract_valid or complete_contract_valid)
+        ):
+            raise ValueError("MHR gate requires pinned pilot-corpus provenance")
+        return {
+            "method": "meta-mhr-v1.0.1-current-face-depth-gate",
+            "depth_target_provenance": {
+                "representation": (
+                    "deterministic normalized scene depth plus floating "
+                    "normalized camera-Z"
+                ),
+                "use": (
+                    "identity-disjoint synthetic facial-shape pilot screen"
+                    if corpus_complete
+                    else "bounded synthetic facial-shape smoke only"
+                ),
+                "not_claimed": [
+                    "direct 30 mm relief coordinates",
+                    "metric facial millimetres",
+                    "official MHR semantic face-part segmentation",
+                    "production-training readiness",
                 ],
             },
         }

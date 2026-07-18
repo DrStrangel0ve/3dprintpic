@@ -44,6 +44,7 @@ MINIMUM_BACKGROUND_CORRELATION = 0.999
 MINIMUM_BACKGROUND_RMS_RETENTION = 0.98
 MAXIMUM_BACKGROUND_RMS_RETENTION = 1.02
 MAXIMUM_RELIEF_HEIGHT_MM = RELIEF_HEIGHT_MM + 0.011
+PRINTABLE_FEATURE_DEPTH_MM = 0.4
 
 
 def _sha256(path: Path) -> str:
@@ -115,6 +116,7 @@ def _emit_variant(
     feature_weight_path: Path,
     feature_exclusion_path: Path,
     normalization_reference_depth: Path | None = None,
+    relief_height_mm: float = RELIEF_HEIGHT_MM,
 ) -> dict:
     variant_dir = output_dir / name
     variant_dir.mkdir(parents=True, exist_ok=True)
@@ -126,7 +128,7 @@ def _emit_variant(
         depth_path,
         output_stl_path=str(stl_path),
         target_dimension=256,
-        z_scale=RELIEF_HEIGHT_MM,
+        z_scale=relief_height_mm,
         invert=invert,
         sigma=0.6,
         max_xy_size=MAX_XY_SIZE_MM,
@@ -137,7 +139,7 @@ def _emit_variant(
         background_photo_detail_mm=0.60,
         trim_top_background=False,
         feature_weight_mask=feature_weight_path,
-        printable_feature_depth_mm=0.4,
+        printable_feature_depth_mm=PRINTABLE_FEATURE_DEPTH_MM,
         feature_bridge_depth_mm=0.8,
         feature_exclusion_mask=feature_exclusion_path,
         detail_radius=2.0,
@@ -341,6 +343,8 @@ def _compact_variant(variant: dict) -> dict:
 
 def _eligible_for_replay(evidence: dict) -> bool:
     decision = evidence.get("decision", {})
+    if "eligible_for_full_stl_replay" in decision:
+        return bool(decision["eligible_for_full_stl_replay"])
     if "eligible_for_30mm_stl_replay" in decision:
         return bool(decision["eligible_for_30mm_stl_replay"])
     return bool(

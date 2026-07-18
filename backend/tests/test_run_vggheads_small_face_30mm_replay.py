@@ -3,7 +3,15 @@ from unittest.mock import patch
 
 import numpy as np
 
+from backend.benchmark.run_cc0_live_face_variation_matrix import (
+    RELIEF_HEIGHT_MM,
+)
+from backend.benchmark.run_face_depth_head_30mm_replay import (
+    BASE_RELIEF_HEIGHT_MM,
+    _validate_replay_binding,
+)
 from backend.benchmark.run_vggheads_small_face_30mm_replay import (
+    PRINTABLE_FEATURE_DEPTH_MM,
     _correlation,
     _eligible_for_replay,
     _named_part_failure_count,
@@ -12,10 +20,32 @@ from backend.benchmark.run_vggheads_small_face_30mm_replay import (
 
 
 class RunVGGHeadsSmallFace30mmReplayTests(unittest.TestCase):
+    def test_trained_head_replay_reserves_feature_depth_inside_height_budget(self):
+        self.assertAlmostEqual(
+            BASE_RELIEF_HEIGHT_MM + PRINTABLE_FEATURE_DEPTH_MM,
+            RELIEF_HEIGHT_MM,
+        )
+
+    def test_trained_head_replay_binds_source_and_checkpoint(self):
+        evidence = {
+            "source_summary_sha256": "a" * 64,
+            "checkpoint_sha256": "b" * 64,
+        }
+        _validate_replay_binding("a" * 64, "b" * 64, evidence)
+        with self.assertRaisesRegex(ValueError, "source summary"):
+            _validate_replay_binding("c" * 64, "b" * 64, evidence)
+        with self.assertRaisesRegex(ValueError, "checkpoint"):
+            _validate_replay_binding("a" * 64, "c" * 64, evidence)
+
     def test_eligibility_supports_legacy_and_generalization_evidence(self):
         self.assertTrue(
             _eligible_for_replay(
                 {"decision": {"eligible_for_30mm_stl_replay": True}}
+            )
+        )
+        self.assertTrue(
+            _eligible_for_replay(
+                {"decision": {"eligible_for_full_stl_replay": True}}
             )
         )
         self.assertTrue(

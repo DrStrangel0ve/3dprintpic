@@ -1,6 +1,7 @@
 import unittest
 
 from backend.benchmark.evaluate_c3i_synface_demo_gate import (
+    MHR_PROVIDER,
     RAW_C3I_PROVIDER,
     RAP3DF_PROVIDER,
     _corpus_profile,
@@ -257,6 +258,34 @@ class EvaluateC3ISynFaceDemoGateTests(unittest.TestCase):
                     "source": {"license": "CC BY 4.0"},
                 }
             )
+
+    def test_mhr_profile_accepts_only_pinned_nonpromotable_pilot_contract(self):
+        corpus = {
+            "provider": MHR_PROVIDER,
+            "source_revision": "4998cec385b1aaa07abdefba71bfba2f83c7db32",
+            "privacy_safe_synthetic": True,
+            "pilot_corpus": True,
+            "experimental_corpus": True,
+            "corpus_complete": False,
+            "training_eligible": False,
+            "promotion_eligible": False,
+            "identity_disjoint_splits": False,
+            "source_geometry_training_and_evaluation_only": True,
+            "source": {"license": "Apache-2.0"},
+            "preflight": {
+                "runnable": True,
+                "checks": {"source_revision_matches": True},
+            },
+            "face_part_provenance": {
+                "stable_across_identity_and_expression": True,
+                "not_claimed": "official MHR semantic segmentation",
+            },
+            "depth_target_provenance": {"metric_scale_claimed": False},
+        }
+        profile = _corpus_profile(corpus)
+        self.assertIn("smoke only", profile["depth_target_provenance"]["use"])
+        with self.assertRaisesRegex(ValueError, "pilot-corpus provenance"):
+            _corpus_profile({**corpus, "promotion_eligible": True})
 
 
 if __name__ == "__main__":

@@ -43,6 +43,7 @@ RESIDUAL_FULL_STRENGTH_SUPPORT_HEIGHT_PIXELS = (
     * GNM_DETECTOR_SUPPORT_HEIGHT_RATIO
 )
 RESIDUAL_ZERO_STRENGTH_SUPPORT_HEIGHT_PIXELS = 55.0
+ZERO_STRENGTH_REPLAY_METRIC_TOLERANCE = 0.001
 
 
 def _sha256(path: Path) -> str:
@@ -509,6 +510,86 @@ def _summary(rows: list[dict]) -> dict:
     }
 
 
+def _small_face_only_decision_contract(
+    baseline_rows: list[dict],
+    candidate_rows: list[dict],
+) -> dict:
+    baseline_by_id = {row["row_id"]: row for row in baseline_rows}
+    candidate_by_id = {row["row_id"]: row for row in candidate_rows}
+    if set(baseline_by_id) != set(candidate_by_id):
+        raise ValueError("Small-face replay rows do not match the baseline")
+    affected = []
+    zero_strength = []
+    invalid_scale_rows = []
+    for row_id, candidate in candidate_by_id.items():
+        surface = candidate.get("surface_residual") or {}
+        scale = float(surface.get("residual_scale", np.nan))
+        if not np.isfinite(scale) or not 0.0 <= scale <= 1.0:
+            invalid_scale_rows.append(row_id)
+        elif scale > 0.0:
+            affected.append(candidate)
+        else:
+            zero_strength.append(candidate)
+    affected_baseline = [baseline_by_id[row["row_id"]] for row in affected]
+    affected_strictly_improves = bool(
+        affected
+        and _strictly_improves(
+            _summary(affected),
+            _summary(affected_baseline),
+        )
+    )
+    zero_records = []
+    for candidate in zero_strength:
+        baseline = baseline_by_id[candidate["row_id"]]
+        surface = candidate.get("surface_residual") or {}
+        metric_drift = {
+            name: abs(float(candidate[name]) - float(baseline[name]))
+            for name in (
+                "shape_correlation",
+                "gradient_correlation",
+                "normalized_rmse",
+            )
+        }
+        record = {
+            "row_id": candidate["row_id"],
+            "combined_part_failures_equal": (
+                candidate["combined_part_failures"]
+                == baseline["combined_part_failures"]
+            ),
+            "maximum_absolute_correction": float(
+                surface.get("max_abs_correction", np.inf)
+            ),
+            "metric_drift": metric_drift,
+        }
+        record["equivalent"] = bool(
+            record["combined_part_failures_equal"]
+            and record["maximum_absolute_correction"] <= 1e-8
+            and all(
+                drift <= ZERO_STRENGTH_REPLAY_METRIC_TOLERANCE
+                for drift in metric_drift.values()
+            )
+        )
+        zero_records.append(record)
+    zero_strength_rows_equivalent = bool(
+        zero_records and all(record["equivalent"] for record in zero_records)
+    )
+    checks = {
+        "all_scales_valid": not invalid_scale_rows,
+        "at_least_one_affected_row": bool(affected),
+        "affected_rows_strictly_improve": affected_strictly_improves,
+        "at_least_one_zero_strength_row": bool(zero_records),
+        "zero_strength_rows_equivalent": zero_strength_rows_equivalent,
+    }
+    return {
+        "passes": bool(all(checks.values())),
+        "checks": checks,
+        "affected_row_ids": [row["row_id"] for row in affected],
+        "zero_strength_rows": zero_records,
+        "invalid_scale_row_ids": invalid_scale_rows,
+        "zero_strength_metric_tolerance": ZERO_STRENGTH_REPLAY_METRIC_TOLERANCE,
+    }
+
+
 def evaluate(
     run_root: str | Path,
     checkpoint_path: str | Path,
@@ -643,11 +724,29 @@ def evaluate(
             < baseline_by_id[hard_row]["combined_part_failures"]
         ),
     }
+    small_face_only_contract = None
+    if surface_provider is not None and surface_provider.small_face_only:
+        small_face_only_contract = _small_face_only_decision_contract(
+            baseline_rows,
+            candidate_rows,
+        )
+        decision["small_face_only_contract_passes"] = bool(
+            small_face_only_contract["passes"]
+        )
     if surface_provider is not None:
         decision["paired_local_baseline_equivalent"] = bool(
             surface_provider.provenance()["all_local_baselines_equivalent"]
         )
-    decision["eligible_for_full_stl_replay"] = bool(all(decision.values()))
+    if small_face_only_contract is not None:
+        decision["eligible_for_full_stl_replay"] = bool(
+            decision["local_baseline_equivalent"]
+            and decision["paired_local_baseline_equivalent"]
+            and decision["per_row_no_failure_regression"]
+            and decision["hard_small_face_improves"]
+            and decision["small_face_only_contract_passes"]
+        )
+    else:
+        decision["eligible_for_full_stl_replay"] = bool(all(decision.values()))
     if surface_provider is not None and surface_provider.small_face_only:
         method = (
             "trained_dav2_fusion_delta_through_small_face_only_"
@@ -685,6 +784,7 @@ def evaluate(
         "baseline": baseline,
         "candidate": candidate,
         "decision": decision,
+        "small_face_only_contract": small_face_only_contract,
         "runtime_seconds": time.perf_counter() - started,
     }
     (output_dir / "evidence.json").write_text(
