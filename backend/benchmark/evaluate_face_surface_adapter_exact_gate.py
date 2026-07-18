@@ -20,6 +20,9 @@ from backend.benchmark.run_cc0_live_face_variation_matrix import (
 from backend.benchmark.train_face_surface_adapter import (
     CHECKPOINT_SCHEMA_VERSION,
     CRITICAL_PART_CHECKS,
+    DEFAULT_INPUT_MODE,
+    GEOMETRY_ONLY_INPUT_MODE,
+    INPUT_MODES,
     MODEL_ID,
     MODEL_REVISION,
     _coordinate_channels,
@@ -73,10 +76,15 @@ def _adapter_input(
     face_mask: np.ndarray,
     *,
     network_size: int,
+    input_mode: str = DEFAULT_INPUT_MODE,
 ) -> np.ndarray:
+    if input_mode not in INPUT_MODES:
+        raise ValueError(f"Unsupported face-surface input mode: {input_mode!r}")
     shape = (int(network_size), int(network_size))
     rgb = _resize(image_rgb, shape, cv2.INTER_AREA).astype(np.float32)
     rgb = rgb.transpose(2, 0, 1) / 255.0
+    if input_mode == GEOMETRY_ONLY_INPUT_MODE:
+        rgb = np.zeros_like(rgb)
     baseline = _resize(
         _minmax_normalize(local_depth),
         shape,
@@ -203,6 +211,12 @@ class FaceSurfaceResidualProvider:
         self.checkpoint_path = checkpoint_path
         self.method = str(method)
         self.alpha = alpha
+        self.input_mode = str(checkpoint.get("input_mode", DEFAULT_INPUT_MODE))
+        if self.input_mode not in INPUT_MODES:
+            raise ValueError(
+                "Unsupported face-surface checkpoint input mode: "
+                f"{self.input_mode!r}"
+            )
         self.network_size = network_size
         self.model = build_surface_adapter(
             input_channels=int(checkpoint["input_channels"])
@@ -233,6 +247,7 @@ class FaceSurfaceResidualProvider:
             local_depth,
             surface_support_mask,
             network_size=self.network_size,
+            input_mode=self.input_mode,
         )
         started = time.perf_counter()
         with torch.inference_mode():
@@ -255,6 +270,7 @@ class FaceSurfaceResidualProvider:
             "provider": "cc0-camera-aligned-face-surface-residual",
             "selected_alpha": self.alpha,
             "network_size": self.network_size,
+            "input_mode": self.input_mode,
             "inference_seconds": elapsed,
             "raw_scaled_residual_min": float(np.min(residual)),
             "raw_scaled_residual_max": float(np.max(residual)),
@@ -306,6 +322,7 @@ class FaceSurfaceResidualProvider:
                 self.checkpoint.get("selected_epoch", 0)
             ),
             "selected_alpha": self.alpha,
+            "input_mode": self.input_mode,
             "surface_support_mode": self.surface_support_mode,
             "network_size": self.network_size,
             "parameter_count": int(

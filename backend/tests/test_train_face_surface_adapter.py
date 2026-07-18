@@ -8,12 +8,14 @@ from PIL import Image
 
 from backend.benchmark.train_face_surface_adapter import (
     CachedSurface,
+    GEOMETRY_ONLY_INPUT_MODE,
     _candidate_full_surface,
     _face_feather,
     _failed_part_names,
     _infer_variable_crop_depths,
     _per_row_non_regression,
     _strictly_improves,
+    _stack,
     build_surface_adapter,
     evaluate_exact_surfaces,
     positive_affine_fit,
@@ -31,6 +33,29 @@ def test_surface_adapter_is_initially_an_exact_noop():
 
     assert residual.shape == (2, 1, 32, 32)
     assert torch.count_nonzero(residual) == 0
+
+
+def test_geometry_only_stack_zeroes_rgb_without_changing_geometry_channels():
+    item = CachedSurface(
+        row={"render": {"face_bbox_height_pixels": 75}},
+        rgb=np.full((8, 8, 3), 127, dtype=np.uint8),
+        baseline=np.linspace(0.0, 1.0, 64, dtype=np.float32).reshape(8, 8),
+        target=np.zeros((8, 8), dtype=np.float32),
+        face=np.ones((8, 8), dtype=bool),
+        feather=np.ones((8, 8), dtype=np.float32),
+        parts=np.ones((len(FACE_PART_NAMES), 8, 8), dtype=bool),
+        bbox=(0, 0, 8, 8),
+        source_shape=(8, 8),
+    )
+
+    regular = _stack([item])["inputs"].numpy()
+    geometry = _stack(
+        [item],
+        input_mode=GEOMETRY_ONLY_INPUT_MODE,
+    )["inputs"].numpy()
+
+    assert np.all(geometry[:, :3] == 0.0)
+    assert np.array_equal(geometry[:, 3:], regular[:, 3:])
 
 
 def test_unavailable_or_malformed_part_metrics_fail_all_parts_closed():

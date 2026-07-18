@@ -7,6 +7,7 @@ from backend.benchmark.evaluate_face_surface_adapter_exact_gate import (
     _current_baseline_equivalent,
     _decision,
 )
+from backend.benchmark.train_face_surface_adapter import GEOMETRY_ONLY_INPUT_MODE
 
 
 def _summary(failures, shape, gradient, rmse, *, hard_failures):
@@ -57,6 +58,16 @@ class EvaluateFaceSurfaceAdapterExactGateTests(unittest.TestCase):
         self.assertEqual(float(values[5].max()), 1.0)
         self.assertEqual(float(values[6].min()), -1.0)
         self.assertEqual(float(values[6].max()), 1.0)
+
+        geometry_only = _adapter_input(
+            image,
+            depth,
+            face,
+            network_size=32,
+            input_mode=GEOMETRY_ONLY_INPUT_MODE,
+        )
+        self.assertTrue(np.all(geometry_only[:3] == 0.0))
+        self.assertTrue(np.array_equal(geometry_only[3:], values[3:]))
 
     def test_decision_requires_hard_row_and_aggregate_improvement(self):
         baseline = _summary(

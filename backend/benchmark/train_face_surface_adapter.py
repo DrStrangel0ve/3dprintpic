@@ -37,6 +37,9 @@ DEFAULT_NETWORK_SIZE = 160
 DEFAULT_BATCH_SIZE = 8
 DEFAULT_EPOCHS = 24
 DEFAULT_LEARNING_RATE = 1e-3
+DEFAULT_INPUT_MODE = "rgb-depth-mask"
+GEOMETRY_ONLY_INPUT_MODE = "depth-mask-coordinates"
+INPUT_MODES = (DEFAULT_INPUT_MODE, GEOMETRY_ONLY_INPUT_MODE)
 MAX_NORMALIZED_RESIDUAL = 0.75
 FACE_FEATHER_RATIO = 0.12
 PART_WEIGHT = 2.0
@@ -522,16 +525,24 @@ def _coordinate_channels(size: int) -> np.ndarray:
     return np.stack((xx, yy))
 
 
-def _stack(items: list[CachedSurface]) -> dict:
+def _stack(
+    items: list[CachedSurface],
+    *,
+    input_mode: str = DEFAULT_INPUT_MODE,
+) -> dict:
     import torch
 
     if not items:
         raise ValueError("At least one cached surface is required")
+    if input_mode not in INPUT_MODES:
+        raise ValueError(f"Unsupported face-surface input mode: {input_mode!r}")
     size = items[0].baseline.shape[0]
     coordinates = _coordinate_channels(size)
     inputs = []
     for item in items:
         rgb = item.rgb.astype(np.float32).transpose(2, 0, 1) / 255.0
+        if input_mode == GEOMETRY_ONLY_INPUT_MODE:
+            rgb = np.zeros_like(rgb)
         inputs.append(
             np.concatenate(
                 (
@@ -738,6 +749,7 @@ def train_adapter(
     batch_size: int = DEFAULT_BATCH_SIZE,
     learning_rate: float = DEFAULT_LEARNING_RATE,
     seed: int = TRAINING_SEED,
+    input_mode: str = DEFAULT_INPUT_MODE,
 ) -> tuple[object, dict]:
     import torch
 
@@ -750,8 +762,8 @@ def train_adapter(
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
 
-    train_tensors = _stack(train_items)
-    validation_tensors = _stack(validation_items)
+    train_tensors = _stack(train_items, input_mode=input_mode)
+    validation_tensors = _stack(validation_items, input_mode=input_mode)
     model = build_surface_adapter(train_tensors["inputs"].shape[1]).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -791,27 +803,28 @@ def train_adapter(
                 ):
                     values[key] = torch.flip(values[key], dims=[-1])
                 batch_input = values["inputs"].clone()
-            color_scale = (
-                0.85
-                + 0.30
-                * torch.rand(
-                    (len(indices), 3, 1, 1),
-                    generator=generator,
-                ).to(device)
-            )
-            color_shift = (
-                -0.04
-                + 0.08
-                * torch.rand(
-                    (len(indices), 3, 1, 1),
-                    generator=generator,
-                ).to(device)
-            )
-            batch_input[:, :3] = torch.clamp(
-                batch_input[:, :3] * color_scale + color_shift,
-                0.0,
-                1.0,
-            )
+            if input_mode == DEFAULT_INPUT_MODE:
+                color_scale = (
+                    0.85
+                    + 0.30
+                    * torch.rand(
+                        (len(indices), 3, 1, 1),
+                        generator=generator,
+                    ).to(device)
+                )
+                color_shift = (
+                    -0.04
+                    + 0.08
+                    * torch.rand(
+                        (len(indices), 3, 1, 1),
+                        generator=generator,
+                    ).to(device)
+                )
+                batch_input[:, :3] = torch.clamp(
+                    batch_input[:, :3] * color_scale + color_shift,
+                    0.0,
+                    1.0,
+                )
             residual = model(batch_input)
             loss, _ = surface_training_loss(
                 residual,
@@ -862,6 +875,7 @@ def train_adapter(
     )
     return model.eval(), {
         "seed": int(seed),
+        "input_mode": input_mode,
         "epochs": int(epochs),
         "batch_size": int(batch_size),
         "learning_rate": float(learning_rate),
@@ -882,10 +896,11 @@ def predict_residuals(
     *,
     device: str = "cuda",
     batch_size: int = DEFAULT_BATCH_SIZE,
+    input_mode: str = DEFAULT_INPUT_MODE,
 ) -> list[np.ndarray]:
     import torch
 
-    tensors = _stack(items)
+    tensors = _stack(items, input_mode=input_mode)
     predictions = []
     model.eval()
     with torch.inference_mode():
@@ -1200,6 +1215,7 @@ def train(
     learning_rate: float = DEFAULT_LEARNING_RATE,
     force_cache: bool = False,
     inference_batch_size: int = 4,
+    input_mode: str = DEFAULT_INPUT_MODE,
 ) -> dict:
     import torch
 
@@ -1231,12 +1247,14 @@ def train(
         epochs=epochs,
         batch_size=batch_size,
         learning_rate=learning_rate,
+        input_mode=input_mode,
     )
     validation_residuals = predict_residuals(
         model,
         validation_items,
         device=device,
         batch_size=batch_size,
+        input_mode=input_mode,
     )
     validation_residuals = [
         remove_affine_residual(
@@ -1314,6 +1332,7 @@ def train(
         sealed_items,
         device=device,
         batch_size=batch_size,
+        input_mode=input_mode,
     )
     sealed_residuals = [
         remove_affine_residual(
@@ -1369,6 +1388,7 @@ def train(
         "model_revision": MODEL_REVISION,
         "network_size": int(network_size),
         "input_channels": 7,
+        "input_mode": input_mode,
         "max_normalized_residual": MAX_NORMALIZED_RESIDUAL,
         "face_feather_ratio": FACE_FEATHER_RATIO,
         "selected_alpha": float(selected["alpha"]),
@@ -1384,6 +1404,7 @@ def train(
         "method": "cc0_camera_aligned_face_surface_residual",
         "research_basis": {
             "representation": "dual-scale CNN residual over normalized local depth",
+            "input_mode": input_mode,
             "alignment_target": "positive-affine camera-aligned near-high face surface",
             "losses": [
                 "part-weighted value",
@@ -1459,6 +1480,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--learning-rate", type=float, default=DEFAULT_LEARNING_RATE)
     parser.add_argument("--inference-batch-size", type=int, default=4)
+    parser.add_argument("--input-mode", choices=INPUT_MODES, default=DEFAULT_INPUT_MODE)
     parser.add_argument("--force-cache", action="store_true")
     args = parser.parse_args()
     evidence = train(
@@ -1472,6 +1494,7 @@ def main() -> None:
         learning_rate=args.learning_rate,
         force_cache=args.force_cache,
         inference_batch_size=args.inference_batch_size,
+        input_mode=args.input_mode,
     )
     print(json.dumps(evidence["decision"], indent=2))
     if not evidence["decision"]["eligible_for_exact_production_replay"]:
