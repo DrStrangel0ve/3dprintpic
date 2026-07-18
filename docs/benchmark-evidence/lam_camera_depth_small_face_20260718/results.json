@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "status": "hold",
+  "production_changed": false,
+  "stl_30mm_replay_run": false,
+  "row_id": "small_side_lit_shelves_256",
+  "privacy": "CC0 MakeHuman synthetic identity and procedural scene only",
+  "source_geometry": "evaluation-only",
+  "provider": {
+    "name": "LAM-20K",
+    "source_url": "https://github.com/3DAIGC/LAM",
+    "current_reference_revision": "339573649dd93df4cba8093a964e85a80d1b61f3",
+    "windows_bundle_revision": "4368fb6a5d5a930af6b1af79ef76392f8a6c4278",
+    "model_id": "3DAIGC/LAM-20K",
+    "model_revision": "a710cd3c40c86ffe3fc572e895ed12f3ead47289",
+    "model_size_bytes": 2356556212,
+    "model_sha256": "f527e6e78fd9743aad95cb15b221b864d8b6d356c1d174c0ffad5d74b9a95925",
+    "source_license": "Apache-2.0",
+    "weights_license": "CC BY-NC 4.0",
+    "production_eligible": false
+  },
+  "runtime": {
+    "python": "3.10.11",
+    "torch": "2.7.0+cu128",
+    "cuda": "12.8",
+    "device": "NVIDIA GeForce RTX 3080 Ti",
+    "tracker_peak_vram_bytes": 1467964416,
+    "inference_peak_vram_bytes": 3600306176,
+    "inference_seconds": 2.613347300008172,
+    "total_worker_seconds": 47.436949599999934,
+    "diff_gaussian_source_revision": "8829d14f814fccdaf840b7b0f3021a616583c0a1",
+    "diff_gaussian_glm_revision": "5c46b9c07008ae65cb81ab79cd677ecc1934b903",
+    "diff_gaussian_extension_sha256": "2b67a0b15d1956715c071416313a2eade8c98212371261dd1c257b65c8edffaa"
+  },
+  "provider_artifact_hashes": {
+    "lam_preflight.json": "9313dc1138e76b27339a2e36b2dc4abcebc06de05324c6f879be97ceb789f333",
+    "pre_render_audit.json": "4f7c109cdc4640dde39e4e5fb175f7a5e83c5e1e5846bbbdf9e2c77fef66d9b1",
+    "provider_depth_render.npy": "e0d4265bae65e61db6e47d719c7f6a9a9d5a3c6593c277a373185a8192d2f4f7",
+    "provider_depth_render_weighted.npy": "a39e73c1db52cb96a06fcdfc035d5e38373e884450180c13884f5dbc070c4aaa",
+    "provider_mask_render.npy": "70da2b441c225ed2d93b953a3c4eed9ad64931a2a39ab991dd308e2bd09f8dce",
+    "provider_depth_source.npy": "38c64ae56a8672fa0fa43c43ee432e00f911ddf87708490fdab5687d917866fd",
+    "provider_mask_source.npy": "81362c22d6ff1af05befb20a2c020099128b44bed1eb1228447ed03c1e9def44",
+    "provider_metadata.json": "d18cd5dc8f290a6fc85eddd204ad14a575c9602822d60b7dfbf35b947d793f40"
+  },
+  "depth_contract": {
+    "native_field": "alpha-weighted comp_depth",
+    "normalization": "comp_depth / comp_mask where comp_mask >= 0.01",
+    "source_resampling": "bilinear weighted numerator and alpha warp, then division",
+    "near_is_smaller": true,
+    "selection_overlap_ratio": 0.7427302100161551,
+    "exact_face_mask_coverage": 1.0,
+    "source_finite_pixels": 2774,
+    "source_depth_p05": 0.7628503948450088,
+    "source_depth_p50": 0.8118257522583008,
+    "source_depth_p95": 0.8630953013896941,
+    "replay_checks": {
+      "weighted_depth_normalization_exact": true,
+      "captured_affine_source_depth_exact": true,
+      "captured_affine_source_mask_exact": true,
+      "host_validation_reproduced": true
+    }
+  },
+  "baseline": {
+    "shape_correlation": 0.8047738479934161,
+    "raw_gradient_correlation": 0.625533466645662,
+    "normalized_rmse": 0.17600701052848092,
+    "combined_named_part_failures": 10
+  },
+  "raw_provider": {
+    "shape_correlation": 0.6807247095426308,
+    "raw_gradient_correlation": 0.5514137056493733,
+    "normalized_rmse": 0.24179963554095912,
+    "combined_named_part_failures": 12
+  },
+  "sweep": [
+    {"alpha": 0.0078125, "part_checks": 14, "shape": 0.8047583218713562, "gradient": 0.6255275732871296, "rmse": 0.176013252102777},
+    {"alpha": 0.015625, "part_checks": 14, "shape": 0.8047423923832758, "gradient": 0.6255200024472181, "rmse": 0.17601965547694917},
+    {"alpha": 0.03125, "part_checks": 15, "shape": 0.8047093060716917, "gradient": 0.6254998099036563, "rmse": 0.17603295444320813},
+    {"alpha": 0.0625, "part_checks": 13, "shape": 0.8046382590293975, "gradient": 0.6254392488330975, "rmse": 0.17606150639534632},
+    {"alpha": 0.125, "part_checks": 11, "shape": 0.8044766523834977, "gradient": 0.6252374574244042, "rmse": 0.1761264252659339},
+    {"alpha": 0.25, "part_checks": 10, "shape": 0.8040740336480812, "gradient": 0.6245130046976929, "rmse": 0.17628800028021674},
+    {"alpha": 0.5, "part_checks": 9, "shape": 0.8029633794425124, "gradient": 0.6219897878360825, "rmse": 0.1767325333100414}
+  ],
+  "selected": {
+    "variant": "camera_a0.0312500",
+    "alpha": 0.03125,
+    "passed_part_checks": 15,
+    "total_part_checks": 42,
+    "strictly_improved_parts": 0,
+    "shape_correlation": 0.8047093060716917,
+    "raw_gradient_correlation": 0.6254998099036563,
+    "normalized_rmse": 0.17603295444320813,
+    "combined_named_part_failures": 10,
+    "maximum_normalized_depth_change": 0.003171980381011963,
+    "background_value_exact": true,
+    "attachment_boundary_value_exact": true
+  },
+  "decision": {
+    "eligible_for_30mm_stl_replay": false,
+    "failed_checks": [
+      "all_six_part_metrics_non_regressing",
+      "all_six_parts_strict_shape_gradient_affine_improvement",
+      "overall_shape_non_regressing",
+      "overall_gradient_non_regressing",
+      "overall_rmse_non_regressing"
+    ],
+    "next_action": "close-lam-face-depth-lane"
+  },
+  "validation": {
+    "focused_tests_passed": 47,
+    "full_backend_tests_passed": 901,
+    "full_backend_subtests_passed": 87,
+    "full_backend_failures": 4,
+    "full_backend_failure_scope": "pre-existing dirty canonical and MakeHuman relief smoke path outside owned LAM files",
+    "payload_replay_exit": 2,
+    "payload_replay_decision": "hold"
+  },
+  "archives": {
+    "raw_evidence_size_bytes": 151388,
+    "raw_evidence_sha256": "85aab6d671cd0cfd4dab46bb96bd9aee18e199659f7b94a7bef922ecf1a360ce",
+    "payload_file": "lam_exact_gate_payload_v2.zip",
+    "payload_size_bytes": 1711853,
+    "payload_sha256": "41a57f2c0d25da6d63ffa443bd2972d3caabb48e237026d69cbfb841e8b2a6a4"
+  }
+}
