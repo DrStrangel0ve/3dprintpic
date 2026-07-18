@@ -26,6 +26,30 @@
         "local_wsl2_available": false,
         "blocker": "HCS_E_HYPERV_NOT_INSTALLED; virtualization or Virtual Machine Platform is disabled"
       },
+      "local_adapter": {
+        "implemented": true,
+        "transfer_ready": true,
+        "runtime_ready": false,
+        "tracking_size_pixels": 256,
+        "prediction_size_pixels": 512,
+        "depth_semantics": "positive -z_cam in FLAME model scale",
+        "crop_inverse": "exclusive stored bounds with half-pixel centers",
+        "crop_binding": "matching source SHA256, frame ID, and checkpoint image size required",
+        "viewport_to_array_index_offset": -0.5,
+        "rasterization": "perspective-correct reciprocal depth without silhouette depth antialiasing",
+        "source_landmark_replay_required": true,
+        "focused_tests_passed": 8,
+        "focused_subtests_passed": 6
+      },
+      "validation": {
+        "related_tests_passed": 30,
+        "related_subtests_passed": 6,
+        "backend_tests_passed": 908,
+        "backend_subtests_passed": 90,
+        "pre_existing_backend_failures": 4,
+        "new_failures": 0,
+        "adversarial_review_high_findings_fixed": 2
+      },
       "production_eligible": false
     },
     {

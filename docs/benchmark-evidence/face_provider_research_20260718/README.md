@@ -47,6 +47,32 @@ Ubuntu WSL2 distribution cannot start because Windows reports
 Platform support. This requires a host configuration change and possibly a
 reboot, so it was not changed autonomously. No model inference has run.
 
+The local adapter in
+`backend/benchmark/pixel3dmm_full_fit_provider.py` now verifies that public
+source/checkpoint transfer independently from runtime readiness. It also
+implements the post-fit geometry contract without importing Pixel3DMM: apply
+the fitted rigid head transform to the posed PLY, apply the OpenGL
+world-to-camera transform, use positive `-z_cam`, project with the clean
+`use_hack=False` intrinsics on the 256-pixel tracking grid, inverse-map the
+stored crop with half-pixel centers, and rasterize reciprocal depth without
+silhouette depth antialiasing. Nvdiffrast viewport coordinates are converted to
+array indices with the required final `-0.5` offset. Crop transforms require
+matching source hashes, frame IDs, and checkpoint/tracking image sizes.
+Synthetic tests cover rotations, near-plane rejection, stale crop metadata,
+projection, and perspective-correct depth.
+
+This adapter deliberately reports runtime unready until registered FLAME/MICA
+assets, the isolated Linux environment, and a source-landmark overlay replay
+are all pinned. The final replay is required because preprocessing resizes via
+both OpenCV and Pillow and the upstream crop code computes inclusive-looking
+maxima that NumPy actually slices as exclusive bounds.
+
+Validation passed 30 Pixel3DMM/SHeaP/VGGHeads camera-depth tests plus 6
+subtests. The full backend suite completed with 908 passed plus 90 subtests and
+only the same four pre-existing canonical/MakeHuman relief failures. A bounded
+adversarial review caught and then verified fixes for the nvdiffrast half-pixel
+array-index offset and stale in-bounds crop provenance.
+
 The next action is an isolated Linux GPU preflight after that infrastructure
 blocker changes, or on a genuine available Colab G4. Pin every
 FLAME/camera/crop asset and run one row only. Stop before fusion if perspective
@@ -70,7 +96,8 @@ The project paper is promising, but an exact smoke cannot be reproduced today.
 
 ## Decision
 
-Pixel3DMM **full-fit** checkpoint transfer is complete and hash-pinned, while
-runtime execution is blocked before setup by the host WSL2 configuration.
+Pixel3DMM **full-fit** checkpoint transfer and the fail-closed camera-depth
+adapter are complete and tested, while runtime execution is blocked before
+setup by the host WSL2 configuration.
 TEASER and Pix2NPHM are closed until their license/output or implementation
 blockers change. No production path changes from this research decision.
