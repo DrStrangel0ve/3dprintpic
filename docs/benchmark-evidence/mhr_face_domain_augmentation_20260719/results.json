@@ -85,7 +85,21 @@
       "combined_part_failures": 9,
       "shape_correlation": 0.80701199809,
       "gradient_correlation": 0.62579863455,
-      "normalized_rmse": 0.17510366967
+      "normalized_rmse": 0.17510366967,
+      "shape_failed_parts": [
+        "left_eye",
+        "left_eyebrow",
+        "mouth",
+        "right_eye"
+      ],
+      "affine_failed_parts": [
+        "left_eye",
+        "left_eyebrow",
+        "mouth",
+        "nose",
+        "right_eyebrow"
+      ],
+      "source_evidence_sha256": "b387dbb9049ca35229975f0da1893931883c82b056bfb6d6bfad3582d3ccbbb9"
     },
     "evidence_sha256": "a89216e2af41a8d57dec41e842debf585cb5509ed186584c088a885f781dc653"
   },
