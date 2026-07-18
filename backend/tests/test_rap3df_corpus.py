@@ -124,6 +124,7 @@ class RAP3DFCorpusTests(unittest.TestCase):
         *,
         identity_limit: int = 2,
         poses=("front",),
+        output_name: str = "output",
     ) -> dict:
         database_path = root / corpus.DATABASE_FILENAME
         with (
@@ -142,7 +143,7 @@ class RAP3DFCorpusTests(unittest.TestCase):
             return corpus.import_rap3df_corpus(
                 root,
                 manifest,
-                root / "output",
+                root / output_name,
                 identity_limit=identity_limit,
                 poses=tuple(poses),
                 dimension=128,
@@ -152,6 +153,7 @@ class RAP3DFCorpusTests(unittest.TestCase):
     def test_release_metadata_is_pinned(self):
         self.assertEqual(corpus.DATASET_DOI, "10.17632/kpdkpcs8zb.4")
         self.assertEqual(corpus.DATASET_LICENSE, "CC BY 4.0")
+        self.assertEqual(corpus.DEPTH_SHAPE, (149, 119))
         self.assertEqual(corpus.DATABASE_BYTES, 273343)
         self.assertEqual(
             corpus.DATABASE_SHA256,
@@ -311,6 +313,7 @@ class RAP3DFCorpusTests(unittest.TestCase):
                     region,
                     identity_limit=1,
                 )
+            self.assertFalse((root / "output").exists())
 
     def test_face_selection_rejects_incomplete_six_part_masks(self):
         image = np.zeros((*corpus.DEPTH_SHAPE, 3), dtype=np.uint8)
@@ -318,6 +321,86 @@ class RAP3DFCorpusTests(unittest.TestCase):
             corpus,
             "detect_face_regions",
             return_value=([self._region(complete=False)], []),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "exactly one complete"):
+                corpus._select_face_region(image)
+
+    def test_face_selection_maps_three_x_fallback_to_source(self):
+        image = np.zeros((*corpus.DEPTH_SHAPE, 3), dtype=np.uint8)
+        scaled = self._region()
+        scaled["bbox"] = [value * 3 for value in scaled["bbox"]]
+        scaled["face_mask"] = np.repeat(
+            np.repeat(scaled["face_mask"], 3, axis=0),
+            3,
+            axis=1,
+        )
+        scaled["part_masks"] = {
+            name: np.repeat(np.repeat(mask, 3, axis=0), 3, axis=1)
+            for name, mask in scaled["part_masks"].items()
+        }
+        with mock.patch.object(
+            corpus,
+            "detect_face_regions",
+            side_effect=[([], []), ([scaled], [])],
+        ) as detector:
+            region, errors = corpus._select_face_region(image)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(region["detection_scale"], 3)
+        self.assertEqual(region["bbox"], [40, 20, 100, 95])
+        self.assertEqual(region["face_mask"].shape, corpus.DEPTH_SHAPE)
+        self.assertTrue(
+            np.array_equal(region["face_mask"] > 0, self._region()["face_mask"] > 0)
+        )
+        for name in corpus.FACE_PART_NAMES:
+            self.assertTrue(
+                np.array_equal(
+                    region["part_masks"][name] > 0,
+                    self._region()["part_masks"][name] > 0,
+                )
+            )
+        self.assertEqual(detector.call_args_list[0].kwargs["min_face_pixels"], 24)
+        self.assertEqual(detector.call_args_list[1].kwargs["min_face_pixels"], 72)
+
+    def test_face_selection_short_circuits_native_and_rejects_multiple_faces(self):
+        image = np.zeros((*corpus.DEPTH_SHAPE, 3), dtype=np.uint8)
+        complete = self._region()
+        with mock.patch.object(
+            corpus,
+            "detect_face_regions",
+            return_value=([complete], []),
+        ) as detector:
+            region, _errors = corpus._select_face_region(image)
+        self.assertEqual(region["detection_scale"], 1)
+        detector.assert_called_once()
+
+        with mock.patch.object(
+            corpus,
+            "detect_face_regions",
+            return_value=([complete, complete], []),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "exactly one complete"):
+                corpus._select_face_region(image)
+
+    def test_face_selection_rejects_part_lost_during_fallback_mapping(self):
+        image = np.zeros((*corpus.DEPTH_SHAPE, 3), dtype=np.uint8)
+        scaled = self._region()
+        scaled["bbox"] = [value * 3 for value in scaled["bbox"]]
+        scaled["face_mask"] = np.repeat(
+            np.repeat(scaled["face_mask"], 3, axis=0),
+            3,
+            axis=1,
+        )
+        scaled["part_masks"] = {
+            name: np.repeat(np.repeat(mask, 3, axis=0), 3, axis=1)
+            for name, mask in scaled["part_masks"].items()
+        }
+        scaled["part_masks"]["mouth"][:] = 0
+        scaled["part_masks"]["mouth"][1, 1] = 255
+        with mock.patch.object(
+            corpus,
+            "detect_face_regions",
+            side_effect=[([], []), ([scaled], [])],
         ):
             with self.assertRaisesRegex(RuntimeError, "exactly one complete"):
                 corpus._select_face_region(image)
@@ -356,6 +439,35 @@ class RAP3DFCorpusTests(unittest.TestCase):
             self.assertEqual(corpus._sha256(depth_path), row["exact_depth"]["sha256"])
             encoded = json.dumps(summary, sort_keys=True)
             self.assertNotIn(str(root), encoded)
+
+    def test_import_is_repeatable_across_atomic_output_directories(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _database, manifest, region = self._fixture(root, identities=("ID_A",))
+            first = self._import_fixture(
+                root,
+                manifest,
+                region,
+                identity_limit=1,
+                output_name="output-a",
+            )
+            second = self._import_fixture(
+                root,
+                manifest,
+                region,
+                identity_limit=1,
+                output_name="output-b",
+            )
+            self.assertEqual(
+                json.dumps(first, sort_keys=True),
+                json.dumps(second, sort_keys=True),
+            )
+            for row in first["rows"]:
+                for key in ("source", "selection_mask", "exact_depth"):
+                    self.assertEqual(
+                        row[key]["sha256"],
+                        second["rows"][0][key]["sha256"],
+                    )
 
     def test_importer_rejects_short_depth_even_when_manifest_matches(self):
         with tempfile.TemporaryDirectory() as temporary:

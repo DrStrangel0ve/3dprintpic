@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "captured_date": "2026-07-18",
+  "status": "hold",
+  "production_changed": false,
+  "dataset": {
+    "title": "RAP3DF V2",
+    "doi": "10.17632/kpdkpcs8zb.4",
+    "version": 4,
+    "license": "CC BY 4.0",
+    "real_volunteer_data": true,
+    "evaluation_only": true,
+    "training_eligible": false,
+    "metric_scale_available": false,
+    "rgb_depth_registration_published": false
+  },
+  "acquisition": {
+    "archive_size": 66792678,
+    "archive_sha256": "92a967bdacba4a7e5d387232f2d3308ad656022953c0139f615def2f607ccc5e",
+    "selected_rows": 18,
+    "selected_identities": 3,
+    "selected_poses": [
+      "front",
+      "left",
+      "right",
+      "up",
+      "down",
+      "burned"
+    ],
+    "authenticated_file_count": 37,
+    "emitted_manifest_sha256": "e9cd56b008386403b30dba17d6a32d5e3b00ffceec92ea2bbb6c0841794b5f1b",
+    "canonical_manifest_sha256": "fa0c001ddb310a160949d7f0000b543e26e2ec524ab2ab326ce3a45a2a10b61c"
+  },
+  "post_hardening_real_archive_smoke": {
+    "identity_count": 1,
+    "poses": ["left"],
+    "row_count": 1,
+    "atomic_publish": true,
+    "explicit_pose_required": true,
+    "acquisition_manifest_sha256": "d48ebe5cc404cd3ee0cb21c343de89d42fcec9e4fd7f170910a75e684f8a4e43",
+    "acquisition_report_sha256": "da9c76d4cdf6f0e2232064c132bf993900281f27d5b4abfe3945e67da2668f66",
+    "corpus_summary_sha256": "49498f759027ea32dfeb56c13463dd2ebb72eb33d46a821093935eca8b35fc1c"
+  },
+  "raw_depth_orientation": {
+    "verified_shape_height_width": [149, 119],
+    "dtype": "little-endian uint16",
+    "publisher_preview_correlation": 0.9900548687242834,
+    "publisher_preview_valid_mask_iou": 1.0,
+    "legacy_transposed_correlation": 0.11187839188622156,
+    "legacy_transposed_valid_mask_iou": 0.1896551724137931
+  },
+  "source_preflight": {
+    "rows": 18,
+    "complete_landmark_and_six_mask_rows": 17,
+    "all_six_parts_have_valid_depth_rows": 13,
+    "nose_median_nearer_than_face_median_rows": 5,
+    "by_pose": {
+      "front": {"rows": 3, "complete_detector": 3, "all_parts_valid": 3, "nose_nearer": 1},
+      "left": {"rows": 3, "complete_detector": 3, "all_parts_valid": 3, "nose_nearer": 3},
+      "right": {"rows": 3, "complete_detector": 2, "all_parts_valid": 0, "nose_nearer": 0},
+      "up": {"rows": 3, "complete_detector": 3, "all_parts_valid": 3, "nose_nearer": 1},
+      "down": {"rows": 3, "complete_detector": 3, "all_parts_valid": 3, "nose_nearer": 0},
+      "burned": {"rows": 3, "complete_detector": 3, "all_parts_valid": 1, "nose_nearer": 0}
+    },
+    "full_expansion_warranted": false
+  },
+  "bounded_model_diagnostic": {
+    "rows": 2,
+    "poses": ["front", "left"],
+    "corpus_summary_sha256": "dd1d124d06ad0fddde9d2c40f86655b4b33181b45d9ac5aede4cb2a22b8f9ece",
+    "model": {
+      "id": "depth-anything/Depth-Anything-V2-Large-hf",
+      "revision": "7581137eff8d4e94f6e796d3baea0e9fa79b22d2",
+      "model_sha256": "4e01e34ed5549b529b70b92d53226bc370f03041977b390d3dde45d47f516cf9"
+    },
+    "global_depth": {
+      "combined_part_failures": 24,
+      "part_failure_opportunities": 24,
+      "median_shape_correlation": 0.13858310755392927,
+      "median_gradient_correlation": 0.03609185313306158,
+      "median_normalized_rmse": 0.3347085712596992
+    },
+    "current_face_refinement": {
+      "combined_part_failures": 24,
+      "part_failure_opportunities": 24,
+      "median_shape_correlation": 0.1261594714825657,
+      "median_gradient_correlation": 0.022199964101410806,
+      "median_normalized_rmse": 0.3355028647897993
+    },
+    "runtime_seconds": 4.574609199975384,
+    "peak_torch_allocated_inference_gib": 0.8622326850891113,
+    "status": "hold"
+  },
+  "validation": {
+    "focused_acquisition_and_import_tests_passed": 21,
+    "relevant_evaluator_tests_passed": 37,
+    "backend_tests_passed": 922,
+    "backend_subtests_passed": 104,
+    "known_unrelated_backend_failures": 4,
+    "new_failures": 0,
+    "ruff_passed": true
+  }
+}

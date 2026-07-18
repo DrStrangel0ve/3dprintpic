@@ -11,8 +11,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 from pathlib import Path, PurePosixPath
+import shutil
+import tempfile
 from typing import Any
 
 import cv2
@@ -33,7 +36,9 @@ DATABASE_BYTES = 273_343
 DATABASE_SHA256 = (
     "1366f0496078a250b43bafffc3483d3f949c33afb32520a041d92d353598e3ea"
 )
-DEPTH_SHAPE = (119, 149)
+# Publisher BMPs are 119 px wide by 149 px high. The raw uint16 stream is
+# row-major in that same image orientation.
+DEPTH_SHAPE = (149, 119)
 DEPTH_DTYPE = np.dtype("<u2")
 DEPTH_ORIENTATION = "lower-is-nearer"
 DEPTH_SCALE_STATUS = "sensor scale is not established by the dataset release"
@@ -46,6 +51,8 @@ DEFAULT_FACE_HEIGHT = 75
 DEFAULT_IDENTITY_LIMIT = 3
 MAX_IDENTITY_LIMIT = 16
 EVALUATION_SPLIT = "research-evaluation-only"
+DETECTOR_MIN_FACE_PIXELS = 24
+DETECTOR_FALLBACK_SCALE = 3
 
 _IDENTITY_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 _RGB_PATTERN = re.compile(r"^rgb_([A-Za-z0-9]+)\.bmp$")
@@ -325,34 +332,103 @@ def select_database_rows(
     return rows
 
 
-def _select_face_region(image_rgb: np.ndarray) -> tuple[dict, list[str]]:
-    regions, errors = detect_face_regions(
-        image_rgb,
-        max_faces=3,
-        min_face_pixels=48,
-    )
+def _complete_face_regions(regions: list[dict], shape: tuple[int, int]) -> list[dict]:
     complete = []
     for region in regions:
         masks = region.get("part_masks") or {}
         if int(region.get("landmark_count", 0)) < 468:
             continue
         face_mask = np.asarray(region.get("face_mask", 0))
-        if face_mask.shape != image_rgb.shape[:2] or not np.any(face_mask > 0):
+        if face_mask.shape != shape or not np.any(face_mask > 0):
             continue
         if any(
             name not in masks
-            or np.asarray(masks[name]).shape != image_rgb.shape[:2]
+            or np.asarray(masks[name]).shape != shape
             or not np.any(np.asarray(masks[name]) > 0)
             for name in FACE_PART_NAMES
         ):
             continue
         complete.append(region)
-    if len(complete) != 1:
-        raise RuntimeError(
-            "RAP3DF row requires exactly one complete landmark face; "
-            f"found {len(complete)}; detector errors: {'; '.join(errors)}"
+    return complete
+
+
+def _region_to_source(
+    region: dict,
+    *,
+    source_shape: tuple[int, int],
+    scale: int,
+) -> dict:
+    if scale == 1:
+        return {**region, "detection_scale": 1}
+    height, width = source_shape
+
+    def resize_mask(value: Any) -> np.ndarray:
+        return cv2.resize(
+            (np.asarray(value) > 0).astype(np.uint8),
+            (width, height),
+            interpolation=cv2.INTER_NEAREST,
+        ) > 0
+
+    x0, y0, x1, y1 = (float(value) / scale for value in region["bbox"])
+    bbox = [
+        int(np.clip(np.floor(x0), 0, width)),
+        int(np.clip(np.floor(y0), 0, height)),
+        int(np.clip(np.ceil(x1), 0, width)),
+        int(np.clip(np.ceil(y1), 0, height)),
+    ]
+    return {
+        **region,
+        "bbox": bbox,
+        "face_mask": resize_mask(region["face_mask"]),
+        "part_masks": {
+            name: resize_mask(region["part_masks"][name])
+            for name in FACE_PART_NAMES
+        },
+        "detection_scale": scale,
+    }
+
+
+def _select_face_region(image_rgb: np.ndarray) -> tuple[dict, list[str]]:
+    errors = []
+    last_complete_count = 0
+    for scale in (1, DETECTOR_FALLBACK_SCALE):
+        candidate = image_rgb
+        if scale != 1:
+            candidate = cv2.resize(
+                image_rgb,
+                None,
+                fx=scale,
+                fy=scale,
+                interpolation=cv2.INTER_LANCZOS4,
+            )
+        regions, attempt_errors = detect_face_regions(
+            candidate,
+            max_faces=3,
+            min_face_pixels=DETECTOR_MIN_FACE_PIXELS * scale,
         )
-    return complete[0], errors
+        errors.extend(f"{scale}x: {message}" for message in attempt_errors)
+        complete = _complete_face_regions(regions, candidate.shape[:2])
+        last_complete_count = len(complete)
+        if len(complete) == 1:
+            mapped = _region_to_source(
+                complete[0],
+                source_shape=image_rgb.shape[:2],
+                scale=scale,
+            )
+            mapped_complete = _complete_face_regions(
+                [mapped],
+                image_rgb.shape[:2],
+            )
+            if mapped_complete:
+                return mapped_complete[0], errors
+            last_complete_count = 0
+            errors.append(f"{scale}x: a facial-part mask vanished during mapping")
+        if len(complete) > 1:
+            break
+    raise RuntimeError(
+        "RAP3DF row requires exactly one complete landmark face; "
+        f"found {last_complete_count}; detector errors: {'; '.join(errors)}"
+    )
 
 
 def _validate_depth_orientation(
@@ -489,7 +565,7 @@ def _asset_provenance(record: dict) -> dict:
     }
 
 
-def import_rap3df_corpus(
+def _import_rap3df_corpus_into(
     source_root: str | Path,
     mendeley_manifest: str | Path | dict,
     output_dir: str | Path,
@@ -636,6 +712,7 @@ def import_rap3df_corpus(
                 "detector": {
                     "name": str(region.get("detector") or "unknown"),
                     "landmark_count": int(region["landmark_count"]),
+                    "input_scale": int(region.get("detection_scale", 1)),
                     "errors": detector_errors,
                 },
                 "source_asset": {
@@ -726,13 +803,57 @@ def import_rap3df_corpus(
     return summary
 
 
+def import_rap3df_corpus(
+    source_root: str | Path,
+    mendeley_manifest: str | Path | dict,
+    output_dir: str | Path,
+    *,
+    identity_limit: int = DEFAULT_IDENTITY_LIMIT,
+    poses: tuple[str, ...] | None = None,
+    dimension: int = DEFAULT_DIMENSION,
+    face_height: int = DEFAULT_FACE_HEIGHT,
+) -> dict:
+    """Build an explicit-pose corpus and publish it atomically."""
+
+    if not poses:
+        raise ValueError(
+            "RAP3DF import requires explicit poses because the full release "
+            "does not pass the source-depth gates"
+        )
+    output_dir = Path(output_dir).resolve()
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    if output_dir.exists():
+        raise ValueError("RAP3DF output target already exists")
+    temporary = Path(
+        tempfile.mkdtemp(
+            prefix=f".{output_dir.name}.tmp-",
+            dir=output_dir.parent,
+        )
+    )
+    try:
+        summary = _import_rap3df_corpus_into(
+            source_root,
+            mendeley_manifest,
+            temporary,
+            identity_limit=identity_limit,
+            poses=tuple(poses),
+            dimension=dimension,
+            face_height=face_height,
+        )
+        os.replace(temporary, output_dir)
+        return summary
+    except BaseException:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", required=True)
     parser.add_argument("--mendeley-manifest", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--identity-limit", type=int, default=DEFAULT_IDENTITY_LIMIT)
-    parser.add_argument("--pose", action="append", choices=POSES)
+    parser.add_argument("--pose", action="append", choices=POSES, required=True)
     parser.add_argument("--dimension", type=int, default=DEFAULT_DIMENSION)
     parser.add_argument("--face-height", type=int, default=DEFAULT_FACE_HEIGHT)
     args = parser.parse_args()
@@ -741,7 +862,7 @@ def main() -> None:
         args.mendeley_manifest,
         args.output_dir,
         identity_limit=args.identity_limit,
-        poses=tuple(args.pose) if args.pose else POSES,
+        poses=tuple(args.pose),
         dimension=args.dimension,
         face_height=args.face_height,
     )
