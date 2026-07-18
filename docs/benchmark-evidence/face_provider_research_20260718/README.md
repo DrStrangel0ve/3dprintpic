@@ -19,8 +19,12 @@ positive `-z_cam` under the repository's OpenGL convention, and inverse-warp
 through the exact 512-pixel crop. Only that floating camera-space triangle depth
 is eligible for the six-part gate.
 
-- Official `uv.ckpt`: 2,246,794,577 bytes; available but no upstream digest.
-- Official `normals.ckpt`: 1,469,022,184 bytes; available but no upstream digest.
+- Official `uv.ckpt`: 2,246,794,577 bytes; local SHA256
+  `dff9d73feec47914b704759f57ebffb8c58d2aef550b426013fe31eae21707b8`.
+- Official `normals.ckpt`: 1,469,022,184 bytes; local SHA256
+  `e856799d55db54c7537c8ee3c5a4938c13cc0b24082ce7e4e7f35f0d0f0e28da`.
+  Upstream publishes neither digest, so these are transfer identities rather
+  than upstream-authenticated checksums.
 - License: repository-wide CC BY-NC 4.0. Treat checkpoints as no more
   permissive; research-only.
 - FLAME: registered 2020/2023 assets under
@@ -35,10 +39,18 @@ is eligible for the six-part gate.
 - Main risk: the official README explicitly notes weaker UV prediction around
   the eyes, the exact region that failed the LAM gate.
 
-The next action is an isolated preflight. Download both official checkpoints,
-record local SHA256 values immediately, pin every FLAME/camera/crop asset, and
-run one row only. Stop before fusion if perspective camera-space Z, crop replay,
-or any asset term is ambiguous.
+Both checkpoints were downloaded serially from the IDs in the official setup
+script and match the documented byte sizes. The pinned source clone is clean,
+but the local Linux preflight stops before dependency installation: the present
+Ubuntu WSL2 distribution cannot start because Windows reports
+`HCS_E_HYPERV_NOT_INSTALLED` and disabled virtualization/Virtual Machine
+Platform support. This requires a host configuration change and possibly a
+reboot, so it was not changed autonomously. No model inference has run.
+
+The next action is an isolated Linux GPU preflight after that infrastructure
+blocker changes, or on a genuine available Colab G4. Pin every
+FLAME/camera/crop asset and run one row only. Stop before fusion if perspective
+camera-space Z, crop replay, or any asset term is ambiguous.
 
 ## 2. TEASER: fail closed
 
@@ -58,6 +70,7 @@ The project paper is promising, but an exact smoke cannot be reproduced today.
 
 ## Decision
 
-Prepare one research-only Pixel3DMM **full-fit** camera-depth smoke. TEASER and
-Pix2NPHM are closed until their license/output or implementation blockers change.
-No production path changes from this research decision.
+Pixel3DMM **full-fit** checkpoint transfer is complete and hash-pinned, while
+runtime execution is blocked before setup by the host WSL2 configuration.
+TEASER and Pix2NPHM are closed until their license/output or implementation
+blockers change. No production path changes from this research decision.
