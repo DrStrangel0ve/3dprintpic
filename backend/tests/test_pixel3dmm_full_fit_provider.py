@@ -139,11 +139,180 @@ class Pixel3DMMFullFitProviderTests(unittest.TestCase):
         self.assertEqual(crop["crop_height_pixels"], 100)
         self.assertEqual(crop["prediction_size"], 512)
         self.assertEqual(crop["tracking_size"], 256)
+        self.assertTrue(crop["source_preprocess_provenance_verified"])
+        self.assertEqual(
+            crop["stored_bounds_coordinate_space"],
+            "original source image pixels",
+        )
         identity = (
             crop["tracking_to_source_matrix"]
             @ crop["source_to_tracking_matrix"]
         )
         np.testing.assert_allclose(identity, np.eye(3), atol=1e-12)
+
+    def test_crop_inversion_preserves_centers_after_integer_supersampling(self):
+        crop = self._crop(
+            [40, 440, 80, 880],
+            crop_source_sha256="b" * 64,
+            crop_source_parent_sha256=self.SOURCE_SHA256,
+            source_preprocess_scale=4,
+        )
+        tracking = np.array(
+            [[0.0, 0.0, 1.0], [255.0, 255.0, 1.0]],
+            dtype=np.float64,
+        )
+        source = tracking @ crop["tracking_to_source_matrix"].T
+        source = source[:, :2] / source[:, 2:3]
+
+        np.testing.assert_allclose(
+            source,
+            np.array(
+                [[19.890625, 9.6953125], [219.109375, 109.3046875]],
+                dtype=np.float64,
+            ),
+            atol=1e-12,
+        )
+        self.assertEqual(crop["source_preprocess_scale"], 4)
+        self.assertEqual(crop["crop_source_height"], 1200)
+        self.assertEqual(crop["crop_source_width"], 1600)
+        self.assertEqual(
+            crop["crop_source_parent_sha256"],
+            self.SOURCE_SHA256,
+        )
+        self.assertEqual(
+            crop["source_preprocess_method_assertion"],
+            "PIL.Image.resize(LANCZOS) integer supersample",
+        )
+        self.assertFalse(crop["source_preprocess_provenance_verified"])
+        self.assertEqual(
+            crop["stored_bounds_coordinate_space"],
+            "derived crop source image pixels",
+        )
+        self.assertEqual(
+            crop["crop_size_coordinate_space"],
+            "derived crop source image pixels",
+        )
+
+    def test_supersampled_crop_requires_bounded_exact_parent_provenance(self):
+        cases = (
+            (
+                {
+                    "crop_source_sha256": "b" * 64,
+                    "source_preprocess_scale": 4,
+                },
+                "requires parent SHA256",
+            ),
+            (
+                {
+                    "crop_source_sha256": "b" * 64,
+                    "crop_source_parent_sha256": "c" * 64,
+                    "source_preprocess_scale": 4,
+                },
+                "parent belongs to a different source",
+            ),
+            (
+                {
+                    "crop_source_parent_sha256": self.SOURCE_SHA256,
+                    "source_preprocess_scale": 4,
+                },
+                "must identify its derived image",
+            ),
+            (
+                {"source_preprocess_scale": 1.5},
+                "must be an integer",
+            ),
+            (
+                {"source_preprocess_scale": 4.0},
+                "must be an integer",
+            ),
+            (
+                {"source_preprocess_scale": "4"},
+                "must be an integer",
+            ),
+            (
+                {"source_preprocess_scale": True},
+                "must be an integer",
+            ),
+            (
+                {"source_preprocess_scale": float("nan")},
+                "must be an integer",
+            ),
+            (
+                {"source_preprocess_scale": float("inf")},
+                "must be an integer",
+            ),
+            (
+                {"source_preprocess_scale": 0},
+                "between 1 and 8",
+            ),
+            (
+                {"source_preprocess_scale": 9},
+                "between 1 and 8",
+            ),
+        )
+        for overrides, message in cases:
+            with self.subTest(overrides=overrides):
+                with self.assertRaisesRegex(ValueError, message):
+                    self._crop([40, 440, 80, 880], **overrides)
+
+    def test_supersampled_crop_bounds_use_derived_image_dimensions(self):
+        crop = self._crop(
+            [0, 1200, 0, 1600],
+            crop_source_sha256="b" * 64,
+            crop_source_parent_sha256=self.SOURCE_SHA256,
+            source_preprocess_scale=4,
+        )
+        self.assertEqual(crop["stored_bounds_yxyx"], [0, 1200, 0, 1600])
+        with self.assertRaisesRegex(ValueError, "horizontal"):
+            self._crop(
+                [0, 1200, 0, 1601],
+                crop_source_sha256="b" * 64,
+                crop_source_parent_sha256=self.SOURCE_SHA256,
+                source_preprocess_scale=4,
+            )
+
+    def test_supersampled_crop_handles_asymmetric_nondivisible_bounds(self):
+        crop = self._crop(
+            [31, 332, 62, 665],
+            crop_source_sha256="b" * 64,
+            crop_source_parent_sha256=self.SOURCE_SHA256,
+            source_preprocess_scale=np.int64(3),
+        )
+        tracking = np.array(
+            [[0.0, 0.0, 1.0], [255.0, 255.0, 1.0]],
+            dtype=np.float64,
+        )
+        source = tracking @ crop["tracking_to_source_matrix"].T
+        source = source[:, :2] / source[:, 2:3]
+
+        np.testing.assert_allclose(
+            source,
+            np.array(
+                [
+                    [20.559244791666668, 10.029296875],
+                    [220.77408854166666, 109.970703125],
+                ],
+                dtype=np.float64,
+            ),
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(
+            crop["tracking_to_source_matrix"]
+            @ crop["source_to_tracking_matrix"],
+            np.eye(3),
+            atol=1e-12,
+        )
+        projected, _metadata = project_pixel3dmm_camera_vertices(
+            np.array([[0.0, 0.0, -2.0]], dtype=np.float32),
+            crop,
+            focal_length=1.0,
+            principal_point=np.array([0.0, 0.0]),
+        )
+        np.testing.assert_allclose(
+            projected,
+            np.array([[121.05924479166667, 60.195963541666664, 2.0]]),
+            atol=1e-6,
+        )
 
     def test_crop_rejects_out_of_bounds_metadata(self):
         for bounds, message in (

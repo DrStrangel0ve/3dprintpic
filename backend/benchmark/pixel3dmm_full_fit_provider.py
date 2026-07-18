@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+from numbers import Integral
 from pathlib import Path
 import re
 import subprocess
@@ -244,6 +245,8 @@ def pixel3dmm_crop_transform(
     crop_frame_id: int,
     checkpoint_image_size: np.ndarray,
     tracking_size: int = PIXEL3DMM_TRACKING_SIZE,
+    source_preprocess_scale: int = 1,
+    crop_source_parent_sha256: str | None = None,
 ) -> dict:
     """Build the exact pixel-center inverse for Pixel3DMM's stored crop."""
 
@@ -258,9 +261,21 @@ def pixel3dmm_crop_transform(
     tracking_size = int(tracking_size)
     if source_height < 2 or source_width < 2 or tracking_size < 2:
         raise ValueError("Pixel3DMM image sizes must be at least two pixels")
-    if not (0 <= xmin < xmax <= source_width):
+    if isinstance(source_preprocess_scale, (bool, np.bool_)) or not isinstance(
+        source_preprocess_scale,
+        Integral,
+    ):
+        raise ValueError("Pixel3DMM source preprocess scale must be an integer")
+    source_preprocess_scale = int(source_preprocess_scale)
+    if not 1 <= source_preprocess_scale <= 8:
+        raise ValueError(
+            "Pixel3DMM source preprocess scale must be between 1 and 8"
+        )
+    crop_source_height = source_height * source_preprocess_scale
+    crop_source_width = source_width * source_preprocess_scale
+    if not (0 <= xmin < xmax <= crop_source_width):
         raise ValueError("Pixel3DMM horizontal crop is outside the source image")
-    if not (0 <= ymin < ymax <= source_height):
+    if not (0 <= ymin < ymax <= crop_source_height):
         raise ValueError("Pixel3DMM vertical crop is outside the source image")
     crop_width = xmax - xmin
     crop_height = ymax - ymin
@@ -273,8 +288,43 @@ def pixel3dmm_crop_transform(
         raise ValueError("Pixel3DMM source SHA256 is invalid")
     if not _SHA256_PATTERN.fullmatch(crop_source_sha256):
         raise ValueError("Pixel3DMM crop source SHA256 is invalid")
-    if source_sha256 != crop_source_sha256:
-        raise ValueError("Pixel3DMM crop belongs to a different source image")
+    if source_preprocess_scale == 1:
+        if source_sha256 != crop_source_sha256:
+            raise ValueError("Pixel3DMM crop belongs to a different source image")
+        if crop_source_parent_sha256 is not None:
+            crop_source_parent_sha256 = str(
+                crop_source_parent_sha256
+            ).lower()
+            if crop_source_parent_sha256 != source_sha256:
+                raise ValueError(
+                    "Pixel3DMM crop parent belongs to a different source image"
+                )
+        preprocess_method_assertion = "identity"
+        preprocess_provenance_verified = True
+        bounds_coordinate_space = "original source image pixels"
+        dimensions_basis = "verified original source dimensions"
+    else:
+        if crop_source_parent_sha256 is None:
+            raise ValueError(
+                "Pixel3DMM supersampled crop requires parent SHA256 provenance"
+            )
+        crop_source_parent_sha256 = str(crop_source_parent_sha256).lower()
+        if not _SHA256_PATTERN.fullmatch(crop_source_parent_sha256):
+            raise ValueError("Pixel3DMM crop parent SHA256 is invalid")
+        if crop_source_parent_sha256 != source_sha256:
+            raise ValueError(
+                "Pixel3DMM crop parent belongs to a different source image"
+            )
+        if crop_source_sha256 == source_sha256:
+            raise ValueError(
+                "Pixel3DMM supersampled crop must identify its derived image"
+            )
+        preprocess_method_assertion = (
+            "PIL.Image.resize(LANCZOS) integer supersample"
+        )
+        preprocess_provenance_verified = False
+        bounds_coordinate_space = "derived crop source image pixels"
+        dimensions_basis = "caller-asserted integer scale times source dimensions"
     frame_id = int(frame_id)
     crop_frame_id = int(crop_frame_id)
     if frame_id < 0 or crop_frame_id < 0 or frame_id != crop_frame_id:
@@ -290,12 +340,20 @@ def pixel3dmm_crop_transform(
             "Pixel3DMM checkpoint image size does not match the tracking grid"
         )
 
-    scale_x = crop_width / tracking_size
-    scale_y = crop_height / tracking_size
+    scale_x = crop_width / (tracking_size * source_preprocess_scale)
+    scale_y = crop_height / (tracking_size * source_preprocess_scale)
     tracking_to_source = np.array(
         [
-            [scale_x, 0.0, xmin + 0.5 * scale_x - 0.5],
-            [0.0, scale_y, ymin + 0.5 * scale_y - 0.5],
+            [
+                scale_x,
+                0.0,
+                xmin / source_preprocess_scale + 0.5 * scale_x - 0.5,
+            ],
+            [
+                0.0,
+                scale_y,
+                ymin / source_preprocess_scale + 0.5 * scale_y - 0.5,
+            ],
             [0.0, 0.0, 1.0],
         ],
         dtype=np.float64,
@@ -304,11 +362,21 @@ def pixel3dmm_crop_transform(
     return {
         "stored_order": "ymin,ymax,xmin,xmax",
         "stored_bounds_semantics": "exclusive NumPy slice upper bounds",
+        "stored_bounds_coordinate_space": bounds_coordinate_space,
         "stored_bounds_yxyx": [ymin, ymax, xmin, xmax],
         "source_height": source_height,
         "source_width": source_width,
         "source_sha256": source_sha256,
         "crop_source_sha256": crop_source_sha256,
+        "crop_source_parent_sha256": crop_source_parent_sha256,
+        "source_preprocess_scale": source_preprocess_scale,
+        "source_preprocess_method_assertion": preprocess_method_assertion,
+        "source_preprocess_provenance_verified": (
+            preprocess_provenance_verified
+        ),
+        "crop_source_height": crop_source_height,
+        "crop_source_width": crop_source_width,
+        "crop_source_dimensions_basis": dimensions_basis,
         "frame_id": frame_id,
         "crop_frame_id": crop_frame_id,
         "checkpoint_image_size": [
@@ -319,6 +387,7 @@ def pixel3dmm_crop_transform(
         "tracking_size": tracking_size,
         "crop_height_pixels": crop_height,
         "crop_width_pixels": crop_width,
+        "crop_size_coordinate_space": bounds_coordinate_space,
         "tracking_to_source_matrix": tracking_to_source,
         "source_to_tracking_matrix": source_to_tracking,
         "resize_coordinate_convention": "half-pixel centers",
