@@ -1,6 +1,9 @@
 import unittest
 
 from backend.benchmark.evaluate_c3i_synface_demo_gate import (
+    RAW_C3I_PROVIDER,
+    RAP3DF_PROVIDER,
+    _corpus_profile,
     gate_decision,
     summarize_rows,
 )
@@ -214,6 +217,46 @@ class EvaluateC3ISynFaceDemoGateTests(unittest.TestCase):
             "all_current_rows_have_expected_orientation",
             decision["failed_checks"],
         )
+
+    def test_raw_c3i_profile_requires_license_and_disjoint_splits(self):
+        profile = _corpus_profile(
+            {
+                "provider": RAW_C3I_PROVIDER,
+                "dataset_license": "CC BY 4.0",
+                "identity_disjoint_splits": True,
+                "source_geometry_training_and_evaluation_only": True,
+            }
+        )
+        self.assertIn("raw-exr", profile["method"])
+        with self.assertRaisesRegex(ValueError, "licensed disjoint"):
+            _corpus_profile(
+                {
+                    "provider": RAW_C3I_PROVIDER,
+                    "dataset_license": "CC BY 4.0",
+                    "identity_disjoint_splits": False,
+                    "source_geometry_training_and_evaluation_only": True,
+                }
+            )
+
+    def test_rap3df_profile_is_evaluation_only(self):
+        profile = _corpus_profile(
+            {
+                "provider": RAP3DF_PROVIDER,
+                "training_eligible": False,
+                "source_geometry_evaluation_only": True,
+                "source": {"license": "CC BY 4.0"},
+            }
+        )
+        self.assertIn("diagnostic only", profile["depth_target_provenance"]["use"])
+        with self.assertRaisesRegex(ValueError, "evaluation-only"):
+            _corpus_profile(
+                {
+                    "provider": RAP3DF_PROVIDER,
+                    "training_eligible": True,
+                    "source_geometry_evaluation_only": True,
+                    "source": {"license": "CC BY 4.0"},
+                }
+            )
 
 
 if __name__ == "__main__":

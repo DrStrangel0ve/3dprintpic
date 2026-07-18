@@ -894,16 +894,22 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
                 "nose": region(42, 39, 55, 63),
                 "mouth": region(36, 65, 61, 76),
             }
+            exact[~face] = 1.0e10
+            predicted[~face] = -1.0e10
             mask_path = root / "face.png"
             exact_path = root / "exact.npy"
             predicted_path = root / "predicted.npy"
             damaged_path = root / "damaged.npy"
+            missing_path = root / "missing.npy"
             Image.fromarray(face.astype(np.uint8) * 255, mode="L").save(mask_path)
             np.save(exact_path, exact)
             np.save(predicted_path, predicted)
             damaged = predicted.copy()
             damaged[parts["left_eye"]] = float(np.median(predicted[face]))
             np.save(damaged_path, damaged)
+            missing = predicted.copy()
+            missing[parts["left_eye"]] = np.nan
+            np.save(missing_path, missing)
             part_paths = {}
             for name, values in parts.items():
                 path = root / f"{name}.png"
@@ -924,14 +930,35 @@ class CC0LiveFaceVariationMatrixTests(unittest.TestCase):
                 expected_scale_sign=1.0,
                 part_mask_paths=part_paths,
             )
+            missing_result = matrix._exact_face_depth_quality(
+                missing_path,
+                exact_path,
+                mask_path,
+                expected_scale_sign=1.0,
+                part_mask_paths=part_paths,
+            )
 
             self.assertTrue(matched["checks"]["passed"])
+            self.assertLess(
+                matched["exact_reference_mapping"]["exact_signal_span"],
+                2.0,
+            )
             self.assertFalse(damaged_result["checks"]["named_part_shape"])
             self.assertIn(
                 "left_eye",
                 damaged_result["named_part_shape"]["failed_parts"],
             )
             self.assertFalse(damaged_result["checks"]["passed"])
+            left_eye = next(
+                part
+                for part in missing_result["named_part_shape"]["parts"]
+                if part["name"] == "left_eye"
+            )
+            self.assertLess(left_eye["candidate_coverage_ratio"], 1.0)
+            self.assertIn(
+                "left_eye",
+                missing_result["named_part_shape"]["failed_parts"],
+            )
 
     def test_emitted_face_part_retention_rejects_local_flattening(self):
         with tempfile.TemporaryDirectory() as temporary:

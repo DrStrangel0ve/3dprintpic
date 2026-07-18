@@ -23,6 +23,22 @@ class TrainFaceDepthHeadTests(unittest.TestCase):
         self.assertTrue(np.all(np.isfinite(target)))
         self.assertGreater(float(np.ptp(target)), 0.9)
 
+    def test_near_high_target_is_finite_outside_supervised_geometry(self):
+        exact = np.full((16, 16), np.nan, dtype=np.float32)
+        exact[4:12, 4:12] = np.linspace(
+            0.2,
+            0.4,
+            64,
+            dtype=np.float32,
+        ).reshape(8, 8)
+        face = np.zeros((16, 16), dtype=bool)
+        face[4:12, 4:12] = True
+
+        target = _near_high_target(exact, face)
+
+        self.assertTrue(np.all(np.isfinite(target)))
+        self.assertTrue(np.all(target[~face] == 0.0))
+
     def test_near_high_target_rejects_tiny_support(self):
         with self.assertRaisesRegex(ValueError, "at least 64"):
             _near_high_target(

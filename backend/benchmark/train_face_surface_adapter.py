@@ -350,6 +350,10 @@ def prepare_cache(
                 raise ValueError(
                     f"Corpus row {item['row']['row_id']} has too little face support"
                 )
+            if not np.all(np.isfinite(target)):
+                raise ValueError(
+                    f"Corpus row {item['row']['row_id']} has a non-finite target"
+                )
             feather = _face_feather(face)
             row_path = row_root / f"{item['row']['row_id']}.npz"
             np.savez_compressed(
@@ -818,6 +822,10 @@ def train_adapter(
                 values["parts"],
                 values["sample_weight"],
             )
+            if not torch.isfinite(loss):
+                raise FloatingPointError(
+                    f"Non-finite face-surface training loss at epoch {epoch}"
+                )
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -829,6 +837,10 @@ def train_adapter(
             validation_tensors,
             device,
         )
+        if not np.isfinite(validation_loss):
+            raise FloatingPointError(
+                f"Non-finite face-surface validation loss at epoch {epoch}"
+            )
         record = {
             "epoch": epoch,
             "training_loss": float(np.mean(batch_losses)),
@@ -942,12 +954,35 @@ def _candidate_full_surface(
     return candidate
 
 
+def _failed_part_names(record: object) -> list[str]:
+    """Return a complete, ordered failure set for unavailable metric records."""
+    if not isinstance(record, dict) or not bool(record.get("available", False)):
+        return list(FACE_PART_NAMES)
+    failed = record.get("failed_parts")
+    if not isinstance(failed, list) or any(
+        not isinstance(name, str) or name not in FACE_PART_NAMES for name in failed
+    ):
+        return list(FACE_PART_NAMES)
+    if not bool(record.get("passed", False)) and not failed:
+        return list(FACE_PART_NAMES)
+    failed_set = set(failed)
+    return [name for name in FACE_PART_NAMES if name in failed_set]
+
+
 def _summary(rows: list[dict]) -> dict:
     check_failures = Counter()
+    global_check_failures = Counter()
     for row in rows:
         check_failures.update(row.get("shape_check_failures", {}))
+        global_check_failures.update(row.get("global_check_failures", []))
     return {
         "row_count": len(rows),
+        "unavailable_row_count": int(
+            sum(not row.get("metrics_available", False) for row in rows)
+        ),
+        "global_failure_row_count": int(
+            sum(bool(row.get("global_check_failures")) for row in rows)
+        ),
         "combined_part_failures": int(
             sum(row["combined_part_failures"] for row in rows)
         ),
@@ -961,6 +996,9 @@ def _summary(rows: list[dict]) -> dict:
             np.median([row["normalized_rmse"] for row in rows])
         ),
         "shape_check_failure_counts": dict(sorted(check_failures.items())),
+        "global_check_failure_counts": dict(
+            sorted(global_check_failures.items())
+        ),
         "rows": rows,
     }
 
@@ -992,15 +1030,62 @@ def evaluate_exact_surfaces(
             expected_scale_sign=-1.0,
             part_mask_paths=part_paths,
         )
-        shape_failed = metrics["named_part_shape"]["failed_parts"]
-        affine_failed = metrics["named_part_affine_mm"]["failed_parts"]
+        if not bool(metrics.get("available", False)):
+            rows.append(
+                {
+                    "row_id": item.row["row_id"],
+                    "identity_group": item.row["identity_group"],
+                    "expression": item.row["expression"],
+                    "face_height_pixels": item.row["render"][
+                        "face_bbox_height_pixels"
+                    ],
+                    "metrics_available": False,
+                    "metrics_unavailable_reason": metrics.get(
+                        "reason", "unknown"
+                    ),
+                    "shape_correlation": -1.0,
+                    "gradient_correlation": -1.0,
+                    "normalized_rmse": 1_000_000.0,
+                    "shape_failed_parts": list(FACE_PART_NAMES),
+                    "affine_failed_parts": list(FACE_PART_NAMES),
+                    "combined_part_failures": 2 * len(FACE_PART_NAMES),
+                    "shape_check_failures": {
+                        "metric_unavailable": len(FACE_PART_NAMES)
+                    },
+                    "global_check_failures": ["metric_unavailable"],
+                    "named_part_availability": {
+                        "shape": {
+                            "available": False,
+                            "reason": "metric_unavailable",
+                        },
+                        "affine_mm": {
+                            "available": False,
+                            "reason": "metric_unavailable",
+                        },
+                    },
+                }
+            )
+            continue
+        shape_record = metrics.get("named_part_shape")
+        affine_record = metrics.get("named_part_affine_mm")
+        shape_failed = _failed_part_names(shape_record)
+        affine_failed = _failed_part_names(affine_record)
         check_failures = Counter()
-        for part in metrics["named_part_shape"]["parts"]:
+        for part in (
+            shape_record.get("parts", []) if isinstance(shape_record, dict) else []
+        ):
             check_failures.update(
                 key
                 for key, passed in part.get("checks", {}).items()
                 if key != "passed" and not passed
             )
+        global_check_failures = sorted(
+            key
+            for key, passed in metrics.get("checks", {}).items()
+            if key
+            not in {"passed", "named_part_shape", "named_part_affine_mm"}
+            and not passed
+        )
         rows.append(
             {
                 "row_id": item.row["row_id"],
@@ -1009,14 +1094,41 @@ def evaluate_exact_surfaces(
                 "face_height_pixels": item.row["render"][
                     "face_bbox_height_pixels"
                 ],
+                "metrics_available": True,
+                "metrics_unavailable_reason": None,
                 "shape_correlation": metrics["shape_correlation"],
                 "gradient_correlation": metrics["gradient_correlation"],
                 "normalized_rmse": metrics["normalized_rmse"],
                 "shape_failed_parts": shape_failed,
                 "affine_failed_parts": affine_failed,
+                "named_part_availability": {
+                    "shape": {
+                        "available": bool(
+                            isinstance(shape_record, dict)
+                            and shape_record.get("available", False)
+                        ),
+                        "reason": (
+                            shape_record.get("reason")
+                            if isinstance(shape_record, dict)
+                            else "missing_metric_record"
+                        ),
+                    },
+                    "affine_mm": {
+                        "available": bool(
+                            isinstance(affine_record, dict)
+                            and affine_record.get("available", False)
+                        ),
+                        "reason": (
+                            affine_record.get("reason")
+                            if isinstance(affine_record, dict)
+                            else "missing_metric_record"
+                        ),
+                    },
+                },
                 "combined_part_failures": len(shape_failed)
                 + len(affine_failed),
                 "shape_check_failures": dict(sorted(check_failures.items())),
+                "global_check_failures": global_check_failures,
             }
         )
     return _summary(rows)
@@ -1025,12 +1137,24 @@ def evaluate_exact_surfaces(
 def _strictly_improves(candidate: dict, baseline: dict) -> bool:
     candidate_checks = candidate.get("shape_check_failure_counts", {})
     baseline_checks = baseline.get("shape_check_failure_counts", {})
+    candidate_global_checks = candidate.get(
+        "global_check_failure_counts", {}
+    )
+    baseline_global_checks = baseline.get("global_check_failure_counts", {})
     gradient_floor = (
         baseline["median_gradient_correlation"]
         * MINIMUM_GLOBAL_GRADIENT_RETENTION
     )
     return bool(
-        candidate["combined_part_failures"]
+        candidate.get("unavailable_row_count", 0) == 0
+        and candidate.get("global_failure_row_count", 0)
+        <= baseline.get("global_failure_row_count", 0)
+        and all(
+            int(candidate_global_checks.get(name, 0))
+            <= int(baseline_global_checks.get(name, 0))
+            for name in set(candidate_global_checks) | set(baseline_global_checks)
+        )
+        and candidate["combined_part_failures"]
         < baseline["combined_part_failures"]
         and candidate["median_shape_correlation"]
         >= baseline["median_shape_correlation"] - 1e-6
@@ -1047,6 +1171,14 @@ def _strictly_improves(candidate: dict, baseline: dict) -> bool:
 
 
 def _per_row_non_regression(candidate: dict, baseline: dict) -> float:
+    candidate_ids = [row["row_id"] for row in candidate["rows"]]
+    baseline_ids = [row["row_id"] for row in baseline["rows"]]
+    if (
+        len(set(candidate_ids)) != len(candidate_ids)
+        or len(set(baseline_ids)) != len(baseline_ids)
+        or set(candidate_ids) != set(baseline_ids)
+    ):
+        raise ValueError("Paired face-surface summaries require identical unique rows")
     baseline_by_id = {row["row_id"]: row for row in baseline["rows"]}
     passed = sum(
         row["combined_part_failures"]

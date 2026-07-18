@@ -253,6 +253,7 @@ class FacePartMetricsTest(unittest.TestCase):
         self.assertFalse(metrics["available"])
         self.assertFalse(metrics["passed"])
         self.assertEqual(metrics["reason"], "invalid_smoothing_radii")
+        self.assertEqual(metrics["failed_parts"], sorted(parts))
 
     def test_shared_face_affine_metric_reports_local_mm_error(self):
         reference, face, parts = self._surface_and_masks()

@@ -236,6 +236,7 @@ def face_part_cross_height_metrics(
         "smoothing_radii_mm": list(radii_mm),
         "gates": effective_gates,
         "parts": [],
+        "failed_parts": sorted(str(name) for name in part_masks),
     }
     try:
         pitch = float(sample_pitch_mm)

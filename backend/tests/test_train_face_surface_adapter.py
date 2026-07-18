@@ -1,16 +1,26 @@
+import tempfile
+from pathlib import Path
+from unittest import mock
+
 import numpy as np
 import torch
 from PIL import Image
 
 from backend.benchmark.train_face_surface_adapter import (
+    CachedSurface,
     _candidate_full_surface,
     _face_feather,
+    _failed_part_names,
     _infer_variable_crop_depths,
+    _per_row_non_regression,
+    _strictly_improves,
     build_surface_adapter,
+    evaluate_exact_surfaces,
     positive_affine_fit,
     remove_affine_residual,
     surface_training_loss,
 )
+from backend.face_depth_refinement import FACE_PART_NAMES
 
 
 def test_surface_adapter_is_initially_an_exact_noop():
@@ -21,6 +31,99 @@ def test_surface_adapter_is_initially_an_exact_noop():
 
     assert residual.shape == (2, 1, 32, 32)
     assert torch.count_nonzero(residual) == 0
+
+
+def test_unavailable_or_malformed_part_metrics_fail_all_parts_closed():
+    expected = list(FACE_PART_NAMES)
+
+    assert _failed_part_names(None) == expected
+    assert _failed_part_names({"available": False, "failed_parts": []}) == expected
+    assert _failed_part_names({"available": True}) == expected
+    assert _failed_part_names(
+        {"available": True, "passed": False, "failed_parts": []}
+    ) == expected
+    assert _failed_part_names(
+        {"available": True, "passed": False, "failed_parts": ["nose", "mouth"]}
+    ) == [name for name in FACE_PART_NAMES if name in {"nose", "mouth"}]
+
+
+def test_per_row_non_regression_rejects_unpaired_or_duplicate_rows():
+    candidate = {"rows": [{"row_id": "a", "combined_part_failures": 0}]}
+    baseline = {"rows": [{"row_id": "b", "combined_part_failures": 0}]}
+
+    with np.testing.assert_raises_regex(ValueError, "identical unique rows"):
+        _per_row_non_regression(candidate, baseline)
+
+
+def test_exact_surface_evaluation_records_unavailable_metric_as_hold():
+    item = CachedSurface(
+        row={
+            "row_id": "unavailable",
+            "identity_group": "synthetic",
+            "expression": "neutral",
+            "render": {"face_bbox_height_pixels": 75},
+            "exact_depth": {"path": "exact.npy"},
+            "selection_mask": {"path": "face.png"},
+            "exact_face_parts": {
+                name: {"path": f"{name}.png"} for name in FACE_PART_NAMES
+            },
+        },
+        rgb=np.zeros((8, 8, 3), dtype=np.uint8),
+        baseline=np.zeros((8, 8), dtype=np.float32),
+        target=np.zeros((8, 8), dtype=np.float32),
+        face=np.ones((8, 8), dtype=bool),
+        feather=np.ones((8, 8), dtype=np.float32),
+        parts=np.ones((len(FACE_PART_NAMES), 8, 8), dtype=bool),
+        bbox=(0, 0, 8, 8),
+        source_shape=(8, 8),
+    )
+    with tempfile.TemporaryDirectory() as temporary, mock.patch(
+        "backend.benchmark.train_face_surface_adapter._exact_face_depth_quality",
+        return_value={
+            "available": False,
+            "reason": "insufficient_candidate_samples",
+        },
+    ):
+        summary = evaluate_exact_surfaces(
+            Path(temporary),
+            [item],
+            [np.zeros((8, 8), dtype=np.float32)],
+            alpha=0.0,
+            output_dir=Path(temporary) / "output",
+        )
+
+    assert summary["unavailable_row_count"] == 1
+    assert summary["global_check_failure_counts"] == {"metric_unavailable": 1}
+    assert summary["combined_part_failures"] == 2 * len(FACE_PART_NAMES)
+
+
+def test_strict_selector_allows_paired_global_failures_but_no_regression():
+    baseline = {
+        "unavailable_row_count": 0,
+        "global_failure_row_count": 2,
+        "global_check_failure_counts": {"normalized_rmse": 2},
+        "combined_part_failures": 10,
+        "median_shape_correlation": 0.9,
+        "median_gradient_correlation": 0.8,
+        "median_normalized_rmse": 0.1,
+        "shape_check_failure_counts": {},
+    }
+    candidate = {
+        **baseline,
+        "combined_part_failures": 9,
+        "median_shape_correlation": 0.91,
+        "median_gradient_correlation": 0.81,
+        "median_normalized_rmse": 0.09,
+    }
+
+    assert _strictly_improves(candidate, baseline)
+    candidate["global_check_failure_counts"] = {"normalized_rmse": 3}
+    candidate["global_failure_row_count"] = 3
+    assert not _strictly_improves(candidate, baseline)
+    candidate["global_check_failure_counts"] = {"normalized_rmse": 2}
+    candidate["global_failure_row_count"] = 2
+    candidate["unavailable_row_count"] = 1
+    assert not _strictly_improves(candidate, baseline)
 
 
 def test_positive_affine_fit_recovers_target_shape():

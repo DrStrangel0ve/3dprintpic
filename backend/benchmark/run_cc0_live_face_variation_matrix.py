@@ -1227,12 +1227,25 @@ def _exact_face_depth_quality(
         )
     if predicted.shape != exact.shape:
         predicted = _resize_nan_aware(predicted, exact.shape)
-    valid = face & np.isfinite(exact) & np.isfinite(predicted)
-    coverage = float(np.count_nonzero(valid) / max(np.count_nonzero(face), 1))
-    if np.count_nonzero(valid) < 64:
+    reference_valid = face & np.isfinite(exact)
+    candidate_valid = face & np.isfinite(predicted)
+    valid = reference_valid & candidate_valid
+    reference_coverage = float(
+        np.count_nonzero(reference_valid) / max(np.count_nonzero(face), 1)
+    )
+    coverage = float(
+        np.count_nonzero(valid) / max(np.count_nonzero(reference_valid), 1)
+    )
+    if np.count_nonzero(reference_valid) < 64 or np.count_nonzero(valid) < 64:
         return {
             "available": False,
             "coverage_ratio": coverage,
+            "reference_coverage_ratio": reference_coverage,
+            "reason": (
+                "insufficient_reference_samples"
+                if np.count_nonzero(reference_valid) < 64
+                else "insufficient_candidate_samples"
+            ),
             "gates": dict(EXACT_FACE_DEPTH_GATES),
             "checks": {"passed": False},
         }
@@ -1267,6 +1280,7 @@ def _exact_face_depth_quality(
     metrics = {
         "available": True,
         "coverage_ratio": coverage,
+        "reference_coverage_ratio": reference_coverage,
         "shape_correlation": _correlation(reference[valid], aligned[valid]),
         "gradient_correlation": float(gradient_correlation),
         "normalized_rmse": normalized_rmse,
@@ -1295,13 +1309,16 @@ def _exact_face_depth_quality(
                 part_masks[name] = part & face
 
             exact_signal = 1.0 - reference
-            exact_min = float(np.nanmin(exact_signal))
-            exact_span = float(np.nanmax(exact_signal) - exact_min)
+            exact_min = float(np.min(exact_signal[reference_valid]))
+            exact_span = float(
+                np.max(exact_signal[reference_valid]) - exact_min
+            )
             if not np.isfinite(exact_span) or exact_span <= 1e-8:
                 raise ValueError("Exact depth has no usable global span")
-            reference_surface_mm = (exact_signal - exact_min) * (
-                RELIEF_HEIGHT_MM / exact_span
-            )
+            reference_surface_mm = np.full(reference.shape, np.nan, dtype=np.float64)
+            reference_surface_mm[reference_valid] = (
+                exact_signal[reference_valid] - exact_min
+            ) * (RELIEF_HEIGHT_MM / exact_span)
             predicted_signal = (
                 1.0 - candidate if float(expected_scale_sign) > 0 else candidate
             )
@@ -1311,8 +1328,10 @@ def _exact_face_depth_quality(
             part_scale, part_shift = np.linalg.lstsq(
                 design, reference_surface_mm[valid], rcond=None
             )[0]
-            aligned_surface_mm = (
-                predicted_signal * float(part_scale) + float(part_shift)
+            aligned_surface_mm = np.full(candidate.shape, np.nan, dtype=np.float64)
+            aligned_surface_mm[candidate_valid] = (
+                predicted_signal[candidate_valid] * float(part_scale)
+                + float(part_shift)
             )
             pitch_mm = float(MAX_XY_SIZE_MM / max(exact.shape[1] - 1, 1))
             named_part_shape = face_part_cross_height_metrics(
@@ -1347,6 +1366,8 @@ def _exact_face_depth_quality(
                 }
             )
     checks = {
+        "reference_coverage": reference_coverage
+        >= EXACT_FACE_DEPTH_GATES["minimum_coverage_ratio"],
         "coverage": coverage >= EXACT_FACE_DEPTH_GATES["minimum_coverage_ratio"],
         "depth_semantics_orientation": bool(
             np.isfinite(scale) and scale * float(expected_scale_sign) > 0

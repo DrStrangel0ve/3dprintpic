@@ -85,7 +85,13 @@ def _near_high_target(exact_depth: np.ndarray, face_mask: np.ndarray) -> np.ndar
         raise ValueError("A training crop needs at least 64 finite face pixels")
     low, high = np.percentile(exact[face], (2.0, 98.0))
     span = max(float(high - low), 1e-6)
-    return np.clip((float(high) - exact) / span, -0.5, 1.5).astype(np.float32)
+    target = np.zeros(exact.shape, dtype=np.float32)
+    target[face] = np.clip(
+        (float(high) - exact[face]) / span,
+        -0.5,
+        1.5,
+    )
+    return target
 
 
 def _fit_prediction(prediction, target, mask):

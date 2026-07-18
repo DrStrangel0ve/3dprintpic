@@ -34,6 +34,8 @@ from backend.benchmark.train_face_surface_adapter import _sha256
 
 
 METHOD = "c3i-synface-demo-current-face-depth-gate"
+RAW_C3I_PROVIDER = "c3i-synface-female-part2-raw-exr"
+RAP3DF_PROVIDER = "rap3df-v2-kinect-one-raw-depth"
 MAXIMUM_ABSOLUTE_PART_FAILURE_RATE = 0.50
 MAXIMUM_PER_ROW_METRIC_REGRESSION = 0.01
 
@@ -62,6 +64,63 @@ def _compact_quality(metrics: dict) -> dict:
         "shape_check_failures": dict(shape.get("check_failures") or {}),
         "checks": dict(metrics.get("checks") or {}),
     }
+
+
+def _corpus_profile(corpus: dict) -> dict:
+    provider = corpus.get("provider")
+    if provider == "c3i-synface-official-demo-depth":
+        if corpus.get("demo_asset_license") != DEMO_ASSET_LICENSE:
+            raise ValueError("C3I gate requires explicit demo-license provenance")
+        return {
+            "method": METHOD,
+            "depth_target_provenance": {
+                "representation": "official 8-bit grayscale demo preview",
+                "use": "bounded relative-shape screen only",
+                "not_claimed": [
+                    "raw EXR precision",
+                    "metric-scale validation",
+                    "identity-disjoint training evidence",
+                ],
+            },
+        }
+    if provider == RAW_C3I_PROVIDER:
+        if (
+            corpus.get("dataset_license") != "CC BY 4.0"
+            or not corpus.get("identity_disjoint_splits")
+            or not corpus.get("source_geometry_training_and_evaluation_only")
+        ):
+            raise ValueError("Raw C3I gate requires licensed disjoint provenance")
+        return {
+            "method": "c3i-synface-raw-exr-current-face-depth-gate",
+            "depth_target_provenance": {
+                "representation": "official float32 Blender Z-pass EXR",
+                "use": "identity-disjoint relative facial-shape supervision",
+                "not_claimed": [
+                    "direct 30 mm relief coordinates",
+                    "absolute facial millimetres without affine fitting",
+                ],
+            },
+        }
+    if provider == RAP3DF_PROVIDER:
+        if (
+            corpus.get("training_eligible") is not False
+            or not corpus.get("source_geometry_evaluation_only")
+            or (corpus.get("source") or {}).get("license") != "CC BY 4.0"
+        ):
+            raise ValueError("RAP3DF gate requires evaluation-only provenance")
+        return {
+            "method": "rap3df-v2-current-face-depth-gate",
+            "depth_target_provenance": {
+                "representation": "raw Kinect One uint16 depth",
+                "use": "real-sensor relative facial-shape diagnostic only",
+                "not_claimed": [
+                    "training eligibility",
+                    "millimetre scale without published calibration",
+                    "pixel-perfect RGB/depth registration",
+                ],
+            },
+        }
+    raise ValueError("Face-depth gate received an unsupported corpus provider")
 
 
 def summarize_rows(rows: list[dict], key: str) -> dict:
@@ -221,10 +280,7 @@ def evaluate_c3i_demo(
     output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = corpus_root / "summary.json"
     corpus = json.loads(summary_path.read_text(encoding="utf-8"))
-    if corpus.get("provider") != "c3i-synface-official-demo-depth":
-        raise ValueError("C3I gate received an unsupported corpus provider")
-    if corpus.get("demo_asset_license") != DEMO_ASSET_LICENSE:
-        raise ValueError("C3I gate requires explicit demo-license provenance")
+    profile = _corpus_profile(corpus)
     rows = list(corpus["rows"])
     if limit is not None:
         rows = rows[:limit]
@@ -356,25 +412,26 @@ def evaluate_c3i_demo(
     )
     results = {
         "schema_version": 1,
-        "method": METHOD,
+        "method": profile["method"],
         "status": "hold",
         "source_geometry_training_and_evaluation_only": True,
-        "depth_target_provenance": {
-            "representation": "official 8-bit grayscale demo preview",
-            "use": "bounded relative-shape screen only",
-            "not_claimed": [
-                "raw EXR precision",
-                "metric-scale validation",
-                "identity-disjoint training evidence",
-            ],
-        },
+        "depth_target_provenance": profile["depth_target_provenance"],
         "corpus": {
             "summary_sha256": _sha256(summary_path),
             "provider": corpus["provider"],
-            "source_revision": corpus["source_revision"],
-            "demo_asset_license": corpus["demo_asset_license"],
-            "raw_dataset_reference": corpus["raw_dataset_reference"],
+            "dataset_doi": corpus.get("dataset_doi")
+            or (corpus.get("source") or {}).get("doi"),
+            "dataset_license": corpus.get("dataset_license")
+            or (corpus.get("source") or {}).get("license")
+            or corpus.get("demo_asset_license"),
+            "identity_disjoint_splits": corpus.get(
+                "identity_disjoint_splits"
+            ),
+            "training_eligible": corpus.get("training_eligible"),
             "row_count": len(rows),
+            "full_row_count": int(
+                corpus.get("full_balanced_row_count", corpus["row_count"])
+            ),
         },
         "model": {
             "id": MODEL_ID,
@@ -393,7 +450,9 @@ def evaluate_c3i_demo(
             global_summary,
             current_summary,
             rows=measured,
-            expected_row_count=int(corpus["row_count"]),
+            expected_row_count=int(
+                corpus.get("full_balanced_row_count", corpus["row_count"])
+            ),
         ),
         "rows": measured,
     }
