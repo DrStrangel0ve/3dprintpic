@@ -419,35 +419,38 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                 patch.object(transfer, "REDUNDANT_HASH_MIN_BYTES", 1),
                 patch.object(
                     transfer,
-                    "_sha256",
-                    side_effect=(
-                        *(
-                            "transient-corruption"
-                            for _ in range(transfer.MAX_PINNED_READ_ATTEMPTS)
-                        ),
-                    ),
+                    "_read_exact_range_once",
+                    side_effect=[
+                        bytes([index]) * len(b"weight")
+                        for index in range(
+                            transfer.MAX_PINNED_READ_ATTEMPTS**2
+                        )
+                    ],
                 ),
             ):
-                record = transfer._asset_record(path, len(b"weight"), "expected")
+                record = transfer._asset_record(
+                    path,
+                    len(b"weight"),
+                    transfer.hashlib.sha256(b"weight").hexdigest(),
+                )
 
-        self.assertEqual(
-            record["sha256_observations"],
-            ["transient-corruption"],
-        )
-        self.assertEqual(record["hash_read_count"], 1)
+        self.assertEqual(record["sha256_observations"], [])
+        self.assertEqual(record["hash_read_count"], 0)
         self.assertEqual(record["hash_reads_required"], 1)
-        self.assertEqual(
-            record["hash_attempt_count"],
-            transfer.MAX_PINNED_READ_ATTEMPTS,
-        )
+        self.assertEqual(record["hash_attempt_count"], 0)
+        self.assertEqual(record["block_aggregate_attempts"], 5)
+        self.assertEqual(record["block_read_attempts"], 25)
+        self.assertEqual(record["block_retry_count"], 15)
+        self.assertEqual(record["block_mismatch_reads"], 25)
+        self.assertEqual(record["block_quorum_failures"], 5)
         self.assertEqual(
             record["hash_mismatch_attempts"],
-            transfer.MAX_PINNED_READ_ATTEMPTS,
+            transfer.MAX_PINNED_READ_ATTEMPTS**2,
         )
         self.assertEqual(record["recovered_hash_mismatches"], 0)
         self.assertEqual(
             record["terminal_hash_mismatches"],
-            transfer.MAX_PINNED_READ_ATTEMPTS,
+            transfer.MAX_PINNED_READ_ATTEMPTS**2,
         )
         self.assertFalse(record["hash_reads_consistent"])
         self.assertFalse(record["hash_pinned"])
@@ -456,48 +459,127 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "weight.safetensors"
             path.write_bytes(b"weight")
+            expected = transfer._sha256(path)
+            with patch.object(transfer, "REDUNDANT_HASH_MIN_BYTES", 1):
+                record = transfer._asset_record(path, len(b"weight"), expected)
+
+        self.assertEqual(record["hash_read_count"], 1)
+        self.assertEqual(record["hash_reads_required"], 1)
+        self.assertEqual(record["block_read_attempts"], 2)
+        self.assertEqual(record["block_accepted_ranges"], 1)
+        self.assertEqual(record["block_accepted_bytes"], len(b"weight"))
+        self.assertTrue(record["hash_reads_consistent"])
+        self.assertTrue(record["hash_pinned"])
+
+    def test_large_asset_record_retries_matching_corrupt_block_aggregate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "weight.safetensors"
+            path.write_bytes(b"weight")
+            expected = transfer._sha256(path)
+            wrong = transfer.hashlib.sha256(b"wrong!").hexdigest()
             with (
                 patch.object(transfer, "REDUNDANT_HASH_MIN_BYTES", 1),
                 patch.object(
                     transfer,
-                    "_sha256",
-                    return_value="expected",
+                    "_read_exact_range_once",
+                    side_effect=(
+                        b"wrong!",
+                        b"wrong!",
+                        b"weight",
+                        b"weight",
+                    ),
                 ),
             ):
-                record = transfer._asset_record(path, len(b"weight"), "expected")
+                record = transfer._asset_record(path, len(b"weight"), expected)
 
-        self.assertEqual(record["hash_read_count"], 1)
-        self.assertEqual(record["hash_reads_required"], 1)
-        self.assertTrue(record["hash_reads_consistent"])
+        self.assertEqual(record["sha256_attempt_groups"], [[wrong, expected]])
+        self.assertEqual(record["hash_attempt_count"], 2)
+        self.assertEqual(record["hash_mismatch_attempts"], 1)
+        self.assertEqual(record["recovered_hash_mismatches"], 1)
+        self.assertEqual(record["terminal_hash_mismatches"], 0)
+        self.assertEqual(record["block_aggregate_attempts"], 2)
+        self.assertEqual(record["block_aggregate_hash_checks"], 2)
+        self.assertEqual(record["block_aggregate_hash_failures"], 1)
+        self.assertEqual(record["block_read_attempts"], 4)
+        self.assertEqual(record["block_mismatch_reads"], 0)
         self.assertTrue(record["hash_pinned"])
 
     def test_large_asset_record_recovers_only_to_the_immutable_pin(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "weight.safetensors"
             path.write_bytes(b"weight")
+            expected = transfer._sha256(path)
             with (
                 patch.object(transfer, "REDUNDANT_HASH_MIN_BYTES", 1),
                 patch.object(
                     transfer,
-                    "_sha256",
+                    "_read_exact_range_once",
                     side_effect=(
-                        "transient-corruption",
-                        "expected",
+                        b"wrong!",
+                        b"weight",
+                        b"weight",
                     ),
                 ),
             ):
-                record = transfer._asset_record(path, len(b"weight"), "expected")
+                record = transfer._asset_record(path, len(b"weight"), expected)
 
         self.assertEqual(
             record["sha256_attempt_groups"],
-            [["transient-corruption", "expected"]],
+            [[expected]],
         )
-        self.assertEqual(record["hash_attempt_count"], 2)
+        self.assertEqual(record["hash_attempt_count"], 1)
         self.assertEqual(record["hash_mismatch_attempts"], 1)
         self.assertEqual(record["recovered_hash_mismatches"], 1)
         self.assertEqual(record["terminal_hash_mismatches"], 0)
+        self.assertEqual(record["block_read_attempts"], 3)
+        self.assertEqual(record["block_retry_count"], 1)
+        self.assertEqual(record["block_mismatch_reads"], 1)
         self.assertTrue(record["hash_reads_consistent"])
         self.assertTrue(record["hash_pinned"])
+
+    def test_verified_range_opens_a_fresh_handle_for_each_quorum_vote(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "weight.safetensors"
+            path.write_bytes(b"weight")
+            original_open = Path.open
+            open_count = 0
+
+            def counted_open(target, *args, **kwargs):
+                nonlocal open_count
+                if target.resolve() == path.resolve() and args[0] == "rb":
+                    open_count += 1
+                return original_open(target, *args, **kwargs)
+
+            with patch.object(Path, "open", new=counted_open):
+                observed = transfer._read_range_with_quorum(path, 0, 6)
+
+        self.assertEqual(observed, b"weight")
+        self.assertEqual(open_count, transfer.VERIFIED_BLOCK_QUORUM)
+
+    def test_verified_range_counts_short_reads_and_fails_closed(self):
+        telemetry = {}
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(
+                transfer,
+                "_read_exact_range_once",
+                side_effect=RuntimeError("Short verified read fixture"),
+            ),
+        ):
+            path = Path(directory) / "weight.safetensors"
+            path.write_bytes(b"weight")
+            with self.assertRaisesRegex(RuntimeError, "quorum failed"):
+                transfer._read_range_with_quorum(
+                    path,
+                    0,
+                    len(b"weight"),
+                    telemetry=telemetry,
+                )
+
+        self.assertEqual(telemetry["verified_block_read_attempts"], 5)
+        self.assertEqual(telemetry["verified_block_read_failures"], 5)
+        self.assertEqual(telemetry["verified_block_short_reads"], 5)
+        self.assertEqual(telemetry["verified_block_quorum_failures"], 1)
 
     def test_small_asset_record_preserves_single_read_contract(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -775,11 +857,16 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
             self.assertEqual(telemetry["supported_dtypes"], ["BF16", "F32"])
             self.assertEqual(
                 telemetry["tensor_transport"],
-                "file_and_tensor_sha256_validated_bytes_to_owned_torch",
+                "block_quorum_file_and_tensor_sha256_validated_bytes_to_owned_torch",
             )
             self.assertEqual(
                 telemetry["payload_hash_validation"],
-                "manifest_from_pinned_full_read_then_exact_payload",
+                "quorum_manifest_from_pinned_full_read_then_quorum_exact_payload",
+            )
+            self.assertEqual(telemetry["block_quorum"], 2)
+            self.assertEqual(
+                telemetry["block_size_bytes"],
+                transfer.VERIFIED_READ_BLOCK_BYTES,
             )
             self.assertTrue(telemetry["storage_is_file_mapping_independent"])
             self.assertEqual(
@@ -798,6 +885,24 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                     "payload_retry_count": 0,
                     "payload_hash_checks": 2,
                     "payload_hash_failures": 0,
+                    "manifest_block_read_attempts": 6,
+                    "manifest_block_retry_count": 0,
+                    "manifest_block_mismatch_reads": 0,
+                    "manifest_block_accepted_ranges": 3,
+                    "manifest_block_accepted_bytes": weights.stat().st_size,
+                    "manifest_block_quorum_failures": 0,
+                    "manifest_block_read_failures": 0,
+                    "manifest_block_size_change_reads": 0,
+                    "manifest_block_short_reads": 0,
+                    "payload_block_read_attempts": 4,
+                    "payload_block_retry_count": 0,
+                    "payload_block_mismatch_reads": 0,
+                    "payload_block_accepted_ranges": 2,
+                    "payload_block_accepted_bytes": 24,
+                    "payload_block_quorum_failures": 0,
+                    "payload_block_read_failures": 0,
+                    "payload_block_size_change_reads": 0,
+                    "payload_block_short_reads": 0,
                 },
             )
             self.assertNotEqual(fetched.data_ptr(), source.data_ptr())
@@ -852,6 +957,14 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
             telemetry["payload_hash_failures"],
             transfer.MAX_PINNED_READ_ATTEMPTS,
         )
+        self.assertEqual(
+            telemetry["payload_block_read_attempts"],
+            transfer.MAX_PINNED_READ_ATTEMPTS * transfer.VERIFIED_BLOCK_QUORUM,
+        )
+        self.assertEqual(
+            telemetry["payload_block_accepted_ranges"],
+            transfer.MAX_PINNED_READ_ATTEMPTS,
+        )
 
     def test_verified_manifest_rejects_unsafe_header_length_and_wrong_pin(self):
         from safetensors.torch import save_file
@@ -881,7 +994,7 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
             save_file({"weight": torch.arange(4, dtype=torch.float32)}, weights)
             expected_sha256 = transfer._sha256(weights)
             corrupted_bytes = bytearray(weights.read_bytes())
-            corrupted_bytes[-1] ^= 0x01
+            corrupted_bytes[0] ^= 0x01
             corrupted.write_bytes(corrupted_bytes)
             original_open = Path.open
             target = weights.resolve()
@@ -903,12 +1016,16 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                     telemetry=telemetry,
                 )
 
-        self.assertEqual(manifest["verification_attempts"], 2)
+        self.assertEqual(manifest["verification_attempts"], 1)
         self.assertEqual(manifest["file_sha256"], expected_sha256)
-        self.assertEqual(open_count, 2)
-        self.assertEqual(telemetry["manifest_verification_attempts"], 2)
-        self.assertEqual(telemetry["manifest_attempt_failures"], 1)
-        self.assertEqual(telemetry["manifest_retry_count"], 1)
+        self.assertEqual(open_count, 7)
+        self.assertEqual(telemetry["manifest_verification_attempts"], 1)
+        self.assertEqual(telemetry["manifest_attempt_failures"], 0)
+        self.assertEqual(telemetry["manifest_retry_count"], 0)
+        self.assertEqual(telemetry["manifest_block_read_attempts"], 7)
+        self.assertEqual(telemetry["manifest_block_retry_count"], 1)
+        self.assertEqual(telemetry["manifest_block_mismatch_reads"], 1)
+        self.assertEqual(telemetry["manifest_block_accepted_ranges"], 3)
 
     def test_verified_manifest_hashes_tensors_across_block_boundaries(self):
         from safetensors.torch import save_file
@@ -934,6 +1051,33 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                     manifest["tensors"][name]["payload_sha256"],
                     expected,
                 )
+
+    def test_verified_manifest_bounds_every_quorum_range(self):
+        from safetensors.torch import save_file
+        import torch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            weights = Path(temp_dir) / "weights.safetensors"
+            save_file({"weight": torch.arange(16, dtype=torch.float32)}, weights)
+            original_reader = transfer._read_range_with_quorum
+            with (
+                patch.object(transfer, "VERIFIED_READ_BLOCK_BYTES", 16),
+                patch.object(
+                    transfer,
+                    "_read_range_with_quorum",
+                    wraps=original_reader,
+                ) as reader,
+            ):
+                transfer._build_verified_safetensor_manifest(
+                    weights,
+                    transfer._sha256(weights),
+                )
+
+        self.assertTrue(reader.call_args_list)
+        self.assertLessEqual(
+            max(call.args[2] for call in reader.call_args_list),
+            16,
+        )
 
     def test_verified_tensor_read_recovers_only_to_manifest_digest(self):
         from safetensors.torch import save_file
@@ -976,11 +1120,15 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         self.assertEqual(bytes(storage), source.numpy().tobytes())
         self.assertEqual(dtype, "F32")
         self.assertEqual(shape, (4,))
-        self.assertEqual(open_count, 2)
-        self.assertEqual(telemetry["payload_read_attempts"], 2)
-        self.assertEqual(telemetry["payload_retry_count"], 1)
-        self.assertEqual(telemetry["payload_hash_checks"], 2)
-        self.assertEqual(telemetry["payload_hash_failures"], 1)
+        self.assertEqual(open_count, 3)
+        self.assertEqual(telemetry["payload_read_attempts"], 1)
+        self.assertEqual(telemetry["payload_retry_count"], 0)
+        self.assertEqual(telemetry["payload_hash_checks"], 1)
+        self.assertEqual(telemetry["payload_hash_failures"], 0)
+        self.assertEqual(telemetry["payload_block_read_attempts"], 3)
+        self.assertEqual(telemetry["payload_block_retry_count"], 1)
+        self.assertEqual(telemetry["payload_block_mismatch_reads"], 1)
+        self.assertEqual(telemetry["payload_block_accepted_ranges"], 1)
 
     def test_owned_disk_map_reader_rebinds_for_sequential_pipelines(self):
         from safetensors.torch import save_file

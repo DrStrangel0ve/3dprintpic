@@ -10,6 +10,7 @@ from importlib import metadata as importlib_metadata
 import importlib.util
 import json
 import math
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -71,8 +72,10 @@ DEFAULT_FACE_CROP_CONTEXT_RATIO = 1.9
 REDUNDANT_HASH_MIN_BYTES = 1_000_000_000
 LARGE_ASSET_PREFLIGHT_HASH_READS = 1
 MAX_PINNED_READ_ATTEMPTS = 5
+VERIFIED_READ_BLOCK_BYTES = 8 * 1024 * 1024
+VERIFIED_BLOCK_QUORUM = 2
 MAX_SAFETENSORS_HEADER_BYTES = 64 * 1024 * 1024
-OWNED_DISK_MAP_PATCH_VERSION = 2
+OWNED_DISK_MAP_PATCH_VERSION = 3
 DEFAULT_PROMPT = (
     "A natural documentary photograph of the same adult person and the same "
     "scene shown in the input. Preserve the exact camera, head pose, facial "
@@ -206,9 +209,202 @@ EXACT_PART_ABSOLUTE_THRESHOLDS = {
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(8 * 1024 * 1024), b""):
+        for chunk in iter(lambda: source.read(VERIFIED_READ_BLOCK_BYTES), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _verified_file_size(path: Path) -> int:
+    try:
+        return int(path.stat().st_size)
+    except OSError as error:
+        raise RuntimeError(f"Unable to stat verified file {path}: {error}") from error
+
+
+def _read_exact_range_once(
+    path: Path,
+    offset: int,
+    size: int,
+    *,
+    expected_file_size: int | None = None,
+) -> bytes:
+    if offset < 0 or size < 0:
+        raise RuntimeError(f"Invalid verified read range for {path}.")
+    storage = bytearray(size)
+    view = memoryview(storage)
+    total = 0
+    with path.open("rb", buffering=0) as source:
+        handle_size = int(os.fstat(source.fileno()).st_size)
+        if expected_file_size is not None and handle_size != expected_file_size:
+            raise RuntimeError(
+                f"Verified read size changed for {path}: expected "
+                f"{expected_file_size}, observed {handle_size}."
+            )
+        if offset + size > handle_size:
+            raise RuntimeError(f"Verified read range extends beyond {path}.")
+        source.seek(offset)
+        while total < size:
+            count = source.readinto(view[total:])
+            if not count:
+                break
+            total += count
+    if total != size:
+        raise RuntimeError(
+            f"Short verified read for {path}: expected {size} bytes at "
+            f"offset {offset}, read {total}."
+        )
+    return bytes(storage)
+
+
+def _read_range_with_quorum(
+    path: str | Path,
+    offset: int,
+    size: int,
+    *,
+    telemetry: dict | None = None,
+    prefix: str = "verified_block",
+    expected_file_size: int | None = None,
+) -> bytes:
+    """Return a range only after fresh file handles agree byte-for-byte."""
+
+    path = Path(path).resolve()
+    keys = {
+        "attempts": f"{prefix}_read_attempts",
+        "retries": f"{prefix}_retry_count",
+        "mismatches": f"{prefix}_mismatch_reads",
+        "accepted_ranges": f"{prefix}_accepted_ranges",
+        "accepted_bytes": f"{prefix}_accepted_bytes",
+        "failures": f"{prefix}_quorum_failures",
+        "read_failures": f"{prefix}_read_failures",
+        "size_changes": f"{prefix}_size_change_reads",
+        "short_reads": f"{prefix}_short_reads",
+    }
+    if telemetry is not None:
+        for key in keys.values():
+            telemetry.setdefault(key, 0)
+
+    candidates: list[list[object]] = []
+    successful_reads = 0
+    last_error: RuntimeError | None = None
+    for attempt in range(1, MAX_PINNED_READ_ATTEMPTS + 1):
+        if telemetry is not None:
+            telemetry[keys["attempts"]] += 1
+            if attempt > VERIFIED_BLOCK_QUORUM:
+                telemetry[keys["retries"]] += 1
+        try:
+            block = _read_exact_range_once(
+                path,
+                offset,
+                size,
+                expected_file_size=expected_file_size,
+            )
+        except (OSError, RuntimeError) as error:
+            last_error = RuntimeError(str(error))
+            if telemetry is not None:
+                telemetry[keys["read_failures"]] += 1
+                if "size changed" in str(error):
+                    telemetry[keys["size_changes"]] += 1
+                if "Short verified read" in str(error):
+                    telemetry[keys["short_reads"]] += 1
+            continue
+        successful_reads += 1
+        matched = None
+        for candidate in candidates:
+            if candidate[0] == block:
+                candidate[1] = int(candidate[1]) + 1
+                matched = candidate
+                break
+        if matched is None:
+            matched = [block, 1]
+            candidates.append(matched)
+        if int(matched[1]) >= VERIFIED_BLOCK_QUORUM:
+            mismatch_reads = successful_reads - int(matched[1])
+            if telemetry is not None:
+                telemetry[keys["mismatches"]] += mismatch_reads
+                telemetry[keys["accepted_ranges"]] += 1
+                telemetry[keys["accepted_bytes"]] += size
+            return block
+
+    if telemetry is not None:
+        telemetry[keys["mismatches"]] += successful_reads
+        telemetry[keys["failures"]] += 1
+    detail = f" Last read error: {last_error}" if last_error else ""
+    raise RuntimeError(
+        f"Verified read quorum failed for {path} at offset {offset} with "
+        f"size {size} after {MAX_PINNED_READ_ATTEMPTS} attempts.{detail}"
+    )
+
+
+def _sha256_with_block_quorum(
+    path: str | Path,
+    expected_sha256: str,
+    *,
+    telemetry: dict | None = None,
+    prefix: str = "preflight_block",
+) -> str:
+    path = Path(path).resolve()
+    file_size = _verified_file_size(path)
+    if telemetry is not None:
+        telemetry.setdefault(f"{prefix}_aggregate_attempts", 0)
+        telemetry.setdefault(f"{prefix}_aggregate_hash_checks", 0)
+        telemetry.setdefault(f"{prefix}_aggregate_hash_failures", 0)
+        telemetry[f"{prefix}_aggregate_attempts"] += 1
+    digests = (hashlib.sha256(), hashlib.sha256())
+    for offset in range(0, file_size, VERIFIED_READ_BLOCK_BYTES):
+        size = min(VERIFIED_READ_BLOCK_BYTES, file_size - offset)
+        block = _read_range_with_quorum(
+            path,
+            offset,
+            size,
+            telemetry=telemetry,
+            prefix=prefix,
+            expected_file_size=file_size,
+        )
+        for digest in digests:
+            digest.update(block)
+    observed = tuple(digest.hexdigest() for digest in digests)
+    if len(set(observed)) != 1:
+        raise RuntimeError(f"Independent SHA-256 digests disagreed for {path}.")
+    if _verified_file_size(path) != file_size:
+        raise RuntimeError(f"Verified file size changed while hashing {path}.")
+    actual_sha256 = observed[0]
+    if telemetry is not None:
+        telemetry[f"{prefix}_aggregate_hash_checks"] += 1
+        telemetry[f"{prefix}_observed_sha256"] = actual_sha256
+    if actual_sha256 != expected_sha256:
+        if telemetry is not None:
+            telemetry[f"{prefix}_aggregate_hash_failures"] += 1
+        raise RuntimeError(
+            f"Pinned block-quorum SHA-256 changed for {path}: {actual_sha256}"
+        )
+    return actual_sha256
+
+
+def _read_span_with_quorum(
+    path: str | Path,
+    offset: int,
+    size: int,
+    *,
+    telemetry: dict | None = None,
+    prefix: str = "verified_block",
+    expected_file_size: int | None = None,
+) -> bytes:
+    storage = bytearray(size)
+    for relative_offset in range(0, size, VERIFIED_READ_BLOCK_BYTES):
+        block_size = min(
+            VERIFIED_READ_BLOCK_BYTES,
+            size - relative_offset,
+        )
+        block = _read_range_with_quorum(
+            path,
+            offset + relative_offset,
+            block_size,
+            telemetry=telemetry,
+            prefix=prefix,
+            expected_file_size=expected_file_size,
+        )
+        storage[relative_offset : relative_offset + block_size] = block
+    return bytes(storage)
 
 
 def _json_sha256(value: object) -> str:
@@ -231,19 +427,43 @@ def _git_output(root: Path, *args: str) -> str | None:
 
 def _asset_record(path: Path, size: int, sha256: str) -> dict:
     exists = path.is_file()
-    actual_size = int(path.stat().st_size) if exists else None
+    stat_error = None
+    try:
+        actual_size = _verified_file_size(path) if exists else None
+    except RuntimeError as error:
+        actual_size = None
+        stat_error = str(error)
     large_asset = size >= REDUNDANT_HASH_MIN_BYTES
     required_reads = LARGE_ASSET_PREFLIGHT_HASH_READS if large_asset else 1
     attempt_limit = MAX_PINNED_READ_ATTEMPTS if large_asset else 1
     attempt_groups = []
+    block_telemetry = {}
+    quorum_error = None
     if exists and actual_size == size:
         for _ in range(required_reads):
             attempts = []
             for _ in range(attempt_limit):
-                actual_sha256 = _sha256(path)
-                attempts.append(actual_sha256)
-                if actual_sha256 == sha256:
+                block_telemetry.pop("preflight_block_observed_sha256", None)
+                try:
+                    actual_sha256 = (
+                        _sha256_with_block_quorum(
+                            path,
+                            sha256,
+                            telemetry=block_telemetry,
+                        )
+                        if large_asset
+                        else _sha256(path)
+                    )
+                    attempts.append(actual_sha256)
+                    quorum_error = None
                     break
+                except (OSError, RuntimeError) as error:
+                    quorum_error = str(error)
+                    observed_sha256 = block_telemetry.get(
+                        "preflight_block_observed_sha256"
+                    )
+                    if observed_sha256 is not None:
+                        attempts.append(str(observed_sha256))
             attempt_groups.append(attempts)
     observations = [attempts[-1] for attempts in attempt_groups if attempts]
     reads_consistent = (
@@ -256,7 +476,7 @@ def _asset_record(path: Path, size: int, sha256: str) -> dict:
         observation != sha256
         for attempts in attempt_groups
         for observation in attempts
-    )
+    ) + int(block_telemetry.get("preflight_block_mismatch_reads", 0))
     hash_pinned = (
         reads_consistent
         and len(observations) == required_reads
@@ -268,6 +488,7 @@ def _asset_record(path: Path, size: int, sha256: str) -> dict:
         "size_bytes": actual_size,
         "expected_size_bytes": size,
         "size_pinned": actual_size == size,
+        "stat_error": stat_error,
         "sha256": actual_sha256,
         "sha256_observations": observations,
         "sha256_attempt_groups": attempt_groups,
@@ -280,6 +501,45 @@ def _asset_record(path: Path, size: int, sha256: str) -> dict:
         "hash_mismatch_attempts": mismatch_attempts,
         "recovered_hash_mismatches": mismatch_attempts if hash_pinned else 0,
         "terminal_hash_mismatches": mismatch_attempts if not hash_pinned else 0,
+        "block_quorum": VERIFIED_BLOCK_QUORUM if large_asset else None,
+        "block_size_bytes": VERIFIED_READ_BLOCK_BYTES if large_asset else None,
+        "block_read_attempts": int(
+            block_telemetry.get("preflight_block_read_attempts", 0)
+        ),
+        "block_retry_count": int(
+            block_telemetry.get("preflight_block_retry_count", 0)
+        ),
+        "block_mismatch_reads": int(
+            block_telemetry.get("preflight_block_mismatch_reads", 0)
+        ),
+        "block_accepted_ranges": int(
+            block_telemetry.get("preflight_block_accepted_ranges", 0)
+        ),
+        "block_accepted_bytes": int(
+            block_telemetry.get("preflight_block_accepted_bytes", 0)
+        ),
+        "block_quorum_failures": int(
+            block_telemetry.get("preflight_block_quorum_failures", 0)
+        ),
+        "block_aggregate_hash_checks": int(
+            block_telemetry.get("preflight_block_aggregate_hash_checks", 0)
+        ),
+        "block_aggregate_attempts": int(
+            block_telemetry.get("preflight_block_aggregate_attempts", 0)
+        ),
+        "block_aggregate_hash_failures": int(
+            block_telemetry.get("preflight_block_aggregate_hash_failures", 0)
+        ),
+        "block_read_failures": int(
+            block_telemetry.get("preflight_block_read_failures", 0)
+        ),
+        "block_size_change_reads": int(
+            block_telemetry.get("preflight_block_size_change_reads", 0)
+        ),
+        "block_short_reads": int(
+            block_telemetry.get("preflight_block_short_reads", 0)
+        ),
+        "block_quorum_error": quorum_error,
         "hash_pinned": hash_pinned,
     }
 
@@ -1075,95 +1335,124 @@ def _make_precomputed_prompt_processor(prompt_embeddings):
 def _build_verified_safetensor_manifest_once(
     path: str | Path,
     expected_sha256: str,
+    telemetry: dict | None = None,
 ) -> dict:
-    """Derive per-tensor digests from one fully pinned shard read."""
+    """Derive file and tensor digests from one quorum-accepted byte stream."""
 
     path = Path(path).resolve()
-    file_size = int(path.stat().st_size)
-    full_digest = hashlib.sha256()
-    with path.open("rb", buffering=0) as stream:
-        header_length_bytes = stream.read(8)
-        if len(header_length_bytes) != 8:
-            raise RuntimeError(f"Invalid safetensors header length: {path}")
-        full_digest.update(header_length_bytes)
-        header_length = int.from_bytes(header_length_bytes, "little")
-        if not 0 < header_length <= min(
-            MAX_SAFETENSORS_HEADER_BYTES,
-            file_size - 8,
-        ):
-            raise RuntimeError(f"Unsafe safetensors header length: {path}")
-        header_bytes = stream.read(header_length)
-        if len(header_bytes) != header_length:
-            raise RuntimeError(f"Truncated safetensors header: {path}")
-        full_digest.update(header_bytes)
-        try:
-            header = json.loads(header_bytes)
-        except (TypeError, ValueError) as error:
-            raise RuntimeError(f"Invalid safetensors header JSON: {path}") from error
-        data_start = 8 + header_length
-        tensor_entries = []
-        previous_end = 0
-        for name, entry in sorted(
-            (
-                (name, entry)
-                for name, entry in header.items()
-                if name != "__metadata__"
-            ),
-            key=lambda item: int(item[1]["data_offsets"][0]),
-        ):
-            start, end = (int(value) for value in entry["data_offsets"])
-            if start < previous_end or end < start or data_start + end > file_size:
-                raise RuntimeError(
-                    f"Invalid or overlapping safetensors offsets for {name!r}."
-                )
-            tensor_entries.append(
-                {
-                    "name": name,
-                    "start": start,
-                    "end": end,
-                    "absolute_start": data_start + start,
-                    "absolute_end": data_start + end,
-                    "dtype": entry["dtype"],
-                    "shape": [int(value) for value in entry["shape"]],
-                    "digest": hashlib.sha256(),
-                }
+    file_size = _verified_file_size(path)
+    full_digests = (hashlib.sha256(), hashlib.sha256())
+    header_length_bytes = _read_range_with_quorum(
+        path,
+        0,
+        8,
+        telemetry=telemetry,
+        prefix="manifest_block",
+        expected_file_size=file_size,
+    )
+    for digest in full_digests:
+        digest.update(header_length_bytes)
+    header_length = int.from_bytes(header_length_bytes, "little")
+    if not 0 < header_length <= min(
+        MAX_SAFETENSORS_HEADER_BYTES,
+        file_size - 8,
+    ):
+        raise RuntimeError(f"Unsafe safetensors header length: {path}")
+    header_bytes = _read_span_with_quorum(
+        path,
+        8,
+        header_length,
+        telemetry=telemetry,
+        prefix="manifest_block",
+        expected_file_size=file_size,
+    )
+    for digest in full_digests:
+        digest.update(header_bytes)
+    try:
+        header = json.loads(header_bytes)
+    except (TypeError, ValueError) as error:
+        raise RuntimeError(f"Invalid safetensors header JSON: {path}") from error
+    data_start = 8 + header_length
+    tensor_entries = []
+    previous_end = 0
+    for name, entry in sorted(
+        (
+            (name, entry)
+            for name, entry in header.items()
+            if name != "__metadata__"
+        ),
+        key=lambda item: int(item[1]["data_offsets"][0]),
+    ):
+        start, end = (int(value) for value in entry["data_offsets"])
+        if start < previous_end or end < start or data_start + end > file_size:
+            raise RuntimeError(
+                f"Invalid or overlapping safetensors offsets for {name!r}."
             )
-            previous_end = end
+        tensor_entries.append(
+            {
+                "name": name,
+                "start": start,
+                "end": end,
+                "absolute_start": data_start + start,
+                "absolute_end": data_start + end,
+                "dtype": entry["dtype"],
+                "shape": [int(value) for value in entry["shape"]],
+                "digest": hashlib.sha256(),
+            }
+        )
+        previous_end = end
 
-        position = data_start
-        tensor_index = 0
-        while block := stream.read(8 * 1024 * 1024):
-            block_start = position
-            block_end = block_start + len(block)
-            full_digest.update(block)
-            block_view = memoryview(block)
-            while (
-                tensor_index < len(tensor_entries)
-                and tensor_entries[tensor_index]["absolute_end"] <= block_start
-            ):
-                tensor_index += 1
-            cursor = tensor_index
-            while cursor < len(tensor_entries):
-                tensor = tensor_entries[cursor]
-                if tensor["absolute_start"] >= block_end:
-                    break
-                overlap_start = max(tensor["absolute_start"], block_start)
-                overlap_end = min(tensor["absolute_end"], block_end)
-                if overlap_end > overlap_start:
-                    tensor["digest"].update(
-                        block_view[
-                            overlap_start - block_start : overlap_end - block_start
-                        ]
-                    )
-                if tensor["absolute_end"] <= block_end:
-                    cursor += 1
-                else:
-                    break
-            tensor_index = cursor
-            position = block_end
+    position = data_start
+    tensor_index = 0
+    while position < file_size:
+        block_size = min(VERIFIED_READ_BLOCK_BYTES, file_size - position)
+        block = _read_range_with_quorum(
+            path,
+            position,
+            block_size,
+            telemetry=telemetry,
+            prefix="manifest_block",
+            expected_file_size=file_size,
+        )
+        block_start = position
+        block_end = block_start + len(block)
+        for digest in full_digests:
+            digest.update(block)
+        block_view = memoryview(block)
+        while (
+            tensor_index < len(tensor_entries)
+            and tensor_entries[tensor_index]["absolute_end"] <= block_start
+        ):
+            tensor_index += 1
+        cursor = tensor_index
+        while cursor < len(tensor_entries):
+            tensor = tensor_entries[cursor]
+            if tensor["absolute_start"] >= block_end:
+                break
+            overlap_start = max(tensor["absolute_start"], block_start)
+            overlap_end = min(tensor["absolute_end"], block_end)
+            if overlap_end > overlap_start:
+                tensor["digest"].update(
+                    block_view[
+                        overlap_start - block_start : overlap_end - block_start
+                    ]
+                )
+            if tensor["absolute_end"] <= block_end:
+                cursor += 1
+            else:
+                break
+        tensor_index = cursor
+        position = block_end
     if position != file_size:
         raise RuntimeError(f"Safetensors size changed while hashing: {path}")
-    actual_sha256 = full_digest.hexdigest()
+    if _verified_file_size(path) != file_size:
+        raise RuntimeError(f"Safetensors size changed while hashing: {path}")
+    observed_digests = tuple(digest.hexdigest() for digest in full_digests)
+    if len(set(observed_digests)) != 1:
+        raise RuntimeError(
+            f"Independent safetensors SHA-256 digests disagreed for {path}."
+        )
+    actual_sha256 = observed_digests[0]
     if actual_sha256 != expected_sha256:
         raise RuntimeError(
             f"Pinned safetensors hash changed while building tensor manifest: {path}"
@@ -1208,6 +1497,7 @@ def _build_verified_safetensor_manifest(
             manifest = _build_verified_safetensor_manifest_once(
                 path,
                 expected_sha256,
+                telemetry=telemetry,
             )
         except RuntimeError as error:
             failures.append(str(error))
@@ -1260,14 +1550,45 @@ def _read_verified_safetensor_tensor(
         if attempt > 1:
             telemetry["payload_retry_count"] += 1
         storage = bytearray(expected_size)
-        with path.open("rb", buffering=0) as stream:
-            stream.seek(absolute_start)
-            bytes_read = stream.readinto(storage)
-        if bytes_read != expected_size:
+        try:
+            for relative_offset in range(
+                0,
+                expected_size,
+                VERIFIED_READ_BLOCK_BYTES,
+            ):
+                block_size = min(
+                    VERIFIED_READ_BLOCK_BYTES,
+                    expected_size - relative_offset,
+                )
+                block = _read_range_with_quorum(
+                    path,
+                    absolute_start + relative_offset,
+                    block_size,
+                    telemetry=telemetry,
+                    prefix="payload_block",
+                    expected_file_size=int(manifest["file_size"]),
+                )
+                storage[relative_offset : relative_offset + block_size] = block
+        except RuntimeError:
+            telemetry["payload_read_failures"] += 1
+            continue
+        try:
+            final_size = _verified_file_size(path)
+        except RuntimeError:
+            telemetry["payload_read_failures"] += 1
+            continue
+        if final_size != int(manifest["file_size"]):
             telemetry["payload_read_failures"] += 1
             continue
         telemetry["payload_hash_checks"] += 1
-        actual_payload_sha256 = hashlib.sha256(storage).hexdigest()
+        payload_digests = (
+            hashlib.sha256(storage).hexdigest(),
+            hashlib.sha256(memoryview(storage)).hexdigest(),
+        )
+        if len(set(payload_digests)) != 1:
+            telemetry["payload_hash_failures"] += 1
+            continue
+        actual_payload_sha256 = payload_digests[0]
         if actual_payload_sha256 == entry["payload_sha256"]:
             return storage, dtype, shape
         telemetry["payload_hash_failures"] += 1
@@ -1304,6 +1625,19 @@ def _install_owned_disk_map_reads(
         "payload_hash_checks": 0,
         "payload_hash_failures": 0,
     }
+    for prefix in ("manifest_block", "payload_block"):
+        for suffix in (
+            "read_attempts",
+            "retry_count",
+            "mismatch_reads",
+            "accepted_ranges",
+            "accepted_bytes",
+            "quorum_failures",
+            "read_failures",
+            "size_change_reads",
+            "short_reads",
+        ):
+            observed_reads[f"{prefix}_{suffix}"] = 0
 
     def read_owned_tensor(path: str, name: str):
         resolved_path = str(Path(path).resolve())
@@ -1417,8 +1751,15 @@ def _install_owned_disk_map_reads(
         ),
         "read_mode": "on_demand_safetensors",
         "supported_dtypes": ["BF16", "F32"],
-        "tensor_transport": "file_and_tensor_sha256_validated_bytes_to_owned_torch",
-        "payload_hash_validation": "manifest_from_pinned_full_read_then_exact_payload",
+        "tensor_transport": (
+            "block_quorum_file_and_tensor_sha256_validated_bytes_to_owned_torch"
+        ),
+        "payload_hash_validation": (
+            "quorum_manifest_from_pinned_full_read_then_quorum_exact_payload"
+        ),
+        "block_quorum": VERIFIED_BLOCK_QUORUM,
+        "block_size_bytes": VERIFIED_READ_BLOCK_BYTES,
+        "max_block_read_attempts": MAX_PINNED_READ_ATTEMPTS,
         "storage_is_file_mapping_independent": True,
         "observed_reads": observed_reads,
     }
