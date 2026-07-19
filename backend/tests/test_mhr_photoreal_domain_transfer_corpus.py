@@ -452,6 +452,97 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         self.assertTrue(record["hash_reads_consistent"])
         self.assertTrue(record["hash_pinned"])
 
+    def test_small_asset_record_preserves_single_read_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_bytes(b"config")
+            with patch.object(
+                transfer,
+                "_sha256",
+                return_value="expected",
+            ) as sha256:
+                record = transfer._asset_record(path, len(b"config"), "expected")
+
+        sha256.assert_called_once_with(path)
+        self.assertEqual(record["sha256"], "expected")
+        self.assertEqual(record["sha256_observations"], ["expected"])
+        self.assertEqual(record["hash_reads_required"], 1)
+        self.assertTrue(record["hash_reads_consistent"])
+        self.assertTrue(record["hash_pinned"])
+
+    def test_preflight_propagates_inconsistent_controlnet_reads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            provider = root / "provider"
+            model = root / "model"
+            provider.mkdir()
+            model.mkdir()
+            for relative in transfer.DIFFSYNTH_REQUIRED_FILES:
+                path = provider / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("fixture")
+            control = root / transfer.ZIMAGE_CONTROLNET_FILENAME
+
+            def asset_record(path, size, sha256):
+                reads = (
+                    transfer.REDUNDANT_HASH_READS
+                    if size >= transfer.REDUNDANT_HASH_MIN_BYTES
+                    else 1
+                )
+                observations = [sha256] * reads
+                consistent = True
+                pinned = True
+                if Path(path) == control:
+                    observations[-1] = "transient-corruption"
+                    consistent = False
+                    pinned = False
+                return {
+                    "path": str(path),
+                    "exists": True,
+                    "size_bytes": size,
+                    "expected_size_bytes": size,
+                    "size_pinned": True,
+                    "sha256": observations[-1],
+                    "sha256_observations": observations,
+                    "expected_sha256": sha256,
+                    "hash_read_count": reads,
+                    "hash_reads_required": reads,
+                    "hash_reads_consistent": consistent,
+                    "hash_pinned": pinned,
+                }
+
+            with (
+                patch.object(
+                    transfer,
+                    "_git_output",
+                    side_effect=lambda _root, *args: (
+                        transfer.DIFFSYNTH_SOURCE_REVISION
+                        if args and args[0] == "rev-parse"
+                        else ""
+                    ),
+                ),
+                patch.object(
+                    transfer,
+                    "_adapter_repository_provenance",
+                    return_value={
+                        "root": str(root),
+                        "revision": "fixture",
+                        "clean": True,
+                        "status": [],
+                        "adapter_relative_path": "adapter.py",
+                        "adapter_tracked": True,
+                    },
+                ),
+                patch.object(transfer, "_asset_record", side_effect=asset_record),
+                patch.object(transfer.importlib.util, "find_spec", return_value=object()),
+            ):
+                evidence = transfer.zimage_preflight(provider, model, control)
+
+        self.assertFalse(evidence["runnable"])
+        self.assertFalse(evidence["checks"]["controlnet_hash_pinned"])
+        self.assertFalse(evidence["checks"]["controlnet_hash_reads_consistent"])
+        self.assertTrue(evidence["checks"]["model_hash_reads_consistent"])
+
     def test_publish_requires_both_geometry_gates(self):
         with self.assertRaisesRegex(ValueError, "both geometry gates"):
             transfer._publish_derived_corpus(
@@ -618,7 +709,10 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                     super().__init__()
                     self.model = Model()
 
-            telemetry = transfer._install_owned_disk_map_reads(Pipe())
+            telemetry = transfer._install_owned_disk_map_reads(
+                Pipe(),
+                expected_file_sha256={str(weights): transfer._sha256(weights)},
+            )
             fetched = disk_map["weight"]
             fetched_bf16 = disk_map["bf16"]
 
@@ -629,7 +723,12 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
             self.assertEqual(telemetry["read_mode"], "on_demand_safetensors")
             self.assertEqual(telemetry["supported_dtypes"], ["BF16", "F32"])
             self.assertEqual(
-                telemetry["tensor_transport"], "validated_bytes_to_owned_torch"
+                telemetry["tensor_transport"],
+                "file_and_tensor_sha256_validated_bytes_to_owned_torch",
+            )
+            self.assertEqual(
+                telemetry["payload_hash_validation"],
+                "manifest_from_pinned_full_read_then_exact_payload",
             )
             self.assertTrue(telemetry["storage_is_file_mapping_independent"])
             self.assertEqual(
@@ -638,12 +737,106 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                     "tensor_count": 2,
                     "payload_bytes": 24,
                     "dtype_counts": {"BF16": 1, "F32": 1},
+                    "manifest_file_count": 1,
+                    "manifest_bytes_hashed": weights.stat().st_size,
+                    "payload_hash_checks": 2,
+                    "payload_hash_failures": 0,
                 },
             )
             self.assertNotEqual(fetched.data_ptr(), source.data_ptr())
             torch.testing.assert_close(fetched, source)
             self.assertEqual(fetched_bf16.dtype, torch.bfloat16)
             torch.testing.assert_close(fetched_bf16, source_bf16)
+
+    def test_verified_tensor_read_rejects_post_manifest_payload_change(self):
+        from safetensors.torch import save_file
+        import torch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            weights = Path(temp_dir) / "weights.safetensors"
+            save_file({"weight": torch.arange(4, dtype=torch.float32)}, weights)
+            manifest = transfer._build_verified_safetensor_manifest(
+                weights,
+                transfer._sha256(weights),
+            )
+            entry = manifest["tensors"]["weight"]
+            payload_offset = manifest["data_start"] + entry["data_offsets"][0]
+            with weights.open("r+b", buffering=0) as stream:
+                stream.seek(payload_offset)
+                original = stream.read(1)
+                stream.seek(payload_offset)
+                stream.write(bytes([original[0] ^ 0x01]))
+            telemetry = {
+                "payload_hash_checks": 0,
+                "payload_hash_failures": 0,
+            }
+
+            with self.assertRaisesRegex(RuntimeError, "payload hash changed"):
+                transfer._read_verified_safetensor_tensor(
+                    weights,
+                    "weight",
+                    manifest,
+                    telemetry,
+                )
+
+        self.assertEqual(telemetry["payload_hash_checks"], 1)
+        self.assertEqual(telemetry["payload_hash_failures"], 1)
+
+    def test_owned_disk_map_reader_rebinds_for_sequential_pipelines(self):
+        from safetensors.torch import save_file
+        import torch
+
+        class DiskMap:
+            def __init__(self, path):
+                self.buffer_size = 1
+                self.device = torch.device("cpu")
+                self.files = []
+                self.name_map = {"weight": 0}
+                self.rename_dict = None
+                self.path = [str(path)]
+                self.torch_dtype = None
+                self.num_params = 0
+
+            def __getitem__(self, _name):
+                raise AssertionError("the pinned reader must be installed")
+
+        class Child(torch.nn.Module):
+            def __init__(self, disk_map):
+                super().__init__()
+                self.disk_map = disk_map
+
+        class Pipe(torch.nn.Module):
+            def __init__(self, disk_map):
+                super().__init__()
+                self.model = Child(disk_map)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first_path = Path(temp_dir) / "first.safetensors"
+            second_path = Path(temp_dir) / "second.safetensors"
+            save_file({"weight": torch.full((2,), 3.0)}, first_path)
+            save_file({"weight": torch.full((2,), 9.0)}, second_path)
+            first_map = DiskMap(first_path)
+            second_map = DiskMap(second_path)
+            transfer._install_owned_disk_map_reads(
+                Pipe(first_map),
+                expected_file_sha256={
+                    str(first_path): transfer._sha256(first_path)
+                },
+            )
+            second_telemetry = transfer._install_owned_disk_map_reads(
+                Pipe(second_map),
+                expected_file_sha256={
+                    str(second_path): transfer._sha256(second_path)
+                },
+            )
+
+            torch.testing.assert_close(first_map["weight"], torch.full((2,), 3.0))
+            torch.testing.assert_close(second_map["weight"], torch.full((2,), 9.0))
+
+        self.assertEqual(
+            second_telemetry["observed_reads"]["payload_hash_checks"],
+            1,
+        )
 
 
 if __name__ == "__main__":

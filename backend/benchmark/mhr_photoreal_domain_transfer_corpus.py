@@ -1045,57 +1045,201 @@ def _make_precomputed_prompt_processor(prompt_embeddings):
     return process
 
 
-def _install_owned_disk_map_reads(pipe) -> dict:
+def _build_verified_safetensor_manifest(
+    path: str | Path,
+    expected_sha256: str,
+) -> dict:
+    """Derive per-tensor digests from one fully pinned shard read."""
+
+    path = Path(path).resolve()
+    file_size = int(path.stat().st_size)
+    full_digest = hashlib.sha256()
+    with path.open("rb", buffering=0) as stream:
+        header_length_bytes = stream.read(8)
+        if len(header_length_bytes) != 8:
+            raise RuntimeError(f"Invalid safetensors header length: {path}")
+        full_digest.update(header_length_bytes)
+        header_length = int.from_bytes(header_length_bytes, "little")
+        header_bytes = stream.read(header_length)
+        if len(header_bytes) != header_length:
+            raise RuntimeError(f"Truncated safetensors header: {path}")
+        full_digest.update(header_bytes)
+        try:
+            header = json.loads(header_bytes)
+        except (TypeError, ValueError) as error:
+            raise RuntimeError(f"Invalid safetensors header JSON: {path}") from error
+        data_start = 8 + header_length
+        tensor_entries = []
+        previous_end = 0
+        for name, entry in sorted(
+            (
+                (name, entry)
+                for name, entry in header.items()
+                if name != "__metadata__"
+            ),
+            key=lambda item: int(item[1]["data_offsets"][0]),
+        ):
+            start, end = (int(value) for value in entry["data_offsets"])
+            if start < previous_end or end < start or data_start + end > file_size:
+                raise RuntimeError(
+                    f"Invalid or overlapping safetensors offsets for {name!r}."
+                )
+            tensor_entries.append(
+                {
+                    "name": name,
+                    "start": start,
+                    "end": end,
+                    "absolute_start": data_start + start,
+                    "absolute_end": data_start + end,
+                    "dtype": entry["dtype"],
+                    "shape": [int(value) for value in entry["shape"]],
+                    "digest": hashlib.sha256(),
+                }
+            )
+            previous_end = end
+
+        position = data_start
+        tensor_index = 0
+        while block := stream.read(8 * 1024 * 1024):
+            block_start = position
+            block_end = block_start + len(block)
+            full_digest.update(block)
+            while (
+                tensor_index < len(tensor_entries)
+                and tensor_entries[tensor_index]["absolute_end"] <= block_start
+            ):
+                tensor_index += 1
+            cursor = tensor_index
+            while cursor < len(tensor_entries):
+                tensor = tensor_entries[cursor]
+                if tensor["absolute_start"] >= block_end:
+                    break
+                overlap_start = max(tensor["absolute_start"], block_start)
+                overlap_end = min(tensor["absolute_end"], block_end)
+                if overlap_end > overlap_start:
+                    tensor["digest"].update(
+                        block[
+                            overlap_start - block_start : overlap_end - block_start
+                        ]
+                    )
+                if tensor["absolute_end"] <= block_end:
+                    cursor += 1
+                else:
+                    break
+            tensor_index = cursor
+            position = block_end
+    if position != file_size:
+        raise RuntimeError(f"Safetensors size changed while hashing: {path}")
+    actual_sha256 = full_digest.hexdigest()
+    if actual_sha256 != expected_sha256:
+        raise RuntimeError(
+            f"Pinned safetensors hash changed while building tensor manifest: {path}"
+        )
+    tensors = {
+        entry["name"]: {
+            "data_offsets": [entry["start"], entry["end"]],
+            "dtype": entry["dtype"],
+            "shape": entry["shape"],
+            "payload_sha256": entry["digest"].hexdigest(),
+        }
+        for entry in tensor_entries
+    }
+    return {
+        "path": str(path),
+        "file_size": file_size,
+        "file_sha256": actual_sha256,
+        "data_start": data_start,
+        "tensors": tensors,
+    }
+
+
+def _read_verified_safetensor_tensor(
+    path: str | Path,
+    name: str,
+    manifest: dict,
+    telemetry: dict,
+) -> tuple[bytearray, str, tuple[int, ...]]:
+    path = Path(path).resolve()
+    if name not in manifest["tensors"]:
+        raise RuntimeError(f"Tensor {name!r} is absent from pinned shard {path}.")
+    entry = manifest["tensors"][name]
+    dtype = entry["dtype"]
+    shape = tuple(int(value) for value in entry["shape"])
+    start, end = (int(value) for value in entry["data_offsets"])
+    item_size = {"BF16": 2, "F32": 4}.get(dtype)
+    if item_size is None:
+        raise RuntimeError(
+            f"Unsupported pinned safetensors dtype {dtype!r} for tensor {name!r}."
+        )
+    expected_size = math.prod(shape) * item_size
+    if start < 0 or end < start or end - start != expected_size:
+        raise RuntimeError(f"Invalid safetensors offsets for tensor {name!r}.")
+    absolute_start = int(manifest["data_start"]) + start
+    if int(manifest["data_start"]) + end > int(manifest["file_size"]):
+        raise RuntimeError(f"Tensor {name!r} extends beyond pinned shard {path}.")
+    storage = bytearray(expected_size)
+    with path.open("rb", buffering=0) as stream:
+        stream.seek(absolute_start)
+        bytes_read = stream.readinto(storage)
+    if bytes_read != expected_size:
+        raise RuntimeError(f"Truncated tensor payload for {name!r} in {path}.")
+    telemetry["payload_hash_checks"] += 1
+    actual_payload_sha256 = hashlib.sha256(storage).hexdigest()
+    if actual_payload_sha256 != entry["payload_sha256"]:
+        telemetry["payload_hash_failures"] += 1
+        raise RuntimeError(
+            f"Tensor payload hash changed for {name!r} in pinned shard {path}."
+        )
+    return storage, dtype, shape
+
+
+def _install_owned_disk_map_reads(
+    pipe,
+    *,
+    expected_file_sha256: dict[str, str],
+) -> dict:
     import torch
 
-    header_cache = {}
+    expected_hashes = {
+        str(Path(path).resolve()).casefold(): sha256
+        for path, sha256 in expected_file_sha256.items()
+    }
+    manifest_cache = {}
     observed_reads = {
         "tensor_count": 0,
         "payload_bytes": 0,
         "dtype_counts": {},
+        "manifest_file_count": 0,
+        "manifest_bytes_hashed": 0,
+        "payload_hash_checks": 0,
+        "payload_hash_failures": 0,
     }
 
     def read_owned_tensor(path: str, name: str):
-        if path not in header_cache:
-            with open(path, "rb", buffering=0) as stream:
-                header_length_bytes = stream.read(8)
-                if len(header_length_bytes) != 8:
-                    raise RuntimeError("Invalid safetensors header length: " + path)
-                header_length = int.from_bytes(header_length_bytes, "little")
-                header_bytes = stream.read(header_length)
-                if len(header_bytes) != header_length:
-                    raise RuntimeError("Truncated safetensors header: " + path)
-            header_cache[path] = (
-                json.loads(header_bytes),
-                8 + header_length,
-                Path(path).stat().st_size,
-            )
-        header, data_start, file_size = header_cache[path]
-        if name not in header:
-            raise RuntimeError(f"Tensor {name!r} is absent from pinned shard {path}.")
-        entry = header[name]
-        dtype = entry["dtype"]
-        shape = tuple(int(value) for value in entry["shape"])
-        start, end = (int(value) for value in entry["data_offsets"])
-        item_size = {"BF16": 2, "F32": 4}.get(dtype)
-        if item_size is None:
+        resolved_path = str(Path(path).resolve())
+        path_key = resolved_path.casefold()
+        expected_sha256 = expected_hashes.get(path_key)
+        if expected_sha256 is None:
             raise RuntimeError(
-                f"Unsupported pinned safetensors dtype {dtype!r} for tensor {name!r}."
+                "No immutable file hash was provided for DiskMap shard: "
+                + resolved_path
             )
-        expected_size = math.prod(shape) * item_size
-        if start < 0 or end < start or end - start != expected_size:
-            raise RuntimeError(f"Invalid safetensors offsets for tensor {name!r}.")
-        absolute_start = data_start + start
-        if data_start + end > file_size:
-            raise RuntimeError(f"Tensor {name!r} extends beyond pinned shard {path}.")
-        storage = bytearray(expected_size)
-        with open(path, "rb", buffering=0) as stream:
-            stream.seek(absolute_start)
-            bytes_read = stream.readinto(storage)
-        if bytes_read != expected_size:
-            raise RuntimeError(f"Truncated tensor payload for {name!r} in {path}.")
+        if path_key not in manifest_cache:
+            manifest = _build_verified_safetensor_manifest(
+                resolved_path,
+                expected_sha256,
+            )
+            manifest_cache[path_key] = manifest
+            observed_reads["manifest_file_count"] += 1
+            observed_reads["manifest_bytes_hashed"] += int(manifest["file_size"])
+        storage, dtype, shape = _read_verified_safetensor_tensor(
+            resolved_path,
+            name,
+            manifest_cache[path_key],
+            observed_reads,
+        )
         observed_reads["tensor_count"] += 1
-        observed_reads["payload_bytes"] += expected_size
+        observed_reads["payload_bytes"] += len(storage)
         dtype_counts = observed_reads["dtype_counts"]
         dtype_counts[dtype] = dtype_counts.get(dtype, 0) + 1
         if dtype == "F32":
@@ -1116,6 +1260,7 @@ def _install_owned_disk_map_reads(pipe) -> dict:
     for disk_map in disk_maps.values():
         disk_map.buffer_size = sys.maxsize
         disk_map._3dprintpic_on_demand_reads = True
+        disk_map._3dprintpic_owned_tensor_reader = read_owned_tensor
         disk_map_class = type(disk_map)
         if hasattr(disk_map_class, "_3dprintpic_original_getitem"):
             continue
@@ -1131,7 +1276,10 @@ def _install_owned_disk_map_reads(pipe) -> dict:
                 raise RuntimeError(
                     "Pinned on-demand DiskMap reads require safetensors: " + path
                 )
-            value = read_owned_tensor(path, lookup_name)
+            reader = getattr(self, "_3dprintpic_owned_tensor_reader", None)
+            if reader is None:
+                raise RuntimeError("Pinned DiskMap tensor reader is not installed.")
+            value = reader(path, lookup_name)
             if self.torch_dtype is not None:
                 value = value.to(self.torch_dtype)
             self.num_params += value.numel()
@@ -1162,7 +1310,8 @@ def _install_owned_disk_map_reads(pipe) -> dict:
         ),
         "read_mode": "on_demand_safetensors",
         "supported_dtypes": ["BF16", "F32"],
-        "tensor_transport": "validated_bytes_to_owned_torch",
+        "tensor_transport": "file_and_tensor_sha256_validated_bytes_to_owned_torch",
+        "payload_hash_validation": "manifest_from_pinned_full_read_then_exact_payload",
         "storage_is_file_mapping_independent": True,
         "observed_reads": observed_reads,
     }
@@ -1254,6 +1403,14 @@ def _run_zimage(
     transformer_paths = [model_root / name for name in ZIMAGE_TRANSFORMER_SHARDS]
     text_encoder_paths = [model_root / name for name in ZIMAGE_TEXT_ENCODER_SHARDS]
     vae_path = model_root / "vae" / "diffusion_pytorch_model.safetensors"
+    expected_safetensor_sha256 = {
+        str((model_root / relative).resolve()): record["expected_sha256"]
+        for relative, record in preflight["model"]["files"].items()
+        if relative.endswith(".safetensors")
+    }
+    expected_safetensor_sha256[str(controlnet_path.resolve())] = preflight[
+        "controlnet"
+    ]["expected_sha256"]
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats(device)
     started = time.perf_counter()
@@ -1278,7 +1435,10 @@ def _run_zimage(
         ),
         vram_limit=vram_limit,
     )
-    text_owned_disk_map_reads = _install_owned_disk_map_reads(text_pipe)
+    text_owned_disk_map_reads = _install_owned_disk_map_reads(
+        text_pipe,
+        expected_file_sha256=expected_safetensor_sha256,
+    )
     text_disk_map_refresh = _install_post_empty_cache_disk_map_refresh(text_pipe)
     text_prompt_unit = next(
         unit
@@ -1323,7 +1483,10 @@ def _run_zimage(
         tokenizer_config=None,
         vram_limit=vram_limit,
     )
-    owned_disk_map_reads = _install_owned_disk_map_reads(pipe)
+    owned_disk_map_reads = _install_owned_disk_map_reads(
+        pipe,
+        expected_file_sha256=expected_safetensor_sha256,
+    )
     disk_map_refresh = _install_post_empty_cache_disk_map_refresh(pipe)
     direct_meta_parameters = _materialize_direct_meta_parameters(
         pipe.dit,
