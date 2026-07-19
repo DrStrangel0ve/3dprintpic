@@ -384,6 +384,37 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                 {"passed": False},
             )
 
+    def test_disk_maps_refresh_after_provider_device_switch(self):
+        events = []
+
+        class DiskMap:
+            def flush_files(self):
+                events.append("refresh")
+
+        disk_map = DiskMap()
+
+        class Child:
+            def __init__(self):
+                self.disk_map = disk_map
+
+        class Model:
+            def modules(self):
+                return [Child(), Child()]
+
+        class Pipe:
+            text_encoder = Model()
+
+            @staticmethod
+            def load_models_to_device(_model_names):
+                events.append("provider_switch")
+
+        pipe = Pipe()
+        telemetry = transfer._install_post_empty_cache_disk_map_refresh(pipe)
+        pipe.load_models_to_device(["text_encoder"])
+
+        self.assertEqual(events, ["provider_switch", "refresh"])
+        self.assertEqual(telemetry, {"calls": 1, "refreshed_maps": 1})
+
 
 if __name__ == "__main__":
     unittest.main()

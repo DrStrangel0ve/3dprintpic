@@ -905,6 +905,30 @@ def _prepare_pinned_diffsynth_import(provider_root: Path) -> None:
     sys.path[:] = [str(provider_root), *retained]
 
 
+def _install_post_empty_cache_disk_map_refresh(pipe) -> dict:
+    original = pipe.load_models_to_device
+    telemetry = {"calls": 0, "refreshed_maps": 0}
+
+    def load_models_to_device(model_names):
+        original(model_names)
+        refreshed = set()
+        for model_name in model_names:
+            model = getattr(pipe, model_name, None)
+            if model is None:
+                continue
+            for module in model.modules():
+                disk_map = getattr(module, "disk_map", None)
+                if disk_map is None or id(disk_map) in refreshed:
+                    continue
+                disk_map.flush_files()
+                refreshed.add(id(disk_map))
+        telemetry["calls"] += 1
+        telemetry["refreshed_maps"] += len(refreshed)
+
+    pipe.load_models_to_device = load_models_to_device
+    return telemetry
+
+
 def _run_zimage(
     preflight: dict,
     parent_rgb: np.ndarray,
@@ -976,6 +1000,7 @@ def _run_zimage(
             torch.cuda.mem_get_info(device)[1] / (1024**3) - 0.5,
         ),
     )
+    disk_map_refresh = _install_post_empty_cache_disk_map_refresh(pipe)
     torch.cuda.synchronize(device)
     loaded_seconds = time.perf_counter() - started
     inference_started = time.perf_counter()
@@ -1009,6 +1034,7 @@ def _run_zimage(
         "compute_capability": list(torch.cuda.get_device_capability(device)),
         "device_wide_peak_available": False,
         "provider_import_files": imported_files,
+        "post_empty_cache_disk_map_refresh": disk_map_refresh,
         "disk_offload": True,
         "disk_offload_preparing_device": str(device),
         "disk_offload_reason": (
