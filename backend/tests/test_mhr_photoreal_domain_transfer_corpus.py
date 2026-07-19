@@ -415,6 +415,14 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         self.assertEqual(events, ["provider_switch", "refresh"])
         self.assertEqual(telemetry, {"calls": 1, "refreshed_maps": 1})
 
+    def test_precomputed_prompt_processor_accepts_provider_keywords(self):
+        embeddings = [object()]
+        processor = transfer._make_precomputed_prompt_processor(embeddings)
+
+        result = processor(pipe=object(), prompt="portrait", edit_image=None)
+
+        self.assertIs(result["prompt_embeds"], embeddings)
+
 
 if __name__ == "__main__":
     unittest.main()

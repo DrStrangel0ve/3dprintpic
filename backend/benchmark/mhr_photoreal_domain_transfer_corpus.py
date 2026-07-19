@@ -929,6 +929,14 @@ def _install_post_empty_cache_disk_map_refresh(pipe) -> dict:
     return telemetry
 
 
+def _make_precomputed_prompt_processor(prompt_embeddings):
+    def process(pipe, prompt, edit_image):
+        del pipe, prompt, edit_image
+        return {"prompt_embeds": prompt_embeddings}
+
+    return process
+
+
 def _run_zimage(
     preflight: dict,
     parent_rgb: np.ndarray,
@@ -1048,10 +1056,7 @@ def _run_zimage(
         if unit.__class__.__name__ == "ZImageUnit_PromptEmbedder"
     )
 
-    def use_precomputed_prompt(_pipe, _prompt, _edit_image):
-        return {"prompt_embeds": prompt_embeddings_device}
-
-    prompt_unit.process = use_precomputed_prompt
+    prompt_unit.process = _make_precomputed_prompt_processor(prompt_embeddings_device)
     torch.cuda.synchronize(device)
     loaded_seconds = time.perf_counter() - started
     main_load_seconds = time.perf_counter() - main_load_started
