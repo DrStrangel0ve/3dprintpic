@@ -941,7 +941,7 @@ def _run_zimage(
         "onload_dtype": "disk",
         "onload_device": "disk",
         "preparing_dtype": torch.bfloat16,
-        "preparing_device": "cpu",
+        "preparing_device": str(device),
         "computation_dtype": torch.bfloat16,
         "computation_device": "cuda",
     }
@@ -1010,10 +1010,10 @@ def _run_zimage(
         "device_wide_peak_available": False,
         "provider_import_files": imported_files,
         "disk_offload": True,
-        "disk_offload_preparing_device": "cpu",
+        "disk_offload_preparing_device": str(device),
         "disk_offload_reason": (
-            "pinned Windows stack invalidates safetensors storage when the disk "
-            "map stages directly to CUDA"
+            "official CUDA-staged layer offload on the pinned torch 2.7.1 runtime; "
+            "CPU staging exceeds the Windows paging-file mapping limit"
         ),
         "dtype": "bfloat16",
     }
