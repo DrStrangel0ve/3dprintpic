@@ -920,6 +920,16 @@ def _install_post_empty_cache_disk_map_refresh(pipe) -> dict:
                 disk_map = getattr(module, "disk_map", None)
                 if disk_map is None or id(disk_map) in refreshed:
                     continue
+                handles = list(getattr(disk_map, "files", ()))
+                for handle in handles:
+                    close = getattr(handle, "__exit__", None)
+                    if callable(close):
+                        close(None, None, None)
+                files = getattr(disk_map, "files", None)
+                if hasattr(files, "clear"):
+                    files.clear()
+                handles.clear()
+                gc.collect()
                 disk_map.flush_files()
                 refreshed.add(id(disk_map))
         telemetry["calls"] += 1

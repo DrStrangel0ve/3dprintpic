@@ -387,9 +387,17 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
     def test_disk_maps_refresh_after_provider_device_switch(self):
         events = []
 
+        class Handle:
+            def __exit__(self, _exc_type, _exc, _traceback):
+                events.append("close")
+
         class DiskMap:
+            def __init__(self):
+                self.files = [Handle()]
+
             def flush_files(self):
-                events.append("refresh")
+                events.append(f"refresh:{len(self.files)}")
+                self.files.append(Handle())
 
         disk_map = DiskMap()
 
@@ -412,7 +420,7 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         telemetry = transfer._install_post_empty_cache_disk_map_refresh(pipe)
         pipe.load_models_to_device(["text_encoder"])
 
-        self.assertEqual(events, ["provider_switch", "refresh"])
+        self.assertEqual(events, ["provider_switch", "close", "refresh:0"])
         self.assertEqual(telemetry, {"calls": 1, "refreshed_maps": 1})
 
     def test_precomputed_prompt_processor_accepts_provider_keywords(self):
