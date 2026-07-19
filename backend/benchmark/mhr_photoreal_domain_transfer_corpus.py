@@ -1237,6 +1237,7 @@ def _run_zimage(
         ),
         vram_limit=vram_limit,
     )
+    text_owned_disk_map_reads = _install_owned_disk_map_reads(text_pipe)
     text_disk_map_refresh = _install_post_empty_cache_disk_map_refresh(text_pipe)
     text_prompt_unit = next(
         unit
@@ -1335,6 +1336,7 @@ def _run_zimage(
         "provider_import_files": imported_files,
         "owned_disk_map_reads": owned_disk_map_reads,
         "post_empty_cache_disk_map_refresh": disk_map_refresh,
+        "text_owned_disk_map_reads": text_owned_disk_map_reads,
         "text_post_empty_cache_disk_map_refresh": text_disk_map_refresh,
         "materialized_direct_meta_parameters": direct_meta_parameters,
         "sequential_text_encoder_mapping": True,
