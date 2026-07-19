@@ -499,6 +499,11 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         class DiskMap:
             def __init__(self):
                 self.buffer_size = 1
+                self.device = torch.device("cuda")
+                self.files = []
+
+            def flush_files(self):
+                self.files.append(object())
 
             def __getitem__(self, _name):
                 return source
@@ -524,7 +529,10 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         fetched = disk_map["weight"]
 
         self.assertEqual(disk_map.buffer_size, sys.maxsize)
+        self.assertEqual(disk_map.device.type, "cpu")
+        self.assertEqual(len(disk_map.files), 1)
         self.assertEqual(telemetry["disk_maps"], 1)
+        self.assertEqual(telemetry["storage_device"], "cpu")
         self.assertTrue(telemetry["tensor_reads_are_cloned"])
         self.assertNotEqual(fetched.data_ptr(), source.data_ptr())
         torch.testing.assert_close(fetched, source)

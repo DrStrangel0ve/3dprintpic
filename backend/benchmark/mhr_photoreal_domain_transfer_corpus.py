@@ -965,6 +965,7 @@ def _install_owned_disk_map_reads(pipe) -> dict:
     patched_classes = set()
     for disk_map in disk_maps.values():
         disk_map.buffer_size = sys.maxsize
+        disk_map.device = torch.device("cpu")
         disk_map_class = type(disk_map)
         if hasattr(disk_map_class, "_3dprintpic_original_getitem"):
             continue
@@ -979,10 +980,26 @@ def _install_owned_disk_map_reads(pipe) -> dict:
         disk_map_class._3dprintpic_original_getitem = original_getitem
         disk_map_class.__getitem__ = get_owned_tensor
         patched_classes.add(disk_map_class.__module__ + "." + disk_map_class.__name__)
+    for disk_map in disk_maps.values():
+        handles = list(getattr(disk_map, "files", ()))
+        for handle in handles:
+            close = getattr(handle, "__exit__", None)
+            if callable(close):
+                close(None, None, None)
+        handle = None
+        close = None
+        files = getattr(disk_map, "files", None)
+        if hasattr(files, "clear"):
+            files.clear()
+        handles.clear()
+    gc.collect()
+    for disk_map in disk_maps.values():
+        disk_map.flush_files()
     return {
         "disk_maps": len(disk_maps),
         "patched_classes": sorted(patched_classes),
         "buffer_size": sys.maxsize,
+        "storage_device": "cpu",
         "tensor_reads_are_cloned": True,
     }
 
