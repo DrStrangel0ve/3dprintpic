@@ -492,50 +492,62 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
     def test_owned_disk_map_reads_clone_tensors_and_disable_mid_read_refresh(self):
         import sys
 
+        from safetensors import safe_open
+        from safetensors.torch import save_file
         import torch
 
         source = torch.arange(4, dtype=torch.float32)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            weights = Path(temp_dir) / "weights.safetensors"
+            save_file({"weight": source}, weights)
 
-        class DiskMap:
-            def __init__(self):
-                self.buffer_size = 1
-                self.device = torch.device("cuda")
-                self.files = []
+            class DiskMap:
+                def __init__(self):
+                    self.buffer_size = 1
+                    self.device = torch.device("cpu")
+                    self.files = [
+                        safe_open(str(weights), framework="pt", device="cpu")
+                    ]
+                    self.name_map = {"weight": 0}
+                    self.rename_dict = None
+                    self.path = [str(weights)]
+                    self.torch_dtype = None
+                    self.num_params = 0
 
-            def flush_files(self):
-                self.files.append(object())
+                def flush_files(self):
+                    raise AssertionError("on-demand maps must not stay open")
 
-            def __getitem__(self, _name):
-                return source
+                def __getitem__(self, _name):
+                    return source
 
-        disk_map = DiskMap()
+            disk_map = DiskMap()
 
-        class Child(torch.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.disk_map = disk_map
+            class Child(torch.nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.disk_map = disk_map
 
-        class Model(torch.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.child = Child()
+            class Model(torch.nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.child = Child()
 
-        class Pipe(torch.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.model = Model()
+            class Pipe(torch.nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.model = Model()
 
-        telemetry = transfer._install_owned_disk_map_reads(Pipe())
-        fetched = disk_map["weight"]
+            telemetry = transfer._install_owned_disk_map_reads(Pipe())
+            fetched = disk_map["weight"]
 
-        self.assertEqual(disk_map.buffer_size, sys.maxsize)
-        self.assertEqual(disk_map.device.type, "cpu")
-        self.assertEqual(len(disk_map.files), 1)
-        self.assertEqual(telemetry["disk_maps"], 1)
-        self.assertEqual(telemetry["storage_device"], "cpu")
-        self.assertTrue(telemetry["tensor_reads_are_cloned"])
-        self.assertNotEqual(fetched.data_ptr(), source.data_ptr())
-        torch.testing.assert_close(fetched, source)
+            self.assertEqual(disk_map.buffer_size, sys.maxsize)
+            self.assertEqual(disk_map.files, [])
+            self.assertEqual(telemetry["disk_maps"], 1)
+            self.assertEqual(telemetry["storage_devices"], ["cpu"])
+            self.assertEqual(telemetry["read_mode"], "on_demand_safetensors")
+            self.assertTrue(telemetry["tensor_reads_are_cloned"])
+            self.assertNotEqual(fetched.data_ptr(), source.data_ptr())
+            torch.testing.assert_close(fetched, source)
 
 
 if __name__ == "__main__":

@@ -937,7 +937,10 @@ def _install_post_empty_cache_disk_map_refresh(pipe) -> dict:
             handles.clear()
         gc.collect()
         for disk_map in disk_maps:
-            disk_map.flush_files()
+            if getattr(disk_map, "_3dprintpic_on_demand_reads", False):
+                disk_map.num_params = 0
+            else:
+                disk_map.flush_files()
         telemetry["calls"] += 1
         telemetry["refreshed_maps"] += len(disk_maps)
 
@@ -954,7 +957,7 @@ def _make_precomputed_prompt_processor(prompt_embeddings):
 
 
 def _install_owned_disk_map_reads(pipe) -> dict:
-    import torch
+    from safetensors import safe_open
 
     disk_maps = {
         id(disk_map): disk_map
@@ -965,16 +968,28 @@ def _install_owned_disk_map_reads(pipe) -> dict:
     patched_classes = set()
     for disk_map in disk_maps.values():
         disk_map.buffer_size = sys.maxsize
-        disk_map.device = torch.device("cpu")
+        disk_map._3dprintpic_on_demand_reads = True
         disk_map_class = type(disk_map)
         if hasattr(disk_map_class, "_3dprintpic_original_getitem"):
             continue
         original_getitem = disk_map_class.__getitem__
 
         def get_owned_tensor(self, name, _original=original_getitem):
-            value = _original(self, name)
-            if torch.is_tensor(value):
-                return value.clone()
+            if not getattr(self, "_3dprintpic_on_demand_reads", False):
+                return _original(self, name)
+            lookup_name = self.rename_dict[name] if self.rename_dict is not None else name
+            file_id = self.name_map[lookup_name]
+            path = self.path[file_id]
+            if not path.endswith(".safetensors"):
+                raise RuntimeError(
+                    "Pinned on-demand DiskMap reads require safetensors: " + path
+                )
+            with safe_open(path, framework="pt", device=str(self.device)) as handle:
+                value = handle.get_tensor(lookup_name)
+                if self.torch_dtype is not None:
+                    value = value.to(self.torch_dtype)
+                value = value.clone()
+            self.num_params += value.numel()
             return value
 
         disk_map_class._3dprintpic_original_getitem = original_getitem
@@ -993,13 +1008,14 @@ def _install_owned_disk_map_reads(pipe) -> dict:
             files.clear()
         handles.clear()
     gc.collect()
-    for disk_map in disk_maps.values():
-        disk_map.flush_files()
     return {
         "disk_maps": len(disk_maps),
         "patched_classes": sorted(patched_classes),
         "buffer_size": sys.maxsize,
-        "storage_device": "cpu",
+        "storage_devices": sorted(
+            {str(disk_map.device) for disk_map in disk_maps.values()}
+        ),
+        "read_mode": "on_demand_safetensors",
         "tensor_reads_are_cloned": True,
     }
 
