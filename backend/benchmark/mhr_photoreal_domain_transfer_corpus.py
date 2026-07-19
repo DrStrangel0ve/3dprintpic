@@ -70,6 +70,7 @@ DEFAULT_STEPS = 8
 DEFAULT_FACE_CROP_CONTEXT_RATIO = 1.9
 REDUNDANT_HASH_MIN_BYTES = 1_000_000_000
 REDUNDANT_HASH_READS = 2
+MAX_PINNED_READ_ATTEMPTS = 3
 MAX_SAFETENSORS_HEADER_BYTES = 64 * 1024 * 1024
 OWNED_DISK_MAP_PATCH_VERSION = 2
 DEFAULT_PROMPT = (
@@ -232,11 +233,18 @@ def _asset_record(path: Path, size: int, sha256: str) -> dict:
     exists = path.is_file()
     actual_size = int(path.stat().st_size) if exists else None
     required_reads = REDUNDANT_HASH_READS if size >= REDUNDANT_HASH_MIN_BYTES else 1
-    observations = (
-        [_sha256(path) for _ in range(required_reads)]
-        if exists and actual_size == size
-        else []
-    )
+    attempt_limit = MAX_PINNED_READ_ATTEMPTS if required_reads > 1 else 1
+    attempt_groups = []
+    if exists and actual_size == size:
+        for _ in range(required_reads):
+            attempts = []
+            for _ in range(attempt_limit):
+                actual_sha256 = _sha256(path)
+                attempts.append(actual_sha256)
+                if actual_sha256 == sha256:
+                    break
+            attempt_groups.append(attempts)
+    observations = [attempts[-1] for attempts in attempt_groups if attempts]
     reads_consistent = bool(observations) and len(set(observations)) == 1
     actual_sha256 = observations[-1] if observations else None
     return {
@@ -247,10 +255,18 @@ def _asset_record(path: Path, size: int, sha256: str) -> dict:
         "size_pinned": actual_size == size,
         "sha256": actual_sha256,
         "sha256_observations": observations,
+        "sha256_attempt_groups": attempt_groups,
         "expected_sha256": sha256,
+        "hash_attempt_count": sum(len(attempts) for attempts in attempt_groups),
+        "hash_attempt_limit_per_read": attempt_limit,
         "hash_read_count": len(observations),
         "hash_reads_required": required_reads,
         "hash_reads_consistent": reads_consistent,
+        "transient_hash_mismatches": sum(
+            observation != sha256
+            for attempts in attempt_groups
+            for observation in attempts
+        ),
         "hash_pinned": (
             reads_consistent
             and len(observations) == required_reads
@@ -1047,7 +1063,7 @@ def _make_precomputed_prompt_processor(prompt_embeddings):
     return process
 
 
-def _build_verified_safetensor_manifest(
+def _build_verified_safetensor_manifest_once(
     path: str | Path,
     expected_sha256: str,
 ) -> dict:
@@ -1161,6 +1177,43 @@ def _build_verified_safetensor_manifest(
     }
 
 
+def _build_verified_safetensor_manifest(
+    path: str | Path,
+    expected_sha256: str,
+    telemetry: dict | None = None,
+) -> dict:
+    failures = []
+    if telemetry is not None:
+        for key in (
+            "manifest_hash_attempts",
+            "manifest_hash_failures",
+            "manifest_retry_count",
+        ):
+            telemetry.setdefault(key, 0)
+    for attempt in range(1, MAX_PINNED_READ_ATTEMPTS + 1):
+        if telemetry is not None:
+            telemetry["manifest_hash_attempts"] += 1
+            if attempt > 1:
+                telemetry["manifest_retry_count"] += 1
+        try:
+            manifest = _build_verified_safetensor_manifest_once(
+                path,
+                expected_sha256,
+            )
+        except RuntimeError as error:
+            failures.append(str(error))
+            if telemetry is not None:
+                telemetry["manifest_hash_failures"] += 1
+            continue
+        manifest["verification_attempts"] = attempt
+        return manifest
+    detail = failures[-1] if failures else "unknown integrity failure"
+    raise RuntimeError(
+        f"Pinned safetensors manifest failed after {MAX_PINNED_READ_ATTEMPTS} "
+        f"attempts: {detail}"
+    )
+
+
 def _read_verified_safetensor_tensor(
     path: str | Path,
     name: str,
@@ -1168,6 +1221,14 @@ def _read_verified_safetensor_tensor(
     telemetry: dict,
 ) -> tuple[bytearray, str, tuple[int, ...]]:
     path = Path(path).resolve()
+    for key in (
+        "payload_read_attempts",
+        "payload_read_failures",
+        "payload_retry_count",
+        "payload_hash_checks",
+        "payload_hash_failures",
+    ):
+        telemetry.setdefault(key, 0)
     if name not in manifest["tensors"]:
         raise RuntimeError(f"Tensor {name!r} is absent from pinned shard {path}.")
     entry = manifest["tensors"][name]
@@ -1185,20 +1246,26 @@ def _read_verified_safetensor_tensor(
     absolute_start = int(manifest["data_start"]) + start
     if int(manifest["data_start"]) + end > int(manifest["file_size"]):
         raise RuntimeError(f"Tensor {name!r} extends beyond pinned shard {path}.")
-    storage = bytearray(expected_size)
-    with path.open("rb", buffering=0) as stream:
-        stream.seek(absolute_start)
-        bytes_read = stream.readinto(storage)
-    if bytes_read != expected_size:
-        raise RuntimeError(f"Truncated tensor payload for {name!r} in {path}.")
-    telemetry["payload_hash_checks"] += 1
-    actual_payload_sha256 = hashlib.sha256(storage).hexdigest()
-    if actual_payload_sha256 != entry["payload_sha256"]:
+    for attempt in range(1, MAX_PINNED_READ_ATTEMPTS + 1):
+        telemetry["payload_read_attempts"] += 1
+        if attempt > 1:
+            telemetry["payload_retry_count"] += 1
+        storage = bytearray(expected_size)
+        with path.open("rb", buffering=0) as stream:
+            stream.seek(absolute_start)
+            bytes_read = stream.readinto(storage)
+        if bytes_read != expected_size:
+            telemetry["payload_read_failures"] += 1
+            continue
+        telemetry["payload_hash_checks"] += 1
+        actual_payload_sha256 = hashlib.sha256(storage).hexdigest()
+        if actual_payload_sha256 == entry["payload_sha256"]:
+            return storage, dtype, shape
         telemetry["payload_hash_failures"] += 1
-        raise RuntimeError(
-            f"Tensor payload hash changed for {name!r} in pinned shard {path}."
-        )
-    return storage, dtype, shape
+    raise RuntimeError(
+        f"Tensor payload hash changed for {name!r} in pinned shard {path} "
+        f"after {MAX_PINNED_READ_ATTEMPTS} attempts."
+    )
 
 
 def _install_owned_disk_map_reads(
@@ -1219,6 +1286,12 @@ def _install_owned_disk_map_reads(
         "dtype_counts": {},
         "manifest_file_count": 0,
         "manifest_bytes_hashed": 0,
+        "manifest_hash_attempts": 0,
+        "manifest_hash_failures": 0,
+        "manifest_retry_count": 0,
+        "payload_read_attempts": 0,
+        "payload_read_failures": 0,
+        "payload_retry_count": 0,
         "payload_hash_checks": 0,
         "payload_hash_failures": 0,
     }
@@ -1236,6 +1309,7 @@ def _install_owned_disk_map_reads(
             manifest = _build_verified_safetensor_manifest(
                 resolved_path,
                 expected_sha256,
+                telemetry=observed_reads,
             )
             manifest_cache[path_key] = manifest
             observed_reads["manifest_file_count"] += 1

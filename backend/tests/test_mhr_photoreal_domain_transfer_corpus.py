@@ -420,7 +420,12 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                 patch.object(
                     transfer,
                     "_sha256",
-                    side_effect=("expected", "transient-corruption"),
+                    side_effect=(
+                        "expected",
+                        "transient-corruption",
+                        "transient-corruption",
+                        "transient-corruption",
+                    ),
                 ),
             ):
                 record = transfer._asset_record(path, len(b"weight"), "expected")
@@ -431,6 +436,8 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         )
         self.assertEqual(record["hash_read_count"], 2)
         self.assertEqual(record["hash_reads_required"], 2)
+        self.assertEqual(record["hash_attempt_count"], 4)
+        self.assertEqual(record["transient_hash_mismatches"], 3)
         self.assertFalse(record["hash_reads_consistent"])
         self.assertFalse(record["hash_pinned"])
 
@@ -449,6 +456,33 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                 record = transfer._asset_record(path, len(b"weight"), "expected")
 
         self.assertEqual(record["hash_read_count"], 2)
+        self.assertTrue(record["hash_reads_consistent"])
+        self.assertTrue(record["hash_pinned"])
+
+    def test_large_asset_record_recovers_only_to_the_immutable_pin(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "weight.safetensors"
+            path.write_bytes(b"weight")
+            with (
+                patch.object(transfer, "REDUNDANT_HASH_MIN_BYTES", 1),
+                patch.object(
+                    transfer,
+                    "_sha256",
+                    side_effect=(
+                        "expected",
+                        "transient-corruption",
+                        "expected",
+                    ),
+                ),
+            ):
+                record = transfer._asset_record(path, len(b"weight"), "expected")
+
+        self.assertEqual(
+            record["sha256_attempt_groups"],
+            [["expected"], ["transient-corruption", "expected"]],
+        )
+        self.assertEqual(record["hash_attempt_count"], 3)
+        self.assertEqual(record["transient_hash_mismatches"], 1)
         self.assertTrue(record["hash_reads_consistent"])
         self.assertTrue(record["hash_pinned"])
 
@@ -743,6 +777,12 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                     "dtype_counts": {"BF16": 1, "F32": 1},
                     "manifest_file_count": 1,
                     "manifest_bytes_hashed": weights.stat().st_size,
+                    "manifest_hash_attempts": 1,
+                    "manifest_hash_failures": 0,
+                    "manifest_retry_count": 0,
+                    "payload_read_attempts": 2,
+                    "payload_read_failures": 0,
+                    "payload_retry_count": 0,
                     "payload_hash_checks": 2,
                     "payload_hash_failures": 0,
                 },
@@ -783,8 +823,10 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                     telemetry,
                 )
 
-        self.assertEqual(telemetry["payload_hash_checks"], 1)
-        self.assertEqual(telemetry["payload_hash_failures"], 1)
+        self.assertEqual(telemetry["payload_read_attempts"], 3)
+        self.assertEqual(telemetry["payload_retry_count"], 2)
+        self.assertEqual(telemetry["payload_hash_checks"], 3)
+        self.assertEqual(telemetry["payload_hash_failures"], 3)
 
     def test_verified_manifest_rejects_unsafe_header_length_and_wrong_pin(self):
         from safetensors.torch import save_file
@@ -803,6 +845,29 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(RuntimeError, "Unsafe.*header length"):
                 transfer._build_verified_safetensor_manifest(unsafe, "0" * 64)
+
+    def test_verified_manifest_recovers_after_transient_integrity_failure(self):
+        expected_manifest = {
+            "file_size": 8,
+            "file_sha256": "expected",
+            "tensors": {},
+        }
+        telemetry = {}
+        with patch.object(
+            transfer,
+            "_build_verified_safetensor_manifest_once",
+            side_effect=(RuntimeError("transient"), expected_manifest),
+        ):
+            manifest = transfer._build_verified_safetensor_manifest(
+                "weights.safetensors",
+                "expected",
+                telemetry=telemetry,
+            )
+
+        self.assertEqual(manifest["verification_attempts"], 2)
+        self.assertEqual(telemetry["manifest_hash_attempts"], 2)
+        self.assertEqual(telemetry["manifest_hash_failures"], 1)
+        self.assertEqual(telemetry["manifest_retry_count"], 1)
 
     def test_verified_manifest_hashes_tensors_across_block_boundaries(self):
         from safetensors.torch import save_file
@@ -828,6 +893,46 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                     manifest["tensors"][name]["payload_sha256"],
                     expected,
                 )
+
+    def test_verified_tensor_read_recovers_only_to_manifest_digest(self):
+        from safetensors.torch import save_file
+        import torch
+
+        class Digest:
+            def __init__(self, value):
+                self.value = value
+
+            def hexdigest(self):
+                return self.value
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            weights = Path(temp_dir) / "weights.safetensors"
+            save_file({"weight": torch.arange(4, dtype=torch.float32)}, weights)
+            manifest = transfer._build_verified_safetensor_manifest(
+                weights,
+                transfer._sha256(weights),
+            )
+            expected = manifest["tensors"]["weight"]["payload_sha256"]
+            telemetry = {}
+            with patch.object(
+                transfer.hashlib,
+                "sha256",
+                side_effect=(Digest("transient-corruption"), Digest(expected)),
+            ):
+                storage, dtype, shape = transfer._read_verified_safetensor_tensor(
+                    weights,
+                    "weight",
+                    manifest,
+                    telemetry,
+                )
+
+        self.assertEqual(len(storage), 16)
+        self.assertEqual(dtype, "F32")
+        self.assertEqual(shape, (4,))
+        self.assertEqual(telemetry["payload_read_attempts"], 2)
+        self.assertEqual(telemetry["payload_retry_count"], 1)
+        self.assertEqual(telemetry["payload_hash_checks"], 2)
+        self.assertEqual(telemetry["payload_hash_failures"], 1)
 
     def test_owned_disk_map_reader_rebinds_for_sequential_pipelines(self):
         from safetensors.torch import save_file
