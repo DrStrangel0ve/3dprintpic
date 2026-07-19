@@ -91,12 +91,12 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
     def test_face_local_generation_has_exact_inverse_bbox(self):
         parent = np.zeros((40, 48, 3), dtype=np.uint8)
         parent[..., 0] = np.arange(48, dtype=np.uint8)
-        control = 255 - parent
+        depth = np.linspace(0.0, 1.0, 40 * 48, dtype=np.float32).reshape(40, 48)
         mask = np.zeros((40, 48), dtype=bool)
         mask[12:24, 18:26] = True
 
         rgb_crop, control_crop, metadata = transfer.prepare_face_local_generation(
-            parent, control, mask, target_size=32, context_ratio=2.0
+            parent, depth, mask, target_size=32, context_ratio=2.0
         )
         restored = transfer.restore_face_local_generation(
             parent, np.full_like(rgb_crop, 77), metadata
@@ -104,6 +104,11 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
 
         self.assertEqual(rgb_crop.shape, (32, 32, 3))
         self.assertEqual(control_crop.shape, (32, 32, 3))
+        self.assertEqual(control_crop.dtype, np.uint8)
+        self.assertEqual(
+            metadata["control_pipeline"],
+            "float_depth_resize_then_inverse_uint8",
+        )
         x0, y0, x1, y1 = metadata["source_bbox_xyxy"]
         outside = np.ones(parent.shape[:2], dtype=bool)
         outside[y0:y1, x0:x1] = False

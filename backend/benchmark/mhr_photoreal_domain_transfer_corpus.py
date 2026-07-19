@@ -554,7 +554,7 @@ def composite_face_only(
 
 def prepare_face_local_generation(
     parent_rgb: np.ndarray,
-    control_rgb: np.ndarray,
+    exact_depth: np.ndarray,
     selection_mask: np.ndarray,
     *,
     target_size: int,
@@ -580,8 +580,13 @@ def prepare_face_local_generation(
     rgb_crop = Image.fromarray(parent_rgb[y0:y1, x0:x1]).resize(
         (target_size, target_size), Image.Resampling.LANCZOS
     )
-    control_crop = Image.fromarray(control_rgb[y0:y1, x0:x1]).resize(
+    depth_crop = Image.fromarray(
+        np.asarray(exact_depth[y0:y1, x0:x1], dtype=np.float32), mode="F"
+    ).resize(
         (target_size, target_size), Image.Resampling.BILINEAR
+    )
+    control_crop = make_inverse_depth_control(
+        np.asarray(depth_crop, dtype=np.float32)
     )
     metadata = {
         "source_bbox_xyxy": [x0, y0, x1, y1],
@@ -590,6 +595,7 @@ def prepare_face_local_generation(
         "context_ratio": float(context_ratio),
         "rgb_resampling": "lanczos",
         "control_resampling": "bilinear",
+        "control_pipeline": "float_depth_resize_then_inverse_uint8",
         "inverse_resampling": "lanczos",
     }
     return np.asarray(rgb_crop), np.asarray(control_crop), metadata
@@ -1628,7 +1634,7 @@ def run_smoke(
         provider_parent_rgb, provider_control_rgb, crop_metadata = (
             prepare_face_local_generation(
                 parent_rgb,
-                control_rgb,
+                exact_depth,
                 selection_mask,
                 target_size=face_crop_size,
                 context_ratio=face_crop_context_ratio,
