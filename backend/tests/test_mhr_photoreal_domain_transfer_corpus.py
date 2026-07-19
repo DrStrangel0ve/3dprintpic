@@ -719,6 +719,10 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
             self.assertEqual(disk_map.buffer_size, sys.maxsize)
             self.assertEqual(disk_map.files, [])
             self.assertEqual(telemetry["disk_maps"], 1)
+            self.assertEqual(
+                telemetry["reader_patch_version"],
+                transfer.OWNED_DISK_MAP_PATCH_VERSION,
+            )
             self.assertEqual(telemetry["storage_devices"], ["cpu"])
             self.assertEqual(telemetry["read_mode"], "on_demand_safetensors")
             self.assertEqual(telemetry["supported_dtypes"], ["BF16", "F32"])
@@ -782,6 +786,49 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         self.assertEqual(telemetry["payload_hash_checks"], 1)
         self.assertEqual(telemetry["payload_hash_failures"], 1)
 
+    def test_verified_manifest_rejects_unsafe_header_length_and_wrong_pin(self):
+        from safetensors.torch import save_file
+        import torch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            weights = Path(temp_dir) / "weights.safetensors"
+            save_file({"weight": torch.arange(4, dtype=torch.float32)}, weights)
+            with self.assertRaisesRegex(RuntimeError, "hash changed"):
+                transfer._build_verified_safetensor_manifest(weights, "0" * 64)
+
+            unsafe = Path(temp_dir) / "unsafe.safetensors"
+            unsafe.write_bytes(
+                (transfer.MAX_SAFETENSORS_HEADER_BYTES + 1).to_bytes(8, "little")
+                + b"{}"
+            )
+            with self.assertRaisesRegex(RuntimeError, "Unsafe.*header length"):
+                transfer._build_verified_safetensor_manifest(unsafe, "0" * 64)
+
+    def test_verified_manifest_hashes_tensors_across_block_boundaries(self):
+        from safetensors.torch import save_file
+        import torch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            weights = Path(temp_dir) / "weights.safetensors"
+            tensors = {
+                "first": torch.arange(1_200_000, dtype=torch.float32),
+                "second": torch.arange(1_200_000, dtype=torch.float32) + 3.0,
+            }
+            save_file(tensors, weights)
+            manifest = transfer._build_verified_safetensor_manifest(
+                weights,
+                transfer._sha256(weights),
+            )
+
+            for name, tensor in tensors.items():
+                expected = transfer.hashlib.sha256(
+                    tensor.numpy().tobytes()
+                ).hexdigest()
+                self.assertEqual(
+                    manifest["tensors"][name]["payload_sha256"],
+                    expected,
+                )
+
     def test_owned_disk_map_reader_rebinds_for_sequential_pipelines(self):
         from safetensors.torch import save_file
         import torch
@@ -837,6 +884,62 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
             second_telemetry["observed_reads"]["payload_hash_checks"],
             1,
         )
+
+    def test_owned_disk_map_reader_upgrades_stale_class_patch(self):
+        from safetensors.torch import save_file
+        import torch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            weights = Path(temp_dir) / "weights.safetensors"
+            save_file({"weight": torch.full((2,), 7.0)}, weights)
+
+            class DiskMap:
+                def __init__(self):
+                    self.buffer_size = 1
+                    self.device = torch.device("cpu")
+                    self.files = []
+                    self.name_map = {"weight": 0}
+                    self.rename_dict = None
+                    self.path = [str(weights)]
+                    self.torch_dtype = None
+                    self.num_params = 0
+
+                def __getitem__(self, _name):
+                    raise AssertionError("original reader must not run")
+
+            original_getitem = DiskMap.__getitem__
+
+            def stale_reader(_self, _name):
+                raise AssertionError("stale reader must be replaced")
+
+            DiskMap._3dprintpic_original_getitem = original_getitem
+            DiskMap.__getitem__ = stale_reader
+            disk_map = DiskMap()
+
+            class Child(torch.nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.disk_map = disk_map
+
+            class Pipe(torch.nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.model = Child()
+
+            telemetry = transfer._install_owned_disk_map_reads(
+                Pipe(),
+                expected_file_sha256={
+                    str(weights): transfer._sha256(weights)
+                },
+            )
+            fetched = disk_map["weight"]
+
+        torch.testing.assert_close(fetched, torch.full((2,), 7.0))
+        self.assertEqual(
+            DiskMap._3dprintpic_owned_reader_patch_version,
+            transfer.OWNED_DISK_MAP_PATCH_VERSION,
+        )
+        self.assertEqual(telemetry["observed_reads"]["payload_hash_checks"], 1)
 
 
 if __name__ == "__main__":

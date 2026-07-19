@@ -70,6 +70,8 @@ DEFAULT_STEPS = 8
 DEFAULT_FACE_CROP_CONTEXT_RATIO = 1.9
 REDUNDANT_HASH_MIN_BYTES = 1_000_000_000
 REDUNDANT_HASH_READS = 2
+MAX_SAFETENSORS_HEADER_BYTES = 64 * 1024 * 1024
+OWNED_DISK_MAP_PATCH_VERSION = 2
 DEFAULT_PROMPT = (
     "A natural documentary photograph of the same adult person and the same "
     "scene shown in the input. Preserve the exact camera, head pose, facial "
@@ -1060,6 +1062,11 @@ def _build_verified_safetensor_manifest(
             raise RuntimeError(f"Invalid safetensors header length: {path}")
         full_digest.update(header_length_bytes)
         header_length = int.from_bytes(header_length_bytes, "little")
+        if not 0 < header_length <= min(
+            MAX_SAFETENSORS_HEADER_BYTES,
+            file_size - 8,
+        ):
+            raise RuntimeError(f"Unsafe safetensors header length: {path}")
         header_bytes = stream.read(header_length)
         if len(header_bytes) != header_length:
             raise RuntimeError(f"Truncated safetensors header: {path}")
@@ -1104,6 +1111,7 @@ def _build_verified_safetensor_manifest(
             block_start = position
             block_end = block_start + len(block)
             full_digest.update(block)
+            block_view = memoryview(block)
             while (
                 tensor_index < len(tensor_entries)
                 and tensor_entries[tensor_index]["absolute_end"] <= block_start
@@ -1118,7 +1126,7 @@ def _build_verified_safetensor_manifest(
                 overlap_end = min(tensor["absolute_end"], block_end)
                 if overlap_end > overlap_start:
                     tensor["digest"].update(
-                        block[
+                        block_view[
                             overlap_start - block_start : overlap_end - block_start
                         ]
                     )
@@ -1262,9 +1270,21 @@ def _install_owned_disk_map_reads(
         disk_map._3dprintpic_on_demand_reads = True
         disk_map._3dprintpic_owned_tensor_reader = read_owned_tensor
         disk_map_class = type(disk_map)
-        if hasattr(disk_map_class, "_3dprintpic_original_getitem"):
+        class_namespace = vars(disk_map_class)
+        if (
+            class_namespace.get("_3dprintpic_owned_reader_patch_version")
+            == OWNED_DISK_MAP_PATCH_VERSION
+        ):
             continue
-        original_getitem = disk_map_class.__getitem__
+        original_getitem = class_namespace.get("_3dprintpic_original_getitem")
+        if original_getitem is None:
+            original_getitem = class_namespace.get("__getitem__")
+        if original_getitem is None:
+            original_getitem = getattr(
+                disk_map_class,
+                "_3dprintpic_original_getitem",
+                disk_map_class.__getitem__,
+            )
 
         def get_owned_tensor(self, name, _original=original_getitem):
             if not getattr(self, "_3dprintpic_on_demand_reads", False):
@@ -1287,6 +1307,9 @@ def _install_owned_disk_map_reads(
 
         disk_map_class._3dprintpic_original_getitem = original_getitem
         disk_map_class.__getitem__ = get_owned_tensor
+        disk_map_class._3dprintpic_owned_reader_patch_version = (
+            OWNED_DISK_MAP_PATCH_VERSION
+        )
         patched_classes.add(disk_map_class.__module__ + "." + disk_map_class.__name__)
     for disk_map in disk_maps.values():
         handles = list(getattr(disk_map, "files", ()))
@@ -1304,6 +1327,7 @@ def _install_owned_disk_map_reads(
     return {
         "disk_maps": len(disk_maps),
         "patched_classes": sorted(patched_classes),
+        "reader_patch_version": OWNED_DISK_MAP_PATCH_VERSION,
         "buffer_size": sys.maxsize,
         "storage_devices": sorted(
             {str(disk_map.device) for disk_map in disk_maps.values()}
