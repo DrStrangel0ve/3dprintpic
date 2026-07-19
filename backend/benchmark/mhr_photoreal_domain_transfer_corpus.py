@@ -577,6 +577,10 @@ def prepare_face_local_generation(
     y0 = min(max(y0, 0), parent_rgb.shape[0] - crop_size)
     x1 = x0 + crop_size
     y1 = y0 + crop_size
+    if x0 > x_min or y0 > y_min or x1 < x_max or y1 < y_max:
+        raise ValueError(
+            "Face-local square crop cannot contain the complete selection"
+        )
     rgb_crop = Image.fromarray(parent_rgb[y0:y1, x0:x1]).resize(
         (target_size, target_size), Image.Resampling.LANCZOS
     )
@@ -1024,6 +1028,11 @@ def _install_owned_disk_map_reads(pipe) -> dict:
     import torch
 
     header_cache = {}
+    observed_reads = {
+        "tensor_count": 0,
+        "payload_bytes": 0,
+        "dtype_counts": {},
+    }
 
     def read_owned_tensor(path: str, name: str):
         if path not in header_cache:
@@ -1064,6 +1073,10 @@ def _install_owned_disk_map_reads(pipe) -> dict:
             bytes_read = stream.readinto(storage)
         if bytes_read != expected_size:
             raise RuntimeError(f"Truncated tensor payload for {name!r} in {path}.")
+        observed_reads["tensor_count"] += 1
+        observed_reads["payload_bytes"] += expected_size
+        dtype_counts = observed_reads["dtype_counts"]
+        dtype_counts[dtype] = dtype_counts.get(dtype, 0) + 1
         if dtype == "F32":
             array = np.frombuffer(storage, dtype="<f4")
             tensor = torch.from_numpy(array)
@@ -1129,7 +1142,8 @@ def _install_owned_disk_map_reads(pipe) -> dict:
         "read_mode": "on_demand_safetensors",
         "supported_dtypes": ["BF16", "F32"],
         "tensor_transport": "validated_bytes_to_owned_torch",
-        "tensor_reads_are_owned": True,
+        "storage_is_file_mapping_independent": True,
+        "observed_reads": observed_reads,
     }
 
 

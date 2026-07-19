@@ -20,7 +20,8 @@ with multi-resolution control images from 512 to 1536 pixels. The native 256
 smoke was therefore below that training range. DiffSynth also requires output
 dimensions divisible by 16. The challenger uses a deterministic 143 x 143
 source crop around the exact selection, scales it to 512 x 512, and maps it
-back through the recorded inverse affine before the exact selection composite.
+back through the recorded bbox and resampling settings before the exact
+selection composite.
 
 - Controller: https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1
 - Pinned DiffSynth documentation: https://github.com/modelscope/DiffSynth-Studio/blob/fb337fbb90945ff829de69dbd44ded618f73e889/docs/en/Model_Details/Z-Image.md

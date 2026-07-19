@@ -115,6 +115,17 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         np.testing.assert_array_equal(restored[outside], parent[outside])
         self.assertTrue(np.all(restored[y0:y1, x0:x1] == 77))
 
+    def test_face_local_generation_rejects_crop_that_excludes_selection(self):
+        parent = np.zeros((100, 200, 3), dtype=np.uint8)
+        depth = np.zeros((100, 200), dtype=np.float32)
+        mask = np.zeros((100, 200), dtype=bool)
+        mask[10:90, 20:180] = True
+
+        with self.assertRaisesRegex(ValueError, "complete selection"):
+            transfer.prepare_face_local_generation(
+                parent, depth, mask, target_size=32, context_ratio=1.0
+            )
+
     def test_alignment_accepts_geometry_stable_non_noop_transfer(self):
         parent = np.full((64, 64, 3), 80, dtype=np.uint8)
         selection = self._mask((64, 64), (12, 8, 52, 56))
@@ -578,7 +589,15 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
             self.assertEqual(
                 telemetry["tensor_transport"], "validated_bytes_to_owned_torch"
             )
-            self.assertTrue(telemetry["tensor_reads_are_owned"])
+            self.assertTrue(telemetry["storage_is_file_mapping_independent"])
+            self.assertEqual(
+                telemetry["observed_reads"],
+                {
+                    "tensor_count": 2,
+                    "payload_bytes": 24,
+                    "dtype_counts": {"BF16": 1, "F32": 1},
+                },
+            )
             self.assertNotEqual(fetched.data_ptr(), source.data_ptr())
             torch.testing.assert_close(fetched, source)
             self.assertEqual(fetched_bf16.dtype, torch.bfloat16)
