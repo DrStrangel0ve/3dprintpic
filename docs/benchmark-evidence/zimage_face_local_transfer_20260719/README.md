@@ -45,8 +45,9 @@ Commit `62f10010d00256c639e43df1d5dd5fa0aab81869` corrects the crop path to
 resize floating-point exact depth first and quantize once afterward. Its 16
 focused tests pass in both the project and pinned Torch environments. The
 corrected one-row GPU confirmation remains pending because the local GPU became
-occupied by an unrelated interactive application after the fix; no competing
-run was launched.
+available only after a model-integrity check began returning nondeterministic
+bytes from large weight files. No GPU inference was launched after the first
+integrity failure.
 
 ## Runtime compatibility
 
@@ -63,15 +64,52 @@ storage, and unwrapped meta pad tokens. The final exact path:
    the official VRAM module map leaves on `meta`.
 5. Uses an 8 GiB layer budget for the 512 px crop.
 
-Provider source and all model/controller files remained checksum-clean. The
-successful d=0.25 run used exact commit
+Provider source and all model/controller files were checksum-clean for the
+successful measured runs. The d=0.25 run used exact commit
 `770fb48a0995edd14310a02fc7f7388ff11c2061` and completed in 1349.51 seconds.
+
+## Storage-integrity stop
+
+The corrected float-depth confirmation at commit `962772d` failed closed before
+inference. Repeated reads of the same 6.71 GB ControlNet file produced both the
+pinned digest and several different digests while size and timestamps remained
+fixed. A fresh download at the exact official revision was then allocated in a
+separate directory. Paired 8 MiB block reads found transient differences in the
+original at offsets 637,534,208 and 1,728,053,248 bytes, while an intervening
+pass was identical. The recovery copy made the controller stable during two
+full preflights, but the second preflight then read the first 3.96 GB text shard
+with a non-pinned digest. Windows reported the NTFS volume and physical disk as
+healthy and no recent storage events were returned, but privileged SMART and
+online CHKDSK diagnostics were unavailable.
+
+Commit `795c9ef75cf4961fc64984727d1a94de6075a614` therefore changes the
+preflight contract: every asset at least 1 GB now requires two independent,
+consistent, pinned SHA-256 observations in the same preflight. The observations,
+required count, and consistency state are emitted in structured telemetry. A
+single lucky read can no longer authorize GPU inference. The focused suite
+passes 19/19 in both the project and pinned Torch 2.7.1 environments. Exact
+observations are in `storage_integrity_diagnostics.json`.
+
+The next bounded image-detail lead is the same Union-2602 depth candidate at
+1024 x 1024. It changes only the provider crop size and retains the exact depth
+conditioning, seed, prompt, denoising strength, control scale, and eight-step
+schedule. The pinned official low-VRAM example already uses 1024 x 1024:
+https://github.com/modelscope/DiffSynth-Studio/blob/fb337fbb90945ff829de69dbd44ded618f73e889/examples/z_image/model_inference_low_vram/Z-Image-Turbo-Fun-Controlnet-Union-2.1-8steps.py.
+
+If that remains soft, the second lead is the official Apache-2.0
+`Z-Image-Turbo-Fun-Controlnet-Tile-2.1-2601-8steps` checkpoint. Its model card
+describes a retrained super-resolution model for high-resolution detail:
+https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1.
+Tile is a mouth/detail challenger, not evidence of better geometry. The pinned
+pipeline accepts one ControlNet, so Tile must be a separate low-denoise pass
+after Union rather than a replacement for depth conditioning.
 
 ## Next action
 
-First rerun only the d=0.25, 512 px candidate from exact commit `62f1001` when
-the 3080 Ti is uncontested. If it remains hold, close additional
-denoising-strength tuning on this provider. The next face geometry lane should
-improve the mouth/silhouette upstream or use the official tile/super-resolution
-control in a separately pinned one-row smoke. It must retain the same exact
+Do not rerun the corrected d=0.25 candidate until one hardened preflight records
+two consistent pinned reads for every large asset and an independent storage
+check no longer reproduces transient bytes. Once that is true, run exactly one
+corrected 512 px confirmation. If it remains hold, close denoising-strength
+tuning and run exactly one 1024 px Union smoke. Only then prepare one separately
+pinned Tile-2601 low-denoise pass for mouth/detail. Keep the same exact
 background, six-part, raw-depth, and 30 mm printability gates.
