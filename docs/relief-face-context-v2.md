@@ -719,6 +719,34 @@ rows after official five-point alignment, so it is not fused into production.
 Measured evidence is in
 `docs/benchmark-evidence/cc0_face_local_gate_beaa819_n4/`.
 
+## HSRD/MHR auxiliary depth control
+
+The strongest available permissive real-scan corpus remains HSRD-100. A native
+photo/scan alignment preflight downloaded and checksum-verified one official
+RealityCapture project, but exact solved cameras are stored in its proprietary
+`sfm0.dat`. Official export requires a running RealityScan installation, which
+is not present locally, and no documented standalone parser exists. The lane
+therefore fails closed without downloading the 1.2 GB photo archive or guessing
+camera poses.
+
+The bounded fallback paired 240 exact, train-only Meta MHR camera-depth rows
+with the 36 HSRD training rows. The HSRD-only and mixed lanes share the same
+deepest-only DAv2-Small decoder, initialization, HSRD batch order, 216 optimizer
+steps, and fixed final epoch. MHR never participates in validation or sealed
+selection, and HSRD sealed features are loaded only after validation has locked
+the blend alphas.
+
+Persistent auxiliary loss reduced validation named-part failures from 177 to
+172, but gradient correlation fell from `0.617559` to `0.613607`, so the strict
+validation gate failed. A harness audit then found that the first experimental
+version had opened sealed rows despite that failure. Those sealed values and
+the subsequently chosen six-epoch handoff are quarantined as contaminated
+diagnostics. The corrected exact replay reproduced the training state hashes,
+stopped with `sealed_evaluated=false`, and left every sealed asset unopened.
+Production was not changed. Compact hashes, research references, and
+reproduction details are in
+`docs/benchmark-evidence/hsrd_mhr_auxiliary_control_20260719/`.
+
 ## Validation
 
 ```powershell

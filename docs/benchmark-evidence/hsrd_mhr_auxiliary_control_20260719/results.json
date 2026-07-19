@@ -1,0 +1,139 @@
+{
+  "schema_version": 2,
+  "status": "hold",
+  "production_changed": false,
+  "advance_to_exact_photo_and_30mm_replay": false,
+  "method": "dav2_small_deepest_hsrd_mhr_auxiliary_camera_z",
+  "control_method": "dav2_small_deepest_hsrd_only_camera_z",
+  "trainer": {
+    "published_bytes": 42293,
+    "published_sha256": "2a24e07ee22ac494966620b59a9582798730901041f412b1162b9944ebc0c48c",
+    "authoritative_run_sha256": "b9890a4f9b4bdc3dd2af2d4b2878d72b0dd5856b777b794778dd76b8044b476e",
+    "post_run_hardening": "Published code additionally requires exact auxiliary weight and schedule-seed provenance; numerical training and selection logic are unchanged.",
+    "post_hardening_smoke": {
+      "summary_bytes": 2459919,
+      "summary_sha256": "0789fcd849615b7498929b3e2e253de79498ce1bbaea6c2c9ba35dfc10e070fc",
+      "checkpoint_sha256": "f2813da6621bcc3bbf5fb8d5f34e80272846f16fbfb984c92d5c7de0ee3d05e3",
+      "matched_training_contract_passed": true,
+      "sealed_evaluated": false
+    }
+  },
+  "fixed_design": {
+    "auxiliary_epochs": 12,
+    "auxiliary_weight": 0.25,
+    "batch_size": 2,
+    "epochs": 12,
+    "loss_profile": "correlation-strict",
+    "parameter_count_each": 92089,
+    "selection_source": "HSRD validation, with sealed access permitted only after strict validation success",
+    "training_seed": 20260719
+  },
+  "corpora": {
+    "hsrd": {
+      "attribution": "HSRD-100, Digital Reality Lab (2025)",
+      "license": "CC BY 4.0",
+      "provider": "digitalrealitylab/HSRD-100",
+      "revision": "9cc5e9c138dd310dc88c95c80e5db0a3ecb7971a",
+      "rows": {
+        "sealed_reserved": 8,
+        "train": 36,
+        "validation": 16
+      },
+      "summary_sha256": "06e0d1fb40fdb013785dfac0912c5e7666751f5cb8de2a1d2b3041cae5956861"
+    },
+    "mhr": {
+      "license": "Apache-2.0",
+      "provider": "meta-mhr-v1.0.1-camera-depth",
+      "release": "https://github.com/facebookresearch/MHR/releases/tag/v1.0.1",
+      "release_archive_sha256": "e4f4f205cd87c0fa106577ba1de4fc763e4eb197c924461d2ef7e6944e9d6b94",
+      "repository": "https://github.com/facebookresearch/MHR",
+      "revision": "4998cec385b1aaa07abdefba71bfba2f83c7db32",
+      "selected_training_rows": 240,
+      "sealed_rows_used": 0,
+      "summary_sha256": "d8717cced1d8f6753c15a7367dc1c84c5e62e0439f87b4380cca65f55fd665a5",
+      "supervision_manifest_sha256": "42cb6169170f0dd31a8715aefdf45229749d4418d54d19e4d5c48b8452c59acb",
+      "validation_rows_used": 0
+    }
+  },
+  "native_photo_calibration_preflight": {
+    "status": "blocked-fail-closed",
+    "archive_bytes": 610089677,
+    "archive_sha256": "2f437b6cbc805440333665f769dd27ad6c3781808a79c840e4eab1fa8bb901bf",
+    "project": {
+      "bytes": 39564,
+      "path": "HSR0015-Body-032.rcproj",
+      "sha256": "7bd1fadcd7890f66c984f51e54db425771b7cfe8fa0d6d5534c0b8577a18b4e2"
+    },
+    "registration": {
+      "bytes": 19090485,
+      "path": "HSR0015-Body-032/sfm0.dat",
+      "sha256": "b3e247a153784b1e0ff1cf2363ccd9b4afbc15830d38ae72568766cfa2a3dd3a"
+    },
+    "realityscan_installed": false,
+    "reason": "Exact solved cameras require the official RealityScan application export path; no documented standalone sfm0.dat parser exists. No poses were guessed."
+  },
+  "authoritative_validation_only_run": {
+    "status": "hold",
+    "summary_bytes": 22304926,
+    "summary_sha256": "de51ed8ebbe4069b56badaa7ad86d4b99cecfcf0894192e240a1978e4d1a754c",
+    "checkpoint_bytes": 774637,
+    "checkpoint_sha256": "125dc3a4dc96d9f328a4eb17d83bc70c956dc12076b7e00008b0f92a05df2892",
+    "runtime_seconds": 175.4814850000039,
+    "peak_vram_gib": 0.4635472297668457,
+    "initial_state_sha256": "2309dc131e4d6385ecc650197f4b833de3ac0d72fa948f0f99c751633faa2178",
+    "control_state_sha256": "efa5edbe9eb6062118f931a5eb3c6bdc5865dd0871087ca58d31a017045e1eff",
+    "candidate_state_sha256": "f6930788ee69335a248d93faffbc40092759ce7e6d81f3e2c04a23d33668d17c",
+    "hsrd_schedule_sha256": "909554a9af97ddbed64a35ed1b4091f144ab75e1db89e1e175ea84ce75594355",
+    "auxiliary_schedule_sha256": "aa4104f42b0f589b79e0b6c75b78bb09b4595710a689429ebb313029c39f51a3",
+    "optimizer_steps_each": 216,
+    "hsrd_exposure_count_each": 432,
+    "matched_training_contract_passed": true,
+    "validation": {
+      "hsrd_control": {
+        "alpha": 0.6,
+        "combined_part_failures": 177,
+        "median_gradient_correlation": 0.6175590901483758,
+        "median_normalized_rmse": 0.1799181020342679,
+        "median_shape_correlation": 0.8226468941557191
+      },
+      "mixed_auxiliary": {
+        "alpha": 1.0,
+        "combined_part_failures": 172,
+        "median_gradient_correlation": 0.6136070387741575,
+        "median_normalized_rmse": 0.17777602901297554,
+        "median_shape_correlation": 0.8272672447466503
+      }
+    },
+    "validation_gate": {
+      "mixed_beats_foundation": true,
+      "mixed_beats_hsrd_control": false,
+      "passed": false
+    },
+    "sealed_evaluated": false,
+    "sealed_preparation": null,
+    "selected_sealed": null,
+    "background_pixels_bit_exact": true,
+    "training_state_replay_matches_pre_gate_run": true
+  },
+  "legacy_contaminated_diagnostics": {
+    "decision_use": false,
+    "reason": "An earlier harness opened sealed rows after validation failure. Those sealed values and the subsequently chosen staged handoff are retained only for audit and cannot support selection.",
+    "persistent_pre_gate_summary_sha256": "f123dedf1b94639bb540ffd6624c63078accf59a3726b6472db49f4579243cbb",
+    "staged_pre_gate_summary_sha256": "3494b40acf1b74d1b9fbf476ea288be2bcf2f4c424d769e8d79185c0d6b6b060",
+    "persistent_pre_gate_sealed": {
+      "hsrd_control_failures": 93,
+      "mixed_auxiliary_failures": 93
+    },
+    "staged_pre_gate_sealed": {
+      "hsrd_control_failures": 93,
+      "mixed_auxiliary_failures": 94
+    }
+  },
+  "decision": {
+    "close_native_photo_without_calibration": true,
+    "close_persistent_mhr_auxiliary": true,
+    "close_staged_mhr_auxiliary": true,
+    "production_incumbent_unchanged": true,
+    "reason": "The persistent auxiliary candidate failed the strict validation gradient/non-regression comparison against the matched HSRD-only control. Sealed rows remained unopened in the authoritative run."
+  }
+}
