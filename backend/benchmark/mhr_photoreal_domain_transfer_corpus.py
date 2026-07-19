@@ -975,6 +975,56 @@ def _run_zimage(
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats(device)
     started = time.perf_counter()
+    vram_limit = min(
+        10.5,
+        torch.cuda.mem_get_info(device)[1] / (1024**3) - 0.5,
+    )
+
+    text_started = time.perf_counter()
+    text_pipe = ZImagePipeline.from_pretrained(
+        torch_dtype=torch.bfloat16,
+        device=str(device),
+        model_configs=[
+            ModelConfig(
+                path=[str(path) for path in text_encoder_paths],
+                skip_download=True,
+                **disk_config,
+            ),
+        ],
+        tokenizer_config=ModelConfig(
+            path=str(model_root / "tokenizer"), skip_download=True
+        ),
+        vram_limit=vram_limit,
+    )
+    text_disk_map_refresh = _install_post_empty_cache_disk_map_refresh(text_pipe)
+    text_prompt_unit = next(
+        unit
+        for unit in text_pipe.units
+        if unit.__class__.__name__ == "ZImageUnit_PromptEmbedder"
+    )
+    text_pipe.load_models_to_device(text_prompt_unit.onload_model_names)
+    prompt_embeddings = text_prompt_unit.encode_prompt(
+        text_pipe, prompt, text_pipe.device
+    )
+
+    def move_nested(value, target):
+        if torch.is_tensor(value):
+            return value.detach().to(target)
+        if isinstance(value, list):
+            return [move_nested(item, target) for item in value]
+        if isinstance(value, tuple):
+            return tuple(move_nested(item, target) for item in value)
+        return value
+
+    prompt_embeddings_cpu = move_nested(prompt_embeddings, "cpu")
+    torch.cuda.synchronize(device)
+    text_precompute_seconds = time.perf_counter() - text_started
+    text_disk_map_refresh = dict(text_disk_map_refresh)
+    del prompt_embeddings, text_prompt_unit, text_pipe
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    main_load_started = time.perf_counter()
     pipe = ZImagePipeline.from_pretrained(
         torch_dtype=torch.bfloat16,
         device=str(device),
@@ -985,24 +1035,26 @@ def _run_zimage(
                 skip_download=True,
                 **disk_config,
             ),
-            ModelConfig(
-                path=[str(path) for path in text_encoder_paths],
-                skip_download=True,
-                **disk_config,
-            ),
             ModelConfig(path=str(vae_path), skip_download=True, **disk_config),
         ],
-        tokenizer_config=ModelConfig(
-            path=str(model_root / "tokenizer"), skip_download=True
-        ),
-        vram_limit=min(
-            10.5,
-            torch.cuda.mem_get_info(device)[1] / (1024**3) - 0.5,
-        ),
+        tokenizer_config=None,
+        vram_limit=vram_limit,
     )
     disk_map_refresh = _install_post_empty_cache_disk_map_refresh(pipe)
+    prompt_embeddings_device = move_nested(prompt_embeddings_cpu, device)
+    prompt_unit = next(
+        unit
+        for unit in pipe.units
+        if unit.__class__.__name__ == "ZImageUnit_PromptEmbedder"
+    )
+
+    def use_precomputed_prompt(_pipe, _prompt, _edit_image):
+        return {"prompt_embeds": prompt_embeddings_device}
+
+    prompt_unit.process = use_precomputed_prompt
     torch.cuda.synchronize(device)
     loaded_seconds = time.perf_counter() - started
+    main_load_seconds = time.perf_counter() - main_load_started
     inference_started = time.perf_counter()
     output = pipe(
         prompt=prompt,
@@ -1024,6 +1076,8 @@ def _run_zimage(
     peak_reserved = float(torch.cuda.max_memory_reserved(device) / (1024**3))
     telemetry = {
         "load_seconds": float(loaded_seconds),
+        "text_precompute_seconds": float(text_precompute_seconds),
+        "main_model_load_seconds": float(main_load_seconds),
         "inference_seconds": float(inference_seconds),
         "total_seconds": float(time.perf_counter() - started),
         "peak_vram_gib": peak_allocated,
@@ -1035,6 +1089,8 @@ def _run_zimage(
         "device_wide_peak_available": False,
         "provider_import_files": imported_files,
         "post_empty_cache_disk_map_refresh": disk_map_refresh,
+        "text_post_empty_cache_disk_map_refresh": text_disk_map_refresh,
+        "sequential_text_encoder_mapping": True,
         "disk_offload": True,
         "disk_offload_preparing_device": str(device),
         "disk_offload_reason": (
