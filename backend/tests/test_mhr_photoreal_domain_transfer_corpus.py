@@ -88,6 +88,28 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "automatic resize"):
             transfer.composite_face_only(parent, generated[:7], mask)
 
+    def test_face_local_generation_has_exact_inverse_bbox(self):
+        parent = np.zeros((40, 48, 3), dtype=np.uint8)
+        parent[..., 0] = np.arange(48, dtype=np.uint8)
+        control = 255 - parent
+        mask = np.zeros((40, 48), dtype=bool)
+        mask[12:24, 18:26] = True
+
+        rgb_crop, control_crop, metadata = transfer.prepare_face_local_generation(
+            parent, control, mask, target_size=32, context_ratio=2.0
+        )
+        restored = transfer.restore_face_local_generation(
+            parent, np.full_like(rgb_crop, 77), metadata
+        )
+
+        self.assertEqual(rgb_crop.shape, (32, 32, 3))
+        self.assertEqual(control_crop.shape, (32, 32, 3))
+        x0, y0, x1, y1 = metadata["source_bbox_xyxy"]
+        outside = np.ones(parent.shape[:2], dtype=bool)
+        outside[y0:y1, x0:x1] = False
+        np.testing.assert_array_equal(restored[outside], parent[outside])
+        self.assertTrue(np.all(restored[y0:y1, x0:x1] == 77))
+
     def test_alignment_accepts_geometry_stable_non_noop_transfer(self):
         parent = np.full((64, 64, 3), 80, dtype=np.uint8)
         selection = self._mask((64, 64), (12, 8, 52, 56))

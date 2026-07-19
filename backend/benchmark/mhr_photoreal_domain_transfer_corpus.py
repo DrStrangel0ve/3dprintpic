@@ -67,6 +67,7 @@ DEFAULT_SEED = 20260719
 DEFAULT_DENOISING_STRENGTH = 0.35
 DEFAULT_CONTROL_SCALE = 0.90
 DEFAULT_STEPS = 8
+DEFAULT_FACE_CROP_CONTEXT_RATIO = 1.9
 DEFAULT_PROMPT = (
     "A natural documentary photograph of the same adult person and the same "
     "scene shown in the input. Preserve the exact camera, head pose, facial "
@@ -549,6 +550,63 @@ def composite_face_only(
     output = parent.copy()
     output[mask] = generated[mask]
     return output
+
+
+def prepare_face_local_generation(
+    parent_rgb: np.ndarray,
+    control_rgb: np.ndarray,
+    selection_mask: np.ndarray,
+    *,
+    target_size: int,
+    context_ratio: float = DEFAULT_FACE_CROP_CONTEXT_RATIO,
+) -> tuple[np.ndarray, np.ndarray, dict]:
+    if target_size < 16 or target_size % 16:
+        raise ValueError("Face-local target size must be a positive multiple of 16")
+    points = np.argwhere(selection_mask)
+    if points.size == 0:
+        raise ValueError("Face-local generation requires a non-empty selection mask")
+    y_min, x_min = points.min(axis=0)
+    y_max, x_max = points.max(axis=0) + 1
+    crop_size = int(math.ceil(max(y_max - y_min, x_max - x_min) * context_ratio))
+    crop_size = min(crop_size, parent_rgb.shape[0], parent_rgb.shape[1])
+    center_x = (x_min + x_max) / 2.0
+    center_y = (y_min + y_max) / 2.0
+    x0 = int(round(center_x - crop_size / 2.0))
+    y0 = int(round(center_y - crop_size / 2.0))
+    x0 = min(max(x0, 0), parent_rgb.shape[1] - crop_size)
+    y0 = min(max(y0, 0), parent_rgb.shape[0] - crop_size)
+    x1 = x0 + crop_size
+    y1 = y0 + crop_size
+    rgb_crop = Image.fromarray(parent_rgb[y0:y1, x0:x1]).resize(
+        (target_size, target_size), Image.Resampling.LANCZOS
+    )
+    control_crop = Image.fromarray(control_rgb[y0:y1, x0:x1]).resize(
+        (target_size, target_size), Image.Resampling.BILINEAR
+    )
+    metadata = {
+        "source_bbox_xyxy": [x0, y0, x1, y1],
+        "source_size": crop_size,
+        "target_size": target_size,
+        "context_ratio": float(context_ratio),
+        "rgb_resampling": "lanczos",
+        "control_resampling": "bilinear",
+        "inverse_resampling": "lanczos",
+    }
+    return np.asarray(rgb_crop), np.asarray(control_crop), metadata
+
+
+def restore_face_local_generation(
+    parent_rgb: np.ndarray,
+    generated_crop: np.ndarray,
+    metadata: dict,
+) -> np.ndarray:
+    x0, y0, x1, y1 = metadata["source_bbox_xyxy"]
+    restored_crop = Image.fromarray(generated_crop).resize(
+        (x1 - x0, y1 - y0), Image.Resampling.LANCZOS
+    )
+    restored = parent_rgb.copy()
+    restored[y0:y1, x0:x1] = np.asarray(restored_crop, dtype=np.uint8)
+    return restored
 
 
 def _mask_iou(first: np.ndarray, second: np.ndarray) -> float:
@@ -1121,6 +1179,7 @@ def _run_zimage(
     denoising_strength: float,
     control_scale: float,
     steps: int,
+    vram_limit_gib: float | None = None,
 ) -> tuple[np.ndarray, dict]:
     import torch
 
@@ -1158,7 +1217,7 @@ def _run_zimage(
     torch.cuda.reset_peak_memory_stats(device)
     started = time.perf_counter()
     vram_limit = min(
-        10.5,
+        10.5 if vram_limit_gib is None else float(vram_limit_gib),
         torch.cuda.mem_get_info(device)[1] / (1024**3) - 0.5,
     )
 
@@ -1268,6 +1327,7 @@ def _run_zimage(
         "peak_vram_gib": peak_allocated,
         "peak_allocated_vram_gib": peak_allocated,
         "peak_reserved_vram_gib": peak_reserved,
+        "vram_limit_gib": float(vram_limit),
         "device_index": int(device.index),
         "device": torch.cuda.get_device_name(device),
         "compute_capability": list(torch.cuda.get_device_capability(device)),
@@ -1518,6 +1578,9 @@ def run_smoke(
     denoising_strength: float = DEFAULT_DENOISING_STRENGTH,
     control_scale: float = DEFAULT_CONTROL_SCALE,
     steps: int = DEFAULT_STEPS,
+    face_crop_size: int = 0,
+    face_crop_context_ratio: float = DEFAULT_FACE_CROP_CONTEXT_RATIO,
+    vram_limit_gib: float | None = None,
     preflight_only: bool = False,
 ) -> dict:
     output_dir = Path(output_dir).resolve()
@@ -1556,6 +1619,23 @@ def run_smoke(
     exact_depth = np.load(paths["exact_depth"], allow_pickle=False)
     control_rgb = make_inverse_depth_control(exact_depth)
     Image.fromarray(control_rgb).save(output_dir / "depth_control.png")
+    crop_metadata = None
+    provider_parent_rgb = parent_rgb
+    provider_control_rgb = control_rgb
+    if face_crop_size:
+        provider_parent_rgb, provider_control_rgb, crop_metadata = (
+            prepare_face_local_generation(
+                parent_rgb,
+                control_rgb,
+                selection_mask,
+                target_size=face_crop_size,
+                context_ratio=face_crop_context_ratio,
+            )
+        )
+        Image.fromarray(provider_parent_rgb).save(output_dir / "provider_input_crop.png")
+        Image.fromarray(provider_control_rgb).save(
+            output_dir / "provider_control_crop.png"
+        )
     configuration = {
         "prompt": prompt,
         "seed": int(seed),
@@ -1564,19 +1644,32 @@ def run_smoke(
         "steps": int(steps),
         "row_id": row_id,
         "output_dimensions": list(parent_rgb.shape[:2]),
-        "resize_or_warp": None,
+        "provider_input_dimensions": list(provider_parent_rgb.shape[:2]),
+        "face_local_crop": crop_metadata,
+        "resize_or_warp": crop_metadata,
+        "vram_limit_gib": vram_limit_gib,
         "depth_control": "uint8_rgb_round(255*(1-exact_normalized_scene_depth))",
     }
-    generated_rgb, runtime = _run_zimage(
+    provider_generated_rgb, runtime = _run_zimage(
         preflight,
-        parent_rgb,
-        control_rgb,
+        provider_parent_rgb,
+        provider_control_rgb,
         prompt=prompt,
         seed=seed,
         denoising_strength=denoising_strength,
         control_scale=control_scale,
         steps=steps,
+        vram_limit_gib=vram_limit_gib,
     )
+    if crop_metadata is not None:
+        Image.fromarray(provider_generated_rgb).save(
+            output_dir / "provider_generated_crop.png"
+        )
+        generated_rgb = restore_face_local_generation(
+            parent_rgb, provider_generated_rgb, crop_metadata
+        )
+    else:
+        generated_rgb = provider_generated_rgb
     Image.fromarray(generated_rgb).save(output_dir / "raw_generated.png")
     candidate_rgb = composite_face_only(parent_rgb, generated_rgb, selection_mask)
     candidate_path = output_dir / "candidate_face_only.png"
@@ -1678,6 +1771,13 @@ def main() -> None:
     )
     parser.add_argument("--control-scale", type=float, default=DEFAULT_CONTROL_SCALE)
     parser.add_argument("--steps", type=int, default=DEFAULT_STEPS)
+    parser.add_argument("--face-crop-size", type=int, default=0)
+    parser.add_argument(
+        "--face-crop-context-ratio",
+        type=float,
+        default=DEFAULT_FACE_CROP_CONTEXT_RATIO,
+    )
+    parser.add_argument("--vram-limit-gib", type=float)
     parser.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args()
     result = run_smoke(
@@ -1697,6 +1797,9 @@ def main() -> None:
         denoising_strength=args.denoising_strength,
         control_scale=args.control_scale,
         steps=args.steps,
+        face_crop_size=args.face_crop_size,
+        face_crop_context_ratio=args.face_crop_context_ratio,
+        vram_limit_gib=args.vram_limit_gib,
         preflight_only=args.preflight_only,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
