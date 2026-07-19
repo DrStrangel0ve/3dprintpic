@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "provider": "hsrd100_lod1_exact_camera_z",
+  "source_revision": "9cc5e9c138dd310dc88c95c80e5db0a3ecb7971a",
+  "dataset_license": "CC BY 4.0",
+  "privacy": "public licensed scans only; no private or user images",
+  "source_summary_sha256": "06e0d1fb40fdb013785dfac0912c5e7666751f5cb8de2a1d2b3041cae5956861",
+  "preflight_sha256": "8c308d4dfc437123af464d42dfe34a26ec4fb9e75eae46540acccb9b48d1ea06",
+  "selected_asset_manifest_sha256": "88a2d029b47ccb1f461cadca44495667598dc8cc6c6ed7c17e6acf051954e528",
+  "row_count": 60,
+  "split_counts": {
+    "train": 36,
+    "validation": 16,
+    "sealed": 8
+  },
+  "selected_identity_count": 9,
+  "target_face_heights_pixels": [74, 75],
+  "accepted_view_count": 30,
+  "expected_view_count": 36,
+  "view_detection_rate": 0.8333333333,
+  "minimum_view_detection_rate": 0.8,
+  "both_yaw_signs_per_split": true,
+  "source_gate_passed": true,
+  "promotion_eligible": true,
+  "asset_verification": {
+    "referenced_assets": 660,
+    "verified_assets": 660,
+    "failed_assets": 0,
+    "verified_bytes": 80831441
+  },
+  "camera_z_span": {
+    "minimum": 0.2236509323,
+    "median": 0.3294519186,
+    "maximum": 0.7911875248
+  },
+  "minimum_part_pixels": {
+    "left_eye": 32,
+    "left_eyebrow": 14,
+    "mouth": 43,
+    "nose": 183,
+    "right_eye": 30,
+    "right_eyebrow": 23
+  },
+  "detector": {
+    "name": "mediapipe-face-landmarker",
+    "mediapipe_version": "0.10.35",
+    "opencv_reported_version": "5.0.0",
+    "model_sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+    "license": "Apache-2.0"
+  },
+  "depth_resize": "nearest-visible",
+  "intrinsics_resize_convention": "opencv-half-pixel-actual-rounded-shape",
+  "source_geometry_training_and_evaluation_only": true
+}

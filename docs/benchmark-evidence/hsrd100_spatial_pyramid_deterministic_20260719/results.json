@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "status": "hold",
+  "production_changed": false,
+  "advance_to_exact_photo_and_30mm_replay": false,
+  "method": "dav2_small_frozen_spatial_feature_pyramid_camera_z",
+  "control_method": "dav2_small_frozen_deepest_resized_matched_control_camera_z",
+  "parameter_count_each": 92089,
+  "training_seed": 20260719,
+  "foundation_model": {
+    "model_id": "depth-anything/Depth-Anything-V2-Small-hf",
+    "revision": "5426e4f0f36572d16453bbda7a8389317b1bef99",
+    "license": "Apache-2.0",
+    "model_sha256": "3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70",
+    "processor_sha256": "d41175c0d889477ca8fc67191e540faef14baf6275157b3fdecf78469e6bbf84",
+    "local_files_only": true,
+    "frozen_feature_shapes": [
+      [64, 148, 148],
+      [64, 74, 74],
+      [64, 37, 37],
+      [64, 19, 19]
+    ]
+  },
+  "architecture": {
+    "pyramid_channels": 24,
+    "feature_levels": 4,
+    "feature_channels": [64, 64, 64, 64],
+    "conditioning_channels": 9,
+    "conditioning_layout": "coarse_camera_z,rays_xyz,face_support,attachment_boundary,rgb_laplacian_luma_3scale",
+    "output": "bounded-supported-camera-z-residual",
+    "maximum_residual": 0.3
+  },
+  "loss_profile": "correlation-strict",
+  "loss_weights": {
+    "attachment": 0.25,
+    "camera_z": 0.25,
+    "gradient": 0.25,
+    "gradient_correlation": 1.5,
+    "laplacian": 0.1,
+    "normal": 0.1,
+    "part_non_regression": 1.0,
+    "residual": 0.05
+  },
+  "determinism": {
+    "cublas_workspace_config": ":4096:8",
+    "cuda_matmul_tf32": false,
+    "cudnn_benchmark": false,
+    "cudnn_deterministic": true,
+    "cudnn_tf32": false,
+    "deterministic_algorithms": true,
+    "float32_matmul_precision": "highest",
+    "cuda_initialized_before_setup": false,
+    "torch_version": "2.11.0+cu128",
+    "python_version": "3.11.8",
+    "cuda_runtime_version": "12.8",
+    "cudnn_version": 91900,
+    "nvidia_driver_version": "591.86",
+    "gpu_name": "NVIDIA GeForce RTX 3080 Ti",
+    "compute_capability": [8, 6],
+    "transformers_version": "5.13.0",
+    "huggingface_hub_version": "1.22.0",
+    "numpy_version": "2.4.4",
+    "opencv_version": "5.0.0",
+    "pillow_version": "12.2.0"
+  },
+  "corpus": {
+    "summary_sha256": "06e0d1fb40fdb013785dfac0912c5e7666751f5cb8de2a1d2b3041cae5956861",
+    "expected_summary_sha256": "06e0d1fb40fdb013785dfac0912c5e7666751f5cb8de2a1d2b3041cae5956861",
+    "summary_hash_verified": true,
+    "selected_rows": 60,
+    "split_counts": {
+      "train": 36,
+      "validation": 16,
+      "sealed": 8
+    }
+  },
+  "authoritative_runs": {
+    "a": {
+      "name": "hsrd100_dav2_small_spatial_pyramid_deterministic_final_a_n60_e12_20260719",
+      "summary_sha256": "86682e93a0cdf4615b5f6ae41cbcaf25a6088b32388216b1f3b8d4ee8c6b6f32",
+      "runtime_seconds": 112.1577032,
+      "peak_vram_gib": 0.3502883911
+    },
+    "b": {
+      "name": "hsrd100_dav2_small_spatial_pyramid_deterministic_final_b_n60_e12_20260719",
+      "summary_sha256": "3622c24545dea697baef8a99ee6403bfb27921bfcf2e716169863c5ca37afb07",
+      "runtime_seconds": 111.4268894,
+      "peak_vram_gib": 0.3502883911
+    },
+    "checkpoint_sha256": "374bc424885245a7bbf7095ec67aab753ff357f11971f9460b84c533c8047886",
+    "checkpoint_bytes": 774315,
+    "candidate_histories_equal": true,
+    "control_histories_equal": true,
+    "selected_validation_equal": true,
+    "selected_sealed_equal": true,
+    "decisions_equal": true,
+    "strict_tagged_part_nonregression": true,
+    "exact_row_id_sets_required": true
+  },
+  "training": {
+    "candidate_best_epoch": 2,
+    "control_best_epoch": 10,
+    "blend_alphas": [0.0, 0.25, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  },
+  "validation": {
+    "baseline": {
+      "combined_part_failures": 185,
+      "median_shape_correlation": 0.8035569943,
+      "median_raw_gradient_correlation": 0.6068874436,
+      "median_normalized_rmse": 0.1882658707
+    },
+    "raw_candidate": {
+      "combined_part_failures": 179,
+      "median_shape_correlation": 0.8119740827,
+      "median_raw_gradient_correlation": 0.6099861118,
+      "median_normalized_rmse": 0.1847369402
+    },
+    "raw_control": {
+      "combined_part_failures": 173,
+      "median_shape_correlation": 0.8232728324,
+      "median_raw_gradient_correlation": 0.6172729322,
+      "median_normalized_rmse": 0.1796574778
+    },
+    "selected_candidate": {
+      "alpha": 0.9,
+      "combined_part_failures": 179,
+      "median_shape_correlation": 0.8114755499,
+      "median_raw_gradient_correlation": 0.6111840642,
+      "median_normalized_rmse": 0.1849562188,
+      "eligible_vs_baseline": true
+    },
+    "selected_control": {
+      "alpha": 0.7,
+      "combined_part_failures": 172,
+      "median_shape_correlation": 0.8186935415,
+      "median_raw_gradient_correlation": 0.6176931571,
+      "median_normalized_rmse": 0.1817190833,
+      "eligible_vs_baseline": true
+    }
+  },
+  "sealed": {
+    "baseline": {
+      "combined_part_failures": 94,
+      "median_shape_correlation": 0.8051113742,
+      "median_raw_gradient_correlation": 0.6020642661,
+      "median_normalized_rmse": 0.1807512725
+    },
+    "selected_candidate": {
+      "alpha": 0.9,
+      "combined_part_failures": 91,
+      "median_shape_correlation": 0.8183469241,
+      "median_raw_gradient_correlation": 0.6071616341,
+      "median_normalized_rmse": 0.1749803958
+    },
+    "selected_control": {
+      "alpha": 0.7,
+      "combined_part_failures": 93,
+      "median_shape_correlation": 0.8099869713,
+      "median_raw_gradient_correlation": 0.6062915945,
+      "median_normalized_rmse": 0.1789003141
+    }
+  },
+  "decision": {
+    "candidate_validation_beats_baseline": true,
+    "matched_control_validation_beats_baseline": true,
+    "multiscale_validation_advantage": false,
+    "sealed_beats_baseline": true,
+    "sealed_beats_matched_control": true,
+    "background_bit_exact": true,
+    "equal_parameter_count": true,
+    "advance_to_exact_photo_and_30mm_replay": false
+  }
+}
