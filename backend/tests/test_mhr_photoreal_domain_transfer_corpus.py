@@ -388,26 +388,35 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         events = []
 
         class Handle:
+            def __init__(self, name):
+                self.name = name
+
             def __exit__(self, _exc_type, _exc, _traceback):
-                events.append("close")
+                events.append(f"close:{self.name}")
 
         class DiskMap:
-            def __init__(self):
-                self.files = [Handle()]
+            def __init__(self, name):
+                self.name = name
+                self.files = [Handle(name)]
 
             def flush_files(self):
-                events.append(f"refresh:{len(self.files)}")
-                self.files.append(Handle())
+                events.append(f"refresh:{self.name}:{len(self.files)}")
+                self.files.append(Handle(self.name))
 
-        disk_map = DiskMap()
+        first_disk_map = DiskMap("first")
+        second_disk_map = DiskMap("second")
 
         class Child:
-            def __init__(self):
+            def __init__(self, disk_map):
                 self.disk_map = disk_map
 
         class Model:
             def modules(self):
-                return [Child(), Child()]
+                return [
+                    Child(first_disk_map),
+                    Child(first_disk_map),
+                    Child(second_disk_map),
+                ]
 
         class Pipe:
             text_encoder = Model()
@@ -420,8 +429,17 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         telemetry = transfer._install_post_empty_cache_disk_map_refresh(pipe)
         pipe.load_models_to_device(["text_encoder"])
 
-        self.assertEqual(events, ["provider_switch", "close", "refresh:0"])
-        self.assertEqual(telemetry, {"calls": 1, "refreshed_maps": 1})
+        self.assertEqual(
+            events,
+            [
+                "provider_switch",
+                "close:first",
+                "close:second",
+                "refresh:first:0",
+                "refresh:second:0",
+            ],
+        )
+        self.assertEqual(telemetry, {"calls": 1, "refreshed_maps": 2})
 
     def test_precomputed_prompt_processor_accepts_provider_keywords(self):
         embeddings = [object()]

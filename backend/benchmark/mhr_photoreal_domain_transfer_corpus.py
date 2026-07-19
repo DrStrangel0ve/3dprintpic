@@ -911,29 +911,35 @@ def _install_post_empty_cache_disk_map_refresh(pipe) -> dict:
 
     def load_models_to_device(model_names):
         original(model_names)
-        refreshed = set()
+        disk_maps = []
+        seen = set()
         for model_name in model_names:
             model = getattr(pipe, model_name, None)
             if model is None:
                 continue
             for module in model.modules():
                 disk_map = getattr(module, "disk_map", None)
-                if disk_map is None or id(disk_map) in refreshed:
+                if disk_map is None or id(disk_map) in seen:
                     continue
-                handles = list(getattr(disk_map, "files", ()))
-                for handle in handles:
-                    close = getattr(handle, "__exit__", None)
-                    if callable(close):
-                        close(None, None, None)
-                files = getattr(disk_map, "files", None)
-                if hasattr(files, "clear"):
-                    files.clear()
-                handles.clear()
-                gc.collect()
-                disk_map.flush_files()
-                refreshed.add(id(disk_map))
+                disk_maps.append(disk_map)
+                seen.add(id(disk_map))
+        for disk_map in disk_maps:
+            handles = list(getattr(disk_map, "files", ()))
+            for handle in handles:
+                close = getattr(handle, "__exit__", None)
+                if callable(close):
+                    close(None, None, None)
+            handle = None
+            close = None
+            files = getattr(disk_map, "files", None)
+            if hasattr(files, "clear"):
+                files.clear()
+            handles.clear()
+        gc.collect()
+        for disk_map in disk_maps:
+            disk_map.flush_files()
         telemetry["calls"] += 1
-        telemetry["refreshed_maps"] += len(refreshed)
+        telemetry["refreshed_maps"] += len(disk_maps)
 
     pipe.load_models_to_device = load_models_to_device
     return telemetry
