@@ -69,7 +69,7 @@ DEFAULT_CONTROL_SCALE = 0.90
 DEFAULT_STEPS = 8
 DEFAULT_FACE_CROP_CONTEXT_RATIO = 1.9
 REDUNDANT_HASH_MIN_BYTES = 1_000_000_000
-REDUNDANT_HASH_READS = 2
+LARGE_ASSET_PREFLIGHT_HASH_READS = 1
 MAX_PINNED_READ_ATTEMPTS = 5
 MAX_SAFETENSORS_HEADER_BYTES = 64 * 1024 * 1024
 OWNED_DISK_MAP_PATCH_VERSION = 2
@@ -232,8 +232,9 @@ def _git_output(root: Path, *args: str) -> str | None:
 def _asset_record(path: Path, size: int, sha256: str) -> dict:
     exists = path.is_file()
     actual_size = int(path.stat().st_size) if exists else None
-    required_reads = REDUNDANT_HASH_READS if size >= REDUNDANT_HASH_MIN_BYTES else 1
-    attempt_limit = MAX_PINNED_READ_ATTEMPTS if required_reads > 1 else 1
+    large_asset = size >= REDUNDANT_HASH_MIN_BYTES
+    required_reads = LARGE_ASSET_PREFLIGHT_HASH_READS if large_asset else 1
+    attempt_limit = MAX_PINNED_READ_ATTEMPTS if large_asset else 1
     attempt_groups = []
     if exists and actual_size == size:
         for _ in range(required_reads):
@@ -245,7 +246,11 @@ def _asset_record(path: Path, size: int, sha256: str) -> dict:
                     break
             attempt_groups.append(attempts)
     observations = [attempts[-1] for attempts in attempt_groups if attempts]
-    reads_consistent = bool(observations) and len(set(observations)) == 1
+    reads_consistent = (
+        bool(observations)
+        and len(set(observations)) == 1
+        and all(observation == sha256 for observation in observations)
+    )
     actual_sha256 = observations[-1] if observations else None
     mismatch_attempts = sum(
         observation != sha256

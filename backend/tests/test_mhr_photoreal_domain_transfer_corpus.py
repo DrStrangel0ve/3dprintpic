@@ -411,7 +411,7 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         self.assertFalse(evidence["checks"]["controlnet_hash_reads_consistent"])
         self.assertTrue(evidence["license"]["production_eligible"])
 
-    def test_large_asset_record_requires_two_consistent_pinned_reads(self):
+    def test_large_asset_record_fails_closed_after_retry_exhaustion(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "weight.safetensors"
             path.write_bytes(b"weight")
@@ -421,7 +421,6 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                     transfer,
                     "_sha256",
                     side_effect=(
-                        "expected",
                         *(
                             "transient-corruption"
                             for _ in range(transfer.MAX_PINNED_READ_ATTEMPTS)
@@ -433,13 +432,13 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
 
         self.assertEqual(
             record["sha256_observations"],
-            ["expected", "transient-corruption"],
+            ["transient-corruption"],
         )
-        self.assertEqual(record["hash_read_count"], 2)
-        self.assertEqual(record["hash_reads_required"], 2)
+        self.assertEqual(record["hash_read_count"], 1)
+        self.assertEqual(record["hash_reads_required"], 1)
         self.assertEqual(
             record["hash_attempt_count"],
-            1 + transfer.MAX_PINNED_READ_ATTEMPTS,
+            transfer.MAX_PINNED_READ_ATTEMPTS,
         )
         self.assertEqual(
             record["hash_mismatch_attempts"],
@@ -453,7 +452,7 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         self.assertFalse(record["hash_reads_consistent"])
         self.assertFalse(record["hash_pinned"])
 
-    def test_large_asset_record_accepts_two_consistent_pinned_reads(self):
+    def test_large_asset_record_accepts_one_pinned_preflight_read(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "weight.safetensors"
             path.write_bytes(b"weight")
@@ -462,12 +461,13 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                 patch.object(
                     transfer,
                     "_sha256",
-                    side_effect=("expected", "expected"),
+                    return_value="expected",
                 ),
             ):
                 record = transfer._asset_record(path, len(b"weight"), "expected")
 
-        self.assertEqual(record["hash_read_count"], 2)
+        self.assertEqual(record["hash_read_count"], 1)
+        self.assertEqual(record["hash_reads_required"], 1)
         self.assertTrue(record["hash_reads_consistent"])
         self.assertTrue(record["hash_pinned"])
 
@@ -481,7 +481,6 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                     transfer,
                     "_sha256",
                     side_effect=(
-                        "expected",
                         "transient-corruption",
                         "expected",
                     ),
@@ -491,9 +490,9 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
 
         self.assertEqual(
             record["sha256_attempt_groups"],
-            [["expected"], ["transient-corruption", "expected"]],
+            [["transient-corruption", "expected"]],
         )
-        self.assertEqual(record["hash_attempt_count"], 3)
+        self.assertEqual(record["hash_attempt_count"], 2)
         self.assertEqual(record["hash_mismatch_attempts"], 1)
         self.assertEqual(record["recovered_hash_mismatches"], 1)
         self.assertEqual(record["terminal_hash_mismatches"], 0)
@@ -533,7 +532,7 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
 
             def asset_record(path, size, sha256):
                 reads = (
-                    transfer.REDUNDANT_HASH_READS
+                    transfer.LARGE_ASSET_PREFLIGHT_HASH_READS
                     if size >= transfer.REDUNDANT_HASH_MIN_BYTES
                     else 1
                 )
