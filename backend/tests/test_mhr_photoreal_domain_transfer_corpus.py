@@ -422,9 +422,10 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                     "_sha256",
                     side_effect=(
                         "expected",
-                        "transient-corruption",
-                        "transient-corruption",
-                        "transient-corruption",
+                        *(
+                            "transient-corruption"
+                            for _ in range(transfer.MAX_PINNED_READ_ATTEMPTS)
+                        ),
                     ),
                 ),
             ):
@@ -436,8 +437,19 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         )
         self.assertEqual(record["hash_read_count"], 2)
         self.assertEqual(record["hash_reads_required"], 2)
-        self.assertEqual(record["hash_attempt_count"], 4)
-        self.assertEqual(record["transient_hash_mismatches"], 3)
+        self.assertEqual(
+            record["hash_attempt_count"],
+            1 + transfer.MAX_PINNED_READ_ATTEMPTS,
+        )
+        self.assertEqual(
+            record["hash_mismatch_attempts"],
+            transfer.MAX_PINNED_READ_ATTEMPTS,
+        )
+        self.assertEqual(record["recovered_hash_mismatches"], 0)
+        self.assertEqual(
+            record["terminal_hash_mismatches"],
+            transfer.MAX_PINNED_READ_ATTEMPTS,
+        )
         self.assertFalse(record["hash_reads_consistent"])
         self.assertFalse(record["hash_pinned"])
 
@@ -482,7 +494,9 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
             [["expected"], ["transient-corruption", "expected"]],
         )
         self.assertEqual(record["hash_attempt_count"], 3)
-        self.assertEqual(record["transient_hash_mismatches"], 1)
+        self.assertEqual(record["hash_mismatch_attempts"], 1)
+        self.assertEqual(record["recovered_hash_mismatches"], 1)
+        self.assertEqual(record["terminal_hash_mismatches"], 0)
         self.assertTrue(record["hash_reads_consistent"])
         self.assertTrue(record["hash_pinned"])
 
@@ -776,9 +790,9 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                     "payload_bytes": 24,
                     "dtype_counts": {"BF16": 1, "F32": 1},
                     "manifest_file_count": 1,
-                    "manifest_bytes_hashed": weights.stat().st_size,
-                    "manifest_hash_attempts": 1,
-                    "manifest_hash_failures": 0,
+                    "manifest_verified_bytes": weights.stat().st_size,
+                    "manifest_verification_attempts": 1,
+                    "manifest_attempt_failures": 0,
                     "manifest_retry_count": 0,
                     "payload_read_attempts": 2,
                     "payload_read_failures": 0,
@@ -823,10 +837,22 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                     telemetry,
                 )
 
-        self.assertEqual(telemetry["payload_read_attempts"], 3)
-        self.assertEqual(telemetry["payload_retry_count"], 2)
-        self.assertEqual(telemetry["payload_hash_checks"], 3)
-        self.assertEqual(telemetry["payload_hash_failures"], 3)
+        self.assertEqual(
+            telemetry["payload_read_attempts"],
+            transfer.MAX_PINNED_READ_ATTEMPTS,
+        )
+        self.assertEqual(
+            telemetry["payload_retry_count"],
+            transfer.MAX_PINNED_READ_ATTEMPTS - 1,
+        )
+        self.assertEqual(
+            telemetry["payload_hash_checks"],
+            transfer.MAX_PINNED_READ_ATTEMPTS,
+        )
+        self.assertEqual(
+            telemetry["payload_hash_failures"],
+            transfer.MAX_PINNED_READ_ATTEMPTS,
+        )
 
     def test_verified_manifest_rejects_unsafe_header_length_and_wrong_pin(self):
         from safetensors.torch import save_file
@@ -847,26 +873,42 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                 transfer._build_verified_safetensor_manifest(unsafe, "0" * 64)
 
     def test_verified_manifest_recovers_after_transient_integrity_failure(self):
-        expected_manifest = {
-            "file_size": 8,
-            "file_sha256": "expected",
-            "tensors": {},
-        }
-        telemetry = {}
-        with patch.object(
-            transfer,
-            "_build_verified_safetensor_manifest_once",
-            side_effect=(RuntimeError("transient"), expected_manifest),
-        ):
-            manifest = transfer._build_verified_safetensor_manifest(
-                "weights.safetensors",
-                "expected",
-                telemetry=telemetry,
-            )
+        from safetensors.torch import save_file
+        import torch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            weights = Path(temp_dir) / "weights.safetensors"
+            corrupted = Path(temp_dir) / "corrupted.safetensors"
+            save_file({"weight": torch.arange(4, dtype=torch.float32)}, weights)
+            expected_sha256 = transfer._sha256(weights)
+            corrupted_bytes = bytearray(weights.read_bytes())
+            corrupted_bytes[-1] ^= 0x01
+            corrupted.write_bytes(corrupted_bytes)
+            original_open = Path.open
+            target = weights.resolve()
+            open_count = 0
+
+            def open_with_transient_corruption(path, *args, **kwargs):
+                nonlocal open_count
+                if path.resolve() == target and args and args[0] == "rb":
+                    open_count += 1
+                    selected = corrupted if open_count == 1 else weights
+                    return original_open(selected, *args, **kwargs)
+                return original_open(path, *args, **kwargs)
+
+            telemetry = {}
+            with patch.object(Path, "open", new=open_with_transient_corruption):
+                manifest = transfer._build_verified_safetensor_manifest(
+                    weights,
+                    expected_sha256,
+                    telemetry=telemetry,
+                )
 
         self.assertEqual(manifest["verification_attempts"], 2)
-        self.assertEqual(telemetry["manifest_hash_attempts"], 2)
-        self.assertEqual(telemetry["manifest_hash_failures"], 1)
+        self.assertEqual(manifest["file_sha256"], expected_sha256)
+        self.assertEqual(open_count, 2)
+        self.assertEqual(telemetry["manifest_verification_attempts"], 2)
+        self.assertEqual(telemetry["manifest_attempt_failures"], 1)
         self.assertEqual(telemetry["manifest_retry_count"], 1)
 
     def test_verified_manifest_hashes_tensors_across_block_boundaries(self):
@@ -898,27 +940,32 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         from safetensors.torch import save_file
         import torch
 
-        class Digest:
-            def __init__(self, value):
-                self.value = value
-
-            def hexdigest(self):
-                return self.value
-
         with tempfile.TemporaryDirectory() as temp_dir:
             weights = Path(temp_dir) / "weights.safetensors"
-            save_file({"weight": torch.arange(4, dtype=torch.float32)}, weights)
+            corrupted = Path(temp_dir) / "corrupted.safetensors"
+            source = torch.arange(4, dtype=torch.float32)
+            save_file({"weight": source}, weights)
             manifest = transfer._build_verified_safetensor_manifest(
                 weights,
                 transfer._sha256(weights),
             )
-            expected = manifest["tensors"]["weight"]["payload_sha256"]
+            corrupted_bytes = bytearray(weights.read_bytes())
+            corrupted_bytes[-1] ^= 0x01
+            corrupted.write_bytes(corrupted_bytes)
+            original_open = Path.open
+            target = weights.resolve()
+            open_count = 0
+
+            def open_with_transient_corruption(path, *args, **kwargs):
+                nonlocal open_count
+                if path.resolve() == target and args and args[0] == "rb":
+                    open_count += 1
+                    selected = corrupted if open_count == 1 else weights
+                    return original_open(selected, *args, **kwargs)
+                return original_open(path, *args, **kwargs)
+
             telemetry = {}
-            with patch.object(
-                transfer.hashlib,
-                "sha256",
-                side_effect=(Digest("transient-corruption"), Digest(expected)),
-            ):
+            with patch.object(Path, "open", new=open_with_transient_corruption):
                 storage, dtype, shape = transfer._read_verified_safetensor_tensor(
                     weights,
                     "weight",
@@ -927,8 +974,10 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                 )
 
         self.assertEqual(len(storage), 16)
+        self.assertEqual(bytes(storage), source.numpy().tobytes())
         self.assertEqual(dtype, "F32")
         self.assertEqual(shape, (4,))
+        self.assertEqual(open_count, 2)
         self.assertEqual(telemetry["payload_read_attempts"], 2)
         self.assertEqual(telemetry["payload_retry_count"], 1)
         self.assertEqual(telemetry["payload_hash_checks"], 2)

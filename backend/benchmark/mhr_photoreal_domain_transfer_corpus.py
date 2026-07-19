@@ -70,7 +70,7 @@ DEFAULT_STEPS = 8
 DEFAULT_FACE_CROP_CONTEXT_RATIO = 1.9
 REDUNDANT_HASH_MIN_BYTES = 1_000_000_000
 REDUNDANT_HASH_READS = 2
-MAX_PINNED_READ_ATTEMPTS = 3
+MAX_PINNED_READ_ATTEMPTS = 5
 MAX_SAFETENSORS_HEADER_BYTES = 64 * 1024 * 1024
 OWNED_DISK_MAP_PATCH_VERSION = 2
 DEFAULT_PROMPT = (
@@ -247,6 +247,16 @@ def _asset_record(path: Path, size: int, sha256: str) -> dict:
     observations = [attempts[-1] for attempts in attempt_groups if attempts]
     reads_consistent = bool(observations) and len(set(observations)) == 1
     actual_sha256 = observations[-1] if observations else None
+    mismatch_attempts = sum(
+        observation != sha256
+        for attempts in attempt_groups
+        for observation in attempts
+    )
+    hash_pinned = (
+        reads_consistent
+        and len(observations) == required_reads
+        and all(observation == sha256 for observation in observations)
+    )
     return {
         "path": str(path),
         "exists": exists,
@@ -262,16 +272,10 @@ def _asset_record(path: Path, size: int, sha256: str) -> dict:
         "hash_read_count": len(observations),
         "hash_reads_required": required_reads,
         "hash_reads_consistent": reads_consistent,
-        "transient_hash_mismatches": sum(
-            observation != sha256
-            for attempts in attempt_groups
-            for observation in attempts
-        ),
-        "hash_pinned": (
-            reads_consistent
-            and len(observations) == required_reads
-            and all(observation == sha256 for observation in observations)
-        ),
+        "hash_mismatch_attempts": mismatch_attempts,
+        "recovered_hash_mismatches": mismatch_attempts if hash_pinned else 0,
+        "terminal_hash_mismatches": mismatch_attempts if not hash_pinned else 0,
+        "hash_pinned": hash_pinned,
     }
 
 
@@ -1185,14 +1189,14 @@ def _build_verified_safetensor_manifest(
     failures = []
     if telemetry is not None:
         for key in (
-            "manifest_hash_attempts",
-            "manifest_hash_failures",
+            "manifest_verification_attempts",
+            "manifest_attempt_failures",
             "manifest_retry_count",
         ):
             telemetry.setdefault(key, 0)
     for attempt in range(1, MAX_PINNED_READ_ATTEMPTS + 1):
         if telemetry is not None:
-            telemetry["manifest_hash_attempts"] += 1
+            telemetry["manifest_verification_attempts"] += 1
             if attempt > 1:
                 telemetry["manifest_retry_count"] += 1
         try:
@@ -1203,7 +1207,7 @@ def _build_verified_safetensor_manifest(
         except RuntimeError as error:
             failures.append(str(error))
             if telemetry is not None:
-                telemetry["manifest_hash_failures"] += 1
+                telemetry["manifest_attempt_failures"] += 1
             continue
         manifest["verification_attempts"] = attempt
         return manifest
@@ -1285,9 +1289,9 @@ def _install_owned_disk_map_reads(
         "payload_bytes": 0,
         "dtype_counts": {},
         "manifest_file_count": 0,
-        "manifest_bytes_hashed": 0,
-        "manifest_hash_attempts": 0,
-        "manifest_hash_failures": 0,
+        "manifest_verified_bytes": 0,
+        "manifest_verification_attempts": 0,
+        "manifest_attempt_failures": 0,
         "manifest_retry_count": 0,
         "payload_read_attempts": 0,
         "payload_read_failures": 0,
@@ -1313,7 +1317,7 @@ def _install_owned_disk_map_reads(
             )
             manifest_cache[path_key] = manifest
             observed_reads["manifest_file_count"] += 1
-            observed_reads["manifest_bytes_hashed"] += int(manifest["file_size"])
+            observed_reads["manifest_verified_bytes"] += int(manifest["file_size"])
         storage, dtype, shape = _read_verified_safetensor_tensor(
             resolved_path,
             name,
