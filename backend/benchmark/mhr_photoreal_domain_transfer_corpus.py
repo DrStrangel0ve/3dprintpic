@@ -953,6 +953,48 @@ def _make_precomputed_prompt_processor(prompt_embeddings):
     return process
 
 
+def _materialize_direct_meta_parameters(model, *, device, dtype) -> list[str]:
+    import torch
+
+    disk_maps = {
+        id(disk_map): disk_map
+        for module in model.modules()
+        if (disk_map := getattr(module, "disk_map", None)) is not None
+    }
+    direct_meta = [
+        (name, parameter)
+        for name, parameter in model.named_parameters(recurse=False)
+        if parameter.device.type == "meta"
+    ]
+    if not direct_meta:
+        return []
+    if len(disk_maps) != 1:
+        raise RuntimeError(
+            "Direct meta parameters require exactly one pinned model DiskMap, found "
+            f"{len(disk_maps)}."
+        )
+    disk_map = next(iter(disk_maps.values()))
+    materialized = []
+    for name, parameter in direct_meta:
+        tensor = disk_map[name].to(device=device, dtype=dtype)
+        setattr(
+            model,
+            name,
+            torch.nn.Parameter(tensor, requires_grad=parameter.requires_grad),
+        )
+        materialized.append(name)
+    unresolved = [
+        name
+        for name, parameter in model.named_parameters(recurse=False)
+        if parameter.device.type == "meta"
+    ]
+    if unresolved:
+        raise RuntimeError(
+            "Failed to materialize direct model parameters: " + ", ".join(unresolved)
+        )
+    return materialized
+
+
 def _run_zimage(
     preflight: dict,
     parent_rgb: np.ndarray,
@@ -1065,6 +1107,11 @@ def _run_zimage(
         vram_limit=vram_limit,
     )
     disk_map_refresh = _install_post_empty_cache_disk_map_refresh(pipe)
+    direct_meta_parameters = _materialize_direct_meta_parameters(
+        pipe.dit,
+        device=device,
+        dtype=torch.bfloat16,
+    )
     prompt_embeddings_device = move_nested(prompt_embeddings_cpu, device)
     prompt_unit = next(
         unit
@@ -1111,6 +1158,7 @@ def _run_zimage(
         "provider_import_files": imported_files,
         "post_empty_cache_disk_map_refresh": disk_map_refresh,
         "text_post_empty_cache_disk_map_refresh": text_disk_map_refresh,
+        "materialized_direct_meta_parameters": direct_meta_parameters,
         "sequential_text_encoder_mapping": True,
         "disk_offload": True,
         "disk_offload_preparing_device": str(device),

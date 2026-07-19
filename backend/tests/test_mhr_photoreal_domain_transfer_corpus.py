@@ -449,6 +449,46 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
 
         self.assertIs(result["prompt_embeds"], embeddings)
 
+    def test_materializes_only_direct_meta_parameters_from_pinned_disk_map(self):
+        import torch
+
+        class DiskMap:
+            def __init__(self):
+                self.requested = []
+
+            def __getitem__(self, name):
+                self.requested.append(name)
+                return torch.full((1, 2), 3.0)
+
+        disk_map = DiskMap()
+
+        class Child(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.empty((2, 2), device="meta"))
+                self.disk_map = disk_map
+
+        class Model(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.x_pad_token = torch.nn.Parameter(
+                    torch.empty((1, 2), device="meta")
+                )
+                self.child = Child()
+
+        model = Model()
+        materialized = transfer._materialize_direct_meta_parameters(
+            model,
+            device=torch.device("cpu"),
+            dtype=torch.float32,
+        )
+
+        self.assertEqual(materialized, ["x_pad_token"])
+        self.assertEqual(disk_map.requested, ["x_pad_token"])
+        self.assertEqual(model.x_pad_token.device.type, "cpu")
+        self.assertEqual(model.child.weight.device.type, "meta")
+        torch.testing.assert_close(model.x_pad_token, torch.full((1, 2), 3.0))
+
 
 if __name__ == "__main__":
     unittest.main()
