@@ -60,7 +60,7 @@ DEPTH_EVALUATOR_REQUIRED_FILES = {
     ),
 }
 DEPTH_EVALUATOR_DEPENDENCY_VERSIONS = {
-    "torch": "2.11.0+cu128",
+    "torch": "2.7.1+cu128",
     "transformers": "5.13.0",
 }
 DEFAULT_SEED = 20260719
