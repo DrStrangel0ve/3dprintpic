@@ -958,6 +958,7 @@ def _make_precomputed_prompt_processor(prompt_embeddings):
 
 def _install_owned_disk_map_reads(pipe) -> dict:
     from safetensors import safe_open
+    import torch
 
     disk_maps = {
         id(disk_map): disk_map
@@ -984,11 +985,11 @@ def _install_owned_disk_map_reads(pipe) -> dict:
                 raise RuntimeError(
                     "Pinned on-demand DiskMap reads require safetensors: " + path
                 )
-            with safe_open(path, framework="pt", device=str(self.device)) as handle:
-                value = handle.get_tensor(lookup_name)
+            with safe_open(path, framework="np") as handle:
+                array = np.array(handle.get_tensor(lookup_name), copy=True)
+                value = torch.from_numpy(array)
                 if self.torch_dtype is not None:
                     value = value.to(self.torch_dtype)
-                value = value.clone()
             self.num_params += value.numel()
             return value
 
@@ -1016,6 +1017,7 @@ def _install_owned_disk_map_reads(pipe) -> dict:
             {str(disk_map.device) for disk_map in disk_maps.values()}
         ),
         "read_mode": "on_demand_safetensors",
+        "tensor_transport": "numpy_copy_to_torch",
         "tensor_reads_are_cloned": True,
     }
 

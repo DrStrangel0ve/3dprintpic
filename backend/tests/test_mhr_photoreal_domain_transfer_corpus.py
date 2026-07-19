@@ -545,6 +545,7 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
             self.assertEqual(telemetry["disk_maps"], 1)
             self.assertEqual(telemetry["storage_devices"], ["cpu"])
             self.assertEqual(telemetry["read_mode"], "on_demand_safetensors")
+            self.assertEqual(telemetry["tensor_transport"], "numpy_copy_to_torch")
             self.assertTrue(telemetry["tensor_reads_are_cloned"])
             self.assertNotEqual(fetched.data_ptr(), source.data_ptr())
             torch.testing.assert_close(fetched, source)
