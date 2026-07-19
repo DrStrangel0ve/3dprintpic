@@ -953,6 +953,40 @@ def _make_precomputed_prompt_processor(prompt_embeddings):
     return process
 
 
+def _install_owned_disk_map_reads(pipe) -> dict:
+    import torch
+
+    disk_maps = {
+        id(disk_map): disk_map
+        for model in pipe.children()
+        for module in model.modules()
+        if (disk_map := getattr(module, "disk_map", None)) is not None
+    }
+    patched_classes = set()
+    for disk_map in disk_maps.values():
+        disk_map.buffer_size = sys.maxsize
+        disk_map_class = type(disk_map)
+        if hasattr(disk_map_class, "_3dprintpic_original_getitem"):
+            continue
+        original_getitem = disk_map_class.__getitem__
+
+        def get_owned_tensor(self, name, _original=original_getitem):
+            value = _original(self, name)
+            if torch.is_tensor(value):
+                return value.clone()
+            return value
+
+        disk_map_class._3dprintpic_original_getitem = original_getitem
+        disk_map_class.__getitem__ = get_owned_tensor
+        patched_classes.add(disk_map_class.__module__ + "." + disk_map_class.__name__)
+    return {
+        "disk_maps": len(disk_maps),
+        "patched_classes": sorted(patched_classes),
+        "buffer_size": sys.maxsize,
+        "tensor_reads_are_cloned": True,
+    }
+
+
 def _materialize_direct_meta_parameters(model, *, device, dtype) -> list[str]:
     import torch
 
@@ -1106,6 +1140,7 @@ def _run_zimage(
         tokenizer_config=None,
         vram_limit=vram_limit,
     )
+    owned_disk_map_reads = _install_owned_disk_map_reads(pipe)
     disk_map_refresh = _install_post_empty_cache_disk_map_refresh(pipe)
     direct_meta_parameters = _materialize_direct_meta_parameters(
         pipe.dit,
@@ -1156,6 +1191,7 @@ def _run_zimage(
         "compute_capability": list(torch.cuda.get_device_capability(device)),
         "device_wide_peak_available": False,
         "provider_import_files": imported_files,
+        "owned_disk_map_reads": owned_disk_map_reads,
         "post_empty_cache_disk_map_refresh": disk_map_refresh,
         "text_post_empty_cache_disk_map_refresh": text_disk_map_refresh,
         "materialized_direct_meta_parameters": direct_meta_parameters,

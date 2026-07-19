@@ -489,6 +489,46 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         self.assertEqual(model.child.weight.device.type, "meta")
         torch.testing.assert_close(model.x_pad_token, torch.full((1, 2), 3.0))
 
+    def test_owned_disk_map_reads_clone_tensors_and_disable_mid_read_refresh(self):
+        import sys
+
+        import torch
+
+        source = torch.arange(4, dtype=torch.float32)
+
+        class DiskMap:
+            def __init__(self):
+                self.buffer_size = 1
+
+            def __getitem__(self, _name):
+                return source
+
+        disk_map = DiskMap()
+
+        class Child(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.disk_map = disk_map
+
+        class Model(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.child = Child()
+
+        class Pipe(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.model = Model()
+
+        telemetry = transfer._install_owned_disk_map_reads(Pipe())
+        fetched = disk_map["weight"]
+
+        self.assertEqual(disk_map.buffer_size, sys.maxsize)
+        self.assertEqual(telemetry["disk_maps"], 1)
+        self.assertTrue(telemetry["tensor_reads_are_cloned"])
+        self.assertNotEqual(fetched.data_ptr(), source.data_ptr())
+        torch.testing.assert_close(fetched, source)
+
 
 if __name__ == "__main__":
     unittest.main()
