@@ -408,7 +408,49 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         self.assertFalse(evidence["checks"]["model_has_no_unexpected_safetensors"])
         self.assertFalse(evidence["checks"]["model_has_no_unexpected_consumed_files"])
         self.assertFalse(evidence["checks"]["controlnet_hash_pinned"])
+        self.assertFalse(evidence["checks"]["controlnet_hash_reads_consistent"])
         self.assertTrue(evidence["license"]["production_eligible"])
+
+    def test_large_asset_record_requires_two_consistent_pinned_reads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "weight.safetensors"
+            path.write_bytes(b"weight")
+            with (
+                patch.object(transfer, "REDUNDANT_HASH_MIN_BYTES", 1),
+                patch.object(
+                    transfer,
+                    "_sha256",
+                    side_effect=("expected", "transient-corruption"),
+                ),
+            ):
+                record = transfer._asset_record(path, len(b"weight"), "expected")
+
+        self.assertEqual(
+            record["sha256_observations"],
+            ["expected", "transient-corruption"],
+        )
+        self.assertEqual(record["hash_read_count"], 2)
+        self.assertEqual(record["hash_reads_required"], 2)
+        self.assertFalse(record["hash_reads_consistent"])
+        self.assertFalse(record["hash_pinned"])
+
+    def test_large_asset_record_accepts_two_consistent_pinned_reads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "weight.safetensors"
+            path.write_bytes(b"weight")
+            with (
+                patch.object(transfer, "REDUNDANT_HASH_MIN_BYTES", 1),
+                patch.object(
+                    transfer,
+                    "_sha256",
+                    side_effect=("expected", "expected"),
+                ),
+            ):
+                record = transfer._asset_record(path, len(b"weight"), "expected")
+
+        self.assertEqual(record["hash_read_count"], 2)
+        self.assertTrue(record["hash_reads_consistent"])
+        self.assertTrue(record["hash_pinned"])
 
     def test_publish_requires_both_geometry_gates(self):
         with self.assertRaisesRegex(ValueError, "both geometry gates"):

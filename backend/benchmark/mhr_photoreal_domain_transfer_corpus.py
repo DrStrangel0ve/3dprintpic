@@ -68,6 +68,8 @@ DEFAULT_DENOISING_STRENGTH = 0.35
 DEFAULT_CONTROL_SCALE = 0.90
 DEFAULT_STEPS = 8
 DEFAULT_FACE_CROP_CONTEXT_RATIO = 1.9
+REDUNDANT_HASH_MIN_BYTES = 1_000_000_000
+REDUNDANT_HASH_READS = 2
 DEFAULT_PROMPT = (
     "A natural documentary photograph of the same adult person and the same "
     "scene shown in the input. Preserve the exact camera, head pose, facial "
@@ -227,7 +229,14 @@ def _git_output(root: Path, *args: str) -> str | None:
 def _asset_record(path: Path, size: int, sha256: str) -> dict:
     exists = path.is_file()
     actual_size = int(path.stat().st_size) if exists else None
-    actual_sha256 = _sha256(path) if exists and actual_size == size else None
+    required_reads = REDUNDANT_HASH_READS if size >= REDUNDANT_HASH_MIN_BYTES else 1
+    observations = (
+        [_sha256(path) for _ in range(required_reads)]
+        if exists and actual_size == size
+        else []
+    )
+    reads_consistent = bool(observations) and len(set(observations)) == 1
+    actual_sha256 = observations[-1] if observations else None
     return {
         "path": str(path),
         "exists": exists,
@@ -235,8 +244,16 @@ def _asset_record(path: Path, size: int, sha256: str) -> dict:
         "expected_size_bytes": size,
         "size_pinned": actual_size == size,
         "sha256": actual_sha256,
+        "sha256_observations": observations,
         "expected_sha256": sha256,
-        "hash_pinned": actual_sha256 == sha256,
+        "hash_read_count": len(observations),
+        "hash_reads_required": required_reads,
+        "hash_reads_consistent": reads_consistent,
+        "hash_pinned": (
+            reads_consistent
+            and len(observations) == required_reads
+            and all(observation == sha256 for observation in observations)
+        ),
     }
 
 
@@ -339,11 +356,15 @@ def zimage_preflight(
         "model_hashes_pinned": all(
             item["hash_pinned"] for item in model_files.values()
         ),
+        "model_hash_reads_consistent": all(
+            item["hash_reads_consistent"] for item in model_files.values()
+        ),
         "model_has_no_unexpected_safetensors": not unexpected_safetensors,
         "model_has_no_unexpected_consumed_files": not unexpected_consumed_files,
         "controlnet_exists": controlnet["exists"],
         "controlnet_size_pinned": controlnet["size_pinned"],
         "controlnet_hash_pinned": controlnet["hash_pinned"],
+        "controlnet_hash_reads_consistent": controlnet["hash_reads_consistent"],
         "dependencies_available": all(dependencies.values()),
         "adapter_repository_clean": adapter_repository["clean"],
         "adapter_is_tracked": adapter_repository["adapter_tracked"],
