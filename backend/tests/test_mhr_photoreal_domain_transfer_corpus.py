@@ -497,9 +497,10 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
         import torch
 
         source = torch.arange(4, dtype=torch.float32)
+        source_bf16 = torch.arange(4, dtype=torch.bfloat16).reshape(2, 2)
         with tempfile.TemporaryDirectory() as temp_dir:
             weights = Path(temp_dir) / "weights.safetensors"
-            save_file({"weight": source}, weights)
+            save_file({"bf16": source_bf16, "weight": source}, weights)
 
             class DiskMap:
                 def __init__(self):
@@ -508,7 +509,7 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
                     self.files = [
                         safe_open(str(weights), framework="pt", device="cpu")
                     ]
-                    self.name_map = {"weight": 0}
+                    self.name_map = {"bf16": 0, "weight": 0}
                     self.rename_dict = None
                     self.path = [str(weights)]
                     self.torch_dtype = None
@@ -539,16 +540,22 @@ class MHRPhotorealDomainTransferTests(unittest.TestCase):
 
             telemetry = transfer._install_owned_disk_map_reads(Pipe())
             fetched = disk_map["weight"]
+            fetched_bf16 = disk_map["bf16"]
 
             self.assertEqual(disk_map.buffer_size, sys.maxsize)
             self.assertEqual(disk_map.files, [])
             self.assertEqual(telemetry["disk_maps"], 1)
             self.assertEqual(telemetry["storage_devices"], ["cpu"])
             self.assertEqual(telemetry["read_mode"], "on_demand_safetensors")
-            self.assertEqual(telemetry["tensor_transport"], "numpy_copy_to_torch")
-            self.assertTrue(telemetry["tensor_reads_are_cloned"])
+            self.assertEqual(telemetry["supported_dtypes"], ["BF16", "F32"])
+            self.assertEqual(
+                telemetry["tensor_transport"], "validated_bytes_to_owned_torch"
+            )
+            self.assertTrue(telemetry["tensor_reads_are_owned"])
             self.assertNotEqual(fetched.data_ptr(), source.data_ptr())
             torch.testing.assert_close(fetched, source)
+            self.assertEqual(fetched_bf16.dtype, torch.bfloat16)
+            torch.testing.assert_close(fetched_bf16, source_bf16)
 
 
 if __name__ == "__main__":

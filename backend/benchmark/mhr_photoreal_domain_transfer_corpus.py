@@ -957,8 +957,56 @@ def _make_precomputed_prompt_processor(prompt_embeddings):
 
 
 def _install_owned_disk_map_reads(pipe) -> dict:
-    from safetensors import safe_open
     import torch
+
+    header_cache = {}
+
+    def read_owned_tensor(path: str, name: str):
+        if path not in header_cache:
+            with open(path, "rb", buffering=0) as stream:
+                header_length_bytes = stream.read(8)
+                if len(header_length_bytes) != 8:
+                    raise RuntimeError("Invalid safetensors header length: " + path)
+                header_length = int.from_bytes(header_length_bytes, "little")
+                header_bytes = stream.read(header_length)
+                if len(header_bytes) != header_length:
+                    raise RuntimeError("Truncated safetensors header: " + path)
+            header_cache[path] = (
+                json.loads(header_bytes),
+                8 + header_length,
+                Path(path).stat().st_size,
+            )
+        header, data_start, file_size = header_cache[path]
+        if name not in header:
+            raise RuntimeError(f"Tensor {name!r} is absent from pinned shard {path}.")
+        entry = header[name]
+        dtype = entry["dtype"]
+        shape = tuple(int(value) for value in entry["shape"])
+        start, end = (int(value) for value in entry["data_offsets"])
+        item_size = {"BF16": 2, "F32": 4}.get(dtype)
+        if item_size is None:
+            raise RuntimeError(
+                f"Unsupported pinned safetensors dtype {dtype!r} for tensor {name!r}."
+            )
+        expected_size = math.prod(shape) * item_size
+        if start < 0 or end < start or end - start != expected_size:
+            raise RuntimeError(f"Invalid safetensors offsets for tensor {name!r}.")
+        absolute_start = data_start + start
+        if data_start + end > file_size:
+            raise RuntimeError(f"Tensor {name!r} extends beyond pinned shard {path}.")
+        storage = bytearray(expected_size)
+        with open(path, "rb", buffering=0) as stream:
+            stream.seek(absolute_start)
+            bytes_read = stream.readinto(storage)
+        if bytes_read != expected_size:
+            raise RuntimeError(f"Truncated tensor payload for {name!r} in {path}.")
+        if dtype == "F32":
+            array = np.frombuffer(storage, dtype="<f4")
+            tensor = torch.from_numpy(array)
+        else:
+            array = np.frombuffer(storage, dtype="<u2")
+            tensor = torch.from_numpy(array).view(torch.bfloat16)
+        return tensor.reshape(shape)
 
     disk_maps = {
         id(disk_map): disk_map
@@ -985,11 +1033,9 @@ def _install_owned_disk_map_reads(pipe) -> dict:
                 raise RuntimeError(
                     "Pinned on-demand DiskMap reads require safetensors: " + path
                 )
-            with safe_open(path, framework="np") as handle:
-                array = np.array(handle.get_tensor(lookup_name), copy=True)
-                value = torch.from_numpy(array)
-                if self.torch_dtype is not None:
-                    value = value.to(self.torch_dtype)
+            value = read_owned_tensor(path, lookup_name)
+            if self.torch_dtype is not None:
+                value = value.to(self.torch_dtype)
             self.num_params += value.numel()
             return value
 
@@ -1017,8 +1063,9 @@ def _install_owned_disk_map_reads(pipe) -> dict:
             {str(disk_map.device) for disk_map in disk_maps.values()}
         ),
         "read_mode": "on_demand_safetensors",
-        "tensor_transport": "numpy_copy_to_torch",
-        "tensor_reads_are_cloned": True,
+        "supported_dtypes": ["BF16", "F32"],
+        "tensor_transport": "validated_bytes_to_owned_torch",
+        "tensor_reads_are_owned": True,
     }
 
 
