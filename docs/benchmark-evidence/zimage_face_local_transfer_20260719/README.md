@@ -70,25 +70,49 @@ successful measured runs. The d=0.25 run used exact commit
 
 ## Storage-integrity stop
 
-The corrected float-depth confirmation at commit `962772d` failed closed before
-inference. Repeated reads of the same 6.71 GB ControlNet file produced both the
-pinned digest and several different digests while size and timestamps remained
-fixed. A fresh download at the exact official revision was then allocated in a
-separate directory. Paired 8 MiB block reads found transient differences in the
-original at offsets 637,534,208 and 1,728,053,248 bytes, while an intervening
-pass was identical. The recovery copy made the controller stable during two
-full preflights, but the second preflight then read the first 3.96 GB text shard
-with a non-pinned digest. Windows reported the NTFS volume and physical disk as
-healthy and no recent storage events were returned, but privileged SMART and
-online CHKDSK diagnostics were unavailable.
+The first corrected float-depth confirmation attempt at commit `962772d`
+failed its preflight before inference. Repeated reads of the same 6.71 GB
+ControlNet file then produced both the pinned digest and several different
+digests while size and timestamps remained fixed. One later single-read
+preflight was green, but inference remained stopped by operator judgment after
+the conflicting observations. A fresh download at the exact official revision
+was allocated in a separate directory. Paired 8 MiB block reads found transient
+differences in the original at offsets 637,534,208 and 1,728,053,248 bytes,
+while an intervening pass was identical. The recovery copy made the controller
+stable during two full preflights, but the second preflight then read the first
+3.96 GB text shard with a non-pinned digest. Windows reported the NTFS volume
+and physical disk as healthy and no recent storage events were returned, but
+privileged SMART and online CHKDSK diagnostics were unavailable.
 
 Commit `795c9ef75cf4961fc64984727d1a94de6075a614` therefore changes the
-preflight contract: every asset at least 1 GB now requires two independent,
-consistent, pinned SHA-256 observations in the same preflight. The observations,
-required count, and consistency state are emitted in structured telemetry. A
-single lucky read can no longer authorize GPU inference. The focused suite
-passes 19/19 in both the project and pinned Torch 2.7.1 environments. Exact
-observations are in `storage_integrity_diagnostics.json`.
+preflight contract: every asset at least 1 GB now requires two sequential,
+consistent, pinned SHA-256 observations in the same preflight. These are
+sequential observations from the same reader, without a cache flush, and are
+reported with their required count and consistency state.
+
+Commit `36d504fc5c43507675c2d5a45075d9bd9a004a2f` extends the contract to the
+bytes consumed by inference. A full shard read must match the immutable pin
+before it can produce a per-tensor digest manifest; each tensor payload is then
+hashed against that manifest immediately before Torch conversion. This closes
+the gap where good preflight reads could be followed by a corrupted payload
+read. Commit `d12e2eb107047e9c93164a20b6359e8228917fda` additionally bounds the
+untrusted header length before allocation, uses zero-copy block views while
+building manifests, exercises cross-block tensor offsets and wrong pins, and
+upgrades stale class-level readers in warm notebook processes. The focused
+suite passes 26/26 in both the project and pinned Torch 2.7.1 environments; the
+surrounding matrix passes 64/64. The exact clean code head passes all 1,019
+backend tests plus 109 subtests with three pre-existing warnings. A real pinned
+99.63 MB shard produced a five-tensor manifest and one BF16 payload passed its
+immediate digest check. Summarized observations are in
+`storage_integrity_diagnostics.json`.
+
+The hardened preflight at exact commit
+`67ce32e3fdc74dca85e55344cc9cb9a7837c186e` completed in 118.662 seconds
+and held as designed. It observed inconsistent paired reads for both large
+text-encoder shards and the freshly downloaded ControlNet, failed the explicit
+pinned and read-consistency checks, and emitted preflight SHA-256
+`68da86cb7b54750a5f766f32c8f20bf2e1e11c2051adf028d966cc4b524e79b7`.
+No model was loaded and no GPU inference ran.
 
 The next bounded image-detail lead is the same Union-2602 depth candidate at
 1024 x 1024. It changes only the provider crop size and retains the exact depth
@@ -107,9 +131,9 @@ after Union rather than a replacement for depth conditioning.
 ## Next action
 
 Do not rerun the corrected d=0.25 candidate until one hardened preflight records
-two consistent pinned reads for every large asset and an independent storage
-check no longer reproduces transient bytes. Once that is true, run exactly one
-corrected 512 px confirmation. If it remains hold, close denoising-strength
+two consistent pinned reads for every large asset and a separate repeated-read
+diagnostic no longer reproduces transient bytes. Once that is true, run exactly
+one corrected 512 px confirmation. If it remains hold, close denoising-strength
 tuning and run exactly one 1024 px Union smoke. Only then prepare one separately
 pinned Tile-2601 low-denoise pass for mouth/detail. Keep the same exact
 background, six-part, raw-depth, and 30 mm printability gates.

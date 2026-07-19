@@ -46,6 +46,41 @@
       "runnable": false
     }
   ],
+  "hardened_preflight": {
+    "adapter_commit": "67ce32e3fdc74dca85e55344cc9cb9a7837c186e",
+    "failed_checks": [
+      "controlnet_hash_pinned",
+      "controlnet_hash_reads_consistent",
+      "model_hash_reads_consistent",
+      "model_hashes_pinned"
+    ],
+    "preflight_sha256": "68da86cb7b54750a5f766f32c8f20bf2e1e11c2051adf028d966cc4b524e79b7",
+    "runnable": false,
+    "runtime_seconds": 118.662,
+    "unstable_assets": [
+      {
+        "file": "text_encoder/model-00001-of-00003.safetensors",
+        "sha256_observations": [
+          "b02d5594ac87d50910195654a1e095594e91e56c9af65af3963284d0467165ab",
+          "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+        ]
+      },
+      {
+        "file": "text_encoder/model-00002-of-00003.safetensors",
+        "sha256_observations": [
+          "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5",
+          "47bb2d3d224d143411fdc3bb5d7ae0811a2d16b882ba0eb837bbd5e9695b6f55"
+        ]
+      },
+      {
+        "file": "controlnet",
+        "sha256_observations": [
+          "d1251cc7bc3486bc61d25c3be498ef394c31c85ddf4ee9137d2e933411f4a689",
+          "85793c44c794ecf3760823f63588fbed19ec9d9d41a5e3ba4d711e8cd0eef4d2"
+        ]
+      }
+    ]
+  },
   "paired_controlnet_byte_reads": [
     {
       "fresh_sha256": "d1251cc7bc3486bc61d25c3be498ef394c31c85ddf4ee9137d2e933411f4a689",
@@ -70,6 +105,35 @@
       "round": 3
     }
   ],
+  "runtime_payload_validation": {
+    "commit": "36d504fc5c43507675c2d5a45075d9bd9a004a2f",
+    "hardening_commit": "d12e2eb107047e9c93164a20b6359e8228917fda",
+    "header_length_bounded_before_read": true,
+    "manifest_contract": "full shard SHA-256 must match immutable pin before deriving per-tensor payload SHA-256",
+    "payload_contract": "each consumed tensor payload must match its verified manifest digest before Torch conversion",
+    "production_gpu_run_after_change": false,
+    "real_asset_check": {
+      "file_sha256": "7ca841ee75b9c61267c0c6148fd8d096d3d21b6d3e161256a9b878154f91fc52",
+      "file_size_bytes": 99630640,
+      "payload_hash_checks": 1,
+      "payload_hash_failures": 0,
+      "sample_dtype": "BF16",
+      "sample_payload_bytes": 5120,
+      "sample_shape": [
+        2560
+      ],
+      "sample_tensor": "model.layers.35.input_layernorm.weight",
+      "tensor_count": 5
+    },
+    "tests": {
+      "cross_block_tensor_manifest": true,
+      "post_manifest_payload_mutation_rejected": true,
+      "sequential_pipeline_reader_rebinding": true,
+      "stale_reader_patch_upgrade": true,
+      "unsafe_header_length_rejected": true,
+      "wrong_full_file_pin_rejected": true
+    }
+  },
   "schema_version": 1,
   "system_diagnostics": {
     "filesystem": "NTFS",
@@ -80,8 +144,10 @@
     "privileged_smart_counters_available": false
   },
   "validation": {
-    "focused_project_environment": "19 passed",
-    "focused_torch_2_7_1_environment": "19 passed",
+    "exact_clean_backend": "1019 passed, 109 subtests passed, 3 pre-existing warnings",
+    "focused_project_environment": "26 passed",
+    "focused_torch_2_7_1_environment": "26 passed",
+    "surrounding_matrix": "64 passed",
     "ruff": "passed"
   }
 }
