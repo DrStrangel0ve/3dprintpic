@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "status": "hold",
+  "production_changed": false,
+  "production_eligible": false,
+  "row_id": "small_side_lit_shelves_256",
+  "provider": {
+    "name": "TRG ECCV 2024",
+    "source_revision": "3916650722576599126b6242730a2210f597ac71",
+    "checkpoint_size_bytes": 150684140,
+    "checkpoint_sha256": "75d745e5a0fe96f170cdce61ded64f080dfcbf45d3514a60db8f097fc758c77b",
+    "focal_length_px": 5000.0,
+    "metric_depth_calibrated_for_input_camera": false,
+    "inference_runtime_seconds": 0.3270852999994531,
+    "peak_vram_bytes": 171689472,
+    "projected_target_bbox_iou": 0.793444100176674,
+    "provider_face_coverage": 0.9101851851851852,
+    "camera_z_span_m": 0.12049293518066406,
+    "vertices": 1220,
+    "faces": 2304,
+    "degenerate_faces": 0
+  },
+  "baseline": {
+    "shape_correlation": 0.8065848246836008,
+    "gradient_correlation": 0.6269152434578498,
+    "normalized_rmse": 0.1752766348547687,
+    "combined_part_failures": 10
+  },
+  "sweep": [
+    {
+      "alpha": 0.125,
+      "shape_correlation": 0.8069497622880736,
+      "gradient_correlation": 0.6270189042983708,
+      "normalized_rmse": 0.1751288856656734,
+      "combined_part_failures": 9
+    },
+    {
+      "alpha": 0.25,
+      "shape_correlation": 0.8072759411073767,
+      "gradient_correlation": 0.6269820631563225,
+      "normalized_rmse": 0.17499666621213839,
+      "combined_part_failures": 9
+    },
+    {
+      "alpha": 0.5,
+      "shape_correlation": 0.8078119418978018,
+      "gradient_correlation": 0.6264905006776714,
+      "normalized_rmse": 0.17477906010909208,
+      "combined_part_failures": 8
+    }
+  ],
+  "selected_alpha": 0.5,
+  "decision": {
+    "provider_preflight_runnable": true,
+    "projected_bbox_registered": true,
+    "provider_face_covered": true,
+    "selection_background_exact": true,
+    "selection_attachment_exact": true,
+    "aggregate_shape_no_regression": true,
+    "aggregate_gradient_no_regression": false,
+    "aggregate_rmse_no_regression": true,
+    "combined_named_part_failures_improve": true,
+    "all_six_shape_parts_pass": false,
+    "all_six_affine_mm_parts_pass": false,
+    "every_part_metric_no_regression": false,
+    "eligible_for_30mm_stl_replay": false
+  },
+  "full_local_evidence": {
+    "size_bytes": 215451,
+    "sha256": "892219ea446a3f47f735eed8eb2514fc32757d2eca7fa63b8f0c36f5c8df0dc4"
+  }
+}
