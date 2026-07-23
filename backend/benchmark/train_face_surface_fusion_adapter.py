@@ -1625,6 +1625,8 @@ def evaluate_exact_surfaces(
                 "normalized_rmse": metrics["normalized_rmse"],
                 "shape_failed_parts": shape_failed,
                 "affine_failed_parts": affine_failed,
+                "named_part_shape": metrics.get("named_part_shape"),
+                "named_part_affine_mm": metrics.get("named_part_affine_mm"),
                 "combined_part_failures": len(shape_failed)
                 + len(affine_failed),
                 "shape_check_failures": dict(sorted(check_failures.items())),
