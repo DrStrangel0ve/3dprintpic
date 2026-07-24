@@ -93,6 +93,11 @@ YUNET_MODEL_URL = (
 YUNET_MODEL_SHA256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
 YUNET_MODEL_MAX_BYTES = 1024 * 1024
 YUNET_SCORE_THRESHOLD = 0.90
+YUNET_SELECTION_ROI_SCORE_THRESHOLD = 0.65
+YUNET_MINIMUM_EYE_SEPARATION_RATIO = 0.18
+YUNET_PROFILE_MINIMUM_EYE_SEPARATION_RATIO = 0.08
+YUNET_MINIMUM_MOUTH_SEPARATION_RATIO = 0.12
+YUNET_PROFILE_MINIMUM_MOUTH_SEPARATION_RATIO = 0.04
 YUNET_MAX_INPUT_DIMENSION = 1024
 DETECTOR_MODEL_PATH_ENVIRONMENT_NAMES = (
     "FACE_LANDMARKER_MODEL_PATH",
@@ -641,7 +646,15 @@ def _effective_min_face_pixels(image_shape, requested: int) -> int:
     return max(1, min(int(requested), adaptive_cap))
 
 
-def _yunet_keypoints_are_face_like(keypoints: np.ndarray, box) -> bool:
+def _yunet_keypoints_are_face_like(
+    keypoints: np.ndarray,
+    box,
+    *,
+    minimum_eye_separation_ratio: float = YUNET_MINIMUM_EYE_SEPARATION_RATIO,
+    minimum_mouth_separation_ratio: float = (
+        YUNET_MINIMUM_MOUTH_SEPARATION_RATIO
+    ),
+) -> bool:
     points = np.asarray(keypoints, dtype=np.float64).reshape(-1, 2)
     if points.shape != (5, 2) or not np.all(np.isfinite(points)):
         return False
@@ -658,9 +671,13 @@ def _yunet_keypoints_are_face_like(keypoints: np.ndarray, box) -> bool:
     eyes = points[:2]
     nose = points[2]
     mouth = points[3:]
-    if abs(float(eyes[1, 0] - eyes[0, 0])) < width * 0.18:
+    if abs(float(eyes[1, 0] - eyes[0, 0])) < (
+        width * float(minimum_eye_separation_ratio)
+    ):
         return False
-    if abs(float(mouth[1, 0] - mouth[0, 0])) < width * 0.12:
+    if abs(float(mouth[1, 0] - mouth[0, 0])) < (
+        width * float(minimum_mouth_separation_ratio)
+    ):
         return False
     eye_y = float(np.mean(eyes[:, 1]))
     mouth_y = float(np.mean(mouth[:, 1]))
@@ -673,9 +690,28 @@ def _yunet_keypoints_are_face_like(keypoints: np.ndarray, box) -> bool:
     return True
 
 
-def _detect_faces_yunet(image_rgb: np.ndarray, max_faces: int, min_face_pixels: int) -> list[dict]:
+def _detect_faces_yunet(
+    image_rgb: np.ndarray,
+    max_faces: int,
+    min_face_pixels: int,
+    *,
+    score_threshold: float = YUNET_SCORE_THRESHOLD,
+    minimum_eye_separation_ratio: float = YUNET_MINIMUM_EYE_SEPARATION_RATIO,
+    minimum_mouth_separation_ratio: float = (
+        YUNET_MINIMUM_MOUTH_SEPARATION_RATIO
+    ),
+) -> list[dict]:
     if not hasattr(cv2, "FaceDetectorYN"):
         raise RuntimeError("OpenCV FaceDetectorYN is unavailable")
+    score_threshold = float(score_threshold)
+    minimum_eye_separation_ratio = float(minimum_eye_separation_ratio)
+    minimum_mouth_separation_ratio = float(minimum_mouth_separation_ratio)
+    if not 0.0 < score_threshold <= 1.0:
+        raise ValueError("YuNet score threshold must be in (0, 1]")
+    if not 0.0 < minimum_eye_separation_ratio <= 0.5:
+        raise ValueError("YuNet eye-separation ratio must be in (0, 0.5]")
+    if not 0.0 < minimum_mouth_separation_ratio <= 0.5:
+        raise ValueError("YuNet mouth-separation ratio must be in (0, 0.5]")
     height, width = image_rgb.shape[:2]
     scale = min(1.0, float(YUNET_MAX_INPUT_DIMENSION) / max(height, width))
     if scale < 1.0:
@@ -694,7 +730,7 @@ def _detect_faces_yunet(image_rgb: np.ndarray, max_faces: int, min_face_pixels: 
         str(_resolve_yunet_model()),
         "",
         (probe_width, probe_height),
-        YUNET_SCORE_THRESHOLD,
+        score_threshold,
         0.3,
         5000,
     )
@@ -709,7 +745,7 @@ def _detect_faces_yunet(image_rgb: np.ndarray, max_faces: int, min_face_pixels: 
         if detection.size < 15 or not np.all(np.isfinite(detection[:15])):
             continue
         confidence = float(detection[14])
-        if confidence < YUNET_SCORE_THRESHOLD:
+        if confidence < score_threshold:
             continue
         x, y, box_width, box_height = detection[:4] * inverse_scale
         box = _clamp_box((x, y, x + box_width, y + box_height), width, height)
@@ -717,7 +753,12 @@ def _detect_faces_yunet(image_rgb: np.ndarray, max_faces: int, min_face_pixels: 
         if min(x1 - x0, y1 - y0) < int(min_face_pixels):
             continue
         keypoints = detection[4:14].reshape(5, 2) * inverse_scale
-        if not _yunet_keypoints_are_face_like(keypoints, box):
+        if not _yunet_keypoints_are_face_like(
+            keypoints,
+            box,
+            minimum_eye_separation_ratio=minimum_eye_separation_ratio,
+            minimum_mouth_separation_ratio=minimum_mouth_separation_ratio,
+        ):
             continue
         face_mask, feature_mask = face_masks_from_box(image_rgb.shape, box)
         regions.append(
@@ -729,6 +770,11 @@ def _detect_faces_yunet(image_rgb: np.ndarray, max_faces: int, min_face_pixels: 
                 "landmark_count": 5,
                 "confidence": confidence,
                 "keypoints": keypoints.round(3).tolist(),
+                "score_threshold": score_threshold,
+                "minimum_eye_separation_ratio": minimum_eye_separation_ratio,
+                "minimum_mouth_separation_ratio": (
+                    minimum_mouth_separation_ratio
+                ),
                 "model_revision": YUNET_MODEL_REVISION,
                 "model_sha256": YUNET_MODEL_SHA256,
             }
@@ -781,6 +827,13 @@ def detect_face_regions(
     min_face_pixels: int = DEFAULT_MIN_FACE_PIXELS,
     output_face_blendshapes: bool = False,
     output_facial_transformation_matrixes: bool = False,
+    yunet_score_threshold: float = YUNET_SCORE_THRESHOLD,
+    yunet_minimum_eye_separation_ratio: float = (
+        YUNET_MINIMUM_EYE_SEPARATION_RATIO
+    ),
+    yunet_minimum_mouth_separation_ratio: float = (
+        YUNET_MINIMUM_MOUTH_SEPARATION_RATIO
+    ),
 ) -> tuple[list[dict], list[str]]:
     min_face_pixels = _effective_min_face_pixels(image_rgb.shape, min_face_pixels)
     errors = []
@@ -801,7 +854,18 @@ def detect_face_regions(
     except Exception as exc:
         errors.append(_detector_error_record("mediapipe", exc))
     try:
-        regions = _detect_faces_yunet(image_rgb, max_faces, min_face_pixels)
+        regions = _detect_faces_yunet(
+            image_rgb,
+            max_faces,
+            min_face_pixels,
+            score_threshold=yunet_score_threshold,
+            minimum_eye_separation_ratio=(
+                yunet_minimum_eye_separation_ratio
+            ),
+            minimum_mouth_separation_ratio=(
+                yunet_minimum_mouth_separation_ratio
+            ),
+        )
         if regions:
             upgraded = _upgrade_yunet_regions_with_mediapipe(
                 image_rgb,
@@ -1050,6 +1114,15 @@ def detect_face_regions_in_roi(
             detection_kwargs = {
                 "max_faces": max_faces,
                 "min_face_pixels": effective_minimum,
+                "yunet_score_threshold": (
+                    YUNET_SELECTION_ROI_SCORE_THRESHOLD
+                ),
+                "yunet_minimum_eye_separation_ratio": (
+                    YUNET_PROFILE_MINIMUM_EYE_SEPARATION_RATIO
+                ),
+                "yunet_minimum_mouth_separation_ratio": (
+                    YUNET_PROFILE_MINIMUM_MOUTH_SEPARATION_RATIO
+                ),
             }
             if output_face_blendshapes:
                 detection_kwargs["output_face_blendshapes"] = True
@@ -1144,6 +1217,16 @@ def detect_face_regions_in_roi(
         "validated_face_regions": int(max(0, len(regions) - fallback_regions)),
         "selection_detail_fallback_regions": int(fallback_regions),
         "fallback_errors_clean": bool(fallback_errors_are_clean),
+        "selection_roi_yunet_policy": {
+            "score_threshold": YUNET_SELECTION_ROI_SCORE_THRESHOLD,
+            "minimum_eye_separation_ratio": (
+                YUNET_PROFILE_MINIMUM_EYE_SEPARATION_RATIO
+            ),
+            "minimum_mouth_separation_ratio": (
+                YUNET_PROFILE_MINIMUM_MOUTH_SEPARATION_RATIO
+            ),
+            "minimum_mapped_selection_overlap": 0.50,
+        },
     }
 
 
