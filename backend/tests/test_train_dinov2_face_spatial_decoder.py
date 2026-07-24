@@ -2,13 +2,17 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
 
+from backend.benchmark import train_dinov2_face_spatial_decoder as trainer
 from backend.benchmark.train_dinov2_face_spatial_decoder import (
     CONDITIONING_CHANNELS,
+    ENCODER_PROFILES,
     FEATURE_CHANNELS,
     FEATURE_SIZE,
     MAXIMUM_NORMALIZED_RESIDUAL,
@@ -21,7 +25,9 @@ from backend.benchmark.train_dinov2_face_spatial_decoder import (
     build_spatial_decoder,
     conditioning_from_tensors,
     curriculum_sample_weights,
+    extract_frozen_features,
     overfit_gate,
+    resolve_encoder_profile,
     train_decoder,
     validate_cache_binding,
     validate_pinned_model_root,
@@ -212,6 +218,99 @@ class TrainDinov2FaceSpatialDecoderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "16x16"):
             _tokens_to_grid(tokens[:, :-1])
 
+    def test_pyramid_profile_reassembles_four_32x32_stages(self):
+        import torch
+
+        profile = resolve_encoder_profile("pyramid-448")
+        self.assertEqual(profile["hidden_state_indices"], (3, 6, 9, 12))
+        self.assertEqual(profile["input_size"], 448)
+        self.assertEqual(profile["feature_size"], 32)
+        stages = []
+        for index in range(4):
+            tokens = torch.full(
+                (2, 1025, FEATURE_CHANNELS),
+                float(index),
+                dtype=torch.float32,
+            )
+            stages.append(
+                _tokens_to_grid(
+                    tokens,
+                    feature_size=profile["feature_size"],
+                    feature_channels=FEATURE_CHANNELS,
+                )
+            )
+        pyramid = torch.cat(stages, dim=1)
+        self.assertEqual(
+            tuple(pyramid.shape),
+            (2, profile["feature_channels"], 32, 32),
+        )
+        self.assertEqual(float(pyramid[0, 0, 0, 0]), 0.0)
+        self.assertEqual(float(pyramid[0, -1, -1, -1]), 3.0)
+        with self.assertRaisesRegex(ValueError, "Unknown"):
+            resolve_encoder_profile("substituted")
+
+    def test_pyramid_extraction_concatenates_declared_hidden_states(self):
+        import torch
+
+        class Processor:
+            def __call__(self, *, images, **_kwargs):
+                return {
+                    "pixel_values": torch.zeros(
+                        (len(images), 3, 448, 448),
+                        dtype=torch.float32,
+                    )
+                }
+
+        class Encoder:
+            def __call__(
+                self,
+                *,
+                pixel_values,
+                output_hidden_states,
+            ):
+                self.output_hidden_states = output_hidden_states
+                batch = pixel_values.shape[0]
+                states = tuple(
+                    torch.full(
+                        (batch, 1025, FEATURE_CHANNELS),
+                        float(index),
+                        dtype=pixel_values.dtype,
+                    )
+                    for index in range(13)
+                )
+                return SimpleNamespace(
+                    hidden_states=states,
+                    last_hidden_state=states[-1],
+                )
+
+        items = []
+        for index in range(2):
+            item = _Item(f"row-{index}", f"id-{index}", 70 + index)
+            item.rgb = np.zeros((160, 160, 3), dtype=np.uint8)
+            items.append(item)
+        encoder = Encoder()
+        with patch.object(
+            trainer,
+            "_load_encoder",
+            return_value=(Processor(), encoder, {"local_files_only": True}),
+        ):
+            features, provenance = extract_frozen_features(
+                items,
+                "unused",
+                device="cpu",
+                batch_size=2,
+                encoder_profile="pyramid-448",
+            )
+
+        self.assertTrue(encoder.output_hidden_states)
+        self.assertEqual(provenance["feature_shape"], [1536, 32, 32])
+        grid = features["row-0"]
+        self.assertEqual(tuple(grid.shape), (1536, 32, 32))
+        self.assertEqual(float(grid[0, 0, 0]), 3.0)
+        self.assertEqual(float(grid[384, 0, 0]), 6.0)
+        self.assertEqual(float(grid[768, 0, 0]), 9.0)
+        self.assertEqual(float(grid[1152, 0, 0]), 12.0)
+
     def test_aligned_processor_preserves_full_crop_without_center_crop(self):
         import torch
 
@@ -293,6 +392,41 @@ class TrainDinov2FaceSpatialDecoderTests(unittest.TestCase):
             atol=1e-6,
         )
 
+    def test_aligned_processor_supports_full_448_crop(self):
+        class Processor:
+            def __call__(self, *, images, **kwargs):
+                import torch
+
+                self.images = images
+                self.kwargs = kwargs
+                arrays = [
+                    np.asarray(image, dtype=np.float32).transpose(2, 0, 1)
+                    / 255.0
+                    for image in images
+                ]
+                return {"pixel_values": torch.from_numpy(np.stack(arrays))}
+
+        pixels = np.zeros((160, 160, 3), dtype=np.uint8)
+        pixels[:8, :8] = (255, 0, 0)
+        pixels[-8:, -8:] = (0, 255, 0)
+        processor = Processor()
+        result = aligned_processor_pixels(
+            processor,
+            [Image.fromarray(pixels)],
+            input_size=448,
+        )
+        self.assertEqual(tuple(result.shape), (1, 3, 448, 448))
+        self.assertFalse(processor.kwargs["do_resize"])
+        self.assertFalse(processor.kwargs["do_center_crop"])
+        self.assertEqual(processor.images[0].getpixel((0, 0)), (255, 0, 0))
+        self.assertEqual(processor.images[0].getpixel((447, 447)), (0, 255, 0))
+        with self.assertRaisesRegex(ValueError, "multiple of 14"):
+            aligned_processor_pixels(
+                processor,
+                [Image.fromarray(pixels)],
+                input_size=447,
+            )
+
     def test_conditioning_includes_incumbent_baseline_and_fusion_weight(self):
         import torch
 
@@ -329,6 +463,28 @@ class TrainDinov2FaceSpatialDecoderTests(unittest.TestCase):
             float(bounded.abs().max()), MAXIMUM_NORMALIZED_RESIDUAL
         )
         self.assertEqual(int(torch.count_nonzero(bounded[:, :, :, :80])), 0)
+
+    def test_pyramid_decoder_accepts_only_declared_feature_shape(self):
+        import torch
+
+        profile = ENCODER_PROFILES["pyramid-448"]
+        model = build_spatial_decoder("pyramid-448").eval()
+        features = torch.randn(
+            (
+                1,
+                profile["feature_channels"],
+                profile["feature_size"],
+                profile["feature_size"],
+            )
+        )
+        conditioning = torch.randn((1, CONDITIONING_CHANNELS, 160, 160))
+        support = torch.ones((1, 1, 160, 160))
+        with torch.inference_mode():
+            result = model(features, conditioning, support)
+        self.assertEqual(tuple(result.shape), (1, 1, 160, 160))
+        self.assertEqual(int(torch.count_nonzero(result)), 0)
+        with self.assertRaisesRegex(ValueError, "1536"):
+            model(features[:, :FEATURE_CHANNELS], conditioning, support)
 
     def test_overfit_selection_prioritizes_small_faces_and_identities(self):
         items = [

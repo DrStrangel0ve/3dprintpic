@@ -56,6 +56,26 @@ EVIDENCE_SCHEMA_VERSION = 2
 FEATURE_CHANNELS = 384
 FEATURE_SIZE = 16
 MODEL_INPUT_SIZE = 224
+DEFAULT_ENCODER_PROFILE = "final-224"
+ENCODER_PROFILES = {
+    DEFAULT_ENCODER_PROFILE: {
+        "method": METHOD,
+        "input_size": MODEL_INPUT_SIZE,
+        "feature_channels": FEATURE_CHANNELS,
+        "feature_size": FEATURE_SIZE,
+        "hidden_state_indices": (),
+    },
+    "pyramid-448": {
+        "method": (
+            "dinov2_small_frozen_intermediate_pyramid_448_"
+            "production_conditioned_face_relief"
+        ),
+        "input_size": 448,
+        "feature_channels": FEATURE_CHANNELS * 4,
+        "feature_size": 32,
+        "hidden_state_indices": (3, 6, 9, 12),
+    },
+}
 CONDITIONING_CHANNELS = 9
 MAXIMUM_NORMALIZED_RESIDUAL = 0.35
 DEFAULT_EPOCHS = 16
@@ -71,6 +91,15 @@ PART_GRADIENT_WEIGHT = 0.75
 PART_NON_REGRESSION_WEIGHT = 1.00
 WORST_PART_VALUE_WEIGHT = 0.75
 WORST_PART_GRADIENT_WEIGHT = 1.25
+
+
+def resolve_encoder_profile(name: str = DEFAULT_ENCODER_PROFILE) -> dict:
+    profile_name = str(name)
+    if profile_name not in ENCODER_PROFILES:
+        raise ValueError(f"Unknown DINOv2 encoder profile: {profile_name}")
+    profile = copy.deepcopy(ENCODER_PROFILES[profile_name])
+    profile["name"] = profile_name
+    return profile
 
 
 def _file_sha256(path: str | Path) -> str:
@@ -323,18 +352,24 @@ def _block(input_channels: int, output_channels: int):
     )
 
 
-def build_spatial_decoder():
-    """Build a high-resolution decoder around one frozen DINOv2 token grid."""
+def build_spatial_decoder(
+    encoder_profile: str = DEFAULT_ENCODER_PROFILE,
+):
+    """Build a high-resolution decoder around pinned DINOv2 feature grids."""
 
     import torch
     import torch.nn as nn
     import torch.nn.functional as functional
 
+    profile = resolve_encoder_profile(encoder_profile)
+    feature_channels = int(profile["feature_channels"])
+    feature_size = int(profile["feature_size"])
+
     class Dinov2FaceSpatialDecoder(nn.Module):
         def __init__(self):
             super().__init__()
             self.feature_projection = nn.Sequential(
-                nn.Conv2d(FEATURE_CHANNELS, 96, 1),
+                nn.Conv2d(feature_channels, 96, 1),
                 nn.GroupNorm(8, 96),
                 nn.SiLU(),
             )
@@ -349,11 +384,14 @@ def build_spatial_decoder():
 
         def forward(self, features, conditioning, support):
             if features.ndim != 4 or features.shape[1:] != (
-                FEATURE_CHANNELS,
-                FEATURE_SIZE,
-                FEATURE_SIZE,
+                feature_channels,
+                feature_size,
+                feature_size,
             ):
-                raise ValueError("DINOv2 feature grid must have shape [B, 384, 16, 16]")
+                raise ValueError(
+                    "DINOv2 feature grid must have shape "
+                    f"[B, {feature_channels}, {feature_size}, {feature_size}]"
+                )
             if (
                 conditioning.ndim != 4
                 or conditioning.shape[1] != CONDITIONING_CHANNELS
@@ -402,12 +440,20 @@ def _load_encoder(model_root: Path, device: str):
     return processor, model, provenance
 
 
-def aligned_processor_pixels(processor, images: Sequence[Image.Image]):
-    """Resize the full square crop to 224 without the default center crop."""
+def aligned_processor_pixels(
+    processor,
+    images: Sequence[Image.Image],
+    *,
+    input_size: int = MODEL_INPUT_SIZE,
+):
+    """Resize the full square crop without the processor's default center crop."""
 
+    size = int(input_size)
+    if size <= 0 or size % 14 != 0:
+        raise ValueError("Aligned DINOv2 input size must be a positive multiple of 14")
     prepared = [
         image.convert("RGB").resize(
-            (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE), Image.Resampling.BICUBIC
+            (size, size), Image.Resampling.BICUBIC
         )
         for image in images
     ]
@@ -417,18 +463,29 @@ def aligned_processor_pixels(processor, images: Sequence[Image.Image]):
         do_resize=False,
         do_center_crop=False,
     )["pixel_values"]
-    if tuple(pixels.shape[-2:]) != (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE):
-        raise ValueError("Aligned DINOv2 preprocessing must preserve the full 224 crop")
+    if tuple(pixels.shape[-2:]) != (size, size):
+        raise ValueError(
+            f"Aligned DINOv2 preprocessing must preserve the full {size} crop"
+        )
     return pixels
 
 
-def _tokens_to_grid(tokens):
-    if tokens.ndim != 3 or tokens.shape[1:] != (257, FEATURE_CHANNELS):
+def _tokens_to_grid(
+    tokens,
+    *,
+    feature_size: int = FEATURE_SIZE,
+    feature_channels: int = FEATURE_CHANNELS,
+):
+    size = int(feature_size)
+    channels = int(feature_channels)
+    expected_tokens = 1 + size * size
+    if tokens.ndim != 3 or tokens.shape[1:] != (expected_tokens, channels):
         raise ValueError(
-            "Pinned DINOv2 Small must emit one CLS token and a 16x16 patch grid"
+            "Pinned DINOv2 Small must emit one CLS token and a "
+            f"{size}x{size} patch grid"
         )
     return tokens[:, 1:].transpose(1, 2).reshape(
-        tokens.shape[0], FEATURE_CHANNELS, FEATURE_SIZE, FEATURE_SIZE
+        tokens.shape[0], channels, size, size
     )
 
 
@@ -438,11 +495,16 @@ def extract_frozen_features(
     *,
     device: str,
     batch_size: int = 8,
+    encoder_profile: str = DEFAULT_ENCODER_PROFILE,
 ) -> tuple[dict[str, object], dict]:
     import torch
 
     if not items:
         raise ValueError("DINOv2 feature extraction requires at least one face")
+    profile = resolve_encoder_profile(encoder_profile)
+    input_size = int(profile["input_size"])
+    feature_size = int(profile["feature_size"])
+    hidden_state_indices = tuple(profile["hidden_state_indices"])
     processor, encoder, provenance = _load_encoder(Path(model_root), device)
     features = {}
     started = time.perf_counter()
@@ -452,7 +514,11 @@ def extract_frozen_features(
         for start in range(0, len(items), max(1, int(batch_size))):
             batch = items[start : start + max(1, int(batch_size))]
             images = [Image.fromarray(item.rgb, mode="RGB") for item in batch]
-            pixels = aligned_processor_pixels(processor, images).to(
+            pixels = aligned_processor_pixels(
+                processor,
+                images,
+                input_size=input_size,
+            ).to(
                 device=device,
                 dtype=(torch.float16 if str(device).startswith("cuda") else torch.float32),
             )
@@ -462,8 +528,35 @@ def extract_frozen_features(
                 else torch.autocast("cpu", enabled=False)
             )
             with context:
-                output = encoder(pixel_values=pixels)
-            grids = _tokens_to_grid(output.last_hidden_state).float().cpu()
+                output = encoder(
+                    pixel_values=pixels,
+                    output_hidden_states=bool(hidden_state_indices),
+                )
+            if hidden_state_indices:
+                states = output.hidden_states
+                if states is None or max(hidden_state_indices) >= len(states):
+                    raise ValueError(
+                        "Pinned DINOv2 encoder did not return the requested "
+                        "intermediate feature stages"
+                    )
+                grids = torch.cat(
+                    [
+                        _tokens_to_grid(
+                            states[index],
+                            feature_size=feature_size,
+                            feature_channels=FEATURE_CHANNELS,
+                        )
+                        for index in hidden_state_indices
+                    ],
+                    dim=1,
+                )
+            else:
+                grids = _tokens_to_grid(
+                    output.last_hidden_state,
+                    feature_size=feature_size,
+                    feature_channels=FEATURE_CHANNELS,
+                )
+            grids = grids.float().cpu()
             for item, grid in zip(batch, grids, strict=True):
                 row_id = str(item.row["row_id"])
                 if not row_id or row_id in features:
@@ -480,9 +573,14 @@ def extract_frozen_features(
         torch.cuda.empty_cache()
     return features, {
         **provenance,
-        "feature_shape": [FEATURE_CHANNELS, FEATURE_SIZE, FEATURE_SIZE],
+        "profile": profile,
+        "feature_shape": [
+            int(profile["feature_channels"]),
+            feature_size,
+            feature_size,
+        ],
         "preprocessing": {
-            "source_crop_resized_to": [MODEL_INPUT_SIZE, MODEL_INPUT_SIZE],
+            "source_crop_resized_to": [input_size, input_size],
             "preserves_full_source_crop": True,
             "processor_resize": False,
             "processor_center_crop": False,
@@ -493,9 +591,15 @@ def extract_frozen_features(
     }
 
 
-def _features_for(items: Sequence[CachedFusionSurface], features_by_id: dict):
+def _features_for(
+    items: Sequence[CachedFusionSurface],
+    features_by_id: dict,
+    *,
+    encoder_profile: str = DEFAULT_ENCODER_PROFILE,
+):
     import torch
 
+    profile = resolve_encoder_profile(encoder_profile)
     grids = []
     for item in items:
         row_id = str(item.row["row_id"])
@@ -503,7 +607,12 @@ def _features_for(items: Sequence[CachedFusionSurface], features_by_id: dict):
             raise ValueError(f"Missing DINOv2 feature grid for {row_id}")
         grids.append(features_by_id[row_id])
     values = torch.stack(grids).float()
-    if values.shape[1:] != (FEATURE_CHANNELS, FEATURE_SIZE, FEATURE_SIZE):
+    expected_shape = (
+        int(profile["feature_channels"]),
+        int(profile["feature_size"]),
+        int(profile["feature_size"]),
+    )
+    if values.shape[1:] != expected_shape:
         raise ValueError("Cached DINOv2 feature grid has the wrong shape")
     return values
 
@@ -608,6 +717,7 @@ def _validation_loss(
     features_by_id,
     device: str,
     *,
+    encoder_profile: str,
     small_face_weight_reference_px: float,
     maximum_small_face_sample_weight: float,
     yaw_sample_weight_strength: float,
@@ -623,7 +733,11 @@ def _validation_loss(
         maximum_combined_sample_weight=maximum_combined_sample_weight,
     )
     conditioning = conditioning_from_tensors(tensors)
-    features = _features_for(items, features_by_id)
+    features = _features_for(
+        items,
+        features_by_id,
+        encoder_profile=encoder_profile,
+    )
     model.eval()
     with torch.inference_mode():
         values = {key: value.to(device) for key, value in tensors.items()}
@@ -645,6 +759,7 @@ def train_decoder(
     learning_rate: float = DEFAULT_LEARNING_RATE,
     seed: int = TRAINING_SEED,
     horizontal_flip_augmentation: bool = True,
+    encoder_profile: str = DEFAULT_ENCODER_PROFILE,
     small_face_weight_reference_px: float = (
         DEFAULT_SMALL_FACE_WEIGHT_REFERENCE_PX
     ),
@@ -687,9 +802,12 @@ def train_decoder(
     )
     train_conditioning = conditioning_from_tensors(train_tensors)
     validation_conditioning = conditioning_from_tensors(validation_tensors)
-    train_features = _features_for(train_items, features_by_id)
-    validation_features = _features_for(validation_items, features_by_id)
-    model = build_spatial_decoder().to(device)
+    train_features = _features_for(
+        train_items,
+        features_by_id,
+        encoder_profile=encoder_profile,
+    )
+    model = build_spatial_decoder(encoder_profile).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=float(learning_rate), weight_decay=1e-4
     )
@@ -699,6 +817,7 @@ def train_decoder(
         validation_items,
         features_by_id,
         device,
+        encoder_profile=encoder_profile,
         small_face_weight_reference_px=small_face_weight_reference_px,
         maximum_small_face_sample_weight=maximum_small_face_sample_weight,
         yaw_sample_weight_strength=yaw_sample_weight_strength,
@@ -732,6 +851,7 @@ def train_decoder(
             validation_items,
             features_by_id,
             device,
+            encoder_profile=encoder_profile,
             small_face_weight_reference_px=small_face_weight_reference_px,
             maximum_small_face_sample_weight=maximum_small_face_sample_weight,
             yaw_sample_weight_strength=yaw_sample_weight_strength,
@@ -765,6 +885,7 @@ def train_decoder(
         "learning_rate": float(learning_rate),
         "seed": int(seed),
         "horizontal_flip_augmentation": bool(horizontal_flip_augmentation),
+        "encoder_profile": resolve_encoder_profile(encoder_profile),
         "history": history,
         "runtime_seconds": float(time.perf_counter() - started),
         "peak_vram_gib": peak,
@@ -789,12 +910,24 @@ def train_decoder(
     }
 
 
-def predict_residuals(model, items, features_by_id, *, device: str, batch_size: int):
+def predict_residuals(
+    model,
+    items,
+    features_by_id,
+    *,
+    device: str,
+    batch_size: int,
+    encoder_profile: str = DEFAULT_ENCODER_PROFILE,
+):
     import torch
 
     tensors = _stack(list(items))
     conditioning = conditioning_from_tensors(tensors)
-    features = _features_for(items, features_by_id)
+    features = _features_for(
+        items,
+        features_by_id,
+        encoder_profile=encoder_profile,
+    )
     output = []
     model.eval()
     with torch.inference_mode():
@@ -1120,6 +1253,7 @@ def run_split_training(
     epochs: int = DEFAULT_EPOCHS,
     batch_size: int = DEFAULT_BATCH_SIZE,
     learning_rate: float = DEFAULT_LEARNING_RATE,
+    encoder_profile: str = DEFAULT_ENCODER_PROFILE,
     small_face_weight_reference_px: float = (
         DEFAULT_SMALL_FACE_WEIGHT_REFERENCE_PX
     ),
@@ -1135,6 +1269,7 @@ def run_split_training(
 ) -> dict:
     import torch
 
+    profile = resolve_encoder_profile(encoder_profile)
     if str(device).startswith("cuda") and not torch.cuda.is_available():
         raise RuntimeError("DINOv2 split training requested CUDA without a GPU")
     output = Path(output_dir)
@@ -1162,7 +1297,11 @@ def run_split_training(
 
     tuning_items = by_split["train"] + by_split["validation"]
     features, encoder = extract_frozen_features(
-        tuning_items, model_root, device=device, batch_size=batch_size
+        tuning_items,
+        model_root,
+        device=device,
+        batch_size=batch_size,
+        encoder_profile=encoder_profile,
     )
     model, training = train_decoder(
         by_split["train"],
@@ -1173,6 +1312,7 @@ def run_split_training(
         batch_size=batch_size,
         learning_rate=learning_rate,
         horizontal_flip_augmentation=False,
+        encoder_profile=encoder_profile,
         small_face_weight_reference_px=small_face_weight_reference_px,
         maximum_small_face_sample_weight=maximum_small_face_sample_weight,
         yaw_sample_weight_strength=yaw_sample_weight_strength,
@@ -1192,6 +1332,7 @@ def run_split_training(
         features,
         device=device,
         batch_size=batch_size,
+        encoder_profile=encoder_profile,
     )
     candidates = []
     for alpha in BLEND_ALPHAS:
@@ -1214,7 +1355,11 @@ def run_split_training(
     sealed_encoder = None
     if float(selected["alpha"]) > 0.0:
         sealed_features, sealed_encoder = extract_frozen_features(
-            by_split["sealed"], model_root, device=device, batch_size=batch_size
+            by_split["sealed"],
+            model_root,
+            device=device,
+            batch_size=batch_size,
+            encoder_profile=encoder_profile,
         )
         sealed_zeros = [
             np.zeros_like(item.baseline, dtype=np.float32)
@@ -1233,6 +1378,7 @@ def run_split_training(
             sealed_features,
             device=device,
             batch_size=batch_size,
+            encoder_profile=encoder_profile,
         )
         sealed_candidate = evaluate_exact_surfaces(
             corpus_root,
@@ -1266,9 +1412,10 @@ def run_split_training(
     torch.save(
         {
             "schema_version": CHECKPOINT_SCHEMA_VERSION,
-            "method": METHOD,
+            "method": profile["method"],
             "model_id": MODEL_ID,
             "model_revision": MODEL_REVISION,
+            "encoder_profile": profile,
             "selected_alpha": float(selected["alpha"]),
             "selected_epoch": int(training["best_epoch"]),
             "corpus_summary_sha256": _sha256(Path(corpus_root) / "summary.json"),
@@ -1289,7 +1436,7 @@ def run_split_training(
         "schema_version": EVIDENCE_SCHEMA_VERSION,
         "status": "advance" if decision["advance_to_exact_photo"] else "hold",
         "production_changed": False,
-        "method": METHOD,
+        "method": profile["method"],
         "source_geometry_training_and_evaluation_only": True,
         "encoder": encoder,
         "sealed_encoder": sealed_encoder,
@@ -1336,6 +1483,7 @@ def run_overfit_smoke(
     epochs: int = DEFAULT_EPOCHS,
     batch_size: int = DEFAULT_BATCH_SIZE,
     learning_rate: float = DEFAULT_LEARNING_RATE,
+    encoder_profile: str = DEFAULT_ENCODER_PROFILE,
     maximum_loss_ratio: float = DEFAULT_OVERFIT_IMPROVEMENT_RATIO,
     small_face_weight_reference_px: float = (
         DEFAULT_SMALL_FACE_WEIGHT_REFERENCE_PX
@@ -1352,6 +1500,7 @@ def run_overfit_smoke(
 ) -> dict:
     import torch
 
+    profile = resolve_encoder_profile(encoder_profile)
     if str(device).startswith("cuda") and not torch.cuda.is_available():
         raise RuntimeError("DINOv2 face smoke requested CUDA but no GPU is available")
     output = Path(output_dir)
@@ -1365,7 +1514,11 @@ def run_overfit_smoke(
     all_items, summary, cache_manifest = load_cached_surfaces(corpus_root, cache_root)
     selected = _select_overfit_items(all_items, rows)
     features, encoder = extract_frozen_features(
-        selected, model_root, device=device, batch_size=batch_size
+        selected,
+        model_root,
+        device=device,
+        batch_size=batch_size,
+        encoder_profile=encoder_profile,
     )
     model, training = train_decoder(
         selected,
@@ -1376,6 +1529,7 @@ def run_overfit_smoke(
         batch_size=batch_size,
         learning_rate=learning_rate,
         horizontal_flip_augmentation=False,
+        encoder_profile=encoder_profile,
         small_face_weight_reference_px=small_face_weight_reference_px,
         maximum_small_face_sample_weight=maximum_small_face_sample_weight,
         yaw_sample_weight_strength=yaw_sample_weight_strength,
@@ -1386,9 +1540,10 @@ def run_overfit_smoke(
     torch.save(
         {
             "schema_version": CHECKPOINT_SCHEMA_VERSION,
-            "method": METHOD,
+            "method": profile["method"],
             "model_id": MODEL_ID,
             "model_revision": MODEL_REVISION,
+            "encoder_profile": profile,
             "row_ids": [item.row["row_id"] for item in selected],
             "state_dict": {
                 name: value.detach().cpu() for name, value in model.state_dict().items()
@@ -1401,11 +1556,15 @@ def run_overfit_smoke(
         "status": "smoke-pass" if gate["passed"] else "smoke-hold",
         "production_changed": False,
         "advance_to_split_training": bool(gate["passed"]),
-        "method": METHOD,
+        "method": profile["method"],
         "source_geometry_training_and_evaluation_only": True,
         "encoder": encoder,
         "architecture": {
-            "feature_shape": [FEATURE_CHANNELS, FEATURE_SIZE, FEATURE_SIZE],
+            "feature_shape": [
+                int(profile["feature_channels"]),
+                int(profile["feature_size"]),
+                int(profile["feature_size"]),
+            ],
             "conditioning_channels": CONDITIONING_CHANNELS,
             "conditioning_layout": (
                 "rgb,local_depth,incumbent_baseline,face_support,"
@@ -1470,6 +1629,11 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--learning-rate", type=float, default=DEFAULT_LEARNING_RATE)
     parser.add_argument(
+        "--encoder-profile",
+        choices=tuple(ENCODER_PROFILES),
+        default=DEFAULT_ENCODER_PROFILE,
+    )
+    parser.add_argument(
         "--small-face-weight-reference-px",
         type=float,
         default=DEFAULT_SMALL_FACE_WEIGHT_REFERENCE_PX,
@@ -1508,6 +1672,7 @@ def main() -> None:
             epochs=args.epochs,
             batch_size=args.batch_size,
             learning_rate=args.learning_rate,
+            encoder_profile=args.encoder_profile,
             maximum_loss_ratio=args.maximum_loss_ratio,
             small_face_weight_reference_px=(
                 args.small_face_weight_reference_px
@@ -1535,6 +1700,7 @@ def main() -> None:
             epochs=args.epochs,
             batch_size=args.batch_size,
             learning_rate=args.learning_rate,
+            encoder_profile=args.encoder_profile,
             small_face_weight_reference_px=(
                 args.small_face_weight_reference_px
             ),
