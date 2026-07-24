@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "status": "hold",
+  "production_changed": false,
+  "source_geometry_training_and_evaluation_only": true,
+  "encoder": {
+    "model_id": "facebook/dinov2-small",
+    "revision": "ed25f3a31f01632728cabb09d1542f84ab7b0056",
+    "license": "Apache-2.0"
+  },
+  "corpus": {
+    "row_count": 255,
+    "identity_count": 40,
+    "split_counts": {
+      "train": 191,
+      "validation": 32,
+      "sealed": 32
+    },
+    "split_identity_counts": {
+      "train": 24,
+      "validation": 8,
+      "sealed": 8
+    },
+    "summary_sha256": "67abfa2b59e00f9cf7c0d3ae6a9b66960d7b97203b9d57b5b92ec791216d94bc",
+    "ordered_artifact_content_sha256": "8940492360c1def86bb9da66910758f25148ed3b80e31297f4a1aa6f10080d09",
+    "source_summary_manifest_sha256": "c7c5962f3af4a044edce2de8b79132fa864e74fd3980aa45250359aae1bddc54",
+    "artifact_count": 2295,
+    "artifact_bytes": 115767617,
+    "identity_disjoint": true,
+    "content_disjoint": true
+  },
+  "production_cache": {
+    "model_id": "depth-anything/Depth-Anything-V2-Large-hf",
+    "model_revision": "7581137eff8d4e94f6e796d3baea0e9fa79b22d2",
+    "row_count": 255,
+    "row_bytes": 65582615,
+    "runtime_seconds": 329.6112079999998,
+    "peak_vram_gib": 0.8639841079711914,
+    "manifest_sha256": "f408f166d7cd11fe6c6b9a84b9ac9df9d4d0a78da905f2295dd912b88dd4fe61",
+    "ordered_row_content_sha256": "c23d0a83e03c60cebb66f3229ff36ae456a8578d8a28a426af5129efcaeba5ab",
+    "detector_scope_counts": {
+      "selection-roi": 200,
+      "full-image": 50,
+      "selection-roi-tight-0.25": 5
+    },
+    "minimum_exact_support_coverage": 0.27587681779298545,
+    "minimum_support_precision": 0.8213096559378469
+  },
+  "recovered_small_profile": {
+    "row_id": "gnm_female_black_v02__corners_down_00",
+    "face_height_pixels": 70,
+    "detector": "selection-roi:opencv-yunet-2023mar",
+    "bbox_xyxy": [82, 102, 107, 142],
+    "confidence": 0.7332515,
+    "selection_overlap": 0.8213097,
+    "full_image_policy_changed": false
+  },
+  "validation_baseline": {
+    "row_count": 32,
+    "combined_part_failures": 353,
+    "median_shape_correlation": 0.8204019550113084,
+    "median_raw_gradient_correlation": 0.3994444233089299,
+    "median_normalized_rmse": 0.1862674050402449
+  },
+  "unweighted": {
+    "overfit": {
+      "initial_loss": 0.19393302500247955,
+      "best_loss": 0.18725548684597015,
+      "best_initial_ratio": 0.9655678131,
+      "passed": true,
+      "best_epoch": 32,
+      "runtime_seconds": 3.0587956999997914,
+      "peak_vram_gib": 0.1795363426208496,
+      "checkpoint_sha256": "05b192ae3335e37b764e141a3a10ece3b8bbe943c4e09edbeb5e4f23fca4c1e3",
+      "evidence_sha256": "c85154d34526d203c7c5f543aa498d65294b71e24326a377f7d6fd01b4fee26e"
+    },
+    "training": {
+      "initial_validation_loss": 0.1833086609840393,
+      "best_validation_loss": 0.17122791707515717,
+      "best_epoch": 16,
+      "runtime_seconds": 42.22276909999982,
+      "peak_vram_gib": 0.7105703353881836,
+      "checkpoint_sha256": "556cacdf82a62f9bc29fa3c1b16a4bd8f93215db98ee7df2f1a050dff99cd64e",
+      "evidence_sha256": "a665af687dabf1224cafdf1fa9731bf905b3213564c58bce26b5b507f9b24346"
+    },
+    "validation": [
+      {"alpha": 0.05, "part_failures": 351, "median_shape_correlation": 0.820948485, "median_raw_gradient_correlation": 0.399855996, "median_normalized_rmse": 0.186136287, "whole_face_regressions": 1, "named_part_regressions": 238},
+      {"alpha": 0.10, "part_failures": 346, "median_shape_correlation": 0.821460362, "median_raw_gradient_correlation": 0.400180852, "median_normalized_rmse": 0.186008198, "whole_face_regressions": 1, "named_part_regressions": 245},
+      {"alpha": 0.20, "part_failures": 343, "median_shape_correlation": 0.822617147, "median_raw_gradient_correlation": 0.400659417, "median_normalized_rmse": 0.185762546, "whole_face_regressions": 1, "named_part_regressions": 239},
+      {"alpha": 0.35, "part_failures": 336, "median_shape_correlation": 0.824148731, "median_raw_gradient_correlation": 0.400864319, "median_normalized_rmse": 0.185449319, "whole_face_regressions": 1, "named_part_regressions": 247},
+      {"alpha": 0.50, "part_failures": 331, "median_shape_correlation": 0.824861348, "median_raw_gradient_correlation": 0.401124556, "median_normalized_rmse": 0.185294800, "whole_face_regressions": 3, "named_part_regressions": 264},
+      {"alpha": 0.75, "part_failures": 324, "median_shape_correlation": 0.824997595, "median_raw_gradient_correlation": 0.401384812, "median_normalized_rmse": 0.185215003, "whole_face_regressions": 3, "named_part_regressions": 304},
+      {"alpha": 1.00, "part_failures": 324, "median_shape_correlation": 0.825028058, "median_raw_gradient_correlation": 0.401403034, "median_normalized_rmse": 0.185190662, "whole_face_regressions": 5, "named_part_regressions": 336}
+    ]
+  },
+  "weighted": {
+    "curriculum": {
+      "small_face_weight_reference_px": 128.0,
+      "maximum_small_face_sample_weight": 2.0,
+      "yaw_sample_weight_strength": 0.75,
+      "yaw_weight_reference_degrees": 38.0,
+      "maximum_combined_sample_weight": 2.5,
+      "validation_weight_median": 2.342407703399658
+    },
+    "overfit": {
+      "initial_loss": 0.19393303990364075,
+      "best_loss": 0.18726862967014313,
+      "best_initial_ratio": 0.9656355088,
+      "passed": true,
+      "best_epoch": 32,
+      "runtime_seconds": 3.05091289999973,
+      "peak_vram_gib": 0.1795363426208496,
+      "checkpoint_sha256": "d7de7139e112a2446a352952d91dd3c7d4023aa3b935fd6e7665202d436fe8bd",
+      "evidence_sha256": "ca05350956b9a7fe4bdffd86577e914e80a9a25f161470f1b612552de85eb668"
+    },
+    "training": {
+      "initial_validation_loss": 0.18583492934703827,
+      "best_validation_loss": 0.17471283674240112,
+      "best_epoch": 13,
+      "runtime_seconds": 43.892096200000196,
+      "peak_vram_gib": 0.7105703353881836,
+      "checkpoint_sha256": "42ff074437b925cafe4753e84a571b0b240902aa215a9e0b99f3855e00369b76",
+      "evidence_sha256": "ae155acc2cd5484a38fd74822af9e87bbfde60e18567d92b9a3451cdc6228418"
+    },
+    "validation": [
+      {"alpha": 0.05, "part_failures": 352, "median_shape_correlation": 0.820915847, "median_raw_gradient_correlation": 0.399834356, "median_normalized_rmse": 0.186138123, "whole_face_regressions": 1, "named_part_regressions": 248},
+      {"alpha": 0.10, "part_failures": 346, "median_shape_correlation": 0.821400505, "median_raw_gradient_correlation": 0.400144466, "median_normalized_rmse": 0.186011634, "whole_face_regressions": 1, "named_part_regressions": 251},
+      {"alpha": 0.20, "part_failures": 342, "median_shape_correlation": 0.822606149, "median_raw_gradient_correlation": 0.400600691, "median_normalized_rmse": 0.185770013, "whole_face_regressions": 1, "named_part_regressions": 253},
+      {"alpha": 0.35, "part_failures": 340, "median_shape_correlation": 0.824253103, "median_raw_gradient_correlation": 0.400805323, "median_normalized_rmse": 0.185471812, "whole_face_regressions": 1, "named_part_regressions": 258},
+      {"alpha": 0.50, "part_failures": 330, "median_shape_correlation": 0.824799974, "median_raw_gradient_correlation": 0.401020152, "median_normalized_rmse": 0.185329568, "whole_face_regressions": 3, "named_part_regressions": 268},
+      {"alpha": 0.75, "part_failures": 322, "median_shape_correlation": 0.824956743, "median_raw_gradient_correlation": 0.401258695, "median_normalized_rmse": 0.185249552, "whole_face_regressions": 4, "named_part_regressions": 299},
+      {"alpha": 1.00, "part_failures": 322, "median_shape_correlation": 0.824999976, "median_raw_gradient_correlation": 0.401293224, "median_normalized_rmse": 0.185220468, "whole_face_regressions": 6, "named_part_regressions": 333}
+    ]
+  },
+  "decision": {
+    "validation_strictly_improves": false,
+    "sealed_opened": false,
+    "advance_to_exact_photo": false,
+    "advance_to_30mm_physical_replay": false,
+    "production_changed": false
+  },
+  "validation": {
+    "focused_tests_passed": 61,
+    "full_backend_clean_worktree_blocker": "linked Git worktree metadata unavailable inside filesystem sandbox"
+  }
+}
