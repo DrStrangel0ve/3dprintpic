@@ -11,11 +11,14 @@ from PIL import Image
 
 from backend.benchmark import train_dinov2_face_spatial_decoder as trainer
 from backend.benchmark.train_dinov2_face_spatial_decoder import (
+    CHECKPOINT_SCHEMA_VERSION,
     CONDITIONING_CHANNELS,
     ENCODER_PROFILES,
     FEATURE_CHANNELS,
     FEATURE_SIZE,
     MAXIMUM_NORMALIZED_RESIDUAL,
+    METHOD,
+    _checkpoint_profile,
     _paired_regression_audit,
     _select_validation_candidate,
     _select_overfit_items,
@@ -26,6 +29,7 @@ from backend.benchmark.train_dinov2_face_spatial_decoder import (
     conditioning_from_tensors,
     curriculum_sample_weights,
     extract_frozen_features,
+    load_decoder_checkpoint,
     overfit_gate,
     resolve_encoder_profile,
     train_decoder,
@@ -262,6 +266,10 @@ class TrainDinov2FaceSpatialDecoderTests(unittest.TestCase):
                 }
 
         class Encoder:
+            @staticmethod
+            def layernorm(values):
+                return values + 100.0
+
             def __call__(
                 self,
                 *,
@@ -304,12 +312,21 @@ class TrainDinov2FaceSpatialDecoderTests(unittest.TestCase):
 
         self.assertTrue(encoder.output_hidden_states)
         self.assertEqual(provenance["feature_shape"], [1536, 32, 32])
+        self.assertEqual(
+            provenance["intermediate_stage_normalization"],
+            "encoder.layernorm",
+        )
+        self.assertEqual(provenance["cache_dtype"], "torch.float16")
+        self.assertEqual(
+            provenance["cached_feature_bytes"],
+            2 * 1536 * 32 * 32 * 2,
+        )
         grid = features["row-0"]
         self.assertEqual(tuple(grid.shape), (1536, 32, 32))
-        self.assertEqual(float(grid[0, 0, 0]), 3.0)
-        self.assertEqual(float(grid[384, 0, 0]), 6.0)
-        self.assertEqual(float(grid[768, 0, 0]), 9.0)
-        self.assertEqual(float(grid[1152, 0, 0]), 12.0)
+        self.assertEqual(float(grid[0, 0, 0]), 103.0)
+        self.assertEqual(float(grid[384, 0, 0]), 106.0)
+        self.assertEqual(float(grid[768, 0, 0]), 109.0)
+        self.assertEqual(float(grid[1152, 0, 0]), 112.0)
 
     def test_aligned_processor_preserves_full_crop_without_center_crop(self):
         import torch
@@ -485,6 +502,44 @@ class TrainDinov2FaceSpatialDecoderTests(unittest.TestCase):
         self.assertEqual(int(torch.count_nonzero(result)), 0)
         with self.assertRaisesRegex(ValueError, "1536"):
             model(features[:, :FEATURE_CHANNELS], conditioning, support)
+
+    def test_checkpoint_schema_defaults_v1_to_final_profile(self):
+        import torch
+
+        old_model = build_spatial_decoder()
+        payload = {
+            "schema_version": 1,
+            "method": METHOD,
+            "state_dict": old_model.state_dict(),
+        }
+        profile = _checkpoint_profile(payload)
+        self.assertEqual(profile["name"], "final-224")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "legacy.pt"
+            torch.save(payload, path)
+            loaded, _payload, loaded_profile = load_decoder_checkpoint(path)
+        self.assertEqual(loaded_profile["name"], "final-224")
+        for expected, actual in zip(
+            old_model.state_dict().values(),
+            loaded.state_dict().values(),
+            strict=True,
+        ):
+            self.assertTrue(torch.equal(expected, actual))
+
+    def test_checkpoint_schema_v2_rejects_profile_projection_mismatch(self):
+        payload = {
+            "schema_version": CHECKPOINT_SCHEMA_VERSION,
+            "method": ENCODER_PROFILES["pyramid-448"]["method"],
+            "encoder_profile": resolve_encoder_profile("pyramid-448"),
+            "state_dict": build_spatial_decoder().state_dict(),
+        }
+        with self.assertRaisesRegex(ValueError, "feature projection"):
+            _checkpoint_profile(payload)
+
+        payload["schema_version"] = 1
+        with self.assertRaisesRegex(ValueError, "cannot safely represent"):
+            _checkpoint_profile(payload)
 
     def test_overfit_selection_prioritizes_small_faces_and_identities(self):
         items = [

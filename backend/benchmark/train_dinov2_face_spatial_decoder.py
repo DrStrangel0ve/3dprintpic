@@ -8,7 +8,10 @@ import hashlib
 import importlib.metadata
 import json
 import math
+import platform
 import random
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Sequence
@@ -51,8 +54,8 @@ MODEL_FILE_HASHES = {
     "model.safetensors": "ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1",
 }
 METHOD = "dinov2_small_frozen_spatial_production_conditioned_face_relief"
-CHECKPOINT_SCHEMA_VERSION = 1
-EVIDENCE_SCHEMA_VERSION = 2
+CHECKPOINT_SCHEMA_VERSION = 2
+EVIDENCE_SCHEMA_VERSION = 3
 FEATURE_CHANNELS = 384
 FEATURE_SIZE = 16
 MODEL_INPUT_SIZE = 224
@@ -91,6 +94,9 @@ PART_GRADIENT_WEIGHT = 0.75
 PART_NON_REGRESSION_WEIGHT = 1.00
 WORST_PART_VALUE_WEIGHT = 0.75
 WORST_PART_GRADIENT_WEIGHT = 1.25
+OWNED_PROVENANCE_PATHS = (
+    "backend/benchmark/train_dinov2_face_spatial_decoder.py",
+)
 
 
 def resolve_encoder_profile(name: str = DEFAULT_ENCODER_PROFILE) -> dict:
@@ -108,6 +114,130 @@ def _file_sha256(path: str | Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _process_memory() -> dict:
+    import psutil
+
+    memory = psutil.Process().memory_info()
+    peak_rss = getattr(memory, "peak_wset", memory.rss)
+    return {
+        "rss_gib": float(memory.rss / (1024**3)),
+        "peak_rss_gib": float(peak_rss / (1024**3)),
+    }
+
+
+def _code_provenance() -> dict:
+    repo = Path(__file__).resolve().parents[2]
+    files = {}
+    for relative in OWNED_PROVENANCE_PATHS:
+        path = repo / relative
+        files[relative] = {
+            "sha256": _file_sha256(path),
+            "size_bytes": path.stat().st_size,
+        }
+    safe_directory = f"safe.directory={repo.as_posix()}"
+    try:
+        revision = subprocess.run(
+            ("git", "-c", safe_directory, "rev-parse", "HEAD"),
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        dirty = subprocess.run(
+            (
+                "git",
+                "-c",
+                safe_directory,
+                "status",
+                "--porcelain",
+                "--",
+                *OWNED_PROVENANCE_PATHS,
+            ),
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+    except (OSError, subprocess.CalledProcessError):
+        revision = None
+        dirty = ["git-status-unavailable"]
+    packages = {}
+    for name in ("numpy", "Pillow", "psutil", "torch", "transformers"):
+        try:
+            packages[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            packages[name] = None
+    return {
+        "git_revision": revision,
+        "owned_git_status": dirty,
+        "files": files,
+        "invocation": list(sys.argv),
+        "python_version": sys.version,
+        "platform": platform.platform(),
+        "package_versions": packages,
+    }
+
+
+def _checkpoint_profile(payload: dict) -> dict:
+    schema = int(payload.get("schema_version", 1))
+    if schema == 1:
+        supplied = payload.get("encoder_profile")
+        if supplied and supplied.get("name") != DEFAULT_ENCODER_PROFILE:
+            raise ValueError(
+                "Checkpoint schema v1 cannot safely represent a non-default "
+                "DINOv2 encoder profile"
+            )
+        profile = resolve_encoder_profile(DEFAULT_ENCODER_PROFILE)
+    elif schema == CHECKPOINT_SCHEMA_VERSION:
+        supplied = payload.get("encoder_profile")
+        if not isinstance(supplied, dict) or not supplied.get("name"):
+            raise ValueError("Checkpoint schema v2 requires encoder_profile")
+        profile = resolve_encoder_profile(str(supplied["name"]))
+        for key in (
+            "method",
+            "input_size",
+            "feature_channels",
+            "feature_size",
+            "hidden_state_indices",
+        ):
+            expected = profile[key]
+            observed = supplied.get(key)
+            if key == "hidden_state_indices":
+                expected = tuple(expected)
+                observed = tuple(observed or ())
+            if observed != expected:
+                raise ValueError(
+                    f"Checkpoint encoder profile mismatch for {key}: "
+                    f"expected {expected!r}, observed {observed!r}"
+                )
+    else:
+        raise ValueError(f"Unsupported DINOv2 checkpoint schema: {schema}")
+    if payload.get("method") != profile["method"]:
+        raise ValueError("Checkpoint method does not match its encoder profile")
+    state = payload.get("state_dict")
+    if not isinstance(state, dict):
+        raise ValueError("Checkpoint is missing a decoder state_dict")
+    projection = state.get("feature_projection.0.weight")
+    expected_shape = (96, int(profile["feature_channels"]), 1, 1)
+    if projection is None or tuple(projection.shape) != expected_shape:
+        raise ValueError(
+            "Checkpoint feature projection does not match its encoder profile"
+        )
+    return profile
+
+
+def load_decoder_checkpoint(path: str | Path, *, device: str = "cpu"):
+    import torch
+
+    payload = torch.load(path, map_location=device, weights_only=False)
+    if not isinstance(payload, dict):
+        raise ValueError("DINOv2 decoder checkpoint must contain a mapping")
+    profile = _checkpoint_profile(payload)
+    model = build_spatial_decoder(profile["name"]).to(device)
+    model.load_state_dict(payload["state_dict"], strict=True)
+    return model.eval(), payload, profile
 
 
 def validate_pinned_model_root(
@@ -507,6 +637,7 @@ def extract_frozen_features(
     hidden_state_indices = tuple(profile["hidden_state_indices"])
     processor, encoder, provenance = _load_encoder(Path(model_root), device)
     features = {}
+    memory_before = _process_memory()
     started = time.perf_counter()
     if str(device).startswith("cuda"):
         torch.cuda.reset_peak_memory_stats(device)
@@ -532,31 +663,37 @@ def extract_frozen_features(
                     pixel_values=pixels,
                     output_hidden_states=bool(hidden_state_indices),
                 )
-            if hidden_state_indices:
-                states = output.hidden_states
-                if states is None or max(hidden_state_indices) >= len(states):
-                    raise ValueError(
-                        "Pinned DINOv2 encoder did not return the requested "
-                        "intermediate feature stages"
-                    )
-                grids = torch.cat(
-                    [
-                        _tokens_to_grid(
-                            states[index],
-                            feature_size=feature_size,
-                            feature_channels=FEATURE_CHANNELS,
+                if hidden_state_indices:
+                    states = output.hidden_states
+                    if states is None or max(hidden_state_indices) >= len(states):
+                        raise ValueError(
+                            "Pinned DINOv2 encoder did not return the requested "
+                            "intermediate feature stages"
                         )
-                        for index in hidden_state_indices
-                    ],
-                    dim=1,
-                )
-            else:
-                grids = _tokens_to_grid(
-                    output.last_hidden_state,
-                    feature_size=feature_size,
-                    feature_channels=FEATURE_CHANNELS,
-                )
-            grids = grids.float().cpu()
+                    layernorm = getattr(encoder, "layernorm", None)
+                    if layernorm is None:
+                        raise ValueError(
+                            "Pinned DINOv2 encoder is missing its final LayerNorm"
+                        )
+                    grids = torch.cat(
+                        [
+                            _tokens_to_grid(
+                                layernorm(states[index]),
+                                feature_size=feature_size,
+                                feature_channels=FEATURE_CHANNELS,
+                            )
+                            for index in hidden_state_indices
+                        ],
+                        dim=1,
+                    )
+                else:
+                    grids = _tokens_to_grid(
+                        output.last_hidden_state,
+                        feature_size=feature_size,
+                        feature_channels=FEATURE_CHANNELS,
+                    )
+            cache_dtype = torch.float16 if hidden_state_indices else torch.float32
+            grids = grids.to(dtype=cache_dtype).cpu()
             for item, grid in zip(batch, grids, strict=True):
                 row_id = str(item.row["row_id"])
                 if not row_id or row_id in features:
@@ -571,6 +708,10 @@ def extract_frozen_features(
     del encoder
     if str(device).startswith("cuda"):
         torch.cuda.empty_cache()
+    memory_after = _process_memory()
+    cached_feature_bytes = sum(
+        int(value.numel() * value.element_size()) for value in features.values()
+    )
     return features, {
         **provenance,
         "profile": profile,
@@ -584,6 +725,16 @@ def extract_frozen_features(
             "preserves_full_source_crop": True,
             "processor_resize": False,
             "processor_center_crop": False,
+        },
+        "intermediate_stage_normalization": (
+            "encoder.layernorm" if hidden_state_indices else "encoder.final_output"
+        ),
+        "cache_dtype": str(next(iter(features.values())).dtype),
+        "cached_feature_bytes": cached_feature_bytes,
+        "host_memory": {
+            "rss_before_gib": memory_before["rss_gib"],
+            "rss_after_gib": memory_after["rss_gib"],
+            "peak_rss_gib": memory_after["peak_rss_gib"],
         },
         "row_count": len(features),
         "runtime_seconds": float(runtime),
@@ -793,7 +944,7 @@ def train_decoder(
         yaw_sample_weight_strength=yaw_sample_weight_strength,
         maximum_combined_sample_weight=maximum_combined_sample_weight,
     )
-    validation_tensors, validation_weight_stats = _stack_with_curriculum(
+    _validation_tensors, validation_weight_stats = _stack_with_curriculum(
         validation_items,
         small_face_weight_reference_px=small_face_weight_reference_px,
         maximum_small_face_sample_weight=maximum_small_face_sample_weight,
@@ -801,12 +952,6 @@ def train_decoder(
         maximum_combined_sample_weight=maximum_combined_sample_weight,
     )
     train_conditioning = conditioning_from_tensors(train_tensors)
-    validation_conditioning = conditioning_from_tensors(validation_tensors)
-    train_features = _features_for(
-        train_items,
-        features_by_id,
-        encoder_profile=encoder_profile,
-    )
     model = build_spatial_decoder(encoder_profile).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=float(learning_rate), weight_decay=1e-4
@@ -835,7 +980,12 @@ def train_decoder(
         for start in range(0, len(order), max(1, int(batch_size))):
             indices = order[start : start + max(1, int(batch_size))]
             values = _batch_values(train_tensors, indices, device)
-            features = train_features[indices].to(device)
+            batch_items = [train_items[index] for index in indices]
+            features = _features_for(
+                batch_items,
+                features_by_id,
+                encoder_profile=encoder_profile,
+            ).to(device)
             conditioning = train_conditioning[indices].to(device)
             residual = model(features, conditioning, values["support_face"])
             loss, _details = _loss(residual, values)
@@ -870,6 +1020,7 @@ def train_decoder(
             best_epoch = epoch
             best_state = copy.deepcopy(model.state_dict())
     model.load_state_dict(best_state)
+    process_memory = _process_memory()
     peak = (
         float(torch.cuda.max_memory_allocated(device) / (1024**3))
         if str(device).startswith("cuda")
@@ -889,6 +1040,8 @@ def train_decoder(
         "history": history,
         "runtime_seconds": float(time.perf_counter() - started),
         "peak_vram_gib": peak,
+        "host_memory": process_memory,
+        "feature_batching": "streamed_from_cpu_cache",
         "trainable_parameters": int(
             sum(parameter.numel() for parameter in model.parameters())
         ),
@@ -1408,6 +1561,7 @@ def run_split_training(
             },
         }
 
+    code_provenance = _code_provenance()
     checkpoint_path = output / "dinov2_face_spatial_decoder.pt"
     torch.save(
         {
@@ -1420,6 +1574,13 @@ def run_split_training(
             "selected_epoch": int(training["best_epoch"]),
             "corpus_summary_sha256": _sha256(Path(corpus_root) / "summary.json"),
             "cache_manifest_sha256": _sha256(Path(cache_root) / "manifest.json"),
+            "ordered_cache_row_content_sha256": cache_binding[
+                "ordered_row_content_sha256"
+            ],
+            "model_file_sha256": dict(MODEL_FILE_HASHES),
+            "preprocessing": encoder["preprocessing"],
+            "curriculum": training["curriculum"],
+            "code_provenance": code_provenance,
             "state_dict": {
                 name: value.detach().cpu() for name, value in model.state_dict().items()
             },
@@ -1438,6 +1599,7 @@ def run_split_training(
         "production_changed": False,
         "method": profile["method"],
         "source_geometry_training_and_evaluation_only": True,
+        "code_provenance": code_provenance,
         "encoder": encoder,
         "sealed_encoder": sealed_encoder,
         "corpus": {
@@ -1536,6 +1698,7 @@ def run_overfit_smoke(
         maximum_combined_sample_weight=maximum_combined_sample_weight,
     )
     gate = overfit_gate(training, maximum_ratio=maximum_loss_ratio)
+    code_provenance = _code_provenance()
     checkpoint_path = output / "dinov2_face_spatial_decoder_smoke.pt"
     torch.save(
         {
@@ -1545,6 +1708,15 @@ def run_overfit_smoke(
             "model_revision": MODEL_REVISION,
             "encoder_profile": profile,
             "row_ids": [item.row["row_id"] for item in selected],
+            "corpus_summary_sha256": _sha256(Path(corpus_root) / "summary.json"),
+            "cache_manifest_sha256": _sha256(Path(cache_root) / "manifest.json"),
+            "ordered_cache_row_content_sha256": cache_binding[
+                "ordered_row_content_sha256"
+            ],
+            "model_file_sha256": dict(MODEL_FILE_HASHES),
+            "preprocessing": encoder["preprocessing"],
+            "curriculum": training["curriculum"],
+            "code_provenance": code_provenance,
             "state_dict": {
                 name: value.detach().cpu() for name, value in model.state_dict().items()
             },
@@ -1558,6 +1730,7 @@ def run_overfit_smoke(
         "advance_to_split_training": bool(gate["passed"]),
         "method": profile["method"],
         "source_geometry_training_and_evaluation_only": True,
+        "code_provenance": code_provenance,
         "encoder": encoder,
         "architecture": {
             "feature_shape": [
