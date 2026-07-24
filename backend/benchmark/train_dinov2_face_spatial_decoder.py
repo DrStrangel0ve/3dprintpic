@@ -25,12 +25,15 @@ from backend.benchmark.train_face_surface_adapter import (
 )
 from backend.benchmark.train_face_surface_fusion_adapter import (
     CachedFusionSurface,
+    DEFAULT_MAXIMUM_SMALL_FACE_SAMPLE_WEIGHT,
+    DEFAULT_SMALL_FACE_WEIGHT_REFERENCE_PX,
     FACE_PART_NAMES,
     CACHE_SCHEMA_VERSION as PRODUCTION_CACHE_SCHEMA_VERSION,
     METHOD as PRODUCTION_CACHE_METHOD,
     _stack,
     evaluate_exact_surfaces,
     load_cached_surfaces,
+    small_face_sample_weight,
     surface_fusion_training_loss,
 )
 from backend.benchmark.train_gnm_production_face_depth_fusion import (
@@ -60,6 +63,9 @@ DEFAULT_BATCH_SIZE = 4
 DEFAULT_LEARNING_RATE = 5e-4
 DEFAULT_OVERFIT_ROWS = 2
 DEFAULT_OVERFIT_IMPROVEMENT_RATIO = 0.97
+DEFAULT_YAW_SAMPLE_WEIGHT_STRENGTH = 0.0
+DEFAULT_MAXIMUM_COMBINED_SAMPLE_WEIGHT = 4.0
+YAW_WEIGHT_REFERENCE_DEGREES = 38.0
 PART_VALUE_WEIGHT = 0.50
 PART_GRADIENT_WEIGHT = 0.75
 PART_NON_REGRESSION_WEIGHT = 1.00
@@ -529,10 +535,93 @@ def _batch_values(tensors: dict, indices: list[int], device: str) -> dict:
     return {key: value[indices].to(device) for key, value in tensors.items()}
 
 
-def _validation_loss(model, items, features_by_id, device: str) -> tuple[float, dict]:
+def curriculum_sample_weights(
+    items: Sequence[CachedFusionSurface],
+    *,
+    small_face_weight_reference_px: float,
+    maximum_small_face_sample_weight: float,
+    yaw_sample_weight_strength: float,
+    maximum_combined_sample_weight: float,
+) -> np.ndarray:
+    if float(yaw_sample_weight_strength) < 0.0:
+        raise ValueError("Yaw sample-weight strength must be nonnegative")
+    if float(maximum_combined_sample_weight) < 1.0:
+        raise ValueError("Maximum combined sample weight must be at least one")
+    weights = []
+    for item in items:
+        small_face_weight = small_face_sample_weight(
+            item.row["render"]["face_bbox_height_pixels"],
+            reference_pixels=small_face_weight_reference_px,
+            maximum_weight=maximum_small_face_sample_weight,
+        )
+        yaw = abs(float((item.row.get("spec") or {}).get("camera_yaw_deg", 0.0)))
+        yaw_weight = 1.0 + float(yaw_sample_weight_strength) * min(
+            yaw / YAW_WEIGHT_REFERENCE_DEGREES,
+            1.0,
+        )
+        weights.append(
+            min(
+                small_face_weight * yaw_weight,
+                float(maximum_combined_sample_weight),
+            )
+        )
+    values = np.asarray(weights, dtype=np.float32)
+    if values.shape != (len(items),) or not np.all(np.isfinite(values)):
+        raise ValueError("DINOv2 curriculum sample weights are invalid")
+    return values
+
+
+def _stack_with_curriculum(
+    items: Sequence[CachedFusionSurface],
+    *,
+    small_face_weight_reference_px: float,
+    maximum_small_face_sample_weight: float,
+    yaw_sample_weight_strength: float,
+    maximum_combined_sample_weight: float,
+) -> tuple[dict, dict]:
     import torch
 
-    tensors = _stack(list(items))
+    tensors = _stack(
+        list(items),
+        small_face_weight_reference_px=small_face_weight_reference_px,
+        maximum_small_face_sample_weight=maximum_small_face_sample_weight,
+    )
+    weights = curriculum_sample_weights(
+        items,
+        small_face_weight_reference_px=small_face_weight_reference_px,
+        maximum_small_face_sample_weight=maximum_small_face_sample_weight,
+        yaw_sample_weight_strength=yaw_sample_weight_strength,
+        maximum_combined_sample_weight=maximum_combined_sample_weight,
+    )
+    tensors["sample_weight"] = torch.from_numpy(weights)[:, None, None, None]
+    return tensors, {
+        "row_count": len(items),
+        "minimum": float(np.min(weights)),
+        "median": float(np.median(weights)),
+        "maximum": float(np.max(weights)),
+    }
+
+
+def _validation_loss(
+    model,
+    items,
+    features_by_id,
+    device: str,
+    *,
+    small_face_weight_reference_px: float,
+    maximum_small_face_sample_weight: float,
+    yaw_sample_weight_strength: float,
+    maximum_combined_sample_weight: float,
+) -> tuple[float, dict]:
+    import torch
+
+    tensors, _weight_stats = _stack_with_curriculum(
+        items,
+        small_face_weight_reference_px=small_face_weight_reference_px,
+        maximum_small_face_sample_weight=maximum_small_face_sample_weight,
+        yaw_sample_weight_strength=yaw_sample_weight_strength,
+        maximum_combined_sample_weight=maximum_combined_sample_weight,
+    )
     conditioning = conditioning_from_tensors(tensors)
     features = _features_for(items, features_by_id)
     model.eval()
@@ -556,6 +645,16 @@ def train_decoder(
     learning_rate: float = DEFAULT_LEARNING_RATE,
     seed: int = TRAINING_SEED,
     horizontal_flip_augmentation: bool = True,
+    small_face_weight_reference_px: float = (
+        DEFAULT_SMALL_FACE_WEIGHT_REFERENCE_PX
+    ),
+    maximum_small_face_sample_weight: float = (
+        DEFAULT_MAXIMUM_SMALL_FACE_SAMPLE_WEIGHT
+    ),
+    yaw_sample_weight_strength: float = DEFAULT_YAW_SAMPLE_WEIGHT_STRENGTH,
+    maximum_combined_sample_weight: float = (
+        DEFAULT_MAXIMUM_COMBINED_SAMPLE_WEIGHT
+    ),
 ) -> tuple[object, dict]:
     import torch
 
@@ -572,8 +671,20 @@ def train_decoder(
     if str(device).startswith("cuda"):
         torch.cuda.manual_seed_all(seed)
         torch.cuda.reset_peak_memory_stats(device)
-    train_tensors = _stack(list(train_items))
-    validation_tensors = _stack(list(validation_items))
+    train_tensors, train_weight_stats = _stack_with_curriculum(
+        train_items,
+        small_face_weight_reference_px=small_face_weight_reference_px,
+        maximum_small_face_sample_weight=maximum_small_face_sample_weight,
+        yaw_sample_weight_strength=yaw_sample_weight_strength,
+        maximum_combined_sample_weight=maximum_combined_sample_weight,
+    )
+    validation_tensors, validation_weight_stats = _stack_with_curriculum(
+        validation_items,
+        small_face_weight_reference_px=small_face_weight_reference_px,
+        maximum_small_face_sample_weight=maximum_small_face_sample_weight,
+        yaw_sample_weight_strength=yaw_sample_weight_strength,
+        maximum_combined_sample_weight=maximum_combined_sample_weight,
+    )
     train_conditioning = conditioning_from_tensors(train_tensors)
     validation_conditioning = conditioning_from_tensors(validation_tensors)
     train_features = _features_for(train_items, features_by_id)
@@ -584,7 +695,14 @@ def train_decoder(
     )
     generator = torch.Generator(device="cpu").manual_seed(seed)
     initial_loss, initial_details = _validation_loss(
-        model, validation_items, features_by_id, device
+        model,
+        validation_items,
+        features_by_id,
+        device,
+        small_face_weight_reference_px=small_face_weight_reference_px,
+        maximum_small_face_sample_weight=maximum_small_face_sample_weight,
+        yaw_sample_weight_strength=yaw_sample_weight_strength,
+        maximum_combined_sample_weight=maximum_combined_sample_weight,
     )
     best_state = copy.deepcopy(model.state_dict())
     best_epoch = 0
@@ -610,7 +728,14 @@ def train_decoder(
             optimizer.step()
             losses.append(float(loss.detach()))
         validation_loss, validation_details = _validation_loss(
-            model, validation_items, features_by_id, device
+            model,
+            validation_items,
+            features_by_id,
+            device,
+            small_face_weight_reference_px=small_face_weight_reference_px,
+            maximum_small_face_sample_weight=maximum_small_face_sample_weight,
+            yaw_sample_weight_strength=yaw_sample_weight_strength,
+            maximum_combined_sample_weight=maximum_combined_sample_weight,
         )
         record = {
             "epoch": epoch,
@@ -646,6 +771,21 @@ def train_decoder(
         "trainable_parameters": int(
             sum(parameter.numel() for parameter in model.parameters())
         ),
+        "curriculum": {
+            "small_face_weight_reference_px": float(
+                small_face_weight_reference_px
+            ),
+            "maximum_small_face_sample_weight": float(
+                maximum_small_face_sample_weight
+            ),
+            "yaw_sample_weight_strength": float(yaw_sample_weight_strength),
+            "yaw_weight_reference_degrees": YAW_WEIGHT_REFERENCE_DEGREES,
+            "maximum_combined_sample_weight": float(
+                maximum_combined_sample_weight
+            ),
+            "train_sample_weights": train_weight_stats,
+            "validation_sample_weights": validation_weight_stats,
+        },
     }
 
 
@@ -980,6 +1120,16 @@ def run_split_training(
     epochs: int = DEFAULT_EPOCHS,
     batch_size: int = DEFAULT_BATCH_SIZE,
     learning_rate: float = DEFAULT_LEARNING_RATE,
+    small_face_weight_reference_px: float = (
+        DEFAULT_SMALL_FACE_WEIGHT_REFERENCE_PX
+    ),
+    maximum_small_face_sample_weight: float = (
+        DEFAULT_MAXIMUM_SMALL_FACE_SAMPLE_WEIGHT
+    ),
+    yaw_sample_weight_strength: float = DEFAULT_YAW_SAMPLE_WEIGHT_STRENGTH,
+    maximum_combined_sample_weight: float = (
+        DEFAULT_MAXIMUM_COMBINED_SAMPLE_WEIGHT
+    ),
     expected_corpus_summary_sha256: str,
     expected_cache_row_sha256: str,
 ) -> dict:
@@ -1023,6 +1173,10 @@ def run_split_training(
         batch_size=batch_size,
         learning_rate=learning_rate,
         horizontal_flip_augmentation=False,
+        small_face_weight_reference_px=small_face_weight_reference_px,
+        maximum_small_face_sample_weight=maximum_small_face_sample_weight,
+        yaw_sample_weight_strength=yaw_sample_weight_strength,
+        maximum_combined_sample_weight=maximum_combined_sample_weight,
     )
     zeros = [np.zeros_like(item.baseline, dtype=np.float32) for item in by_split["validation"]]
     baseline = evaluate_exact_surfaces(
@@ -1183,6 +1337,16 @@ def run_overfit_smoke(
     batch_size: int = DEFAULT_BATCH_SIZE,
     learning_rate: float = DEFAULT_LEARNING_RATE,
     maximum_loss_ratio: float = DEFAULT_OVERFIT_IMPROVEMENT_RATIO,
+    small_face_weight_reference_px: float = (
+        DEFAULT_SMALL_FACE_WEIGHT_REFERENCE_PX
+    ),
+    maximum_small_face_sample_weight: float = (
+        DEFAULT_MAXIMUM_SMALL_FACE_SAMPLE_WEIGHT
+    ),
+    yaw_sample_weight_strength: float = DEFAULT_YAW_SAMPLE_WEIGHT_STRENGTH,
+    maximum_combined_sample_weight: float = (
+        DEFAULT_MAXIMUM_COMBINED_SAMPLE_WEIGHT
+    ),
     expected_corpus_summary_sha256: str,
     expected_cache_row_sha256: str,
 ) -> dict:
@@ -1212,6 +1376,10 @@ def run_overfit_smoke(
         batch_size=batch_size,
         learning_rate=learning_rate,
         horizontal_flip_augmentation=False,
+        small_face_weight_reference_px=small_face_weight_reference_px,
+        maximum_small_face_sample_weight=maximum_small_face_sample_weight,
+        yaw_sample_weight_strength=yaw_sample_weight_strength,
+        maximum_combined_sample_weight=maximum_combined_sample_weight,
     )
     gate = overfit_gate(training, maximum_ratio=maximum_loss_ratio)
     checkpoint_path = output / "dinov2_face_spatial_decoder_smoke.pt"
@@ -1301,6 +1469,26 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--learning-rate", type=float, default=DEFAULT_LEARNING_RATE)
+    parser.add_argument(
+        "--small-face-weight-reference-px",
+        type=float,
+        default=DEFAULT_SMALL_FACE_WEIGHT_REFERENCE_PX,
+    )
+    parser.add_argument(
+        "--maximum-small-face-sample-weight",
+        type=float,
+        default=DEFAULT_MAXIMUM_SMALL_FACE_SAMPLE_WEIGHT,
+    )
+    parser.add_argument(
+        "--yaw-sample-weight-strength",
+        type=float,
+        default=DEFAULT_YAW_SAMPLE_WEIGHT_STRENGTH,
+    )
+    parser.add_argument(
+        "--maximum-combined-sample-weight",
+        type=float,
+        default=DEFAULT_MAXIMUM_COMBINED_SAMPLE_WEIGHT,
+    )
     parser.add_argument("--expected-corpus-summary-sha256", required=True)
     parser.add_argument("--expected-cache-row-sha256", required=True)
     parser.add_argument(
@@ -1321,6 +1509,16 @@ def main() -> None:
             batch_size=args.batch_size,
             learning_rate=args.learning_rate,
             maximum_loss_ratio=args.maximum_loss_ratio,
+            small_face_weight_reference_px=(
+                args.small_face_weight_reference_px
+            ),
+            maximum_small_face_sample_weight=(
+                args.maximum_small_face_sample_weight
+            ),
+            yaw_sample_weight_strength=args.yaw_sample_weight_strength,
+            maximum_combined_sample_weight=(
+                args.maximum_combined_sample_weight
+            ),
             expected_corpus_summary_sha256=(
                 args.expected_corpus_summary_sha256
             ),
@@ -1337,6 +1535,16 @@ def main() -> None:
             epochs=args.epochs,
             batch_size=args.batch_size,
             learning_rate=args.learning_rate,
+            small_face_weight_reference_px=(
+                args.small_face_weight_reference_px
+            ),
+            maximum_small_face_sample_weight=(
+                args.maximum_small_face_sample_weight
+            ),
+            yaw_sample_weight_strength=args.yaw_sample_weight_strength,
+            maximum_combined_sample_weight=(
+                args.maximum_combined_sample_weight
+            ),
             expected_corpus_summary_sha256=(
                 args.expected_corpus_summary_sha256
             ),

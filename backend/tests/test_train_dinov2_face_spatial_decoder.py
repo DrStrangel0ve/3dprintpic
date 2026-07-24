@@ -20,6 +20,7 @@ from backend.benchmark.train_dinov2_face_spatial_decoder import (
     aligned_processor_pixels,
     build_spatial_decoder,
     conditioning_from_tensors,
+    curriculum_sample_weights,
     overfit_gate,
     train_decoder,
     validate_cache_binding,
@@ -28,12 +29,13 @@ from backend.benchmark.train_dinov2_face_spatial_decoder import (
 
 
 class _Item:
-    def __init__(self, row_id, identity, height, split="train"):
+    def __init__(self, row_id, identity, height, split="train", yaw=0.0):
         self.row = {
             "row_id": row_id,
             "identity_group": identity,
             "split": split,
             "render": {"face_bbox_height_pixels": height},
+            "spec": {"camera_yaw_deg": yaw},
         }
 
 
@@ -375,6 +377,33 @@ class TrainDinov2FaceSpatialDecoderTests(unittest.TestCase):
             maximum_ratio=0.97,
         )
         self.assertFalse(held["passed"])
+
+    def test_curriculum_targets_small_turned_faces_with_a_hard_cap(self):
+        items = [
+            _Item("hard", "hard-id", 70, yaw=38.0),
+            _Item("medium", "medium-id", 112, yaw=22.0),
+            _Item("large", "large-id", 220, yaw=0.0),
+        ]
+
+        weights = curriculum_sample_weights(
+            items,
+            small_face_weight_reference_px=128.0,
+            maximum_small_face_sample_weight=2.0,
+            yaw_sample_weight_strength=0.75,
+            maximum_combined_sample_weight=2.5,
+        )
+
+        self.assertAlmostEqual(float(weights[0]), 2.5)
+        self.assertGreater(float(weights[1]), 1.0)
+        self.assertAlmostEqual(float(weights[2]), 1.0)
+        with self.assertRaisesRegex(ValueError, "nonnegative"):
+            curriculum_sample_weights(
+                items,
+                small_face_weight_reference_px=128.0,
+                maximum_small_face_sample_weight=2.0,
+                yaw_sample_weight_strength=-0.1,
+                maximum_combined_sample_weight=2.5,
+            )
 
     def test_post_encoding_horizontal_flip_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "positional self-attention"):
