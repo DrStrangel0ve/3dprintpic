@@ -671,18 +671,27 @@ def predict_residuals(model, items, features_by_id, *, device: str, batch_size: 
 
 
 def _select_overfit_items(items: Sequence[CachedFusionSurface], limit: int):
-    selected = sorted(
+    ordered = sorted(
         (item for item in items if item.row.get("split") == "train"),
         key=lambda item: (
             float(item.row["render"]["face_bbox_height_pixels"]),
             str(item.row["row_id"]),
         ),
-    )[: int(limit)]
+    )
+    selected = []
+    selected_identities = set()
+    for item in ordered:
+        identity = str(item.row["identity_group"])
+        if identity in selected_identities:
+            continue
+        selected.append(item)
+        selected_identities.add(identity)
+        if len(selected) == int(limit):
+            break
     if len(selected) != int(limit):
-        raise ValueError("Overfit smoke could not select the requested train rows")
-    identities = [str(item.row["identity_group"]) for item in selected]
-    if len(set(identities)) != len(identities):
-        raise ValueError("Overfit smoke rows must use distinct identities")
+        raise ValueError(
+            "Overfit smoke could not select the requested distinct identities"
+        )
     return selected
 
 

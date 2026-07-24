@@ -331,7 +331,8 @@ class TrainDinov2FaceSpatialDecoderTests(unittest.TestCase):
     def test_overfit_selection_prioritizes_small_faces_and_identities(self):
         items = [
             _Item("large", "id-large", 220),
-            _Item("small-b", "id-b", 75),
+            _Item("small-a-second-pose", "id-a", 75),
+            _Item("small-b", "id-b", 76),
             _Item("small-a", "id-a", 74),
             _Item("validation", "id-validation", 70, "validation"),
         ]
@@ -341,7 +342,7 @@ class TrainDinov2FaceSpatialDecoderTests(unittest.TestCase):
             ["small-a", "small-b"],
         )
         duplicate = [_Item("a", "same", 74), _Item("b", "same", 75)]
-        with self.assertRaisesRegex(ValueError, "distinct identities"):
+        with self.assertRaisesRegex(ValueError, "requested distinct identities"):
             _select_overfit_items(duplicate, 2)
 
     def test_overfit_gate_fails_closed_without_a_trained_epoch(self):
