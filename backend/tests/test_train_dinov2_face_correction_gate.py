@@ -1,5 +1,6 @@
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -185,6 +186,83 @@ class TrainDinov2FaceCorrectionGateTests(unittest.TestCase):
             maximum_ratio=0.97,
         )
         self.assertFalse(held["passed"])
+
+    def test_production_conditioning_ignores_training_only_tensors(self):
+        import torch
+
+        tensors = {
+            "inputs": torch.randn((1, 7, 8, 8)),
+            "baseline": torch.randn((1, 1, 8, 8)),
+            "support_face": torch.ones((1, 1, 8, 8)),
+            "fusion_weight": torch.ones((1, 1, 8, 8)),
+            "target": torch.zeros((1, 1, 8, 8)),
+            "part_masks": torch.zeros((1, 6, 8, 8)),
+        }
+        first = gate.production_conditioning(tensors)
+        tensors["target"].fill_(1000.0)
+        tensors["part_masks"].fill_(1.0)
+        second = gate.production_conditioning(tensors)
+        torch.testing.assert_close(first, second)
+
+    def test_validation_is_invariant_to_requested_batch_size(self):
+        import torch
+
+        class Model:
+            @staticmethod
+            def eval():
+                return None
+
+        items = [SimpleNamespace(row={"row_id": str(index)}) for index in range(3)]
+        tensors = {
+            "marker": torch.tensor([1.0, 2.0, 6.0]).reshape(3, 1, 1, 1),
+        }
+
+        def fake_loss(_model, _features, _conditioning, _residual, values, **_):
+            value = float(values["marker"].item())
+            return torch.tensor(value), {"metric": value * 2.0}
+
+        with (
+            patch.object(gate, "_prepare_tensors", return_value=(tensors, {})),
+            patch.object(
+                gate,
+                "_residual_tensor",
+                return_value=torch.zeros((3, 1, 1, 1)),
+            ),
+            patch.object(
+                gate.base,
+                "_features_for",
+                return_value=torch.zeros((1, 1, 1, 1)),
+            ),
+            patch.object(
+                gate,
+                "production_conditioning",
+                return_value=torch.zeros((1, 1, 1, 1)),
+            ),
+            patch.object(gate, "_gate_loss", side_effect=fake_loss),
+        ):
+            one = gate._validation_loss(
+                Model(),
+                items,
+                {},
+                {},
+                device="cpu",
+                batch_size=1,
+                loss_options={},
+                curriculum_options={},
+            )
+            many = gate._validation_loss(
+                Model(),
+                items,
+                {},
+                {},
+                device="cpu",
+                batch_size=8,
+                loss_options={},
+                curriculum_options={},
+            )
+        self.assertEqual(one, many)
+        self.assertAlmostEqual(one[0], 3.0)
+        self.assertAlmostEqual(one[1]["metric"], 6.0)
 
 
 if __name__ == "__main__":

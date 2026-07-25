@@ -145,8 +145,10 @@ Peak training VRAM was 0.2591 GiB and process peak RSS was 5.1013 GiB.
 - `advance_to_30mm_physical_replay=false`
 - `production_changed=false`
 
-The selective-gate formulation is closed. It is not a substitute for better
-upstream geometry.
+This selective-gate configuration and training lane are closed. The result
+does not rule out every possible selective-prediction method, but more
+threshold tuning of this trained gate is not justified and it is not a
+substitute for better upstream geometry.
 
 [FNR2R](https://github.com/AutoHDR/FNR2R), introduced in
 [Face Normal Estimation from Rags to Riches](https://arxiv.org/abs/2601.01950),
@@ -165,7 +167,17 @@ already authenticated and tested in the earlier raw-EXR adapter study. That
 120-row residual U-Net improved its synthetic validation and sealed splits but
 regressed all three aggregate metrics on the exact production photos, so it
 remains closed and will not be repeated. C3I can serve only as an
-out-of-domain diagnostic for the new architecture.
+out-of-domain diagnostic for the new architecture. The exact prior hashes and
+metrics are recorded in
+`docs/benchmark-evidence/c3i_synface_raw_face_training_20260718`.
+
+An adversarial audit after this run found that validation loss aggregation was
+batch-composition dependent and that two execution-critical adapter modules
+were absent from the run's code hash list. The raw evidence and compact metric
+transcription were independently rechecked and still support the hold. Future
+runs now evaluate validation losses per row and hash/status-check every
+execution-critical trainer and evaluation module; this closed historical run
+was not replayed merely to rewrite provenance.
 
 Focused gate and decoder validation passed 28 tests. Compact values are in
 `results.json`; full tensors, checkpoints, and raw regression events remain in

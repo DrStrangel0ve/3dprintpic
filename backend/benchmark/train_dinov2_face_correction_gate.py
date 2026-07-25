@@ -63,17 +63,24 @@ RESEARCH_SOURCES = {
         "Depth_Estimation_ICCV_2021_paper.html"
     ),
 }
+EXECUTION_CRITICAL_PATHS = (
+    "backend/benchmark/train_dinov2_face_correction_gate.py",
+    "backend/benchmark/train_dinov2_face_spatial_decoder.py",
+    "backend/benchmark/train_face_surface_adapter.py",
+    "backend/benchmark/train_face_surface_fusion_adapter.py",
+    "backend/benchmark/train_gnm_production_face_depth_fusion.py",
+)
 
 
 def _code_provenance() -> dict:
     provenance = base._code_provenance()
     repo = Path(__file__).resolve().parents[2]
-    relative = "backend/benchmark/train_dinov2_face_correction_gate.py"
-    path = repo / relative
-    provenance["files"][relative] = {
-        "sha256": base._file_sha256(path),
-        "size_bytes": path.stat().st_size,
-    }
+    for relative in EXECUTION_CRITICAL_PATHS:
+        path = repo / relative
+        provenance["files"][relative] = {
+            "sha256": base._file_sha256(path),
+            "size_bytes": path.stat().st_size,
+        }
     safe_directory = f"safe.directory={repo.as_posix()}"
     try:
         status = subprocess.run(
@@ -84,8 +91,7 @@ def _code_provenance() -> dict:
                 "status",
                 "--porcelain",
                 "--",
-                relative,
-                *base.OWNED_PROVENANCE_PATHS,
+                *EXECUTION_CRITICAL_PATHS,
             ),
             cwd=repo,
             check=True,
@@ -96,6 +102,20 @@ def _code_provenance() -> dict:
         status = ["git-status-unavailable"]
     provenance["owned_git_status"] = status
     return provenance
+
+
+def production_conditioning(tensors: dict):
+    """Build inference conditioning from an explicit production-only view."""
+
+    required = ("inputs", "baseline", "support_face", "fusion_weight")
+    missing = [name for name in required if name not in tensors]
+    if missing:
+        raise ValueError(
+            "Missing production conditioning tensors: " + ", ".join(missing)
+        )
+    return base.conditioning_from_tensors(
+        {name: tensors[name] for name in required}
+    )
 
 
 def _finite_gradients(values):
@@ -461,22 +481,25 @@ def _validation_loss(
 ):
     import torch
 
+    if int(batch_size) <= 0:
+        raise ValueError("Validation batch size must be positive")
     tensors, _stats = _prepare_tensors(items, **curriculum_options)
     residuals = _residual_tensor(items, residuals_by_id)
     totals = []
     details = []
     model.eval()
     with torch.inference_mode():
-        for start in range(0, len(items), max(1, int(batch_size))):
-            stop = min(start + max(1, int(batch_size)), len(items))
-            indices = list(range(start, stop))
+        # Per-row normalization makes selection invariant to batch composition.
+        for start in range(len(items)):
+            stop = start + 1
+            indices = [start]
             values = _values_to_device(tensors, indices, device)
             features = base._features_for(
                 items[start:stop],
                 features_by_id,
                 encoder_profile=BASE_ENCODER_PROFILE,
             ).to(device)
-            conditioning = base.conditioning_from_tensors(values)
+            conditioning = production_conditioning(values)
             total, current = _gate_loss(
                 model,
                 features,
@@ -485,18 +508,13 @@ def _validation_loss(
                 values,
                 **loss_options,
             )
-            weight = stop - start
-            totals.append((weight, float(total)))
-            details.append((weight, current))
-    count = sum(weight for weight, _record in details)
+            totals.append(float(total))
+            details.append(current)
     aggregate = {
-        key: sum(weight * record[key] for weight, record in details) / count
-        for key in details[0][1]
+        key: float(np.mean([record[key] for record in details]))
+        for key in details[0]
     }
-    return (
-        sum(weight * value for weight, value in totals) / count,
-        aggregate,
-    )
+    return float(np.mean(totals)), aggregate
 
 
 def train_gate(
@@ -527,7 +545,7 @@ def train_gate(
     _validation_tensors, validation_weight_stats = _prepare_tensors(
         validation_items, **curriculum_options
     )
-    train_conditioning = base.conditioning_from_tensors(train_tensors)
+    train_conditioning = production_conditioning(train_tensors)
     train_residuals = _residual_tensor(train_items, residuals_by_id)
     model = build_correction_gate().to(device)
     optimizer = torch.optim.AdamW(
@@ -646,7 +664,7 @@ def predict_gated_residuals(
         yaw_sample_weight_strength=0.0,
         maximum_combined_sample_weight=4.0,
     )
-    conditioning = base.conditioning_from_tensors(tensors)
+    conditioning = production_conditioning(tensors)
     residuals = _residual_tensor(items, residuals_by_id)
     output = []
     coverages = []

@@ -33,6 +33,7 @@
       "license": "CC BY 4.0",
       "archive_verified": true,
       "adapter_closed": true,
+      "evidence_path": "docs/benchmark-evidence/c3i_synface_raw_face_training_20260718",
       "next_use": "out-of-domain diagnostic only"
     }
   },
@@ -151,7 +152,19 @@
     "advance_to_exact_photo": false,
     "advance_to_30mm_physical_replay": false,
     "production_changed": false,
-    "gate_formulation_closed": true
+    "gate_configuration_and_training_lane_closed": true
+  },
+  "post_run_audit": {
+    "raw_metric_transcription_reverified": true,
+    "hold_decision_unchanged": true,
+    "historical_limitations": [
+      "validation loss aggregation depended on batch composition",
+      "two execution-critical adapter modules were absent from the run code hash list"
+    ],
+    "future_run_hardening": [
+      "per-row validation loss aggregation",
+      "complete execution-critical code hashing and dirty-state checks"
+    ]
   },
   "validation": {
     "focused_tests_passed": 28
