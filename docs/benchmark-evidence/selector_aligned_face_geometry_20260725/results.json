@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "status": "hold",
+  "production_changed": false,
+  "implementation_commit": "6970cf2cd3cba367f4b4c693bda800d4294153d9",
+  "method": "dinov2_pyramid448_coarse_to_fine_normal_selector_aligned_face_geometry",
+  "source_geometry_training_and_evaluation_only": true,
+  "capacity_smokes": [
+    {
+      "selector_mean_non_regression_weight": 4.0,
+      "selector_worst_non_regression_weight": 8.0,
+      "rows": 2,
+      "initial_loss": 0.3563183546066284,
+      "best_loss": 0.35609927773475647,
+      "best_initial_ratio": 0.9993851653471126,
+      "maximum_ratio": 0.97,
+      "passed": false,
+      "best_epoch": 27,
+      "runtime_seconds": 22.36726540000018,
+      "peak_vram_gib": 0.2733449935913086,
+      "checkpoint": {
+        "bytes": 2258401,
+        "sha256": "a75a17276e17bbc8ad35d611c374e4b94e6e11adeae6939a760015b663b09acd"
+      },
+      "evidence": {
+        "bytes": 84652,
+        "sha256": "52d485bbd849f10304644a63f365934a5ff0d563287212630fadb71e7a6ad55d"
+      }
+    },
+    {
+      "selector_mean_non_regression_weight": 0.25,
+      "selector_worst_non_regression_weight": 0.5,
+      "rows": 2,
+      "initial_loss": 0.3563183546066284,
+      "best_loss": 0.32724593579769135,
+      "best_initial_ratio": 0.918408865462368,
+      "maximum_ratio": 0.97,
+      "passed": true,
+      "best_epoch": 32,
+      "runtime_seconds": 23.265950100001646,
+      "peak_vram_gib": 0.2733449935913086,
+      "checkpoint": {
+        "bytes": 2258465,
+        "sha256": "e1372cee7e2517323b00ffe3a3b287c8f09bce9b038b869675ce51fb365fb742"
+      },
+      "evidence": {
+        "bytes": 84695,
+        "sha256": "9508e8a4785ab1ce9f7522d6adec6fd0a2e2f6e455c3bbd0d559f9ef2b077b3d"
+      }
+    }
+  ],
+  "split": {
+    "selector_mean_non_regression_weight": 0.25,
+    "selector_worst_non_regression_weight": 0.5,
+    "counts": {
+      "train": 191,
+      "validation": 32,
+      "sealed": 32
+    },
+    "initial_validation_loss": 0.3114751046523452,
+    "best_validation_loss": 0.2624169643968344,
+    "best_epoch": 13,
+    "runtime_seconds": 575.8094402999996,
+    "peak_vram_gib": 0.5288000106811523,
+    "process_peak_rss_gib": 4.0969085693359375,
+    "baseline": {
+      "part_failures": 353,
+      "median_shape_correlation": 0.8204019550113084,
+      "median_gradient_correlation": 0.3994444233089299,
+      "median_normalized_rmse": 0.1862674050402449
+    },
+    "candidates": [
+      {"alpha": 0.05, "part_failures": 353, "shape": 0.8204279531316971, "gradient": 0.3994698073470321, "rmse": 0.18626006619369648, "whole_regressions": 0, "part_regressions": 208},
+      {"alpha": 0.1, "part_failures": 353, "shape": 0.8204539123621954, "gradient": 0.399495027338692, "rmse": 0.18625273723094649, "whole_regressions": 0, "part_regressions": 209},
+      {"alpha": 0.2, "part_failures": 353, "shape": 0.8205057165321785, "gradient": 0.39954499582848935, "rmse": 0.18623810766673302, "whole_regressions": 0, "part_regressions": 210},
+      {"alpha": 0.35, "part_failures": 353, "shape": 0.8205831345715007, "gradient": 0.399618761947543, "rmse": 0.18621623624243683, "whole_regressions": 0, "part_regressions": 214},
+      {"alpha": 0.5, "part_failures": 353, "shape": 0.820660215389658, "gradient": 0.39969109942282577, "rmse": 0.186194451422998, "whole_regressions": 0, "part_regressions": 209},
+      {"alpha": 0.75, "part_failures": 353, "shape": 0.8207887524661439, "gradient": 0.3998084278219054, "rmse": 0.18615816789480444, "whole_regressions": 1, "part_regressions": 202},
+      {"alpha": 1.0, "part_failures": 352, "shape": 0.8209181525223677, "gradient": 0.39992119374591595, "rmse": 0.18612174636964157, "whole_regressions": 1, "part_regressions": 205}
+    ],
+    "checkpoint": {
+      "bytes": 2258401,
+      "sha256": "574281adbff494e5e737886a081b472e85d22b99fd0a8f4a15eb424ec656ed69"
+    },
+    "evidence": {
+      "bytes": 14310921,
+      "sha256": "a4a0f21f1dc7cc95a8f006d97f98d59777541591b616fa86620bee1df9eb1f09"
+    }
+  },
+  "comparison_to_unaligned_loss": {
+    "best_strict_named_part_regressions_before": 237,
+    "best_strict_named_part_regressions_after": 202,
+    "baseline_part_failures": 353,
+    "unaligned_full_strength_part_failures": 316,
+    "selector_aligned_full_strength_part_failures": 352
+  },
+  "decision": {
+    "validation_strictly_improves": false,
+    "sealed_opened": false,
+    "sealed_strictly_improves": false,
+    "advance_to_exact_photo": false,
+    "advance_to_30mm_physical_replay": false
+  }
+}
