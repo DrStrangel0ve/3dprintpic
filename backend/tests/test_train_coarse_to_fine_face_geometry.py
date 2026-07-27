@@ -69,6 +69,16 @@ class TrainCoarseToFineFaceGeometryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "160x160"):
             model(features, conditioning, support)
 
+    def test_cache_resolution_fails_before_model_loading(self):
+        trainer.validate_cache_resolution({"network_size": 160})
+        with self.assertRaisesRegex(
+            ValueError,
+            "requires network_size 160, observed 384",
+        ):
+            trainer.validate_cache_resolution({"network_size": 384})
+        with self.assertRaisesRegex(ValueError, "observed None"):
+            trainer.validate_cache_resolution({})
+
     def test_production_inputs_exclude_training_geometry(self):
         self.assertNotIn(
             "exact_camera_aligned_face_depth", trainer.PRODUCTION_INPUTS

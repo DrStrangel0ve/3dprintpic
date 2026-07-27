@@ -36,6 +36,7 @@ ENCODER_PROFILE = "pyramid-448"
 CHECKPOINT_SCHEMA_VERSION = 1
 EVIDENCE_SCHEMA_VERSION = 1
 COARSE_SIZE = 40
+CONDITIONING_SIZE = 160
 COARSE_RESIDUAL_LIMIT = 0.25
 FINE_RESIDUAL_LIMIT = 0.12
 TOTAL_RESIDUAL_LIMIT = base.MAXIMUM_NORMALIZED_RESIDUAL
@@ -206,8 +207,14 @@ def build_geometry_decoder():
                 != (features.shape[0], 1, *conditioning.shape[-2:])
             ):
                 raise ValueError("Coarse-to-fine decoder inputs disagree")
-            if conditioning.shape[-2:] != (160, 160):
-                raise ValueError("Coarse-to-fine decoder requires 160x160 crops")
+            if conditioning.shape[-2:] != (
+                CONDITIONING_SIZE,
+                CONDITIONING_SIZE,
+            ):
+                raise ValueError(
+                    "Coarse-to-fine decoder requires "
+                    f"{CONDITIONING_SIZE}x{CONDITIONING_SIZE} crops"
+                )
             if not all(
                 torch.isfinite(value).all()
                 for value in (features, conditioning, support)
@@ -715,6 +722,17 @@ def _identity_disjoint_splits(items):
     return by_split
 
 
+def validate_cache_resolution(cache_binding: dict) -> None:
+    """Reject incompatible production caches before loading model weights."""
+
+    observed = cache_binding.get("network_size")
+    if observed != CONDITIONING_SIZE:
+        raise ValueError(
+            "Coarse-to-fine production cache requires network_size "
+            f"{CONDITIONING_SIZE}, observed {observed}"
+        )
+
+
 def _select_candidate(candidates: Sequence[dict], baseline: dict):
     selected, resolved = base._select_validation_candidate(candidates, baseline)
     return selected, resolved
@@ -735,6 +753,7 @@ def run_experiment(args: argparse.Namespace) -> dict:
         expected_corpus_summary_sha256=args.expected_corpus_summary_sha256,
         expected_ordered_row_content_sha256=args.expected_cache_row_sha256,
     )
+    validate_cache_resolution(cache_binding)
     all_items, summary, cache_manifest = load_cached_surfaces(
         corpus_root, cache_root
     )

@@ -418,6 +418,7 @@ def validate_cache_binding(
     return {
         "schema_version": manifest["schema_version"],
         "method": manifest["method"],
+        "network_size": manifest.get("network_size"),
         "manifest_sha256": _file_sha256(manifest_path),
         "summary_sha256": _file_sha256(summary_path),
         "expected_summary_sha256": expected_summary_hash,
