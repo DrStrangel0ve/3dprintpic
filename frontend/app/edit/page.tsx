@@ -7,6 +7,8 @@ import { Loader, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import DepthDataPlot from '@/components/edit/DepthDataPlot';
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8004';
+
 const EditPage: React.FC = () => {
   const [input, setInput] = useState<string>('');
   const [data, setData] = useState<number[][]>([]);
@@ -19,7 +21,8 @@ const EditPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetch('http://localhost:8004/depth_data_downsampled/output_depth_data.npy');
+        const depthDataPath = localStorage.getItem('lastDepthDataPath') || 'output_depth_data.npy';
+        const response = await fetch(`${BACKEND_URL}/depth_data_downsampled/${encodeURI(depthDataPath)}`);
         if (!response.ok) {
           throw new Error(`Failed to fetch depth data: ${response.status} ${response.statusText}`);
         }
@@ -119,7 +122,7 @@ const EditPage: React.FC = () => {
             
             {appliedModifications && (
               <div className="bg-[#80e0b8] text-white px-4 py-3 rounded-lg mb-6" role="alert">
-                <strong className="font-bold">Applied Modifications ✓</strong>
+                <strong className="font-bold">Applied Modifications</strong>
               </div>
             )}
           </CardContent>

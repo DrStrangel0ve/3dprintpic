@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "run_id": "gnm_head_face_corpus_smoke_n8",
+  "status": "advance-to-bounded-corpus-calibration",
+  "privacy": "scan-derived parametric GNM samples and deterministic procedural scenes only; no generated face artifacts published",
+  "source_geometry_training_and_evaluation_only": true,
+  "provider": {
+    "name": "google-gnm-head-v3",
+    "repository": "https://github.com/google/GNM",
+    "revision": "9c9419f191edd68644ef5cb6572e238248e9a81c",
+    "license": "Apache-2.0",
+    "tracked_source_clean": true,
+    "model": {
+      "size_bytes": 53305389,
+      "sha256": "e50a702789af51347531e13721df1e5a26dcfc30ced9e243c7cede9fcac5db43",
+      "vertices": 17821,
+      "triangles": 35324,
+      "identity_dimensions": 253,
+      "expression_dimensions": 383,
+      "landmarks": 68
+    },
+    "identity_decoder": {
+      "size_bytes": 1258864,
+      "sha256": "1f069bf4975620e25a053772719a35678c9cfe6121e58bc4276a3515b53ac142"
+    },
+    "expression_decoder": {
+      "size_bytes": 1529040,
+      "sha256": "5eba165f8a414f73b24be96963d0a17e708c0856739ed85a19031f318dfb51e6"
+    }
+  },
+  "matrix": {
+    "rows": 1600,
+    "split_counts": {
+      "train": 960,
+      "validation": 320,
+      "sealed": 320
+    },
+    "identities": 40,
+    "expressions": 8,
+    "scene_conditions": 5,
+    "small_turned_ratio": 0.6,
+    "eye_band_occlusion_rows": 640,
+    "target_dimensions": [
+      256,
+      384
+    ],
+    "background_profiles": [
+      "deep_shelves",
+      "layered_studio",
+      "structured_room"
+    ],
+    "lighting_profiles": [
+      "overhead",
+      "side_right",
+      "soft_left"
+    ]
+  },
+  "render_smoke": {
+    "rows": 8,
+    "runtime_seconds": 32.99504319999687,
+    "summary_sha256": "ad150754a3311a32b2198e3402dd2bc0522714a6911a6c4b9f10e1f8d934df6b",
+    "face_bbox_height_pixels": {
+      "minimum": 70,
+      "median": 78.5,
+      "maximum": 237
+    },
+    "minimum_named_part_pixels": 25,
+    "all_named_parts_nonempty": true,
+    "all_source_meshes_zero_degenerates": true
+  },
+  "production_cache_smoke": {
+    "rows": 8,
+    "runtime_seconds": 2.785436699996353,
+    "peak_vram_gib": 1.136434555053711,
+    "manifest_sha256": "96eb7f9706c54bfccf9bc852d1c7ccf4bbb9f3b608b403956972c36eb37c7a46",
+    "minimum_resized_face_pixels": 5669,
+    "minimum_resized_named_part_pixels": 63,
+    "all_baseline_and_target_values_finite": true
+  },
+  "research_closures": {
+    "zipdepth_decoder_finetune": {
+      "validation_baseline_failures": 265,
+      "validation_candidate_failures": 266,
+      "sealed_baseline_failures": 298,
+      "sealed_candidate_failures": 299,
+      "status": "hold"
+    },
+    "zipdepth_exact_target_through_existing_fusion": {
+      "validation_baseline_failures": 265,
+      "validation_oracle_failures": 262,
+      "validation_per_row_non_regression_ratio": 0.925,
+      "sealed_baseline_failures": 298,
+      "sealed_oracle_failures": 296,
+      "sealed_per_row_non_regression_ratio": 0.925,
+      "status": "hold"
+    },
+    "fastavatar_native_gsplat": {
+      "baseline_failures": 7,
+      "candidate_failures": 7,
+      "eligible_gaussians": 5867,
+      "visible_gaussians": 5867,
+      "status": "hold"
+    }
+  },
+  "decision": {
+    "production_algorithm_changed": false,
+    "advance_to_80_row_corpus_cache_calibration": true,
+    "preserve_30mm_face_and_background_gates": true
+  }
+}

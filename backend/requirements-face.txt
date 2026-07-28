@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# Optional landmark-quality face masks. The pipeline falls back to OpenCV's
+# bundled frontal-face detector when this extra is not installed.
+mediapipe==0.10.35

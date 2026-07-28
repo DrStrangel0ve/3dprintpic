@@ -1,0 +1,14 @@
+{
+  "archive": "/content/modelnet10_heldout10_hunyuan3d_2mv_vs_triposg_octants8_colab_inputs.tar.gz",
+  "archive_sha256": "5a86953669f72f1f2e544706603bed3e487761da01c8e957d8b0f13b774cf9b6",
+  "extract_root": "/content/3dprintpic_colab_inputs/modelnet10_heldout10_hunyuan3d_2mv_vs_triposg_octants8",
+  "gpu_preflight": "/content/3dprintpic_colab_inputs/modelnet10_heldout10_hunyuan3d_2mv_vs_triposg_octants8/gpu_preflight.json",
+  "hunyuan3d_2mv_provider_preflight": "/content/3dprintpic_colab_inputs/modelnet10_heldout10_hunyuan3d_2mv_vs_triposg_octants8/hunyuan3d_2mv_provider_preflight.json",
+  "manifest": "/content/3dprintpic_colab_inputs/modelnet10_heldout10_hunyuan3d_2mv_vs_triposg_octants8/inputs/manifest.jsonl",
+  "manifest_rows": 10,
+  "repo_dir": "/content/3dprintpic",
+  "repo_ref": "8de0bc749da24ec3b2c018ff6b37d391bbc763b1",
+  "repo_remote": "https://github.com/DrStrangel0ve/3dprintpic.git",
+  "resolved_commit": "8de0bc749da24ec3b2c018ff6b37d391bbc763b1",
+  "trellis2_provider_preflight": "/content/3dprintpic_colab_inputs/modelnet10_heldout10_hunyuan3d_2mv_vs_triposg_octants8/trellis2_provider_preflight.json"
+}

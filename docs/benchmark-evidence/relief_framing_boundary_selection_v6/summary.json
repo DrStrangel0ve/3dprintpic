@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "run": "relief_framing_boundary_selection_v6",
+  "date": "2026-07-15",
+  "privacy": "analytic matrix inputs and aggregate-only exact-input telemetry; private images, masks, depth arrays, responses, previews, and meshes are excluded",
+  "implementation_provenance": {
+    "revision": "1a3cfc9efd8649e460c4aeba1a93f46fa2214297",
+    "clean_worktree": true
+  },
+  "settings": {
+    "relief_height_mm": 30.0,
+    "footprint_max_dimension_mm": 128.0,
+    "target_dimension": 512,
+    "selection_background_depth_ratio": 0.65,
+    "maximum_relief_slope_mm_per_mm": 2.0,
+    "changed_edge_p99_ratio_limit": 12.0,
+    "changed_edge_max_ratio_limit": 24.0,
+    "absolute_boundary_p99_limit_mm": 3.2,
+    "absolute_boundary_max_limit_mm": 4.0
+  },
+  "privacy_safe_framing_matrix": {
+    "rows": 10,
+    "summary_bytes": 46897,
+    "summary_sha256": "4e360cbac9cc4b846941f8096c31e924e93ff81f4ef8ecf04536f8ba7cd779f0",
+    "passed": true,
+    "frame_touching_faces": 3,
+    "minimum_face_correlation": 0.8690901905954944,
+    "minimum_face_rms_retention": 1.0034095124184108,
+    "minimum_background_correlation": 0.9999999999999998,
+    "minimum_background_gradient_correlation": 0.9999999999999998,
+    "maximum_boundary_p99_to_limit_ratio": 0.7294716969132362,
+    "maximum_boundary_max_to_limit_ratio": 0.47396495938301086,
+    "maximum_feasible_attachment_jump_mm": 0.8000001907348633,
+    "total_reported_attachment_conflicts": 9,
+    "all_meshes_printable": true
+  },
+  "privacy_safe_height_topology_matrix": {
+    "rows": 12,
+    "relief_heights_mm": [20.0, 30.0, 40.0],
+    "summary_bytes": 703939,
+    "summary_sha256": "bbef5d794cb90f81f4558504cd84ffe2cf63c4f6249ba143d08cf79879545906",
+    "passed": true,
+    "minimum_face_lighting_correlation": 0.9896424693042117,
+    "minimum_selection_lighting_correlation": 0.9228346620782508,
+    "minimum_background_depth_correlation": 0.9999674118020849,
+    "maximum_selection_solver_edge_p99_ratio": 1.485134079861894,
+    "maximum_selection_solver_edge_ratio": 2.1609318256378174,
+    "maximum_selection_solver_diagonal_edge_ratio": 2.2786811658590684,
+    "all_meshes_printable": true
+  },
+  "exact_portrait_cached_depth": {
+    "paired_input_contract": "same locally cached full-scene depth, refined face depth, selection mask, and selected appearance as the prior clean API replay",
+    "face_detail_correlations": [0.9523675690674973, 0.9712496321702117],
+    "face_detail_rms_retentions": [0.9499151209832561, 0.9735427357700469],
+    "minimum_face_lighting_correlations": [0.8667780188029515, 0.9665063620801306],
+    "background_centered_rms_mm": 6.815791443069042,
+    "background_p02_p98_span_mm": 19.499828884080053,
+    "background_correlation": 0.999994484173526,
+    "background_gradient_correlation": 0.9992530539307487,
+    "boundary_jump_p99_mm": 0.9556949996948242,
+    "boundary_jump_max_mm": 1.4087228775024414,
+    "far_background_max_mm": 19.510000228881836,
+    "feasible_attachment_jump_max_mm": 0.8000001907348633,
+    "reported_attachment_conflicts": 13,
+    "topology": {
+      "component_count": 1,
+      "watertight": true,
+      "manifold": true,
+      "winding_consistent": true,
+      "positive_volume": true,
+      "degenerate_faces": 0
+    }
+  },
+  "exact_llama_cached_depth": {
+    "paired_input_contract": "same locally cached full-scene depth context, selection mask, selected appearance, framing, and print settings; only the selected-surface acceptance path changes",
+    "rejected_legacy_fallback": {
+      "minimum_selection_lighting_correlation": 0.12005813083027023,
+      "selection_normal_mean_cosine": 0.6124300061967007,
+      "selection_normal_angle_p95_deg": 80.79277396598549,
+      "background_centered_rms_mm": 7.587808805222444,
+      "background_p02_p98_span_mm": 19.500000229105353
+    },
+    "audited_candidate": {
+      "pre_blend_failures": ["cardinal_edge_max"],
+      "finite_mask_match": true,
+      "changed_edge_p99_ratio": 1.5527914668408347,
+      "changed_edge_max_ratio": 4.90574836730957,
+      "changed_edge_excess_p99_ratio": 1.1222548127174359,
+      "changed_edge_excess_max_ratio": 4.90574836730957,
+      "cardinal_direction_reversals": 2,
+      "cardinal_direction_reversal_max_physical_ratio": 1.9502592086791992,
+      "diagonal_direction_reversals": 1,
+      "diagonal_direction_reversal_max_physical_ratio": 1.0442505491931955,
+      "total_direction_reversals": 3,
+      "minimum_direction_reversal_support_edges": 4,
+      "maximum_sparse_direction_reversal_physical_ratio": 4.0,
+      "minimum_selection_lighting_correlation": 0.9507278801210932,
+      "minimum_component_lighting_correlation": 0.8848013028946322,
+      "selection_normal_mean_cosine": 0.9953139701910165,
+      "selection_normal_angle_p95_deg": 10.726589677228606,
+      "component_shape_correlations": [0.9149246542229175, 0.9762478914491244, 0.9588500217818154, 0.9430175576361858],
+      "component_rms_retentions": [0.7562949676779744, 0.9453686810867891, 0.8974911519211495, 0.8072128462032326],
+      "background_centered_rms_mm": 7.859692007692466,
+      "background_p02_p98_span_mm": 22.0332800325565,
+      "background_correlation": 0.9999212590143631,
+      "background_gradient_correlation": 0.9889758438301278,
+      "boundary_jump_p99_mm": 1.5468732833862202,
+      "boundary_jump_max_mm": 2.121723175048828,
+      "far_background_max_mm": 19.510000228881836,
+      "feasible_attachment_jump_max_mm": 0.8000001907348633,
+      "reported_attachment_conflicts": 41,
+      "topology": {
+        "component_count": 1,
+        "watertight": true,
+        "manifold": true,
+        "winding_consistent": true,
+        "positive_volume": true,
+        "degenerate_faces": 0
+      }
+    }
+  },
+  "legacy_flat_mode_equivalence": {
+    "selection_background_depth_ratio": 0.0,
+    "emitted_surface_sha256": "c73753ec25686b9e64278b001c760cfb5a52eb0508dda1b75058f147a71a4abd",
+    "loaded_stl_triangle_vectors_sha256": "4a0ef8e46b1a4b56e521e815eba8de8bb946991d646f8d068efd70ae9ad0e4b3",
+    "maximum_triangle_vector_difference": 0.0
+  },
+  "validation": {
+    "focused_tests_passed": 85,
+    "focused_subtests_passed": 4,
+    "backend_tests_passed": 497,
+    "backend_subtests_passed": 48,
+    "backend_warnings": 2
+  },
+  "decision": {
+    "status": "accepted",
+    "reason": "The bounded selected-surface audit recovers the measured llama appearance failure while exact finite coverage, changed-edge excess, supported and sparse direction reversals, detail, height-span, correction-span, background, physical-emission, and printability gates pass; the exact portrait and privacy-safe matrices do not regress.",
+    "strict_attachment_policy": "Mutually incompatible one-pixel constraints remain counted explicitly and are not labeled strict successes."
+  }
+}

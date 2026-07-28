@@ -1,0 +1,324 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-10T17:06:08Z",
+  "objective": "Compare pinned Pixal3D against the pinned TripoSG incumbent and depth-relief baselines on the same five held-out ModelNet renders, ranking final STL quality rather than preview quality.",
+  "final_run": {
+    "name": "g4_stl_first_pixal3d_vs_triposg_s40_n5_r5",
+    "repo_commit": "a19def7069004355d58803b7a2c50941f2e1285e",
+    "package_bytes": 645123,
+    "package_sha256": "68215a938d9ee871d1da398c7c8049e83e996497a4a27930d4b13ca5b6978c93",
+    "launcher_sha256": "b4073f937beb4f9fca43d056b9fa6c5f6932db6ffa0f51263e1f90d3158edfe5",
+    "result_archive": "/content/g4_stl_first_pixal3d_vs_triposg_s40_n5_r5_results.tar.gz",
+    "result_archive_bytes": 655742061,
+    "result_archive_sha256": "c75c59822fbcecce3224e20420d1ef655f917bf6457f52e311d80d4e59512e09",
+    "run_status": 0,
+    "decision": "hold"
+  },
+  "input": {
+    "manifest": "backend/output/completion-benchmark/modelnet10_60_balanced_s256_seed4040/manifest.jsonl",
+    "manifest_sha256": "c3b80165e372d06c33bf755dcaa5024f7ba57f21aa3b12a33986887c673e6726",
+    "source_start_index": 40,
+    "packaged_eval_start": 0,
+    "sample_count": 5,
+    "score_profile": "stl-quality",
+    "stl_target_dimension": 96,
+    "assets": [
+      {
+        "sample_id": "mesh_dir_757e06b221_v00",
+        "asset_id": "table_0247",
+        "asset_key": "table/train/table_0247.off"
+      },
+      {
+        "sample_id": "mesh_dir_9f32f114c4_v00",
+        "asset_id": "night_stand_0103",
+        "asset_key": "night_stand/train/night_stand_0103.off"
+      },
+      {
+        "sample_id": "mesh_dir_1a200d8288_v00",
+        "asset_id": "toilet_0356",
+        "asset_key": "toilet/test/toilet_0356.off"
+      },
+      {
+        "sample_id": "mesh_dir_92752051d0_v00",
+        "asset_id": "dresser_0155",
+        "asset_key": "dresser/train/dresser_0155.off"
+      },
+      {
+        "sample_id": "mesh_dir_49534574e1_v00",
+        "asset_id": "desk_0178",
+        "asset_key": "desk/train/desk_0178.off"
+      }
+    ]
+  },
+  "compute": {
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "gpu_memory_gb": 95.5927734375,
+    "torch": "2.11.0+cu128",
+    "python": "3.12.13",
+    "cuda_capability": "12.0"
+  },
+  "reproducibility": {
+    "pixal3d_source_commit": "cdbb2bbffbf4e6f298b5f2af3d1d76a8d823d2af",
+    "triposg_source_commit": "fc5c40990181e2a756c4e0b1c2f4d6b5202faf8c",
+    "pixal3d_seed": 42,
+    "triposg_seed": 42,
+    "provider_mesh_caches": {
+      "pixal3d": "/content/pixal3d-provider-cache",
+      "triposg": "/content/triposg-provider-cache"
+    },
+    "model_snapshots": {
+      "TencentARC/Pixal3D": "0b31f9160aa400719af409098bff7936a932f726",
+      "Ruicheng/moge-2-vitl": "39c4d5e957afe587e04eec59dc2bcc3be5ecd968",
+      "camenduru/dinov3-vitl16-pretrain-lvd1689m": "3c276edd87d6f6e569ff0c4400e086807d0f3881",
+      "ZhengPeng7/BiRefNet": "e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4",
+      "VAST-AI/TripoSG": "2c1c516d22d58db486a058d98d31bb6177344e06",
+      "briaai/RMBG-1.4": "2ceba5a5efaec153162aedea169f76caf9b46cf8"
+    }
+  },
+  "iterations": [
+    {
+      "run": "r1",
+      "repo_commit": "6b4b6ef",
+      "package_bytes": 649705,
+      "package_sha256": "de7a7c5cd2a754b372a471ad05a01ffe5e71a828797f4c081daa1f327ee53d54",
+      "result_archive_bytes": 653090830,
+      "result_archive_sha256": "c2bb2611157e9583373c2aaab7f6e3fb4d214d8d1fcd9ef25bdba7bf794a0905",
+      "compact_evidence_bytes": 346896,
+      "compact_evidence_sha256": "fe8b64e09e77638f82a6c98e391bedb71420c98eef99286669569700cab43ea5",
+      "outcome": "Direct providers completed, but Pixal setup leaked Hugging Face offline mode into the depth baselines. The run was retained as failure evidence and excluded from promotion conclusions."
+    },
+    {
+      "run": "r2",
+      "repo_commit": "f61957f",
+      "package_bytes": 645125,
+      "package_sha256": "76616ad9cbdd8f9341928d02b0bdc8ee44f258cac68384f8342be2c702ebcf0a",
+      "result_archive_bytes": 510579875,
+      "result_archive_sha256": "070d114ea0377fade1d16797abf9123df64b2b90be70933810f73cc6ff88e480",
+      "compact_evidence_bytes": 680052,
+      "compact_evidence_sha256": "106ff5dc4f061a571764be1252fea015ab8733ddf7114e82a94d82ddeee0bc1f",
+      "outcome": "Provider-scoped offline mode restored all baselines. Pixal printable repair completed 1/5; another mesh stopped at 51234 faces above the 50000 topology ceiling and the remaining rows were skipped after the first failure."
+    },
+    {
+      "run": "r3",
+      "repo_commit": "cf689d9",
+      "package_bytes": 645126,
+      "package_sha256": "f884bf2d7435baf3487fa56ff6584ca105f542e4aad4e4163b8bb0b7572c55fe",
+      "result_archive_bytes": 563652264,
+      "result_archive_sha256": "2f3c5f476e4d83bc65d4e1f36786aaccf6f2d092abf040d224b22d76ee3a6127",
+      "compact_evidence_bytes": 718008,
+      "compact_evidence_sha256": "9d1ab3101d491c726c8eae3269e9c597e49c25e76e8d4b18d2751dbb8fc6869d",
+      "outcome": "A 64000 topology ceiling completed 2/5. One observed residual was 64704 faces; two rows were still skipped by the one-failure budget."
+    },
+    {
+      "run": "r4",
+      "repo_commit": "cf689d9",
+      "package_bytes": 645124,
+      "package_sha256": "27a7d04929fb07b9d712b04b307662f49160021811cb07391bcb7ad3789eb461",
+      "result_archive_bytes": 740288164,
+      "result_archive_sha256": "bc66077b5ddb7133d50351637509a27035453f4a642f503522237142d83a60a3",
+      "compact_evidence_bytes": 1257446,
+      "compact_evidence_sha256": "849475dab623862eeb7170a68cb372af180b3ecb07ad85084d7b2b25eddac0a1",
+      "outcome": "The failure budget was raised to five without changing repair code. All residuals were measured: 64704, 68336, and 103036 faces, establishing a bounded target for the next run."
+    },
+    {
+      "run": "r5",
+      "repo_commit": "a19def7069004355d58803b7a2c50941f2e1285e",
+      "package_bytes": 645123,
+      "package_sha256": "68215a938d9ee871d1da398c7c8049e83e996497a4a27930d4b13ca5b6978c93",
+      "result_archive_bytes": 655742061,
+      "result_archive_sha256": "c75c59822fbcecce3224e20420d1ef655f917bf6457f52e311d80d4e59512e09",
+      "compact_evidence_bytes": 1254954,
+      "compact_evidence_sha256": "8bac48828f71d49be6b48e15dfa6380a4801b3a5d5a42f1c2dae8593f3f317de",
+      "outcome": "The 131072-face pre-repair ceiling completed all 5/5 Pixal rows without an OOM. Every repaired STL passed the hard printability gates, but the paired surface-accuracy gates correctly held promotion."
+    }
+  ],
+  "final_methods": [
+    {
+      "method": "source_mesh_oracle",
+      "n": 5,
+      "rank_score": 2.8629242982570977,
+      "mesh_surface_chamfer_l1_median": 0.050999086330851,
+      "mesh_surface_hausdorff95_median": 0.2686875719110348,
+      "stl_bbox_aspect_ratio_median": 1.4115370032720729,
+      "stl_faces_per_normalized_bbox_volume_log1p_median": 5.685691126647166,
+      "success_rate": 1.0,
+      "printability_medians_pass": true,
+      "deployable": false
+    },
+    {
+      "method": "pixal3d_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+      "n": 5,
+      "rank_score": 1.278307317480489,
+      "mesh_surface_chamfer_l1_median": 0.18215456986529838,
+      "mesh_surface_hausdorff95_median": 0.48217567389359667,
+      "stl_bbox_aspect_ratio_median": 2.000553967130855,
+      "stl_faces_per_normalized_bbox_volume_log1p_median": 5.459575998036628,
+      "success_rate": 1.0,
+      "printability_medians_pass": true,
+      "deployable": true
+    },
+    {
+      "method": "triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+      "n": 5,
+      "rank_score": 0.9521169583546369,
+      "mesh_surface_chamfer_l1_median": 0.12636845283451084,
+      "mesh_surface_hausdorff95_median": 0.3491625628123909,
+      "stl_bbox_aspect_ratio_median": 2.000553967130855,
+      "stl_faces_per_normalized_bbox_volume_log1p_median": 9.526572240167383,
+      "success_rate": 1.0,
+      "printability_medians_pass": true,
+      "deployable": true
+    },
+    {
+      "method": "biharmonic",
+      "n": 5,
+      "rank_score": 0.1673784246905738,
+      "mesh_surface_chamfer_l1_median": 0.16037612410958296,
+      "mesh_surface_hausdorff95_median": 0.41860410930618674,
+      "success_rate": 1.0,
+      "printability_medians_pass": true,
+      "deployable": true
+    },
+    {
+      "method": "mirror",
+      "n": 5,
+      "rank_score": 0.03943801968958066,
+      "mesh_surface_chamfer_l1_median": 0.15682084597273827,
+      "mesh_surface_hausdorff95_median": 0.4698296037101163,
+      "success_rate": 1.0,
+      "printability_medians_pass": true,
+      "deployable": true
+    },
+    {
+      "method": "masked",
+      "n": 5,
+      "rank_score": 0.0,
+      "mesh_surface_chamfer_l1_median": 0.17483902650692607,
+      "mesh_surface_hausdorff95_median": 0.4505203368746408,
+      "success_rate": 1.0,
+      "printability_medians_pass": true,
+      "deployable": true
+    },
+    {
+      "method": "pixal3d_biharmonic_prefill_raw_direct_mesh",
+      "n": 5,
+      "rank_score": -17.978257793016105,
+      "mesh_surface_chamfer_l1_median": 0.12316899229810775,
+      "mesh_surface_hausdorff95_median": 0.32758491436499443,
+      "stl_faces_per_normalized_bbox_volume_log1p_median": 14.482562348822839,
+      "success_rate": 1.0,
+      "printability_medians_pass": false,
+      "deployable": false
+    }
+  ],
+  "pixal_repaired_per_sample": [
+    {
+      "sample_id": "mesh_dir_757e06b221_v00",
+      "asset_id": "table_0247",
+      "stl_faces": 122,
+      "mesh_surface_chamfer_l1": 0.18215456986529838,
+      "mesh_surface_hausdorff95": 0.4130195708529013
+    },
+    {
+      "sample_id": "mesh_dir_9f32f114c4_v00",
+      "asset_id": "night_stand_0103",
+      "stl_faces": 104,
+      "mesh_surface_chamfer_l1": 0.1863380805405086,
+      "mesh_surface_hausdorff95": 0.6171286206567959
+    },
+    {
+      "sample_id": "mesh_dir_1a200d8288_v00",
+      "asset_id": "toilet_0356",
+      "stl_faces": 128,
+      "mesh_surface_chamfer_l1": 0.17750597799912143,
+      "mesh_surface_hausdorff95": 0.47486790598359296
+    },
+    {
+      "sample_id": "mesh_dir_92752051d0_v00",
+      "asset_id": "dresser_0155",
+      "stl_faces": 124,
+      "mesh_surface_chamfer_l1": 0.19225923697632913,
+      "mesh_surface_hausdorff95": 0.5763527586745767
+    },
+    {
+      "sample_id": "mesh_dir_49534574e1_v00",
+      "asset_id": "desk_0178",
+      "stl_faces": 40,
+      "mesh_surface_chamfer_l1": 0.14424128889875498,
+      "mesh_surface_hausdorff95": 0.48217567389359667
+    }
+  ],
+  "repair_safety": {
+    "raw_pixal_face_count_range": [
+      964623,
+      998737
+    ],
+    "raw_pixal_component_count_range": [
+      22,
+      20833
+    ],
+    "observed_pre_repair_residual_faces": [
+      64704,
+      68336,
+      103036
+    ],
+    "final_pre_repair_ceiling_faces": 131072,
+    "final_repaired_stl_face_count_range": [
+      40,
+      128
+    ],
+    "interpretation": "The ceiling is a resource guard, not a quality target. It keeps topology work at least 7.6x below the raw face count. The very low final face counts show that printable fallback is collapsing fragmented Pixal geometry into coarse solids, which explains the surface-accuracy regression."
+  },
+  "selection": {
+    "decision": "hold",
+    "candidate": "pixal3d_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+    "current": "triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+    "score_margin_vs_current": 0.32619035912585215,
+    "paired_n": 5,
+    "paired_win_rate_vs_masked": 1.0,
+    "paired_ci95_low_vs_masked": 0.9562597788162635,
+    "paired_win_rate_vs_current": 0.6,
+    "paired_ci95_low_vs_current": -0.21124832724371234,
+    "paired_chamfer_median_ratio_vs_current": 1.4415,
+    "paired_chamfer_worst_ratio_vs_current": 1.548515222549163,
+    "paired_hausdorff95_median_ratio_vs_current": 1.36,
+    "paired_hausdorff95_worst_ratio_vs_current": 2.4093461459029855,
+    "max_allowed_surface_ratio": 1.1,
+    "failed_checks": [
+      "paired_win_rate_vs_current",
+      "paired_ci95_low_vs_current",
+      "paired_mesh_surface_chamfer_ratio_vs_current",
+      "paired_mesh_surface_hausdorff95_ratio_vs_current"
+    ]
+  },
+  "validation": {
+    "focused_topology_tests_passed": 7,
+    "backend_tests_passed": 261,
+    "backend_test_warnings": 2,
+    "generated_launcher_python_syntax": "passed",
+    "compact_archives_verified_locally": 5
+  },
+  "artifact_retention": {
+    "compact_evidence_local_paths": [
+      "backend/output/completion-benchmark/colab_payloads/g4_stl_first_pixal3d_vs_triposg_s40_n5_r1_compact_evidence.tar.gz",
+      "backend/output/completion-benchmark/colab_payloads/g4_stl_first_pixal3d_vs_triposg_s40_n5_r2_compact_evidence.tar.gz",
+      "backend/output/completion-benchmark/colab_payloads/g4_stl_first_pixal3d_vs_triposg_s40_n5_r3_compact_evidence.tar.gz",
+      "backend/output/completion-benchmark/colab_payloads/g4_stl_first_pixal3d_vs_triposg_s40_n5_r4_compact_evidence.tar.gz",
+      "backend/output/completion-benchmark/colab_payloads/g4_stl_first_pixal3d_vs_triposg_s40_n5_r5_compact_evidence.tar.gz"
+    ],
+    "compact_evidence_contains": [
+      "results_summary.json",
+      "selection_decision.json",
+      "per-sample and aggregate metrics",
+      "provider preflight",
+      "contact sheet",
+      "failure logs",
+      "run log tail"
+    ]
+  },
+  "conclusion": "Pixal3D is now operationally reproducible and 5/5 printable on this slice, but it does not replace TripoSG. Its raw geometry is visually/surface-accurate but unprintable; the current printable fallback discards too much shape. The next Pixal work should optimize shape-preserving component filtering, hole closing, or provider-native geometry extraction while keeping the same paired Chamfer/H95 gates.",
+  "next_experiment": {
+    "primary": "Compare a shape-preserving Pixal repair path against the current convex-hull-like fallback and TripoSG on these exact five cached raw meshes.",
+    "secondary": "Run the pinned TRELLIS.2 one-row smoke only after its transitive model assets, sparse-attention backend, preflight, cache identity, and export coordinate convention are verified."
+  }
+}

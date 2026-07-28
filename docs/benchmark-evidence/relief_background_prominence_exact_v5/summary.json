@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "run": "relief_background_prominence_exact_v5",
+  "date": "2026-07-15",
+  "privacy": "aggregate telemetry only; private images, masks, depth arrays, API responses, previews, and meshes are excluded",
+  "implementation_provenance": {
+    "revision": "535daf3cacbf3d57c2474240322290d06f8296c4",
+    "clean_worktree": true,
+    "server_port": 8005
+  },
+  "paired_input_contract": {
+    "same_private_source": true,
+    "same_selection_mask": true,
+    "same_selected_region": true,
+    "same_camera_framing": true,
+    "private_source_hash_published": false
+  },
+  "settings": {
+    "relief_height_mm": 30.0,
+    "footprint_max_dimension_mm": 128.0,
+    "target_dimension": 512,
+    "depth_model": "depth-anything/Depth-Anything-V2-Large-hf",
+    "device": "cuda",
+    "selection_background_depth_ratio_previous": 0.45,
+    "selection_background_depth_ratio_selected": 0.65,
+    "selection_background_feather_mm": 1.5,
+    "selection_background_smoothing_mm": 0.6,
+    "maximum_relief_slope_mm_per_mm": 2.0
+  },
+  "portrait": {
+    "runtime_seconds": 60.501,
+    "background": {
+      "previous_centered_rms_mm": 4.64824934334744,
+      "selected_centered_rms_mm": 6.8164546327392515,
+      "centered_rms_gain_ratio": 1.4664563213449253,
+      "previous_p02_p98_span_mm": 13.344499561041594,
+      "selected_p02_p98_span_mm": 19.500000229105353,
+      "span_gain_ratio": 1.4612762464344744,
+      "correlation": 0.9999998874051733,
+      "rms_retention": 0.9999898118359957,
+      "span_retention": 1.0,
+      "gradient_correlation": 0.999987184571811,
+      "gradient_rms_retention": 0.9996058097217789,
+      "candidate_coverage_ratio": 1.0
+    },
+    "face_components": {
+      "previous_correlations": [0.943389575329939, 0.94829055717559],
+      "selected_correlations": [0.9523301714014214, 0.9711992457735783],
+      "previous_rms_retentions": [0.9314959889492025, 0.9684205448170183],
+      "selected_rms_retentions": [0.9498451623093995, 0.9735673352543806]
+    },
+    "physical_background_cap": {
+      "strict_passed": false,
+      "emission_passed": true,
+      "far_background_passed": true,
+      "feasible_attachment_constraints_passed": true,
+      "far_ceiling_mm": 19.509999999776483,
+      "far_max_mm": 19.510000228881836,
+      "far_violation_mm": 0.0,
+      "feasible_attachment_jump_max_mm": 0.8000001907348633,
+      "attachment_constraint_conflicts": 48
+    },
+    "topology": {
+      "component_count": 1,
+      "watertight": true,
+      "manifold": true,
+      "winding_consistent": true,
+      "positive_volume": true,
+      "degenerate_faces": 0
+    }
+  },
+  "llama_group": {
+    "runtime_seconds": 248.392,
+    "background": {
+      "previous_centered_rms_mm": 6.507803342312756,
+      "selected_centered_rms_mm": 7.837489449338055,
+      "centered_rms_gain_ratio": 1.20432180216324,
+      "previous_p02_p98_span_mm": 21.656200142130245,
+      "selected_p02_p98_span_mm": 22.02821582816541,
+      "span_gain_ratio": 1.0171782530450224,
+      "correlation": 1.0,
+      "rms_retention": 1.0,
+      "span_retention": 1.0,
+      "gradient_correlation": 1.0,
+      "gradient_rms_retention": 1.0,
+      "candidate_coverage_ratio": 1.0
+    },
+    "selected_components": {
+      "previous_correlations": [0.7527048524933284, 0.9288562167725273, 0.8176854121608247, 0.9382396414596182],
+      "selected_correlations": [0.914923640565729, 0.9915627824144657, 0.9588526745237544, 0.9833605643146269],
+      "previous_rms_retentions": [0.4425834781333381, 0.4164353812557607, 0.6214343305273228, 0.2378374088406225],
+      "selected_rms_retentions": [0.7562775473819396, 0.807636402405643, 0.897445093954379, 0.6168614793553666]
+    },
+    "physical_background_cap": {
+      "strict_passed": false,
+      "emission_passed": true,
+      "far_background_passed": true,
+      "feasible_attachment_constraints_passed": true,
+      "far_ceiling_mm": 19.509999999776483,
+      "far_max_mm": 19.510000228881836,
+      "far_violation_mm": 0.0,
+      "feasible_attachment_jump_max_mm": 0.8000001907348633,
+      "attachment_constraint_conflicts": 140
+    },
+    "topology": {
+      "component_count": 1,
+      "watertight": true,
+      "manifold": true,
+      "winding_consistent": true,
+      "positive_volume": true,
+      "degenerate_faces": 0
+    }
+  },
+  "decision": {
+    "status": "accepted",
+    "algorithm_change_required": false,
+    "policy": "permissive emission with explicit strict-constraint conflicts",
+    "scope": "paired exact portrait and capped llama-group fixtures",
+    "reason": "Both exact 30 mm replays increase background depth while preserving or improving subject detail and passing emission and printability gates; this does not claim strict feasibility or proportional depth gain on every scene."
+  }
+}

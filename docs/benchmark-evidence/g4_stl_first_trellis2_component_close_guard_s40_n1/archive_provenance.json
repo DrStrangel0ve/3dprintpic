@@ -1,0 +1,23 @@
+{
+  "run_name": "g4_stl_first_trellis2_component_close_guard_s40_n1",
+  "runtime_commit": "a628e172a1ab61d3bc57eb991dc9854065c617a5",
+  "payload_branch_commit": "50fbb1bf31a81d325fc1158244c9ee45a5b03516",
+  "payload_archive": {
+    "bytes": 139838,
+    "sha256": "3d240cee35f89dd342e7db780ce4785b261fb1ec0d7322f308eb16df75c5b02d"
+  },
+  "compact_result_archive": {
+    "bytes": 314308,
+    "entries": 73,
+    "sha256": "271aac157ac2978dbef3fadb653bb06eee75158f32e0cadee141f781d4d523b6"
+  },
+  "duration_seconds": 219.018,
+  "expected_rows": 6,
+  "successful_rows": 5,
+  "failed_rows": 1,
+  "candidate_successful_rows": 0,
+  "candidate_attempted_rows": 1,
+  "selector_decision": "hold",
+  "five_row_expansion_run": false,
+  "runtime_disconnected_after_transfer": true
+}

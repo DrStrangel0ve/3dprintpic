@@ -1,0 +1,536 @@
+{
+  "alignment": {
+    "checks": {
+      "all_parts": false,
+      "anatomical_ordering": true,
+      "exact_part_geometry": false,
+      "face_boundary_h95": true,
+      "face_center": true,
+      "face_height": false,
+      "face_mask_iou": false,
+      "landmark_median": true,
+      "landmark_p95": true,
+      "non_noop_rgb_transfer": true,
+      "output_dimensions_exact": true,
+      "outside_selection_bit_exact": true
+    },
+    "comparison": "candidate-versus-parent-detector-with-no-registration",
+    "detection": {
+      "candidate": {
+        "attempts": [
+          {
+            "component_bbox": [
+              86,
+              91,
+              135,
+              166
+            ],
+            "detected_faces": 1,
+            "effective_minimum_face_pixels": 32,
+            "input_shape": [
+              384,
+              384
+            ],
+            "roi_bbox": [
+              39,
+              57,
+              182,
+              200
+            ]
+          }
+        ],
+        "detected_faces": 1,
+        "eligible_components": 1,
+        "enabled": true,
+        "fallback_errors_clean": true,
+        "selection_detail_fallback_regions": 0,
+        "validated_face_regions": 1
+      },
+      "candidate_detector": "selection-roi:mediapipe-face-landmarker",
+      "candidate_errors": [],
+      "parent": {
+        "attempts": [
+          {
+            "component_bbox": [
+              86,
+              91,
+              135,
+              166
+            ],
+            "detected_faces": 1,
+            "effective_minimum_face_pixels": 32,
+            "input_shape": [
+              384,
+              384
+            ],
+            "roi_bbox": [
+              39,
+              57,
+              182,
+              200
+            ]
+          }
+        ],
+        "detected_faces": 1,
+        "eligible_components": 1,
+        "enabled": true,
+        "fallback_errors_clean": true,
+        "selection_detail_fallback_regions": 0,
+        "validated_face_regions": 1
+      },
+      "parent_detector": "selection-roi:mediapipe-face-landmarker",
+      "parent_errors": []
+    },
+    "metrics": {
+      "anatomical_ordering_preserved": true,
+      "candidate_anatomical_ordering": {
+        "eye_left_to_right_x": -1,
+        "eye_to_nose_y": 1,
+        "eyebrow_left_to_right_x": 1,
+        "eyebrow_to_eye_y": 1,
+        "nose_to_mouth_y": 1
+      },
+      "exact_part_alignment": {
+        "available": true,
+        "comparison": "candidate-and-parent-detector-masks-versus-exact-projection",
+        "parts": {
+          "left_eye": {
+            "absolute_passed": true,
+            "absolute_thresholds": {
+              "maximum_boundary_h95_pixels": 18.0,
+              "maximum_centroid_displacement_pixels": 18.0,
+              "minimum_mask_iou": 0.0
+            },
+            "boundary_h95_increase_pixels": -0.9312578922944059,
+            "candidate": {
+              "boundary_h95_pixels": 15.239549134153476,
+              "centroid_displacement_pixels": 15.440256324968363,
+              "mask_iou": 0.0
+            },
+            "centroid_increase_pixels": -0.9146408716682188,
+            "iou_regression": 0.0,
+            "parent": {
+              "boundary_h95_pixels": 16.170807026447882,
+              "centroid_displacement_pixels": 16.354897196636582,
+              "mask_iou": 0.0
+            }
+          },
+          "left_eyebrow": {
+            "absolute_passed": true,
+            "absolute_thresholds": {
+              "maximum_boundary_h95_pixels": 8.0,
+              "maximum_centroid_displacement_pixels": 5.0,
+              "minimum_mask_iou": 0.0
+            },
+            "boundary_h95_increase_pixels": 0.0,
+            "candidate": {
+              "boundary_h95_pixels": 5.940833163195855,
+              "centroid_displacement_pixels": 3.4535128415075533,
+              "mask_iou": 0.0
+            },
+            "centroid_increase_pixels": 0.0,
+            "iou_regression": 0.0,
+            "parent": {
+              "boundary_h95_pixels": 5.940833163195855,
+              "centroid_displacement_pixels": 3.4535128415075533,
+              "mask_iou": 0.0
+            }
+          },
+          "mouth": {
+            "absolute_passed": false,
+            "absolute_thresholds": {
+              "maximum_boundary_h95_pixels": 8.0,
+              "maximum_centroid_displacement_pixels": 4.0,
+              "minimum_mask_iou": 0.12
+            },
+            "boundary_h95_increase_pixels": 0.21574856481941573,
+            "candidate": {
+              "boundary_h95_pixels": 6.215748564819416,
+              "centroid_displacement_pixels": 2.5055067306336434,
+              "mask_iou": 0.1044776119402985
+            },
+            "centroid_increase_pixels": 0.4639113998285982,
+            "iou_regression": 0.044776119402985065,
+            "parent": {
+              "boundary_h95_pixels": 6.0,
+              "centroid_displacement_pixels": 2.041595330805045,
+              "mask_iou": 0.14925373134328357
+            }
+          },
+          "nose": {
+            "absolute_passed": true,
+            "absolute_thresholds": {
+              "maximum_boundary_h95_pixels": 11.0,
+              "maximum_centroid_displacement_pixels": 4.0,
+              "minimum_mask_iou": 0.3
+            },
+            "boundary_h95_increase_pixels": 0.1587206101045684,
+            "candidate": {
+              "boundary_h95_pixels": 9.211336491335114,
+              "centroid_displacement_pixels": 1.6428843073064254,
+              "mask_iou": 0.32323232323232326
+            },
+            "centroid_increase_pixels": 0.1103612608740796,
+            "iou_regression": -0.00162428303131823,
+            "parent": {
+              "boundary_h95_pixels": 9.052615881230546,
+              "centroid_displacement_pixels": 1.5325230464323458,
+              "mask_iou": 0.32160804020100503
+            }
+          },
+          "right_eye": {
+            "absolute_passed": true,
+            "absolute_thresholds": {
+              "maximum_boundary_h95_pixels": 12.0,
+              "maximum_centroid_displacement_pixels": 10.0,
+              "minimum_mask_iou": 0.0
+            },
+            "boundary_h95_increase_pixels": -0.1817006112937367,
+            "candidate": {
+              "boundary_h95_pixels": 10.398529270389176,
+              "centroid_displacement_pixels": 7.371810041993038,
+              "mask_iou": 0.0
+            },
+            "centroid_increase_pixels": -0.5435058247641464,
+            "iou_regression": 0.0,
+            "parent": {
+              "boundary_h95_pixels": 10.580229881682913,
+              "centroid_displacement_pixels": 7.915315866757185,
+              "mask_iou": 0.0
+            }
+          },
+          "right_eyebrow": {
+            "absolute_passed": true,
+            "absolute_thresholds": {
+              "maximum_boundary_h95_pixels": 8.0,
+              "maximum_centroid_displacement_pixels": 7.0,
+              "minimum_mask_iou": 0.2
+            },
+            "boundary_h95_increase_pixels": -0.8761702617667186,
+            "candidate": {
+              "boundary_h95_pixels": 5.563479642218822,
+              "centroid_displacement_pixels": 4.698481937198194,
+              "mask_iou": 0.22123893805309736
+            },
+            "centroid_increase_pixels": -0.45046452332194065,
+            "iou_regression": 0.015603167210060526,
+            "parent": {
+              "boundary_h95_pixels": 6.439649903985541,
+              "centroid_displacement_pixels": 5.1489464605201345,
+              "mask_iou": 0.23684210526315788
+            }
+          }
+        }
+      },
+      "face_boundary_h95_pixels": 1.0,
+      "face_center_displacement_ratio": 0.006666666666666667,
+      "face_height_retention": 0.9787234042553191,
+      "face_mask_iou": 0.9712643678160919,
+      "inside_changed_fraction": 0.9633344863369077,
+      "inside_rgb_rms": 7.745922088623047,
+      "landmark_median_pixels": 0.6369894230088271,
+      "landmark_p95_pixels": 1.1316678870647177,
+      "outside_changed_pixels": 0,
+      "parent_anatomical_ordering": {
+        "eye_left_to_right_x": -1,
+        "eye_to_nose_y": 1,
+        "eyebrow_left_to_right_x": 1,
+        "eyebrow_to_eye_y": 1,
+        "nose_to_mouth_y": 1
+      },
+      "parts": {
+        "left_eye": {
+          "boundary_h95_pixels": 1.1656854249492374,
+          "centroid_displacement_pixels": 1.1490094706579501,
+          "mask_iou": 0.42857142857142855
+        },
+        "left_eyebrow": {
+          "boundary_h95_pixels": 0.0,
+          "centroid_displacement_pixels": 0.0,
+          "mask_iou": 1.0
+        },
+        "mouth": {
+          "boundary_h95_pixels": 1.0,
+          "centroid_displacement_pixels": 0.8131884838117617,
+          "mask_iou": 0.4782608695652174
+        },
+        "nose": {
+          "boundary_h95_pixels": 1.0,
+          "centroid_displacement_pixels": 0.47908692048905804,
+          "mask_iou": 0.8472222222222222
+        },
+        "right_eye": {
+          "boundary_h95_pixels": 1.0,
+          "centroid_displacement_pixels": 0.7071067811865476,
+          "mask_iou": 0.5555555555555556
+        },
+        "right_eyebrow": {
+          "boundary_h95_pixels": 1.0,
+          "centroid_displacement_pixels": 0.48766301279180196,
+          "mask_iou": 0.7592592592592593
+        }
+      }
+    },
+    "passed": false,
+    "schema_version": 1,
+    "thresholds": {
+      "maximum_exact_part_boundary_h95_increase_pixels": 1.0,
+      "maximum_exact_part_centroid_increase_pixels": 1.0,
+      "maximum_exact_part_iou_regression": 0.02,
+      "maximum_face_boundary_h95_pixels": 1.5,
+      "maximum_face_center_displacement_ratio": 0.015,
+      "maximum_face_height_retention": 1.02,
+      "maximum_landmark_median_pixels": 1.0,
+      "maximum_landmark_p95_pixels": 2.0,
+      "maximum_part_boundary_h95_pixels": 1.5,
+      "maximum_part_centroid_displacement_pixels": 1.0,
+      "minimum_face_height_retention": 0.98,
+      "minimum_face_mask_iou": 0.98,
+      "minimum_inside_changed_fraction": 0.2,
+      "minimum_inside_rgb_rms": 3.0,
+      "minimum_part_mask_iou": 0.95
+    }
+  },
+  "derived_corpus": null,
+  "expansion_authorized": false,
+  "provenance": {
+    "candidate_sha256": "bd2edfdccb771a660ae00fb867bf15d94530afd353ab9af61ee2d8114029933b",
+    "configuration": {
+      "control_scale": 0.9,
+      "denoising_strength": 0.25,
+      "depth_control": "uint8_rgb_round(255*(1-exact_normalized_scene_depth))",
+      "face_local_crop": {
+        "context_ratio": 1.9,
+        "control_pipeline": "float_depth_resize_then_inverse_uint8",
+        "control_resampling": "bilinear",
+        "inverse_resampling": "lanczos",
+        "rgb_resampling": "lanczos",
+        "source_bbox_xyxy": [
+          39,
+          57,
+          182,
+          200
+        ],
+        "source_size": 143,
+        "target_size": 512
+      },
+      "output_dimensions": [
+        256,
+        256
+      ],
+      "prompt": "A natural documentary photograph of the same adult person and the same scene shown in the input. Preserve the exact camera, head pose, facial expression, silhouette, eye positions, nose, mouth, ears, lighting direction, occlusions, and background geometry. Replace only the synthetic face material with realistic human skin, hair, eyes, and lips. No retouching, no beautification, no face reshaping, no added objects.",
+      "provider_input_dimensions": [
+        512,
+        512
+      ],
+      "resize_or_warp": {
+        "context_ratio": 1.9,
+        "control_pipeline": "float_depth_resize_then_inverse_uint8",
+        "control_resampling": "bilinear",
+        "inverse_resampling": "lanczos",
+        "rgb_resampling": "lanczos",
+        "source_bbox_xyxy": [
+          39,
+          57,
+          182,
+          200
+        ],
+        "source_size": 143,
+        "target_size": 512
+      },
+      "row_id": "mhr_training_identity_000__scene_00",
+      "seed": 20260719,
+      "steps": 8,
+      "vram_limit_gib": 8.0
+    },
+    "configuration_sha256": "4815ee6ab3d1d8123390a072d3688f0c11d2981d71b0ae325e51d0eb78e92113",
+    "control_image_sha256": "349ad0b54d29babf4b415bea1cf48be42408e66406b46fe8dcf430a69cf5999d",
+    "parent": {
+      "asset_sha256": {
+        "exact_camera_depth": "44a49fda5cbe10de4ea4dfe2bf6357eec9ddb745afe8207dfeb4ad31f066c4f5",
+        "exact_camera_normals": "11c9c63f9eb330b1e0d9c8061024380ff4358b238ece1d839eb4fdd37a043ccf",
+        "exact_depth": "f5afadc03d7953d0849ca8a2c835ed8966ba96473a52b196ab41484957ea6308",
+        "geometry_target:expression": "6fac01d2f35e9369826f83c86324807c4c5664c68571fb569597d0b0b02e1278",
+        "geometry_target:identity": "7cb5d056171354daf3e21c466efa646e74afa8aee6347c662be2e6f98e13a542",
+        "part:left_eye": "97e71b3ac52f775c57824e2c2bfda6615c2407929b14c23ade93f5c2120074af",
+        "part:left_eyebrow": "b3d9a928f74f820f3199d04c9ec8f0508a5fd1449d1855671a862370ad875090",
+        "part:mouth": "9c074e050098bb7189f93b92ce78026967f46719575f65ee43a1ef7c7ad6a116",
+        "part:nose": "ba2276f5a8340e0a552567d56ed46dacc52412501bb71a17174fe1173a39b4bd",
+        "part:right_eye": "e3dba3e00ec354c73aaaf91570708ad9d16df42d4dc36f6767225f9aeba48d45",
+        "part:right_eyebrow": "7296dd14438b7ee4f50d92db69a5de21ce79395df3753524eb6cb2ed2e00ce1c",
+        "selection_mask": "042dca6afa2926baf4c670e442d0a977b4e2a45bbbdd8efde75432843153c9e6",
+        "source": "53cf4d83bc054af0431dd1f605463de46070bfd34324ff194205a8c7e1b38015"
+      },
+      "root": "D:\\CodexResearch\\3dprintpic-runs\\mhr_semantic_v2_training_n320_20260720",
+      "row_id": "mhr_training_identity_000__scene_00",
+      "summary_path": "D:\\CodexResearch\\3dprintpic-runs\\mhr_semantic_v2_training_n320_20260720\\summary.json",
+      "summary_sha256": "d8717cced1d8f6753c15a7367dc1c84c5e62e0439f87b4380cca65f55fd665a5",
+      "training_supervision_path": "D:\\CodexResearch\\3dprintpic-runs\\mhr_semantic_v2_training_n320_20260720\\training_supervision.json",
+      "training_supervision_sha256": "42cb6169170f0dd31a8715aefdf45229749d4418d54d19e4d5c48b8452c59acb"
+    },
+    "preflight_sha256": "40dd10401a4bfabc49901efdb719a0185e790ba165ca37bcb064047ce548e165",
+    "provider": "zimage-turbo-controlnet-union-2.1-2602-8steps",
+    "raw_generated_sha256": "a709ee6644191bffeee7805b36e721c73fbccd10f9168f8e57524d861f22539a"
+  },
+  "raw_depth_geometry": {
+    "available": false,
+    "passed": false,
+    "reason": "rgb_alignment_gate_failed",
+    "schema_version": 1
+  },
+  "reason": "unregistered RGB alignment gate failed",
+  "runtime": {
+    "compute_capability": [
+      8,
+      6
+    ],
+    "device": "NVIDIA GeForce RTX 3080 Ti",
+    "device_index": 0,
+    "device_wide_peak_available": false,
+    "disk_offload": true,
+    "disk_offload_preparing_device": "cuda:0",
+    "disk_offload_reason": "official CUDA-staged layer offload on the pinned torch 2.7.1 runtime; CPU staging exceeds the Windows paging-file mapping limit",
+    "dtype": "bfloat16",
+    "inference_seconds": 1043.5619083000056,
+    "load_seconds": 120.9400930999982,
+    "main_model_load_seconds": 50.72513480001362,
+    "materialized_direct_meta_parameters": [
+      "x_pad_token",
+      "cap_pad_token"
+    ],
+    "owned_disk_map_reads": {
+      "block_quorum": 2,
+      "block_size_bytes": 8388608,
+      "buffer_size": 9223372036854775807,
+      "disk_maps": 4,
+      "max_block_read_attempts": 5,
+      "observed_reads": {
+        "dtype_counts": {
+          "BF16": 1156,
+          "F32": 3699
+        },
+        "manifest_attempt_failures": 0,
+        "manifest_block_accepted_bytes": 31499843390,
+        "manifest_block_accepted_ranges": 3766,
+        "manifest_block_mismatch_reads": 0,
+        "manifest_block_quorum_failures": 0,
+        "manifest_block_read_attempts": 7532,
+        "manifest_block_read_failures": 0,
+        "manifest_block_retry_count": 0,
+        "manifest_block_short_reads": 0,
+        "manifest_block_size_change_reads": 0,
+        "manifest_file_count": 5,
+        "manifest_retry_count": 0,
+        "manifest_verification_attempts": 5,
+        "manifest_verified_bytes": 31499843390,
+        "payload_block_accepted_bytes": 195831970438,
+        "payload_block_accepted_ranges": 27152,
+        "payload_block_mismatch_reads": 0,
+        "payload_block_quorum_failures": 0,
+        "payload_block_read_attempts": 54304,
+        "payload_block_read_failures": 0,
+        "payload_block_retry_count": 0,
+        "payload_block_short_reads": 0,
+        "payload_block_size_change_reads": 0,
+        "payload_bytes": 195831970438,
+        "payload_hash_checks": 4855,
+        "payload_hash_failures": 0,
+        "payload_read_attempts": 4855,
+        "payload_read_failures": 0,
+        "payload_retry_count": 0,
+        "tensor_count": 4855
+      },
+      "patched_classes": [],
+      "payload_hash_validation": "quorum_manifest_from_pinned_full_read_then_quorum_exact_payload",
+      "read_mode": "on_demand_safetensors",
+      "reader_patch_version": 3,
+      "storage_devices": [
+        "cuda:0"
+      ],
+      "storage_is_file_mapping_independent": true,
+      "supported_dtypes": [
+        "BF16",
+        "F32"
+      ],
+      "tensor_transport": "block_quorum_file_and_tensor_sha256_validated_bytes_to_owned_torch"
+    },
+    "peak_allocated_vram_gib": 13.462749481201172,
+    "peak_reserved_vram_gib": 13.50390625,
+    "peak_vram_gib": 13.462749481201172,
+    "post_empty_cache_disk_map_refresh": {
+      "calls": 5,
+      "refreshed_maps": 4
+    },
+    "provider_import_files": {
+      "pipeline": "D:\\CodexResearch\\providers\\DiffSynth-Studio-fb337fbb\\diffsynth\\pipelines\\z_image.py",
+      "pipeline_package": "D:\\CodexResearch\\providers\\DiffSynth-Studio-fb337fbb\\diffsynth\\__init__.py"
+    },
+    "sequential_text_encoder_mapping": true,
+    "text_owned_disk_map_reads": {
+      "block_quorum": 2,
+      "block_size_bytes": 8388608,
+      "buffer_size": 9223372036854775807,
+      "disk_maps": 1,
+      "max_block_read_attempts": 5,
+      "observed_reads": {
+        "dtype_counts": {
+          "BF16": 398
+        },
+        "manifest_attempt_failures": 0,
+        "manifest_block_accepted_bytes": 8044982000,
+        "manifest_block_accepted_ranges": 966,
+        "manifest_block_mismatch_reads": 0,
+        "manifest_block_quorum_failures": 0,
+        "manifest_block_read_attempts": 1932,
+        "manifest_block_read_failures": 0,
+        "manifest_block_retry_count": 0,
+        "manifest_block_short_reads": 0,
+        "manifest_block_size_change_reads": 0,
+        "manifest_file_count": 3,
+        "manifest_retry_count": 0,
+        "manifest_verification_attempts": 3,
+        "manifest_verified_bytes": 8044982000,
+        "payload_block_accepted_bytes": 8044936192,
+        "payload_block_accepted_ranges": 1174,
+        "payload_block_mismatch_reads": 0,
+        "payload_block_quorum_failures": 0,
+        "payload_block_read_attempts": 2348,
+        "payload_block_read_failures": 0,
+        "payload_block_retry_count": 0,
+        "payload_block_short_reads": 0,
+        "payload_block_size_change_reads": 0,
+        "payload_bytes": 8044936192,
+        "payload_hash_checks": 398,
+        "payload_hash_failures": 0,
+        "payload_read_attempts": 398,
+        "payload_read_failures": 0,
+        "payload_retry_count": 0,
+        "tensor_count": 398
+      },
+      "patched_classes": [
+        "diffsynth.core.vram.disk_map.DiskMap"
+      ],
+      "payload_hash_validation": "quorum_manifest_from_pinned_full_read_then_quorum_exact_payload",
+      "read_mode": "on_demand_safetensors",
+      "reader_patch_version": 3,
+      "storage_devices": [
+        "cuda:0"
+      ],
+      "storage_is_file_mapping_independent": true,
+      "supported_dtypes": [
+        "BF16",
+        "F32"
+      ],
+      "tensor_transport": "block_quorum_file_and_tensor_sha256_validated_bytes_to_owned_torch"
+    },
+    "text_post_empty_cache_disk_map_refresh": {
+      "calls": 1,
+      "refreshed_maps": 1
+    },
+    "text_precompute_seconds": 69.56869800000277,
+    "total_seconds": 1164.5036364999978,
+    "vram_limit_gib": 8.0
+  },
+  "schema_version": 1,
+  "status": "hold"
+}

@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Groq from "groq-sdk";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
 const systemPrompt = `You are a depth data modifier. Your task is to interpret the user's input and provide modifications to a grid of depth values. The depth values range from 0 to 100, where 0 is the deepest and 100 is the shallowest.
 
 Output format: Respond with a JSON object that describes how to modify the depth data. Your response should include one or more of the following properties:
@@ -104,6 +102,8 @@ export async function POST(request: NextRequest) {
     if (!process.env.GROQ_API_KEY) {
       throw new Error('GROQ_API_KEY is not set in environment variables');
     }
+
+    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
     const chatCompletion = await groq.chat.completions.create({
       messages: [

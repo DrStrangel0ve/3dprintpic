@@ -1,6 +1,12 @@
 *.png
 *.jpg
+*.webp
+*.npy
 *.stl
 output/
+backend/output/
+data/
+.venv/
+backend/.venv/
 __pycache__/
 .env

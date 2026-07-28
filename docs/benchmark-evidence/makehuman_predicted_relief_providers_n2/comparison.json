@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "date": "2026-07-15",
+  "implementation_revision": "d0528a7df0036750b687d9b4cf388cbe9b3d5c2b",
+  "implementation_provenance_clean": true,
+  "depth_anything_v2_large": {
+    "model_revision": "7581137eff8d4e94f6e796d3baea0e9fa79b22d2",
+    "scenes": 2,
+    "inference_executions": 2,
+    "stl_rows": 4,
+    "all_downstream_rows_passed": true,
+    "all_cross_height_rows_passed": true,
+    "centered_30mm": {
+      "normal_mean_cosine": 0.9712250248,
+      "normal_angle_p95_deg": 24.8546319113,
+      "minimum_lighting_correlation": 0.8722682465,
+      "named_parts_passed": true,
+      "affine_mm_passed": false,
+      "worst_part": "right_eyebrow",
+      "worst_part_p95_error_mm": 1.6277508413,
+      "background_output_span_p02_p98_mm": 18.5118452456,
+      "oracle_background_correlation": -0.122630453,
+      "oracle_background_gradient_correlation": 0.0506243343
+    },
+    "cropped_40mm": {
+      "normal_mean_cosine": 0.9420087221,
+      "normal_angle_p95_deg": 34.5534728772,
+      "minimum_lighting_correlation": 0.8543446578,
+      "named_parts_passed": true,
+      "affine_mm_passed": false,
+      "worst_part": "right_eye",
+      "worst_part_p95_error_mm": 5.4942859191,
+      "oracle_background_correlation": -0.20867947,
+      "oracle_background_gradient_correlation": 0.1832871852
+    }
+  },
+  "da3mono_large": {
+    "source_commit": "3fe327a6abe2e5db95b54444ea95463dbfef5610",
+    "model_revision": "f465978e618db8cc79c83b8bbf24964857db1875",
+    "peak_vram_gb": 1.5414319038,
+    "warm_inference_seconds": 0.5428695,
+    "expanded_to_cropped_scene": false,
+    "centered_30mm": {
+      "normal_mean_cosine": 0.9598269262,
+      "normal_angle_p95_deg": 28.2843246122,
+      "minimum_lighting_correlation": 0.8532191557,
+      "named_parts_passed": false,
+      "affine_mm_passed": false,
+      "failed_shape_parts": ["left_eye", "mouth", "nose"],
+      "worst_part": "right_eyebrow",
+      "worst_part_p95_error_mm": 5.4997969987,
+      "oracle_background_correlation": -0.1264331106,
+      "oracle_background_gradient_correlation": 0.0994581232
+    }
+  },
+  "decision": {
+    "depth_anything_v2_large": "hold as face-depth incumbent; background error is ordering, not suppression",
+    "da3mono_large": "close after bounded centered smoke",
+    "algorithm_change": "none from this run; do not amplify geometrically incorrect background depth"
+  }
+}

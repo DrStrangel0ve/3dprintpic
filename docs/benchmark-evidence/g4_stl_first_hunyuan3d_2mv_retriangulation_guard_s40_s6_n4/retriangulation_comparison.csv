@@ -1,0 +1,4 @@
+run,runtime_commit,rows,retriangulation_attempts,retriangulation_accepts,total_repaired_hulls,h2_r192_area_hull_rate,h2_r192_area_fill_drift_median,h2_r192_all_hull_rate,decision,sole_promotion_eligible_mesh_provider
+cleanup_bypass,d122a749b95eba893c6c881419a920e66a60860d,36,0,0,14,0.75,3.840899676674721,0.50,hold,triposg
+global_retriangulation_unguarded,215b2c384a77e3b937337040f5a90b633f0e91ae,36,3,1,13,0.50,0.5208797941825466,0.50,hold,triposg
+global_retriangulation_guarded,d8e082e992d3f9d334db5469780c946247dd81aa,36,3,0,14,0.75,3.840899676674721,0.50,hold,triposg

@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "status": "hold",
+  "production_changed": false,
+  "implementation_commit": "0f410ea8739d98e528eb2fb724edb75e95880d1f",
+  "owned_git_status": [],
+  "source_geometry_training_and_evaluation_only": true,
+  "method": "dinov2_pyramid448_selective_face_correction_gate",
+  "production_inputs": [
+    "rgb",
+    "local_depth",
+    "incumbent_baseline",
+    "face_support",
+    "fusion_weight",
+    "xy_coordinates",
+    "frozen_dinov2_pyramid",
+    "frozen_candidate_residual"
+  ],
+  "training_only_inputs": [
+    "exact_target_depth",
+    "named_facial_part_masks",
+    "oracle_correction_gate"
+  ],
+  "research_sources": {
+    "selective_net": "https://proceedings.mlr.press/v97/geifman19a.html",
+    "adaptive_depth_confidence": "https://openaccess.thecvf.com/content/ICCV2021/html/Choi_Adaptive_Confidence_Thresholding_for_Monocular_Depth_Estimation_ICCV_2021_paper.html",
+    "next_architecture_lead": "https://arxiv.org/abs/2601.01950",
+    "next_architecture_official_repo": "https://github.com/AutoHDR/FNR2R",
+    "next_architecture_license_found": false,
+    "next_training_source": "existing 417 detector-clean Google GNM rows",
+    "c3i_raw_exr_prior_study": {
+      "doi": "10.17632/yzjdjj5w39.1",
+      "license": "CC BY 4.0",
+      "archive_verified": true,
+      "adapter_closed": true,
+      "evidence_path": "docs/benchmark-evidence/c3i_synface_raw_face_training_20260718",
+      "next_use": "out-of-domain diagnostic only"
+    }
+  },
+  "provenance": {
+    "gate_trainer": {
+      "bytes": 37552,
+      "sha256": "434adc13da66e75b96d6b324ea208f872d3b00a968bca089b8b6263caa42193c"
+    },
+    "base_trainer": {
+      "bytes": 71692,
+      "sha256": "491a68a2d90869f6f8449972dd35912e903ab41956e6e1f509f779b1ff3c8b8b"
+    },
+    "base_checkpoint": {
+      "bytes": 1426985,
+      "sha256": "65ca6d8982afcb82f986ad7edfa273ce87872c4e4b92da2388f718e290b6dd31"
+    }
+  },
+  "encoder": {
+    "model_id": "facebook/dinov2-small",
+    "revision": "ed25f3a31f01632728cabb09d1542f84ab7b0056",
+    "license": "Apache-2.0",
+    "profile": "pyramid-448",
+    "input_size": 448,
+    "hidden_state_indices": [3, 6, 9, 12],
+    "feature_shape": [1536, 32, 32],
+    "intermediate_stage_normalization": "encoder.layernorm",
+    "cache_dtype": "torch.float16"
+  },
+  "corpus": {
+    "summary_sha256": "67abfa2b59e00f9cf7c0d3ae6a9b66960d7b97203b9d57b5b92ec791216d94bc",
+    "cache_manifest_sha256": "f408f166d7cd11fe6c6b9a84b9ac9df9d4d0a78da905f2295dd912b88dd4fe61",
+    "ordered_cache_row_sha256": "c23d0a83e03c60cebb66f3229ff36ae456a8578d8a28a426af5129efcaeba5ab",
+    "split_counts": {
+      "train": 191,
+      "validation": 32,
+      "sealed": 32
+    },
+    "identity_disjoint": true
+  },
+  "overfit": {
+    "rows": 2,
+    "epochs": 32,
+    "initial_loss": 1.23345947265625,
+    "best_loss": 1.0416278839111328,
+    "best_initial_ratio": 0.8444767801474591,
+    "maximum_ratio": 0.97,
+    "passed": true,
+    "best_epoch": 32,
+    "trainable_parameters": 108897,
+    "runtime_seconds": 4.64943889999995,
+    "peak_vram_gib": 0.13520574569702148,
+    "process_peak_rss_gib": 2.392486572265625,
+    "checkpoint": {
+      "bytes": 449369,
+      "sha256": "d3638d00f320d2f58c7936ceb15a7ab441dbe206b1fba530cd7ff8720f3bf1a2"
+    },
+    "evidence": {
+      "bytes": 69015,
+      "sha256": "b3e9894dab206faee09f4204ace92736c9547915fa96e1873313e7ddb87d81ac"
+    }
+  },
+  "split": {
+    "epochs": 16,
+    "best_epoch": 16,
+    "initial_validation_loss": 1.112976461648941,
+    "best_validation_loss": 0.30943576619029045,
+    "trainable_parameters": 108897,
+    "runtime_seconds": 51.96364359999916,
+    "peak_vram_gib": 0.25913000106811523,
+    "process_peak_rss_gib": 5.101322174072266,
+    "feature_cache_bytes": 701497344,
+    "oracle_metrics_at_best_epoch": {
+      "oracle_loss": 0.24224145710468292,
+      "pixel_non_regression_risk": 0.0005512456045835279,
+      "soft_gate_coverage": 0.4566262364387512,
+      "accepted_precision": 0.9664238691329956,
+      "accepted_recall": 0.952284686267376,
+      "oracle_coverage": 0.4574023075401783
+    },
+    "baseline": {
+      "part_failures": 353,
+      "median_shape_correlation": 0.8204019550113084,
+      "median_raw_gradient_correlation": 0.3994444233089299,
+      "median_normalized_rmse": 0.1862674050402449
+    },
+    "thresholds": [
+      {"threshold": 0.0, "part_failures": 320, "shape": 0.8213075516557276, "raw_gradient": 0.40062593682988334, "rmse": 0.18605040423784527, "median_coverage": 0.44660620391368866, "whole_regressions": 1, "named_part_regressions": 323},
+      {"threshold": 0.2, "part_failures": 322, "shape": 0.8211947383706947, "raw_gradient": 0.40037473363537313, "rmse": 0.1861068933835282, "median_coverage": 0.40373672544956207, "whole_regressions": 1, "named_part_regressions": 327},
+      {"threshold": 0.35, "part_failures": 324, "shape": 0.8211803080305405, "raw_gradient": 0.40028793136215846, "rmse": 0.18611536980913165, "median_coverage": 0.3587566167116165, "whole_regressions": 1, "named_part_regressions": 333},
+      {"threshold": 0.5, "part_failures": 325, "shape": 0.8211717577051767, "raw_gradient": 0.4001380952704877, "rmse": 0.18611082958941777, "median_coverage": 0.3284112960100174, "whole_regressions": 2, "named_part_regressions": 342},
+      {"threshold": 0.65, "part_failures": 326, "shape": 0.8211532006137727, "raw_gradient": 0.3998854010767864, "rmse": 0.18610743447298084, "median_coverage": 0.2939065992832184, "whole_regressions": 5, "named_part_regressions": 357},
+      {"threshold": 0.8, "part_failures": 330, "shape": 0.8211073011015945, "raw_gradient": 0.39955285425892495, "rmse": 0.1861145693096409, "median_coverage": 0.24657709896564484, "whole_regressions": 6, "named_part_regressions": 380},
+      {"threshold": 0.9, "part_failures": 331, "shape": 0.8210274864096576, "raw_gradient": 0.3992277873425908, "rmse": 0.1861317360653811, "median_coverage": 0.1918992251157761, "whole_regressions": 11, "named_part_regressions": 406}
+    ],
+    "threshold_zero_regressions_by_part": {
+      "left_eye": 54,
+      "left_eyebrow": 54,
+      "mouth": 56,
+      "nose": 39,
+      "right_eye": 70,
+      "right_eyebrow": 50
+    },
+    "regression_rows": 32,
+    "checkpoint": {
+      "bytes": 449369,
+      "sha256": "19b7966eb7781804de6a666fe5a82e3cb97bf85a9669cef034f1c96643106182"
+    },
+    "evidence": {
+      "bytes": 14782601,
+      "sha256": "7a98e17a4cc7ef0f6c5847ecde3e1512586b497ab4ace5bc6b70f0ba6e98a4a7"
+    }
+  },
+  "decision": {
+    "validation_strictly_improves": false,
+    "sealed_opened": false,
+    "advance_to_exact_photo": false,
+    "advance_to_30mm_physical_replay": false,
+    "production_changed": false,
+    "gate_configuration_and_training_lane_closed": true
+  },
+  "post_run_audit": {
+    "raw_metric_transcription_reverified": true,
+    "hold_decision_unchanged": true,
+    "historical_limitations": [
+      "validation loss aggregation depended on batch composition",
+      "two execution-critical adapter modules were absent from the run code hash list"
+    ],
+    "future_run_hardening": [
+      "per-row validation loss aggregation",
+      "complete execution-critical code hashing and dirty-state checks"
+    ]
+  },
+  "validation": {
+    "focused_tests_passed": 28
+  }
+}

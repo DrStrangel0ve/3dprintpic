@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "root": "backend/output/research/gnm_corpus/identity_stratified_n80",
+      "summary_sha256": "c15d826f7240904284ffbdeb78eeae1a2b193b1eb5c2b62852bc0b9bcf9e5049",
+      "row_count": 80,
+      "include_splits": ["train"]
+    },
+    {
+      "root": "backend/output/research/gnm_corpus/train_identity_stratified_n160",
+      "summary_sha256": "92f46a5d92f1690205c6b1920ffe2248ed47362ea364f19521fd46d16e65889a",
+      "row_count": 160,
+      "include_splits": ["train"]
+    },
+    {
+      "root": "backend/output/research/gnm_corpus/novel_v05_training_detector_pass_n31",
+      "summary_sha256": "1a78ba2e37d49b4c65a2f30b1d1cdb15e6aef524fa5c82134f224dd72cf3f3ef",
+      "row_count": 31,
+      "include_splits": ["train"]
+    },
+    {
+      "root": "backend/output/research/gnm_corpus/train_identity_stratified_n240_delta_vs_n80_n160",
+      "summary_sha256": "683087359d25f12db6702ad6d774b7c3cce49e70c307db9cfcc33f37d7b259de",
+      "row_count": 191,
+      "include_splits": ["train"]
+    },
+    {
+      "root": "backend/output/research/gnm_corpus/validation_size_balanced_n32",
+      "summary_sha256": "0c85aa696aac7c45145ea016fd8fc3ffa0ce9c54ff1d8f18bdba58bd28053e80",
+      "row_count": 32,
+      "include_splits": ["validation"]
+    },
+    {
+      "root": "backend/output/research/gnm_corpus/sealed_size_balanced_n32",
+      "summary_sha256": "17c42393a8e08c856a848d609e827a82fde2e708956a2f53e6e9bcb7444d9b55",
+      "row_count": 32,
+      "include_splits": ["sealed"]
+    }
+  ],
+  "expected_split_counts": {
+    "train": 417,
+    "validation": 32,
+    "sealed": 32
+  },
+  "expected_duplicate_rows": 11,
+  "excluded_rows": {
+    "gnm_female_black_v02__corners_down_00": "production MediaPipe face detector failed during the pinned expanded GNM preparation",
+    "gnm_male_black_v00__mouth_left_03": "production MediaPipe face detector failed during the pinned expanded GNM preparation"
+  },
+  "exclusion_evidence": {
+    "path": "backend/output/research/gnm_corpus/structured_geometry_dav2s_blendshape52_expanded_n419_schema4/evidence.json",
+    "sha256": "c3d162a7945e9ec93f9bd174f7b8719229eea212afc2439b1cadf1dce0a7656c"
+  }
+}

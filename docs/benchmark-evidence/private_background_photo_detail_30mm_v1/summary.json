@@ -1,0 +1,392 @@
+{
+  "schema_version": 1,
+  "run_kind": "retained_private_artifact_background_photo_detail_replay",
+  "privacy": "aggregate metrics only; source images, masks, paths, hashes, surfaces, and meshes remain in gitignored output",
+  "implementation_provenance": {
+    "available": true,
+    "clean": true,
+    "revision": "a1d4833ffd09ed696c55818c2553b81b2c74051e",
+    "paths": [
+      "backend/pic_to_3d.py",
+      "backend/benchmark/run_background_photo_detail_sweep.py",
+      "backend/benchmark/run_background_photo_detail_provider_smoke.py",
+      "backend/benchmark/run_private_background_photo_detail_replay.py"
+    ],
+    "status": []
+  },
+  "matrix": {
+    "scene_labels": [
+      "scene-01",
+      "scene-02"
+    ],
+    "protection_mask_semantics": "the exact production selection-plus-face union is excluded from background scoring; an available face region is gated separately",
+    "detail_levels_mm": [
+      0.0,
+      0.6
+    ],
+    "relief_height_mm": 30.0,
+    "physical_size_mm": 128.0,
+    "background_depth_ratio": 0.65,
+    "replay_semantics": "locally pinned retained artifacts with current detail/context overrides; not an authenticated historical-request reproduction",
+    "historical_controls_verified": {
+      "target_dimension": 512,
+      "sigma": 0.35,
+      "relief_height_mm": 30.0,
+      "physical_size_mm": 128.0,
+      "relief_gamma": 0.75,
+      "detail_boost": 0.8,
+      "background_detail_boost": 2.4
+    },
+    "intentional_overrides": {
+      "selection_background_depth_ratio": {
+        "historical": 0.45,
+        "replay": 0.65
+      },
+      "background_photo_detail_mm": {
+        "historical": 0.12,
+        "replay_pair": [
+          0.0,
+          0.6
+        ]
+      }
+    }
+  },
+  "records": [
+    {
+      "scene_label": "scene-01",
+      "runtime_seconds": 58.834898600005545,
+      "compose": {
+        "background_context_enabled": true,
+        "background_output_span_ratio": 0.6427624249223388
+      },
+      "detail_metrics": {
+        "requested_detail_mm": 0.6,
+        "active_source_detail_correlation": 0.7998155163577847,
+        "source_detail_correlation_intended_background": 0.6140534658316618,
+        "source_detail_correlation_all_background": 0.19561131294492198,
+        "background_delta_rms_mm": 0.05116898565679686,
+        "background_delta_p95_mm": 0.11838912963867188,
+        "background_delta_p95_all_background_mm": 0.08894896507263168,
+        "background_delta_max_mm": 0.3282794952392578,
+        "realized_p95_ratio": 0.19731521606445312,
+        "face_interior_p99_change_mm": 1.0122060775756385e-05,
+        "max_face_interior_change_mm": 0.0005207061767578125,
+        "max_attachment_boundary_change_mm": 0.014580607414245605,
+        "background_coverage_ratio": 0.5346476998585808,
+        "active_detail_coverage_ratio": 0.31469927626653355,
+        "source_aligned_capture_ratio": 0.5430216275089467,
+        "protection_halo_px": 12.5,
+        "checks": {
+          "intended_background_source_detail_correlation": true,
+          "realized_p95": true,
+          "face_interior": true,
+          "attachment_boundary": true,
+          "coverage": true,
+          "source_aligned_capture": true,
+          "passed": true
+        }
+      },
+      "face_delta": {
+        "available": true,
+        "p99_change_mm": 0.0,
+        "max_change_mm": 1.9073486328125e-06
+      },
+      "telemetry_checks": {
+        "baseline": {
+          "requested_detail": true,
+          "effective_detail": true,
+          "not_unprotected_limited": true,
+          "passed": true
+        },
+        "candidate": {
+          "requested_detail": true,
+          "effective_detail": true,
+          "not_unprotected_limited": true,
+          "protected": true,
+          "enabled": true,
+          "passed": true
+        }
+      },
+      "baseline": {
+        "topology": {
+          "watertight": true,
+          "is_volume": true,
+          "winding_consistent": true,
+          "component_count": 1,
+          "nonmanifold_edge_count": 0,
+          "degenerate_face_count": 0,
+          "positive_volume": true,
+          "bbox_has_volume": true,
+          "face_count": 309440,
+          "vertex_count": 154722,
+          "printable": true
+        },
+        "shell": {
+          "passed": true,
+          "complete_shell_verified": true,
+          "facet_geometry_passed": true,
+          "coverage_ratio": 1.0,
+          "max_abs_error_mm": 0.0,
+          "rms_error_mm": 0.0,
+          "expected_shell_triangle_count": 309440,
+          "actual_shell_triangle_count": 309440,
+          "invalid_shell_triangle_count": 0
+        },
+        "physical_cap": {
+          "strict_passed": false,
+          "emission_passed": true,
+          "far_background_cap_passed": true,
+          "feasible_attachment_constraints_passed": true,
+          "far_background_max_mm": 19.510000228881836,
+          "far_background_ceiling_mm": 19.509999999776483,
+          "feasible_attachment_jump_max_mm": 0.8000001907348633,
+          "attachment_constraint_conflicts": 13,
+          "far_background_cap_violation_mm": 0.0
+        },
+        "background_preservation": {
+          "passed": true,
+          "correlation": 0.9999944812378404,
+          "rms_retention": 1.0000511040329598,
+          "gradient_correlation": 0.9992499311839784,
+          "candidate_coverage_ratio": 1.0
+        }
+      },
+      "candidate": {
+        "topology": {
+          "watertight": true,
+          "is_volume": true,
+          "winding_consistent": true,
+          "component_count": 1,
+          "nonmanifold_edge_count": 0,
+          "degenerate_face_count": 0,
+          "positive_volume": true,
+          "bbox_has_volume": true,
+          "face_count": 309440,
+          "vertex_count": 154722,
+          "printable": true
+        },
+        "shell": {
+          "passed": true,
+          "complete_shell_verified": true,
+          "facet_geometry_passed": true,
+          "coverage_ratio": 1.0,
+          "max_abs_error_mm": 0.0,
+          "rms_error_mm": 0.0,
+          "expected_shell_triangle_count": 309440,
+          "actual_shell_triangle_count": 309440,
+          "invalid_shell_triangle_count": 0
+        },
+        "physical_cap": {
+          "strict_passed": false,
+          "emission_passed": true,
+          "far_background_cap_passed": true,
+          "feasible_attachment_constraints_passed": true,
+          "far_background_max_mm": 19.510000228881836,
+          "far_background_ceiling_mm": 19.509999999776483,
+          "feasible_attachment_jump_max_mm": 0.8000001907348633,
+          "attachment_constraint_conflicts": 13,
+          "far_background_cap_violation_mm": 0.0
+        },
+        "background_preservation": {
+          "passed": true,
+          "correlation": 0.9999944763190609,
+          "rms_retention": 1.0000509959357404,
+          "gradient_correlation": 0.9992569933349915,
+          "candidate_coverage_ratio": 1.0
+        }
+      },
+      "checks": {
+        "same_composed_depth": true,
+        "retained_artifact_bundle_verified": true,
+        "surface_grid_match": true,
+        "selection_mask_match": true,
+        "detail_metrics": true,
+        "baseline_telemetry": true,
+        "candidate_telemetry": true,
+        "baseline_physical_cap": true,
+        "candidate_physical_cap": true,
+        "baseline_printable": true,
+        "candidate_printable": true,
+        "baseline_shell": true,
+        "candidate_shell": true,
+        "face_delta": true,
+        "face_metadata_contract": true,
+        "face_mask_contract": true,
+        "baseline_background_preservation": true,
+        "candidate_background_preservation": true,
+        "passed": true
+      }
+    },
+    {
+      "scene_label": "scene-02",
+      "runtime_seconds": 266.3976296000037,
+      "compose": {
+        "background_context_enabled": true,
+        "background_output_span_ratio": 0.8281228216423692
+      },
+      "detail_metrics": {
+        "requested_detail_mm": 0.6,
+        "active_source_detail_correlation": 0.6874302860294229,
+        "source_detail_correlation_intended_background": 0.6296272469891091,
+        "source_detail_correlation_all_background": 0.49098517413747467,
+        "background_delta_rms_mm": 0.0783991004801994,
+        "background_delta_p95_mm": 0.18432013737037778,
+        "background_delta_p95_all_background_mm": 0.16116185523569584,
+        "background_delta_max_mm": 0.4903486277908087,
+        "realized_p95_ratio": 0.30720022895062965,
+        "face_interior_p99_change_mm": 6.67572021484375e-05,
+        "max_face_interior_change_mm": 0.0001888275146484375,
+        "max_attachment_boundary_change_mm": 0.01293182373046875,
+        "background_coverage_ratio": 0.4151391565455116,
+        "active_detail_coverage_ratio": 0.31589208084972886,
+        "source_aligned_capture_ratio": 0.6076325164633488,
+        "protection_halo_px": 12.5,
+        "checks": {
+          "intended_background_source_detail_correlation": true,
+          "realized_p95": true,
+          "face_interior": true,
+          "attachment_boundary": true,
+          "coverage": true,
+          "source_aligned_capture": true,
+          "passed": true
+        }
+      },
+      "face_delta": {
+        "available": false,
+        "p99_change_mm": null,
+        "max_change_mm": null
+      },
+      "telemetry_checks": {
+        "baseline": {
+          "requested_detail": true,
+          "effective_detail": true,
+          "not_unprotected_limited": true,
+          "passed": true
+        },
+        "candidate": {
+          "requested_detail": true,
+          "effective_detail": true,
+          "not_unprotected_limited": true,
+          "protected": true,
+          "enabled": true,
+          "passed": true
+        }
+      },
+      "baseline": {
+        "topology": {
+          "watertight": true,
+          "is_volume": true,
+          "winding_consistent": true,
+          "component_count": 1,
+          "nonmanifold_edge_count": 0,
+          "degenerate_face_count": 0,
+          "positive_volume": true,
+          "bbox_has_volume": true,
+          "face_count": 309440,
+          "vertex_count": 154722,
+          "printable": true
+        },
+        "shell": {
+          "passed": true,
+          "complete_shell_verified": true,
+          "facet_geometry_passed": true,
+          "coverage_ratio": 1.0,
+          "max_abs_error_mm": 0.0,
+          "rms_error_mm": 0.0,
+          "expected_shell_triangle_count": 309440,
+          "actual_shell_triangle_count": 309440,
+          "invalid_shell_triangle_count": 0
+        },
+        "physical_cap": {
+          "strict_passed": false,
+          "emission_passed": true,
+          "far_background_cap_passed": true,
+          "feasible_attachment_constraints_passed": true,
+          "far_background_max_mm": 19.510000228881836,
+          "far_background_ceiling_mm": 19.509999999776483,
+          "feasible_attachment_jump_max_mm": 0.8000001907348633,
+          "attachment_constraint_conflicts": 41,
+          "far_background_cap_violation_mm": 0.0
+        },
+        "background_preservation": {
+          "passed": true,
+          "correlation": 0.9999212227045924,
+          "rms_retention": 1.0000855800846329,
+          "gradient_correlation": 0.9889865390612079,
+          "candidate_coverage_ratio": 1.0
+        }
+      },
+      "candidate": {
+        "topology": {
+          "watertight": true,
+          "is_volume": true,
+          "winding_consistent": true,
+          "component_count": 1,
+          "nonmanifold_edge_count": 0,
+          "degenerate_face_count": 0,
+          "positive_volume": true,
+          "bbox_has_volume": true,
+          "face_count": 309440,
+          "vertex_count": 154722,
+          "printable": true
+        },
+        "shell": {
+          "passed": true,
+          "complete_shell_verified": true,
+          "facet_geometry_passed": true,
+          "coverage_ratio": 1.0,
+          "max_abs_error_mm": 0.0,
+          "rms_error_mm": 0.0,
+          "expected_shell_triangle_count": 309440,
+          "actual_shell_triangle_count": 309440,
+          "invalid_shell_triangle_count": 0
+        },
+        "physical_cap": {
+          "strict_passed": false,
+          "emission_passed": true,
+          "far_background_cap_passed": true,
+          "feasible_attachment_constraints_passed": true,
+          "far_background_max_mm": 19.510000228881836,
+          "far_background_ceiling_mm": 19.509999999776483,
+          "feasible_attachment_jump_max_mm": 0.8000001907348633,
+          "attachment_constraint_conflicts": 41,
+          "far_background_cap_violation_mm": 0.0
+        },
+        "background_preservation": {
+          "passed": true,
+          "correlation": 0.9999213393123264,
+          "rms_retention": 1.0000879007914791,
+          "gradient_correlation": 0.9891239916159917,
+          "candidate_coverage_ratio": 1.0
+        }
+      },
+      "checks": {
+        "same_composed_depth": true,
+        "retained_artifact_bundle_verified": true,
+        "surface_grid_match": true,
+        "selection_mask_match": true,
+        "detail_metrics": true,
+        "baseline_telemetry": true,
+        "candidate_telemetry": true,
+        "baseline_physical_cap": true,
+        "candidate_physical_cap": true,
+        "baseline_printable": true,
+        "candidate_printable": true,
+        "baseline_shell": true,
+        "candidate_shell": true,
+        "face_delta": true,
+        "face_metadata_contract": true,
+        "face_mask_contract": true,
+        "baseline_background_preservation": true,
+        "candidate_background_preservation": true,
+        "passed": true
+      }
+    }
+  ],
+  "checks": {
+    "expected_rows": true,
+    "all_scenes_passed": true,
+    "implementation_provenance_clean": true,
+    "passed": true
+  }
+}

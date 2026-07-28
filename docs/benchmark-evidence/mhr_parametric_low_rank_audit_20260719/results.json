@@ -1,0 +1,147 @@
+{
+  "schema_version": "mhr-parametric-low-rank-audit-v1",
+  "method": "mhr-parametric-low-rank-bounded-continuous-audit",
+  "status": "hold",
+  "promotion_eligible": false,
+  "decision": "No candidate observed in the bounded 640-evaluation pose-oracle audit strictly beat the production incumbent; production is unchanged.",
+  "scope": {
+    "row_id": "small_side_lit_shelves_256",
+    "apparent_face_pixels": "74-75",
+    "diagnostic_only": true,
+    "pose_oracle_diagnostic": true,
+    "candidate_generation_uses_ground_truth_camera_pose": true,
+    "known_pose_available_in_production": false,
+    "source_geometry_used_only_for_scoring": false,
+    "global_upper_bound_claimed": false,
+    "background_bit_exact": true,
+    "physical_30mm_replay_run": false,
+    "physical_30mm_replay_reason": "No candidate passed the strict incumbent gate."
+  },
+  "provenance": {
+    "mhr_official_source": "https://github.com/facebookresearch/MHR",
+    "mhr_source_revision": "4998cec385b1aaa07abdefba71bfba2f83c7db32",
+    "mhr_license": "Apache-2.0",
+    "mhr_model_sha256": "352e271a6c42729c68554ceaea0c955e866970160c31e35506d782dc0f7377bc",
+    "mhr_head_mask_sha256": "60a64a305731dcc1c09f167dfa844246443b3115ae05abebe3813aa64a9ba2ae",
+    "exact_source_summary_sha256": "e58442024f67c1569cedd37e183edd5b526036690af1912ac80b7375e0d55051",
+    "source_image_sha256": "2aca3775162f1b2320a47dbfead27e49e2d7b29654d80151d8ebc17315a8c074",
+    "selection_mask_sha256": "853d871ac859dc0904cd866bc8e552a55efbc3af8ba59d2da3ee4aac3583d0ef",
+    "training_corpus_summary_sha256": "d8717cced1d8f6753c15a7367dc1c84c5e62e0439f87b4380cca65f55fd665a5",
+    "training_supervision_manifest_sha256": "42cb6169170f0dd31a8715aefdf45229749d4418d54d19e4d5c48b8452c59acb",
+    "training_rows": 240,
+    "training_identity_groups": 30,
+    "manifest_matches_authoritative_training_partition": true,
+    "incumbent_results_sha256": "09356ff027d3cc5c654bd4730ad22352014e025f91c4e04f2ad3a0f6487092fa",
+    "evaluator_sha256": "66d9ebf8e857d27591b8179404a594322e5134558a7aefb32d69c9034f15c938",
+    "declared_input_assets_verified": true,
+    "consumed_job_assets_content_addressed": true,
+    "mhr_preflight_passed": true
+  },
+  "input_assets": {
+    "candidate_job_id": "95428e0cf1df421e8ddb7587a5a84c84",
+    "exact_depth_sha256": "a21f6396c57abd850786e00d40cf2776e048f7b8d0664170e86cdca8fa27a21b",
+    "candidate_request_sha256": "0b65e69c458a9c35baf6668d045b42c8a3bea9689c056e42f18f6520e70188f1",
+    "candidate_response_sha256": "af54380774b6e74993e9d5d2e7410afec8c35c914c15bcd73cff694e3e4fbd9c",
+    "exact_face_part_sha256": {
+      "left_eye": "76ffb7dc7df0fb93f94278276260ee9d97bfc09b31128593dafddfc06c4ee85f",
+      "left_eyebrow": "2b0f98d2eb9d0b0b56e3ec5fcf0aad58b99ff0cbd391589d253c035eda9ee1a3",
+      "mouth": "25ef20b733f902fd5fee88249a59a10b9fb48e563c402822bd3b0decf7c52c99",
+      "nose": "fc8de05a6f93302a375f8822dff6f9e81196a65fbcfcb840c15c09ebd72bda8e",
+      "right_eye": "3bb1b841ecccd9fdfc2779dfefd4898343be1c1a9b85a95a911716578bfc10d1",
+      "right_eyebrow": "f60d4c00e0234472047f16e71c0929ba2029fd733c605def5bf6f1230adc726d"
+    },
+    "consumed_job_sha256": {
+      "face_refinement_metadata": "4392e01d128b174725d6e6613bd23e92ec82e88265f759060b13aa399c7a5e5a",
+      "baseline_depth": "417202239d046203027c01d8a9c2f8a6b8a5e057b95385174b144575f5df4fe6",
+      "local_face_depth": "e1f4d129185ddd56ebf5cf0541952fa8470e87da1caf8f550aa493ad266dbab6",
+      "face_support_mask": "929245e9e1192e09cfcf7ea246e04f8392bfb092bff346bbbd74f8d85d165cbc"
+    }
+  },
+  "basis": {
+    "method": "pinned-mhr-unit-blendshape-area-and-six-region-weighted-head-jacobian",
+    "head_vertices": 5582,
+    "head_faces": 11124,
+    "region_weighting": "global-area-plus-equal-total-weight-six-regions",
+    "minimum_region_retention_gate": 0.95,
+    "identity": {
+      "rank": 12,
+      "global_retained_geometry_variance": 0.9744226363548766,
+      "minimum_region_retained_geometry_variance": 0.9503579427843002
+    },
+    "expression": {
+      "rank": 34,
+      "global_retained_geometry_variance": 0.9922608602343064,
+      "minimum_region_retained_geometry_variance": 0.9572787583310431
+    },
+    "rejected_expression_rank_32_minimum_region_retention": 0.9463057
+  },
+  "final_search": {
+    "optimizer": "scipy.optimize.differential_evolution",
+    "initialization": "sobol",
+    "seed": 20260719,
+    "dimensions": 49,
+    "population_size": 128,
+    "maximum_iterations": 4,
+    "evaluations": 640,
+    "failed_evaluations": 0,
+    "scipy_version": "1.12.0",
+    "python_version": "3.11.8",
+    "torch_version": "2.7.1+cu128",
+    "optimizer_success": false,
+    "optimizer_message": "Maximum number of iterations has been exceeded.",
+    "optimizer_iterations": 4,
+    "optimizer_function_evaluations": 640,
+    "runtime_seconds": 490.61480890000166,
+    "device": "cuda",
+    "peak_vram_gb": 1.1050310134887695,
+    "evidence_sha256": "83d1e6c6b5b3f32fceb6cb7d63397eeeba31aedfcd38d10e7902631f6934db2b",
+    "evidence_bytes": 24220
+  },
+  "metrics": {
+    "baseline": {
+      "combined_part_failures": 10,
+      "shape_correlation": 0.8047738479934161,
+      "gradient_correlation": 0.625533466645662,
+      "normalized_rmse": 0.17600701052848092
+    },
+    "incumbent": {
+      "combined_part_failures": 9,
+      "shape_correlation": 0.80701199809,
+      "gradient_correlation": 0.62579863455,
+      "normalized_rmse": 0.17510366967,
+      "shape_failed_parts": ["left_eye", "left_eyebrow", "mouth", "right_eye"],
+      "affine_failed_parts": ["left_eye", "left_eyebrow", "mouth", "nose", "right_eyebrow"]
+    },
+    "best": {
+      "combined_part_failures": 9,
+      "shape_correlation": 0.8050537484762149,
+      "gradient_correlation": 0.6258195994866287,
+      "normalized_rmse": 0.17589443056074736,
+      "shape_failed_parts": ["left_eye", "left_eyebrow", "mouth", "nose", "right_eye"],
+      "affine_failed_parts": ["left_eye", "left_eyebrow", "mouth", "nose"],
+      "strictly_beats_baseline": true,
+      "strictly_beats_incumbent": false
+    },
+    "strict_baseline_candidate": {
+      "combined_part_failures": 9,
+      "shape_correlation": 0.8050537484762149,
+      "gradient_correlation": 0.6258195994866287,
+      "normalized_rmse": 0.17589443056074736,
+      "strictly_beats_baseline": true,
+      "strictly_beats_incumbent": false
+    },
+    "strict_incumbent_candidate": null
+  },
+  "superseded_pre_provenance_runs": [
+    {"name": "mhr_parametric_low_rank_sobol_smoke_i12_e24_p3_g0_20260719", "evaluations": 128, "best_failures": 9, "evidence_sha256": "9d2915c18f5d7c3de9050eadf6634b10b629b09fbd4488a366b418ba7fc254cd", "evidence_bytes": 10748},
+    {"name": "mhr_parametric_low_rank_de_i12_e24_p3_g4_20260719", "evaluations": 640, "best_failures": 9, "evidence_sha256": "8b2b64d3713158f62a27d2922c701b1f01d4af45667687d3468b4bdf2ebdd656", "evidence_bytes": 10741},
+    {"name": "mhr_parametric_low_rank_geometry_sobol_i12_e32_p2_g0_v2_20260719", "evaluations": 128, "best_failures": 9, "evidence_sha256": "e018e90ed1cab9168811c4f7c4b509d59ef6682421ea00536744a7b63f359f00", "evidence_bytes": 17803},
+    {"name": "mhr_parametric_low_rank_geometry_de_i12_e32_p2_g4_20260719", "evaluations": 640, "best_failures": 9, "evidence_sha256": "c3d088c3b364a99ece8fb4100b7a187599b487ef3b5feb0f2a2352608dacff3f", "evidence_bytes": 17797},
+    {"name": "mhr_parametric_low_rank_region_pareto_sobol_i12_e34_p2_g0_20260719", "evaluations": 128, "best_failures": 9, "evidence_sha256": "862a520213da51216755061d1d4649e7fb7cc3d25d6e21566431aa2aea6de5b2", "evidence_bytes": 12979},
+    {"name": "mhr_parametric_low_rank_region_pareto_de_i12_e34_p2_g4_20260719", "evaluations": 640, "best_failures": 8, "evidence_sha256": "e15cd8bf05718c3f72e7e88bbe3c57adeaa147eb86780a82994b908963ae3054", "evidence_bytes": 19285, "superseded_reason": "Did not verify all consumed inputs or bind the running evaluator and mislabeled fixture pose use."}
+  ],
+  "schema_v2_runs": [
+    {"name": "mhr_parametric_low_rank_region_pareto_provenance_v2_sobol_i12_e34_p2_g0_20260719", "evaluations": 128, "best_failures": 9, "evidence_sha256": "a82cf46dbc29e93f476461e24234cfe681d0cc91e105d1625f317eff6509c691", "evidence_bytes": 17885},
+    {"name": "mhr_parametric_low_rank_region_pareto_provenance_v2_de_i12_e34_p2_g4_20260719", "evaluations": 640, "best_failures": 9, "evidence_sha256": "83d1e6c6b5b3f32fceb6cb7d63397eeeba31aedfcd38d10e7902631f6934db2b", "evidence_bytes": 24220}
+  ]
+}

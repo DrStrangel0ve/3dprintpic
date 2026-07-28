@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "date": "2026-07-18",
+  "production_changed": false,
+  "selected_next_lead": "pixel3dmm-full-fit-camera-depth",
+  "providers": [
+    {
+      "name": "Pixel3DMM full fit",
+      "source_url": "https://github.com/SimonGiebenhain/pixel3dmm",
+      "source_revision": "fcd1fa973c7715b02a8948dfc679dff53cf85924",
+      "status": "checkpoint-pinned-runtime-blocked",
+      "license": "CC BY-NC 4.0; registered FLAME research assets",
+      "native_geometry": "posed FLAME vertices plus perspective camera",
+      "camera_depth_contract": "world-to-camera R,t then positive -z_cam triangle rasterization before inverse crop warp",
+      "uv_checkpoint_size_bytes": 2246794577,
+      "uv_checkpoint_sha256": "dff9d73feec47914b704759f57ebffb8c58d2aef550b426013fe31eae21707b8",
+      "normal_checkpoint_size_bytes": 1469022184,
+      "normal_checkpoint_sha256": "e856799d55db54c7537c8ee3c5a4938c13cc0b24082ce7e4e7f35f0d0f0e28da",
+      "upstream_checkpoint_hashes_available": false,
+      "local_checkpoint_hashes_recorded": true,
+      "target_runtime": "isolated Linux or WSL2, Python 3.9, CUDA 11.8, PyTorch 2.7/cu118",
+      "runtime_preflight": {
+        "source_clone_clean": true,
+        "checkpoint_sizes_match": true,
+        "gpu_inference_run": false,
+        "local_wsl2_available": false,
+        "blocker": "HCS_E_HYPERV_NOT_INSTALLED; virtualization or Virtual Machine Platform is disabled"
+      },
+      "local_adapter": {
+        "implemented": true,
+        "transfer_ready": true,
+        "runtime_ready": false,
+        "tracking_size_pixels": 256,
+        "prediction_size_pixels": 512,
+        "depth_semantics": "positive -z_cam in FLAME model scale",
+        "crop_inverse": "exclusive stored bounds with half-pixel centers",
+        "crop_binding": "matching source SHA256, frame ID, and checkpoint image size required",
+        "viewport_to_array_index_offset": -0.5,
+        "rasterization": "perspective-correct reciprocal depth without silhouette depth antialiasing",
+        "source_landmark_replay_required": true,
+        "focused_tests_passed": 8,
+        "focused_subtests_passed": 6
+      },
+      "validation": {
+        "related_tests_passed": 30,
+        "related_subtests_passed": 6,
+        "backend_tests_passed": 908,
+        "backend_subtests_passed": 90,
+        "pre_existing_backend_failures": 4,
+        "new_failures": 0,
+        "adversarial_review_high_findings_fixed": 2
+      },
+      "production_eligible": false
+    },
+    {
+      "name": "TEASER",
+      "source_url": "https://github.com/julia-cherry/Teaser_official",
+      "source_revision": "089d7ef62a3311d2d83c7066478cc78737dff9a4",
+      "status": "blocked",
+      "blockers": [
+        "no repository license",
+        "no checkpoint license",
+        "weak-orthographic crop-relative depth only",
+        "registered FLAME 2020 dependency"
+      ]
+    },
+    {
+      "name": "Pix2NPHM",
+      "source_url": "https://github.com/SimonGiebenhain/Pix2NPHM",
+      "source_revision": "ab56162cbd9cab2b3cd8033c3f94190cced820b0",
+      "status": "blocked",
+      "blockers": [
+        "no runnable source",
+        "no public checkpoint",
+        "no license",
+        "no public camera-output contract"
+      ]
+    }
+  ]
+}

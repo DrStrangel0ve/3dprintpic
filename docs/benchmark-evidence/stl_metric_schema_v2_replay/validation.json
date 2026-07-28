@@ -1,0 +1,36 @@
+{
+  "benchmark_regression_tests": {
+    "passed": 209,
+    "failed": 0
+  },
+  "tracked_backend_tests": {
+    "passed": 312,
+    "failed": 0,
+    "subtests_passed": 6,
+    "warnings": 3
+  },
+  "evidence_validation": {
+    "json_files_parsed": 4,
+    "replay_summary_rows": 3
+  },
+  "selection_decisions": {
+    "hunyuan_optimal_d985_n10": {
+      "decision": "hold",
+      "checks": 42,
+      "failed_checks": 5,
+      "sha256": "3793a045bc760a15d6c58728069c8d8b2d3b291484e712df6ac53386225db504"
+    },
+    "trellis_component_close_guard_n1": {
+      "decision": "hold",
+      "checks": 13,
+      "failed_checks": 11,
+      "sha256": "c0860359199b1033825a3c9661ea1fcc68c89698461024ce18241172977c9e85"
+    },
+    "triposg_inferred_adaptive_n10": {
+      "decision": "hold",
+      "checks": 41,
+      "failed_checks": 10,
+      "sha256": "a08d37241be25120021a0bc8ad0895c9bec39ac57e7370711caaf8cd1c4555db"
+    }
+  }
+}

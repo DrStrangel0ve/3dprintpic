@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "captured_date": "2026-07-18",
+  "research_only": true,
+  "production_eligible": false,
+  "runtime": {
+    "python": "3.9.25",
+    "pytorch": "2.7.1+cu128",
+    "cuda_toolkit": "12.8",
+    "gpu": "NVIDIA GeForce RTX 3080 Ti",
+    "gpu_memory_gib": 12.0,
+    "tracking_iterations": 800,
+    "tracking_elapsed_seconds": 77.286288,
+    "tracking_peak_vram_gib": 0.21523046493530273,
+    "pipeline_peak_vram_gib": 3.084
+  },
+  "sources": {
+    "pixel3dmm": {
+      "url": "https://github.com/SimonGiebenhain/pixel3dmm.git",
+      "revision": "fcd1fa973c7715b02a8948dfc679dff53cf85924",
+      "license": "CC BY-NC 4.0"
+    },
+    "easy_pixel3dmm": {
+      "url": "https://github.com/tobias-kirschstein/easy-pixel3dmm.git",
+      "revision": "1d4e55dc3b9189627be0143a113696ec1769ef68",
+      "license": "CC BY-NC 4.0",
+      "runtime_patch_sha256": "7ca4f7469f50ded8605a48131ef4220a21fd0b9b621526ee7f21bb78868458a0",
+      "runtime_patch_scope": [
+        "second-stage face confidence 0.99 to 0.90",
+        "explicit model.eval() during inference"
+      ]
+    },
+    "face_parser": {
+      "url": "https://github.com/tobias-kirschstein/face-parser.git",
+      "revision": "4457aa33e29af0e4975d8b6be681b3968810cda3",
+      "license": "no repository-level license found",
+      "runtime_patch_sha256": "d89284191f865cc7529e2cfbb534faa965c685f0e864690b763103af1d14f950"
+    },
+    "pytorch3d": {
+      "url": "https://github.com/facebookresearch/pytorch3d.git",
+      "revision": "75ebeeaea0908c5527e7b1e305fbc7681382db47",
+      "license": "BSD 3-Clause",
+      "runtime_patch_sha256": "36a271d8a5befe54719366f3e27c640961c07d1d4b3991a12d778070c840b49e",
+      "installed_extension_sha256": "caf6725bb568920f7b502aff93fb4da542dcd970b226c4725996392b9489efea"
+    },
+    "nvdiffrast": {
+      "url": "https://github.com/NVlabs/nvdiffrast.git",
+      "revision": "253ac4fcea7de5f396371124af597e6cc957bfae"
+    },
+    "pipnet": {
+      "url": "https://github.com/jhb86253817/PIPNet.git",
+      "revision": "b9eab58816437403a34aa5bc3adeafe5081fd36b",
+      "license": "MIT"
+    },
+    "facer": {
+      "url": "https://github.com/FacePerceiver/facer.git",
+      "revision": "ddd35c76ff840174b8a5403ad1c1255e37b8782b",
+      "license": "MIT"
+    }
+  },
+  "public_checkpoint_sha256": {
+    "pixel3dmm_uv": "dff9d73feec47914b704759f57ebffb8c58d2aef550b426013fe31eae21707b8",
+    "pixel3dmm_normals": "e856799d55db54c7537c8ee3c5a4938c13cc0b24082ce7e4e7f35f0d0f0e28da",
+    "pipnet_wflw_epoch59": "44002daaf3187e6e4b99e0fd9a52f60ffa05e06ec5df3721ace950fd2f2cc120",
+    "faceboxes_v2": "aae07fec4b62ac655508c06336662538803407852312ca5009fd93fb487d8cd7",
+    "facer_farl_celebm_parser": "bbc1f0e9f68c80eb83a0b23f33850d1e10f2ec1eda96884112d111c2c1f15c79",
+    "facer_retinaface_mobilenet": "2979b33ffafda5d74b6948cd7a5b9a7a62f62b949cef24e95fd15d2883a65220",
+    "dino_vit_b16_bootstrap": "93181583427d6de3e18ab0e6ee4df35736cfc51a3c1bf9ae0e9b53b1316598dc"
+  },
+  "registered_assets_not_redistributed": {
+    "license": "FLAME registered non-commercial single-user research terms",
+    "generic_model_pkl_sha256": "efcd14cc4a69f3a3d9af8ded80146b5b6b50df3bd74cf69108213b144eba725b",
+    "flame_masks_pkl_sha256": "ccefbe1ac0774ff78c68caf2c627b4abc067a6555ebeb0be5d5b0812366ab492",
+    "landmark_embedding_npy_sha256": "8095348eeafce5a02f6bd8765146307f9567a3f03b316d788a2e47336d667954"
+  },
+  "input_sha256": {
+    "privacy_safe_source_png": "c5dddf6a8731b1cfa34f04ee05b4edd4829fa944a076c68f064db8072d9c4338",
+    "derived_source_x4_png": "5b534ffd67ed702317b4d1522fdb884d23871e6cb9a620a0bf1b9d02b66d5639"
+  },
+  "prediction_sha256": {
+    "normal_png": "5baf17418ca56a6349d0e25697bc70d6db12ae7fa34b6d524b80eda78e39570d",
+    "uv_png": "703a81ee41394ec7c4904a9f91c8d816e6f3c6283e179a6577ebbfb494675287",
+    "pipnet_landmarks_npy": "7902f0500d9f157a9cddac9a09222c08ab4781eb1b05962504e4fc5b4da0a28d"
+  },
+  "fit_artifact_sha256_not_redistributed": {
+    "checkpoint_frame": "415b8f770658558a6c3c582bab2e056d0732835c24368aa6d17142d46b5c9a17",
+    "posed_mesh_ply": "c3821a7fb53ddc6426eb5aea841009e7bd5d990abf9e9b6b14f9dd76a19a4ea9",
+    "canonical_mesh_ply": "657d4e01de03ed7caa468710bb6d85a9b23eb82c7d7c8b25962ac4e2c9472133",
+    "result_mp4": "eed014b34fc6eeed2a35bbdb83c0b109967e54dbd64127e18ee2117c2b5f8287"
+  }
+}

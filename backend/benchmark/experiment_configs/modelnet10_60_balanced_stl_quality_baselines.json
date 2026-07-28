@@ -1,0 +1,14 @@
+[
+  {
+    "name": "masked",
+    "method": "masked"
+  },
+  {
+    "name": "mirror",
+    "method": "mirror"
+  },
+  {
+    "name": "biharmonic",
+    "method": "biharmonic"
+  }
+]

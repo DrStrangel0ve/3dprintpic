@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "date": "2026-07-15",
+  "implementation_revision": "5738972a4f5d14ce66c4241855e99b2b62a4f36e",
+  "implementation_provenance_clean": true,
+  "matrix": {
+    "scene": "caucasian_female_smile_centered",
+    "providers": ["oracle", "depth-anything-v2-large", "da3metric-large"],
+    "relief_heights_mm": [30.0, 40.0],
+    "completed_rows": 6,
+    "all_downstream_rows_passed": true,
+    "all_cross_height_checks_passed": true
+  },
+  "da3metric_large": {
+    "source_commit": "3fe327a6abe2e5db95b54444ea95463dbfef5610",
+    "model_revision": "4010e39f3634a45bc60553321fb49fb760bd594e",
+    "license": "Apache-2.0",
+    "prediction_is_metric": false,
+    "intrinsics_available": false,
+    "sky_fraction": 0.0,
+    "absolute_peak_vram_gb": 2.1673998833,
+    "incremental_peak_vram_gb": 1.5321545601,
+    "raw_far_high_correlation": {
+      "face": -0.3162312435,
+      "background": -0.5152374070
+    },
+    "30mm": {
+      "normal_mean_cosine": 0.9002115992,
+      "normal_angle_p95_deg": 48.4292492823,
+      "minimum_lighting_correlation": 0.7251428036,
+      "failed_shape_parts": [
+        "left_eye",
+        "left_eyebrow",
+        "mouth",
+        "nose",
+        "right_eye",
+        "right_eyebrow"
+      ],
+      "worst_affine_part": "mouth",
+      "worst_part_p95_error_mm": 13.3626711338,
+      "background_candidate_span_mm": 18.6208109286,
+      "background_correlation": -0.2108897841,
+      "background_gradient_correlation": 0.2921758091
+    },
+    "40mm": {
+      "normal_mean_cosine": 0.8762551579,
+      "normal_angle_p95_deg": 53.6326105914,
+      "minimum_lighting_correlation": 0.7189317268,
+      "worst_affine_part": "mouth",
+      "worst_part_p95_error_mm": 17.8142905884,
+      "background_candidate_span_mm": 27.0948385622,
+      "background_correlation": -0.2165491377,
+      "background_gradient_correlation": 0.3355355911
+    }
+  },
+  "depth_anything_v2_large_ordering_diagnostic": {
+    "model_revision": "7581137eff8d4e94f6e796d3baea0e9fa79b22d2",
+    "expected_far_high_sign": -1,
+    "face_far_high_correlation": -0.9828172577,
+    "background_far_high_correlation": 0.5047845433,
+    "contract_consistent_across_regions": false,
+    "oracle_used_for_stl": false
+  },
+  "decision": {
+    "da3metric_large": "closed after centered smoke; no cropped expansion",
+    "polarity_flip": "rejected as oracle-selected and contrary to pinned model contract",
+    "next_lane": "bounded face-protected RGB plus provider-depth background fusion"
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "provider": {
+    "name": "Google GNM mean head",
+    "revision": "9c9419f191edd68644ef5cb6572e238248e9a81c",
+    "license": "Apache-2.0",
+    "model_sha256": "e50a702789af51347531e13721df1e5a26dcfc30ced9e243c7cede9fcac5db43",
+    "landmarks_sha256": "8b4b759042cae8b67062794306dae9d60fc7ba11ddad60461ba3e2bfaaeac222",
+    "mapping_revision": "14e7480964c564b35debd878bde359c204388919",
+    "mapping_license": "MIT",
+    "maximum_face_support_pixels": 55,
+    "minimum_alignment_correlation": 0.65,
+    "maximum_alignment_normalized_rmse": 0.35,
+    "high_confidence_alignment_correlation": 0.8,
+    "high_confidence_alignment_normalized_rmse": 0.26,
+    "guarded_correction_strength": 0.25
+  },
+  "exact_depth_gate": {
+    "row_count": 3,
+    "historical_failures": 19,
+    "paired_control_failures": 19,
+    "candidate_failures": 17,
+    "hard_row": {
+      "row_id": "small_side_lit_shelves_256",
+      "face_height_pixels": 76,
+      "control_failures": 10,
+      "candidate_failures": 8,
+      "control_shape_correlation": 0.8048920885612895,
+      "candidate_shape_correlation": 0.8067098490546978,
+      "control_gradient_correlation": 0.6235118065226685,
+      "candidate_gradient_correlation": 0.6262051119961661,
+      "control_normalized_rmse": 0.17595946604763765,
+      "candidate_normalized_rmse": 0.17522603885370824,
+      "pose_weighted_rms": 0.04838939013766322,
+      "coverage_ratio": 0.9388888888888889,
+      "skin_triangles": 24820,
+      "correction_limit": 0.10367191433906553,
+      "alignment_depth_correlation": 0.8101068416063266,
+      "alignment_normalized_rmse": 0.24820088086423858,
+      "reliability_tier": "high",
+      "correction_strength": 1.0,
+      "boundary_max_abs_correction": 0.0,
+      "outside_face_max_abs_correction": 0.0
+    },
+    "larger_rows_exact_control": true,
+    "decision": "eligible-for-30mm-stl-replay"
+  },
+  "varied_scene_gate": {
+    "row_count": 15,
+    "historical_failures": 77,
+    "paired_control_failures": 84,
+    "candidate_failures": 81,
+    "paired_control_median_gradient_correlation": 0.7037351103314885,
+    "candidate_median_gradient_correlation": 0.7078983409550691,
+    "candidate_median_shape_correlation": 0.9444649777030986,
+    "candidate_median_normalized_rmse": 0.10745007075320785,
+    "small_rows": [
+      {
+        "row_id": "fusion_asian_small_left_256",
+        "candidate_failures": 7,
+        "shape_delta": 0.0013488679942430526,
+        "gradient_delta": 0.002538111113457142,
+        "normalized_rmse_delta": -0.0007501601984069572
+      },
+      {
+        "row_id": "fusion_african_small_right_256",
+        "candidate_failures": 9,
+        "shape_delta": 0.0003617249725396121,
+        "gradient_delta": 0.0054079664226530655,
+        "normalized_rmse_delta": -0.00011619564298864793
+      },
+      {
+        "row_id": "fusion_caucasian_small_left_256",
+        "candidate_failures": 10,
+        "shape_delta": 0.0012022695929366778,
+        "gradient_delta": 0.009231669365156181,
+        "normalized_rmse_delta": -0.0003946904087565595
+      }
+    ],
+    "larger_rows_exact_control": true,
+    "decision": "pass"
+  },
+  "stl_30mm_gate": {
+    "row_count": 1,
+    "control_failures": 9,
+    "candidate_failures": 7,
+    "candidate_shape_failed_parts": [
+      "mouth",
+      "right_eye"
+    ],
+    "candidate_affine_failed_parts": [
+      "left_eye",
+      "left_eyebrow",
+      "mouth",
+      "nose",
+      "right_eyebrow"
+    ],
+    "background": {
+      "p02_p98_span_mm": 15.96227715291083,
+      "paired_correlation": 0.999990046475677,
+      "paired_rms_retention": 0.9997904451274363,
+      "candidate_gradient_correlation": 0.9986118489089769,
+      "candidate_coverage_ratio": 1.0
+    },
+    "face_minimum_lighting_correlation": 0.9727559737599674,
+    "surface_max_mm": 30.007740020751953,
+    "far_background_max_mm": 18.41897201538086,
+    "far_background_ceiling_mm": 19.509999999776483,
+    "far_background_violation_mm": 0.0,
+    "feasible_attachment_jump_max_mm": 0.8000001907348633,
+    "attachment_step_limit_mm": 0.8,
+    "attachment_constraint_conflicts": 9,
+    "topology": {
+      "watertight": true,
+      "manifold": true,
+      "winding_consistent": true,
+      "component_count": 1,
+      "face_count": 232320,
+      "vertex_count": 116162,
+      "degenerate_face_count": 0,
+      "positive_volume": true,
+      "complete_shell": true
+    },
+    "decision": "pass"
+  },
+  "raw_evidence": {
+    "source_summary_sha256": "9ff2878e8f73d1dc6a1ca3c2458178655d65784e373070618015c789bd844159",
+    "exact_gate_sha256": "82b36c9722d13a69a5299b8b54053f5428515eff764d795ea6a307b7b3b0693d",
+    "varied_scene_gate_sha256": "bc0c9ac37fc454ba5a0e11fc605da6ac8c7e736301d8cb4a7ced4f51a1d1d982",
+    "stl_30mm_gate_sha256": "4334e8084cd87efa69d377530e5ad3d67808338d374e92ee0fef92a25b00b350"
+  }
+}

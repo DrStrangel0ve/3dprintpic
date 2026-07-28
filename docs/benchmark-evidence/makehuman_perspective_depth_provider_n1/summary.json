@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "run": "makehuman_perspective_depth_provider_n1",
+  "privacy": "CC0 parametric synthetic head and deterministic procedural materials only",
+  "implementation_provenance": {
+    "revision": "2dea653881460a6b4b39d67fe1c2d2ce8ae62f7d",
+    "clean": true,
+    "scope": "tracked oracle, Depth Anything V2 Large, and MoGe-2 harness only"
+  },
+  "providers": {
+    "depth_anything_v2_large": {
+      "passed": false,
+      "minimum_named_part_shape_correlation": 0.9201,
+      "minimum_physical_gradient_correlation": 0.7456,
+      "maximum_p95_error_mm": 0.8674,
+      "background_correlation": -0.4930,
+      "background_gradient_correlation": 0.5436
+    },
+    "moge2_vitb_normal": {
+      "passed": false,
+      "minimum_named_part_shape_correlation": 0.8816,
+      "minimum_physical_gradient_correlation": 0.4534,
+      "maximum_p95_error_mm": 1.5024,
+      "background_correlation": -0.2955,
+      "background_gradient_correlation": 0.8208,
+      "inference_seconds": 0.206,
+      "peak_vram_gb": 1.866
+    },
+    "depth_anything_v3_base": {
+      "passed": false,
+      "evidence_status": "informational one-off; derived evaluator telemetry is not clean-harness replay certified",
+      "promotion_eligible": false,
+      "model_revision": "6544606276a24280a81c2e8d6af456870ff34f4e",
+      "source_commit": "e74fd796e96b7e781a5506fd8503b6bd7232513c",
+      "minimum_named_part_shape_correlation": 0.7069225101939741,
+      "minimum_physical_gradient_correlation": 0.4073551638850197,
+      "maximum_p95_error_mm": 2.6987120385065735,
+      "background_correlation": -0.2149941872339549,
+      "background_gradient_correlation": 0.9472745943752655,
+      "background_rms_retention": 1.0968085037073714,
+      "background_span_retention": 1.0337123391883924,
+      "inference_seconds": 0.7729753000021446,
+      "peak_vram_gb": 0.8015093803405762
+    }
+  },
+  "artifacts": {
+    "tracked_harness_summary_size_bytes": 142986,
+    "tracked_harness_summary_sha256": "d44776a50a5e87c0a4be07515a08bfdc5490b19b5627c9afe2b48aa061f8eddd",
+    "da3_provider_metadata_size_bytes": 386,
+    "da3_provider_metadata_sha256": "a35ce7b5212f604c9658c221d0ef1c3515814aba6464e3264f45ecf9c104f3ef",
+    "da3_raw_depth_size_bytes": 1016192,
+    "da3_raw_depth_sha256": "73e4d69f44a0b331aeaabe9895c720cb21a6afcaa59dd09091b59ed2b7b53509"
+  },
+  "decision": "hold_all_new_providers"
+}

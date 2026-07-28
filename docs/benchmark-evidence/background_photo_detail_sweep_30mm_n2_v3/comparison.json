@@ -1,0 +1,32 @@
+{
+  "implementation_revision": "91094d683772b926e13b4d134a2ceeb711a1e96e",
+  "implementation_clean": true,
+  "decision": "promote",
+  "recommended_background_photo_detail_mm": 0.6,
+  "relief_height_mm": 30.0,
+  "rows": 8,
+  "scenes": [
+    {
+      "scene": "caucasian_female_smile/centered",
+      "active_source_detail_correlation": 0.4774361041171204,
+      "active_detail_coverage_ratio": 0.39805722284671996,
+      "background_delta_rms_mm": 0.12036912888517018,
+      "background_delta_p95_mm": 0.26197967529296873,
+      "face_interior_p99_change_mm": 0.0004991626739501934,
+      "max_face_interior_change_mm": 0.002735137939453125,
+      "max_attachment_boundary_change_mm": 0.07193374633789062,
+      "all_downstream_checks_passed": true
+    },
+    {
+      "scene": "asian_female_asymmetric/right_frame",
+      "active_source_detail_correlation": 0.7050839488295884,
+      "active_detail_coverage_ratio": 0.2034510665356379,
+      "background_delta_rms_mm": 0.05846149707210301,
+      "background_delta_p95_mm": 0.08734169006347664,
+      "face_interior_p99_change_mm": 0.000171661376953125,
+      "max_face_interior_change_mm": 0.0008831024169921875,
+      "max_attachment_boundary_change_mm": 0.04004478454589844,
+      "all_downstream_checks_passed": true
+    }
+  ]
+}

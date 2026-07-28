@@ -1,0 +1,1172 @@
+"""Fine-tune only the DAv2 depth head on exact CC0 face geometry."""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import hashlib
+import inspect
+import json
+import random
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+import cv2
+import numpy as np
+from PIL import Image, __version__ as PILLOW_VERSION
+
+from backend.benchmark.c3i_synface_corpus import verified_corpus_asset
+from backend.benchmark.mhr_face_training_corpus import (
+    MHR_PROVIDER,
+    MHR_SOURCE_REVISION,
+)
+from backend.benchmark.run_cc0_live_face_variation_matrix import (
+    FACE_PART_NAMES,
+    _exact_face_depth_quality,
+)
+
+
+MODEL_ID = "depth-anything/Depth-Anything-V2-Large-hf"
+MODEL_REVISION = "7581137eff8d4e94f6e796d3baea0e9fa79b22d2"
+FACE_PADDING_RATIO = 0.35
+TRAINING_SEED = 20260716
+PART_WEIGHT = 2.0
+BACKGROUND_DISTILLATION_WEIGHT = 0.05
+GRADIENT_LOSS_WEIGHT = 0.75
+LAPLACIAN_LOSS_WEIGHT = 0.20
+BLEND_ALPHAS = (0.0, 0.05, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.60, 0.75, 1.0)
+SELECTION_OBJECTIVES = (
+    "global-failures",
+    "small-face-gradient",
+    "small-face-gradient-conservative",
+)
+SMALL_FACE_HEIGHT_MAX_PIXELS = 77
+SMALL_FACE_GRADIENT_PLATEAU_TOLERANCE = 0.002
+MAXIMUM_TRAINING_AUGMENTATIONS_PER_ROW = 4
+PHOTO_DOMAIN_AUGMENTATION = "deterministic-photo-domain-v1"
+PHOTOMETRIC_AUGMENTATION = "deterministic-photometric-v2"
+TRAINING_AUGMENTATION_PROFILES = (
+    PHOTO_DOMAIN_AUGMENTATION,
+    PHOTOMETRIC_AUGMENTATION,
+)
+
+
+@dataclass
+class CachedFace:
+    row: dict
+    feature: object
+    baseline: object
+    target: object
+    face_mask: object
+    part_weight: object
+    patch_height: int
+    patch_width: int
+    bbox: tuple[int, int, int, int]
+    augmentation_id: str = "original"
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _padded_box(
+    box: list[int] | tuple[int, int, int, int],
+    width: int,
+    height: int,
+    padding_ratio: float = FACE_PADDING_RATIO,
+) -> tuple[int, int, int, int]:
+    x0, y0, x1, y1 = (int(value) for value in box)
+    pad_x = int(round((x1 - x0) * max(float(padding_ratio), 0.0)))
+    pad_y = int(round((y1 - y0) * max(float(padding_ratio), 0.0)))
+    return (
+        max(x0 - pad_x, 0),
+        max(y0 - pad_y, 0),
+        min(x1 + pad_x, width),
+        min(y1 + pad_y, height),
+    )
+
+
+def _resize(
+    values: np.ndarray, shape: tuple[int, int], interpolation: int
+) -> np.ndarray:
+    return cv2.resize(
+        np.asarray(values),
+        (shape[1], shape[0]),
+        interpolation=interpolation,
+    )
+
+
+def _augment_training_crop(
+    image: Image.Image,
+    row_id: str,
+    augmentation_index: int,
+    profile: str = PHOTO_DOMAIN_AUGMENTATION,
+) -> Image.Image:
+    index = int(augmentation_index)
+    if index == 0:
+        return image.copy()
+    if not 0 <= index < MAXIMUM_TRAINING_AUGMENTATIONS_PER_ROW:
+        raise ValueError("Training augmentation index is out of bounds")
+    profile = str(profile)
+    if profile not in TRAINING_AUGMENTATION_PROFILES:
+        raise ValueError(f"Unknown training augmentation profile: {profile}")
+    seed_bytes = hashlib.sha256(
+        f"{TRAINING_SEED}:{row_id}:{index}:{profile}".encode()
+    ).digest()[:8]
+    rng = np.random.Generator(np.random.PCG64(int.from_bytes(seed_bytes, "little")))
+    values = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    height, width = values.shape[:2]
+    if profile == PHOTO_DOMAIN_AUGMENTATION:
+        scale = float(rng.uniform(0.52, 0.82))
+        reduced_width = max(16, int(round(width * scale)))
+        reduced_height = max(16, int(round(height * scale)))
+        values = cv2.resize(
+            values,
+            (reduced_width, reduced_height),
+            interpolation=cv2.INTER_AREA,
+        )
+        values = cv2.resize(
+            values,
+            (width, height),
+            interpolation=cv2.INTER_CUBIC,
+        )
+        gamma_range = (0.72, 1.38)
+        exposure_range = (0.78, 1.22)
+        color_range = (0.82, 1.18)
+        blur_range = (0.35, 1.15)
+        noise_range = (1.5, 5.0)
+        jpeg_range = (58, 86)
+    else:
+        gamma_range = (0.82, 1.24)
+        exposure_range = (0.86, 1.16)
+        color_range = (0.90, 1.10)
+        blur_range = (0.0, 0.28)
+        noise_range = (0.5, 2.0)
+        jpeg_range = (82, 97)
+    gamma = float(rng.uniform(*gamma_range))
+    exposure = float(rng.uniform(*exposure_range))
+    color = rng.uniform(*color_range, size=(1, 1, 3)).astype(np.float32)
+    values = np.power(np.clip(values, 0.0, 1.0), gamma) * exposure * color
+    sigma = float(rng.uniform(*blur_range))
+    if sigma > 0.05:
+        values = cv2.GaussianBlur(values, (0, 0), sigmaX=sigma, sigmaY=sigma)
+    noise = rng.normal(0.0, rng.uniform(*noise_range) / 255.0, values.shape)
+    values = np.clip(values + noise.astype(np.float32), 0.0, 1.0)
+    encoded_values = np.rint(values * 255.0).astype(np.uint8)
+    quality = int(rng.integers(*jpeg_range))
+    ok, encoded = cv2.imencode(
+        ".jpg",
+        cv2.cvtColor(encoded_values, cv2.COLOR_RGB2BGR),
+        [cv2.IMWRITE_JPEG_QUALITY, quality],
+    )
+    if not ok:
+        raise RuntimeError("Deterministic photo-domain JPEG encoding failed")
+    decoded = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+    if decoded is None or decoded.shape[:2] != (height, width):
+        raise RuntimeError("Deterministic photo-domain JPEG decoding failed")
+    return Image.fromarray(cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB))
+
+
+def _augmentation_variant_indices(
+    split: str,
+    augmentations_per_training_row: int,
+) -> range:
+    count = int(augmentations_per_training_row)
+    if split == "train":
+        return range(count)
+    if split in {"validation", "sealed"}:
+        return range(1)
+    raise ValueError(f"Unknown face-depth training split: {split}")
+
+
+def _augmentation_provenance(profile: str) -> dict:
+    source = inspect.getsource(_augment_training_crop).encode("utf-8")
+    return {
+        "profile": str(profile),
+        "implementation_sha256": hashlib.sha256(source).hexdigest(),
+        "numpy_version": np.__version__,
+        "opencv_version": cv2.__version__,
+        "pillow_version": PILLOW_VERSION,
+    }
+
+
+def _near_high_target(exact_depth: np.ndarray, face_mask: np.ndarray) -> np.ndarray:
+    exact = np.asarray(exact_depth, dtype=np.float32)
+    face = np.asarray(face_mask, dtype=bool) & np.isfinite(exact)
+    if np.count_nonzero(face) < 64:
+        raise ValueError("A training crop needs at least 64 finite face pixels")
+    low, high = np.percentile(exact[face], (2.0, 98.0))
+    span = max(float(high - low), 1e-6)
+    target = np.zeros(exact.shape, dtype=np.float32)
+    target[face] = np.clip(
+        (float(high) - exact[face]) / span,
+        -0.5,
+        1.5,
+    )
+    return target
+
+
+def _fit_prediction(prediction, target, mask):
+    import torch
+
+    weights = mask.to(dtype=prediction.dtype)
+    count = weights.sum().clamp_min(1.0)
+    x_mean = (prediction * weights).sum() / count
+    y_mean = (target * weights).sum() / count
+    centered_x = prediction - x_mean
+    centered_y = target - y_mean
+    variance = (centered_x.square() * weights).sum() / count
+    covariance = (centered_x * centered_y * weights).sum() / count
+    scale = torch.clamp(covariance / variance.clamp_min(1e-6), 1e-4, 100.0)
+    shift = y_mean - scale * x_mean
+    return scale * prediction + shift, scale, shift
+
+
+def _masked_mean(values, weights):
+    return (values * weights).sum() / weights.sum().clamp_min(1.0)
+
+
+def _training_loss(
+    prediction,
+    item: CachedFace,
+    *,
+    part_weight: float = PART_WEIGHT,
+    background_distillation_weight: float = BACKGROUND_DISTILLATION_WEIGHT,
+    gradient_loss_weight: float = GRADIENT_LOSS_WEIGHT,
+    laplacian_loss_weight: float = LAPLACIAN_LOSS_WEIGHT,
+):
+    import torch
+
+    target = item.target.to(device=prediction.device, dtype=prediction.dtype)
+    face = item.face_mask.to(device=prediction.device, dtype=prediction.dtype)
+    part_map = item.part_weight.to(
+        device=prediction.device,
+        dtype=prediction.dtype,
+    )
+    baseline = item.baseline.to(device=prediction.device, dtype=prediction.dtype)
+    fitted, scale, shift = _fit_prediction(prediction, target, face)
+    weights = face * (1.0 + float(part_weight) * part_map)
+    value_loss = _masked_mean(torch.abs(fitted - target), weights)
+
+    valid_x = face[:, 1:] * face[:, :-1]
+    valid_y = face[1:, :] * face[:-1, :]
+    gradient_x = (fitted[:, 1:] - fitted[:, :-1]) - (target[:, 1:] - target[:, :-1])
+    gradient_y = (fitted[1:, :] - fitted[:-1, :]) - (target[1:, :] - target[:-1, :])
+    gradient_loss = _masked_mean(torch.abs(gradient_x), valid_x)
+    gradient_loss += _masked_mean(torch.abs(gradient_y), valid_y)
+
+    laplace_kernel = torch.tensor(
+        [[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]],
+        device=prediction.device,
+        dtype=prediction.dtype,
+    )[None, None]
+    fitted_laplace = torch.nn.functional.conv2d(
+        fitted[None, None],
+        laplace_kernel,
+        padding=1,
+    )[0, 0]
+    target_laplace = torch.nn.functional.conv2d(
+        target[None, None],
+        laplace_kernel,
+        padding=1,
+    )[0, 0]
+    laplacian_loss = _masked_mean(
+        torch.abs(fitted_laplace - target_laplace),
+        weights,
+    )
+    background = 1.0 - face
+    distillation_loss = _masked_mean(
+        torch.abs(prediction - baseline),
+        background,
+    )
+    total = (
+        value_loss
+        + float(gradient_loss_weight) * gradient_loss
+        + float(laplacian_loss_weight) * laplacian_loss
+        + float(background_distillation_weight) * distillation_loss
+    )
+    return total, {
+        "value": float(value_loss.detach()),
+        "gradient": float(gradient_loss.detach()),
+        "laplacian": float(laplacian_loss.detach()),
+        "background_distillation": float(distillation_loss.detach()),
+        "fit_scale": float(scale.detach()),
+        "fit_shift": float(shift.detach()),
+    }
+
+
+def _load_mask(path: Path) -> np.ndarray:
+    return np.asarray(Image.open(path).convert("L")) >= 128
+
+
+def _target_depth_record(row: dict) -> tuple[dict, str]:
+    camera_depth = row.get("exact_camera_depth")
+    if isinstance(camera_depth, dict):
+        return camera_depth, "floating-normalized-camera-z"
+    return row["exact_depth"], "normalized-scene-depth"
+
+
+def _validate_training_corpus_summary(summary: dict) -> dict:
+    provider = summary.get("provider")
+    if provider != MHR_PROVIDER:
+        return {
+            "provider": provider or "legacy-face-training-corpus",
+            "target_depth": "normalized-scene-depth",
+            "camera_aligned": False,
+        }
+    rows = summary.get("rows")
+    row_ids = [row.get("row_id") for row in rows] if isinstance(rows, list) else []
+    row_ids_valid = bool(row_ids) and all(
+        isinstance(row_id, str) and bool(row_id.strip()) for row_id in row_ids
+    )
+    identity_splits: dict[str, set[str]] = {}
+    identity_row_counts: dict[str, int] = {}
+    valid_row_metadata = bool(rows)
+    if isinstance(rows, list):
+        for row in rows:
+            identity = row.get("identity_group")
+            split = row.get("split")
+            if not identity or split not in {"train", "validation", "sealed"}:
+                valid_row_metadata = False
+                continue
+            identity_splits.setdefault(identity, set()).add(split)
+            identity_row_counts[identity] = identity_row_counts.get(identity, 0) + 1
+    split_identity_counts = {
+        split: sum(split in splits for splits in identity_splits.values())
+        for split in ("train", "validation", "sealed")
+    }
+    identity_audit = {
+        "row_metadata_valid": valid_row_metadata,
+        "row_ids_valid": row_ids_valid,
+        "row_ids_unique": row_ids_valid and len(row_ids) == len(set(row_ids)),
+        "identities_disjoint": bool(identity_splits)
+        and all(len(splits) == 1 for splits in identity_splits.values()),
+        "identity_count": len(identity_splits),
+        "split_identity_counts": split_identity_counts,
+        "rows_per_identity_are_eight": bool(identity_row_counts)
+        and all(count == 8 for count in identity_row_counts.values()),
+    }
+    identity_audit["passed"] = bool(
+        identity_audit["row_metadata_valid"]
+        and identity_audit["row_ids_valid"]
+        and identity_audit["row_ids_unique"]
+        and identity_audit["identities_disjoint"]
+        and identity_audit["identity_count"] == 40
+        and split_identity_counts
+        == {
+            "train": 30,
+            "validation": 5,
+            "sealed": 5,
+        }
+        and identity_audit["rows_per_identity_are_eight"]
+    )
+    checks = {
+        "source_revision": summary.get("source_revision") == MHR_SOURCE_REVISION,
+        "training_matrix": summary.get("matrix_kind") == "training",
+        "corpus_complete": summary.get("corpus_complete") is True,
+        "training_eligible": summary.get("training_eligible") is True,
+        "identity_disjoint": (
+            summary.get("identity_disjoint_splits") is True and identity_audit["passed"]
+        ),
+        "deterministic_cpu": (
+            (summary.get("deterministic_generation") or {}).get(
+                "device_requirement_met"
+            )
+            is True
+        ),
+        "not_promotion_evidence": summary.get("promotion_eligible") is False,
+    }
+    if not all(checks.values()):
+        failed = [name for name, passed in checks.items() if not passed]
+        raise ValueError("MHR training corpus contract failed: " + ", ".join(failed))
+    return {
+        "provider": provider,
+        "target_depth": "floating-normalized-camera-z",
+        "camera_aligned": True,
+        "checks": checks,
+        "identity_split_audit": identity_audit,
+    }
+
+
+def _crop_row(corpus_root: Path, row: dict) -> dict:
+    source_path = verified_corpus_asset(corpus_root, row["source"])
+    source = Image.open(source_path).convert("RGB")
+    target_record, target_representation = _target_depth_record(row)
+    exact = np.load(verified_corpus_asset(corpus_root, target_record)).astype(
+        np.float32
+    )
+    face = _load_mask(verified_corpus_asset(corpus_root, row["selection_mask"]))
+    if exact.shape != face.shape or exact.shape != (source.height, source.width):
+        raise ValueError("Face training source, target, and mask shapes must match")
+    bbox = _padded_box(
+        row["render"]["face_bbox_xyxy"],
+        source.width,
+        source.height,
+    )
+    x0, y0, x1, y1 = bbox
+    crop_shape = (y1 - y0, x1 - x0)
+    part = np.zeros(exact.shape, dtype=bool)
+    for name in FACE_PART_NAMES:
+        part |= _load_mask(
+            verified_corpus_asset(corpus_root, row["exact_face_parts"][name])
+        )
+    return {
+        "source_crop": source.crop(bbox),
+        "target_crop": _near_high_target(exact, face)[y0:y1, x0:x1],
+        "face_crop": face[y0:y1, x0:x1],
+        "part_crop": part[y0:y1, x0:x1],
+        "crop_shape": crop_shape,
+        "bbox": bbox,
+        "target_representation": target_representation,
+    }
+
+
+def _prepare_training_items(
+    corpus_root: Path,
+    rows: list[dict],
+    device: str,
+    *,
+    augmentations_per_training_row: int = 1,
+    training_augmentation: str = PHOTO_DOMAIN_AUGMENTATION,
+):
+    import torch
+    from huggingface_hub import snapshot_download
+    from transformers import AutoImageProcessor, AutoModelForDepthEstimation
+
+    snapshot = snapshot_download(
+        MODEL_ID,
+        revision=MODEL_REVISION,
+        local_files_only=True,
+    )
+    processor = AutoImageProcessor.from_pretrained(snapshot, local_files_only=True)
+    dtype = torch.float16 if device.startswith("cuda") else torch.float32
+    model = AutoModelForDepthEstimation.from_pretrained(
+        snapshot,
+        local_files_only=True,
+        dtype=dtype,
+    ).to(device)
+    model.eval()
+    for parameter in model.backbone.parameters():
+        parameter.requires_grad_(False)
+    for parameter in model.neck.parameters():
+        parameter.requires_grad_(False)
+    cached = []
+    peak_vram = 0.0
+    prepared_count = 0
+    for row in rows:
+        prepared = _crop_row(corpus_root, row)
+        for augmentation_index in _augmentation_variant_indices(
+            str(row["split"]),
+            augmentations_per_training_row,
+        ):
+            source_crop = _augment_training_crop(
+                prepared["source_crop"],
+                str(row["row_id"]),
+                augmentation_index,
+                training_augmentation,
+            )
+            pixel_values = processor(
+                images=source_crop,
+                return_tensors="pt",
+            )["pixel_values"].to(device=device, dtype=dtype)
+            patch_height = pixel_values.shape[-2] // model.config.patch_size
+            patch_width = pixel_values.shape[-1] // model.config.patch_size
+            with torch.inference_mode():
+                backbone = model.backbone.forward_with_filtered_kwargs(pixel_values)
+                hidden = model.neck(
+                    backbone.feature_maps,
+                    patch_height,
+                    patch_width,
+                )
+                baseline = model.head(hidden, patch_height, patch_width)
+            output_shape = tuple(int(value) for value in baseline.shape[-2:])
+            target = _resize(
+                prepared["target_crop"],
+                output_shape,
+                cv2.INTER_CUBIC,
+            )
+            face = _resize(
+                prepared["face_crop"].astype(np.uint8),
+                output_shape,
+                cv2.INTER_NEAREST,
+            ).astype(bool)
+            part = _resize(
+                prepared["part_crop"].astype(np.uint8),
+                output_shape,
+                cv2.INTER_NEAREST,
+            ).astype(bool)
+            cached.append(
+                CachedFace(
+                    row=row,
+                    feature=hidden[-1][0].detach().cpu().to(torch.float16),
+                    baseline=baseline[0].detach().cpu().to(torch.float16),
+                    target=torch.from_numpy(target.astype(np.float32)),
+                    face_mask=torch.from_numpy(face),
+                    part_weight=torch.from_numpy(part.astype(np.float32)),
+                    patch_height=int(patch_height),
+                    patch_width=int(patch_width),
+                    bbox=prepared["bbox"],
+                    augmentation_id=(
+                        "original"
+                        if augmentation_index == 0
+                        else f"{training_augmentation}-{augmentation_index}"
+                    ),
+                )
+            )
+            prepared_count += 1
+            if device.startswith("cuda"):
+                peak_vram = max(
+                    peak_vram,
+                    float(torch.cuda.max_memory_allocated(device) / (1024**3)),
+                )
+            if prepared_count % 80 == 0:
+                print(f"prepared {prepared_count} feature rows", flush=True)
+    model.head.to(dtype=torch.float32)
+    return (
+        cached,
+        model,
+        {
+            "snapshot": str(snapshot),
+            "snapshot_model_sha256": _sha256(Path(snapshot) / "model.safetensors"),
+            "processor_sha256": _sha256(Path(snapshot) / "preprocessor_config.json"),
+            "peak_vram_gb": peak_vram,
+            "prepared_feature_rows": len(cached),
+            "augmentations_per_training_row": int(augmentations_per_training_row),
+            "training_augmentation": training_augmentation,
+        },
+    )
+
+
+def _head_prediction(model, item: CachedFace, device: str):
+    feature = item.feature.to(
+        device=device,
+        dtype=next(model.head.parameters()).dtype,
+    )[None]
+    return model.head(
+        [feature],
+        item.patch_height,
+        item.patch_width,
+    )[0]
+
+
+def _quality(
+    corpus_root: Path,
+    item: CachedFace,
+    prediction: np.ndarray,
+    output_dir: Path,
+    label: str,
+) -> dict:
+    row = item.row
+    target_record, _ = _target_depth_record(row)
+    target_path = verified_corpus_asset(corpus_root, target_record)
+    exact = np.load(target_path)
+    candidate = np.full(exact.shape, np.nan, dtype=np.float32)
+    x0, y0, x1, y1 = item.bbox
+    resized = _resize(
+        prediction,
+        (y1 - y0, x1 - x0),
+        cv2.INTER_CUBIC,
+    )
+    candidate[y0:y1, x0:x1] = resized
+    path = output_dir / label / f"{row['row_id']}.npy"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(path, candidate)
+    part_paths = {
+        name: verified_corpus_asset(corpus_root, row["exact_face_parts"][name])
+        for name in FACE_PART_NAMES
+    }
+    metrics = _exact_face_depth_quality(
+        path,
+        target_path,
+        verified_corpus_asset(corpus_root, row["selection_mask"]),
+        expected_scale_sign=-1.0,
+        part_mask_paths=part_paths,
+    )
+    return {
+        "row_id": row["row_id"],
+        "identity_group": row["identity_group"],
+        "expression": row["expression"],
+        "face_height_pixels": row["render"]["face_bbox_height_pixels"],
+        "shape_correlation": metrics["shape_correlation"],
+        "gradient_correlation": metrics["gradient_correlation"],
+        "normalized_rmse": metrics["normalized_rmse"],
+        "shape_failed_parts": metrics["named_part_shape"]["failed_parts"],
+        "affine_failed_parts": metrics["named_part_affine_mm"]["failed_parts"],
+    }
+
+
+def _summarize(rows: list[dict]) -> dict:
+    return {
+        "row_count": len(rows),
+        "combined_part_failures": sum(
+            len(row["shape_failed_parts"]) + len(row["affine_failed_parts"])
+            for row in rows
+        ),
+        "median_shape_correlation": float(
+            np.median([row["shape_correlation"] for row in rows])
+        ),
+        "median_gradient_correlation": float(
+            np.median([row["gradient_correlation"] for row in rows])
+        ),
+        "median_normalized_rmse": float(
+            np.median([row["normalized_rmse"] for row in rows])
+        ),
+        "rows": rows,
+    }
+
+
+def _evaluate(
+    corpus_root: Path,
+    items: list[CachedFace],
+    model,
+    device: str,
+    output_dir: Path,
+    label: str,
+) -> dict:
+    import torch
+
+    model.head.eval()
+    records = []
+    with torch.inference_mode():
+        for item in items:
+            prediction = _head_prediction(model, item, device).float().cpu().numpy()
+            records.append(_quality(corpus_root, item, prediction, output_dir, label))
+    return _summarize(records)
+
+
+def _evaluate_baseline(
+    corpus_root: Path,
+    items: list[CachedFace],
+    output_dir: Path,
+    label: str,
+) -> dict:
+    records = [
+        _quality(
+            corpus_root,
+            item,
+            item.baseline.float().numpy(),
+            output_dir,
+            label,
+        )
+        for item in items
+    ]
+    return _summarize(records)
+
+
+def _predict_items(items: list[CachedFace], model, device: str) -> list[np.ndarray]:
+    import torch
+
+    model.head.eval()
+    with torch.inference_mode():
+        return [
+            _head_prediction(model, item, device).float().cpu().numpy()
+            for item in items
+        ]
+
+
+def _evaluate_blend(
+    corpus_root: Path,
+    items: list[CachedFace],
+    trained_predictions: list[np.ndarray],
+    alpha: float,
+    output_dir: Path,
+    label: str,
+) -> dict:
+    records = []
+    for item, trained in zip(items, trained_predictions, strict=True):
+        baseline = item.baseline.float().numpy()
+        prediction = ((1.0 - float(alpha)) * baseline + float(alpha) * trained).astype(
+            np.float32
+        )
+        records.append(
+            _quality(
+                corpus_root,
+                item,
+                prediction,
+                output_dir,
+                label,
+            )
+        )
+    return _summarize(records)
+
+
+def _strictly_improves(candidate: dict, baseline: dict) -> bool:
+    return bool(
+        candidate["combined_part_failures"] < baseline["combined_part_failures"]
+        and candidate["median_shape_correlation"]
+        >= baseline["median_shape_correlation"]
+        and candidate["median_gradient_correlation"]
+        >= baseline["median_gradient_correlation"]
+        and candidate["median_normalized_rmse"] <= baseline["median_normalized_rmse"]
+    )
+
+
+def _small_face_summary(summary: dict) -> dict:
+    rows = [
+        row
+        for row in summary["rows"]
+        if int(row["face_height_pixels"]) <= SMALL_FACE_HEIGHT_MAX_PIXELS
+    ]
+    if not rows:
+        raise ValueError("Face-depth selection requires small-face validation rows")
+    return _summarize(rows)
+
+
+def _epoch_rank(validation: dict, objective: str) -> tuple:
+    if objective not in SELECTION_OBJECTIVES:
+        raise ValueError(f"Unknown face-depth selection objective: {objective}")
+    if objective.startswith("small-face-gradient"):
+        small_face = _small_face_summary(validation)
+        return (
+            -small_face["median_gradient_correlation"],
+            small_face["combined_part_failures"],
+            small_face["median_normalized_rmse"],
+            -small_face["median_shape_correlation"],
+            validation["combined_part_failures"],
+            validation["median_normalized_rmse"],
+        )
+    return (
+        validation["combined_part_failures"],
+        validation["median_normalized_rmse"],
+        -validation["median_shape_correlation"],
+    )
+
+
+def _select_blend_candidate(candidates: list[dict], objective: str) -> dict:
+    if objective not in SELECTION_OBJECTIVES:
+        raise ValueError(f"Unknown face-depth selection objective: {objective}")
+    eligible = [candidate for candidate in candidates if candidate["eligible"]]
+    if objective in {
+        "small-face-gradient",
+        "small-face-gradient-conservative",
+    }:
+        eligible = [
+            candidate for candidate in eligible if candidate["small_face_eligible"]
+        ]
+        if objective == "small-face-gradient-conservative" and eligible:
+            best_gradient = max(
+                candidate["small_face"]["median_gradient_correlation"]
+                for candidate in eligible
+            )
+            eligible = [
+                candidate
+                for candidate in eligible
+                if candidate["small_face"]["median_gradient_correlation"]
+                >= best_gradient - SMALL_FACE_GRADIENT_PLATEAU_TOLERANCE
+            ]
+
+            def key(candidate):
+                return (
+                    candidate["alpha"],
+                    candidate["small_face"]["combined_part_failures"],
+                    candidate["small_face"]["median_normalized_rmse"],
+                    -candidate["small_face"]["median_shape_correlation"],
+                )
+
+        else:
+
+            def key(candidate):
+                return (
+                    -candidate["small_face"]["median_gradient_correlation"],
+                    candidate["small_face"]["combined_part_failures"],
+                    candidate["small_face"]["median_normalized_rmse"],
+                    -candidate["small_face"]["median_shape_correlation"],
+                    candidate["alpha"],
+                )
+    else:
+
+        def key(candidate):
+            return (
+                candidate["combined_part_failures"],
+                candidate["median_normalized_rmse"],
+                -candidate["median_shape_correlation"],
+                candidate["alpha"],
+            )
+
+    return min(eligible, key=key) if eligible else candidates[0]
+
+
+def train(
+    corpus_root: str | Path,
+    output_dir: str | Path,
+    *,
+    epochs: int = 5,
+    learning_rate: float = 2e-4,
+    device: str = "cuda",
+    part_weight: float = PART_WEIGHT,
+    background_distillation_weight: float = BACKGROUND_DISTILLATION_WEIGHT,
+    gradient_loss_weight: float = GRADIENT_LOSS_WEIGHT,
+    laplacian_loss_weight: float = LAPLACIAN_LOSS_WEIGHT,
+    selection_objective: str = "global-failures",
+    augmentations_per_training_row: int = 1,
+    training_augmentation: str = PHOTO_DOMAIN_AUGMENTATION,
+) -> dict:
+    import torch
+
+    loss_weights = {
+        "part": float(part_weight),
+        "background_distillation": float(background_distillation_weight),
+        "gradient": float(gradient_loss_weight),
+        "laplacian": float(laplacian_loss_weight),
+    }
+    if any(not np.isfinite(value) or value < 0.0 for value in loss_weights.values()):
+        raise ValueError(
+            "Face depth training loss weights must be finite and nonnegative"
+        )
+    if selection_objective not in SELECTION_OBJECTIVES:
+        raise ValueError(
+            f"Unknown face-depth selection objective: {selection_objective}"
+        )
+    if (
+        not 1
+        <= int(augmentations_per_training_row)
+        <= (MAXIMUM_TRAINING_AUGMENTATIONS_PER_ROW)
+    ):
+        raise ValueError(
+            "Training augmentations per row must be between 1 and "
+            f"{MAXIMUM_TRAINING_AUGMENTATIONS_PER_ROW}"
+        )
+    if training_augmentation not in TRAINING_AUGMENTATION_PROFILES:
+        raise ValueError(
+            f"Unknown training augmentation profile: {training_augmentation}"
+        )
+    augmentation_provenance = _augmentation_provenance(training_augmentation)
+    corpus_root = Path(corpus_root)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary = json.loads((corpus_root / "summary.json").read_text(encoding="utf-8"))
+    corpus_contract = _validate_training_corpus_summary(summary)
+    rows = summary["rows"]
+    split_counts = {
+        name: sum(row["split"] == name for row in rows)
+        for name in ("train", "validation", "sealed")
+    }
+    if split_counts != {"train": 240, "validation": 40, "sealed": 40}:
+        raise ValueError(
+            "Training requires the complete identity-disjoint 240/40/40 corpus"
+        )
+    random.seed(TRAINING_SEED)
+    np.random.seed(TRAINING_SEED)
+    torch.manual_seed(TRAINING_SEED)
+    torch.cuda.manual_seed_all(TRAINING_SEED)
+    torch.use_deterministic_algorithms(True)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    if device.startswith("cuda") and not torch.cuda.is_available():
+        raise RuntimeError("CUDA is required for the bounded DAv2 head training run")
+    started = time.perf_counter()
+    cached, model, model_provenance = _prepare_training_items(
+        corpus_root,
+        rows,
+        device,
+        augmentations_per_training_row=augmentations_per_training_row,
+        training_augmentation=training_augmentation,
+    )
+    by_split = {
+        name: [item for item in cached if item.row["split"] == name]
+        for name in split_counts
+    }
+    baseline_validation = _evaluate_baseline(
+        corpus_root,
+        by_split["validation"],
+        output_dir,
+        "baseline_validation",
+    )
+    baseline_sealed = _evaluate_baseline(
+        corpus_root,
+        by_split["sealed"],
+        output_dir,
+        "baseline_sealed",
+    )
+    baseline_validation_small = _small_face_summary(baseline_validation)
+    baseline_sealed_small = _small_face_summary(baseline_sealed)
+    optimizer = torch.optim.AdamW(
+        model.head.parameters(),
+        lr=float(learning_rate),
+        weight_decay=1e-4,
+    )
+    generator = random.Random(TRAINING_SEED)
+    epochs_record = []
+    best_state = copy.deepcopy(model.head.state_dict())
+    best_rank = _epoch_rank(baseline_validation, selection_objective)
+    best_epoch = 0
+    for epoch in range(1, int(epochs) + 1):
+        model.head.train()
+        order = list(by_split["train"])
+        generator.shuffle(order)
+        losses = []
+        for item in order:
+            prediction = _head_prediction(model, item, device)
+            loss, components = _training_loss(
+                prediction,
+                item,
+                part_weight=part_weight,
+                background_distillation_weight=background_distillation_weight,
+                gradient_loss_weight=gradient_loss_weight,
+                laplacian_loss_weight=laplacian_loss_weight,
+            )
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.head.parameters(), 1.0)
+            optimizer.step()
+            losses.append({"total": float(loss.detach()), **components})
+        validation = _evaluate(
+            corpus_root,
+            by_split["validation"],
+            model,
+            device,
+            output_dir,
+            f"validation_epoch_{epoch:02d}",
+        )
+        rank = _epoch_rank(validation, selection_objective)
+        if rank < best_rank:
+            best_rank = rank
+            best_epoch = epoch
+            best_state = copy.deepcopy(model.head.state_dict())
+        epochs_record.append(
+            {
+                "epoch": epoch,
+                "mean_total_loss": float(np.mean([row["total"] for row in losses])),
+                "mean_value_loss": float(np.mean([row["value"] for row in losses])),
+                "mean_gradient_loss": float(
+                    np.mean([row["gradient"] for row in losses])
+                ),
+                "mean_laplacian_loss": float(
+                    np.mean([row["laplacian"] for row in losses])
+                ),
+                "validation": validation,
+            }
+        )
+        print(
+            f"epoch {epoch}: validation failures "
+            f"{validation['combined_part_failures']}",
+            flush=True,
+        )
+    model.head.load_state_dict(best_state)
+    validation_predictions = _predict_items(
+        by_split["validation"],
+        model,
+        device,
+    )
+    blend_candidates = []
+    for alpha in BLEND_ALPHAS:
+        candidate = _evaluate_blend(
+            corpus_root,
+            by_split["validation"],
+            validation_predictions,
+            alpha,
+            output_dir,
+            f"validation_blend_{alpha:g}",
+        )
+        blend_candidates.append(
+            {
+                "alpha": float(alpha),
+                "eligible": _strictly_improves(candidate, baseline_validation),
+                "small_face": _small_face_summary(candidate),
+                "small_face_eligible": _strictly_improves(
+                    _small_face_summary(candidate),
+                    baseline_validation_small,
+                ),
+                **candidate,
+            }
+        )
+    selected_blend = _select_blend_candidate(
+        blend_candidates,
+        selection_objective,
+    )
+    sealed_predictions = _predict_items(by_split["sealed"], model, device)
+    sealed = _evaluate_blend(
+        corpus_root,
+        by_split["sealed"],
+        sealed_predictions,
+        selected_blend["alpha"],
+        output_dir,
+        "sealed_selected_blend",
+    )
+    sealed_small = _small_face_summary(sealed)
+    checkpoint_path = output_dir / "depth_anything_v2_face_head.pt"
+    torch.save(
+        {
+            "schema_version": 1,
+            "model_id": MODEL_ID,
+            "model_revision": MODEL_REVISION,
+            "head_state_dict": {
+                name: value.detach().cpu() for name, value in best_state.items()
+            },
+            "training_seed": TRAINING_SEED,
+            "selected_epoch": best_epoch,
+            "epoch_selection_objective": selection_objective,
+            "blend_alpha": selected_blend["alpha"],
+            "corpus_provider": corpus_contract["provider"],
+            "target_depth_representation": corpus_contract["target_depth"],
+            "loss_weights": loss_weights,
+            "selection_objective": selection_objective,
+            "small_face_height_max_pixels": SMALL_FACE_HEIGHT_MAX_PIXELS,
+            "small_face_gradient_plateau_tolerance": (
+                SMALL_FACE_GRADIENT_PLATEAU_TOLERANCE
+            ),
+            "augmentations_per_training_row": int(augmentations_per_training_row),
+            "training_augmentation": training_augmentation,
+            "training_augmentation_provenance": augmentation_provenance,
+        },
+        checkpoint_path,
+    )
+    evidence = {
+        "schema_version": 1,
+        "method": "frozen_dinov2_and_neck_train_depth_anything_v2_head",
+        "model": {
+            "id": MODEL_ID,
+            "revision": MODEL_REVISION,
+            **model_provenance,
+        },
+        "corpus": {
+            "summary_sha256": _sha256(corpus_root / "summary.json"),
+            "asset_manifest_sha256": summary.get("asset_manifest_sha256"),
+            "training_supervision_manifest_sha256": (
+                (summary.get("geometry_target_contract") or {})
+                .get("supervision_manifest", {})
+                .get("sha256")
+            ),
+            "contract": corpus_contract,
+            "split_counts": split_counts,
+            "prepared_split_counts": {
+                name: len(by_split[name]) for name in split_counts
+            },
+        },
+        "training": {
+            "seed": TRAINING_SEED,
+            "epochs": int(epochs),
+            "learning_rate": float(learning_rate),
+            "part_weight": loss_weights["part"],
+            "background_distillation_weight": loss_weights["background_distillation"],
+            "gradient_loss_weight": loss_weights["gradient"],
+            "laplacian_loss_weight": loss_weights["laplacian"],
+            "selected_epoch": best_epoch,
+            "selection_objective": selection_objective,
+            "augmentations_per_training_row": int(augmentations_per_training_row),
+            "training_augmentation": training_augmentation,
+            "augmentation_provenance": augmentation_provenance,
+            "epochs_record": epochs_record,
+        },
+        "blend_selection": {
+            "selection_scope": "identity-disjoint-validation-only",
+            "objective": selection_objective,
+            "small_face_height_max_pixels": SMALL_FACE_HEIGHT_MAX_PIXELS,
+            "small_face_gradient_plateau_tolerance": (
+                SMALL_FACE_GRADIENT_PLATEAU_TOLERANCE
+            ),
+            "baseline_validation_small_face": baseline_validation_small,
+            "candidates": blend_candidates,
+            "selected": selected_blend,
+        },
+        "baseline_validation": baseline_validation,
+        "baseline_sealed": baseline_sealed,
+        "baseline_sealed_small_face": baseline_sealed_small,
+        "selected_sealed": sealed,
+        "selected_sealed_small_face": sealed_small,
+        "checkpoint": {
+            "path": checkpoint_path.name,
+            "sha256": _sha256(checkpoint_path),
+            "size_bytes": checkpoint_path.stat().st_size,
+        },
+        "decision": {
+            "validation_improved": bool(best_epoch > 0),
+            "validation_blend_eligible": bool(selected_blend["eligible"]),
+            "validation_small_face_blend_eligible": bool(
+                selected_blend["small_face_eligible"]
+            ),
+            "sealed_failure_delta": (
+                sealed["combined_part_failures"]
+                - baseline_sealed["combined_part_failures"]
+            ),
+            "sealed_small_face_strictly_improves": _strictly_improves(
+                sealed_small,
+                baseline_sealed_small,
+            ),
+            "eligible_for_exact_production_gate": bool(
+                best_epoch > 0
+                and selected_blend["eligible"]
+                and _strictly_improves(sealed, baseline_sealed)
+                and (
+                    not selection_objective.startswith("small-face-gradient")
+                    or (
+                        selected_blend["small_face_eligible"]
+                        and _strictly_improves(
+                            sealed_small,
+                            baseline_sealed_small,
+                        )
+                    )
+                )
+            ),
+        },
+        "runtime_seconds": time.perf_counter() - started,
+        "device": torch.cuda.get_device_name() if device.startswith("cuda") else device,
+    }
+    (output_dir / "evidence.json").write_text(
+        json.dumps(evidence, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return evidence
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--corpus-root", required=True)
+    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--epochs", type=int, default=5)
+    parser.add_argument("--learning-rate", type=float, default=2e-4)
+    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--part-weight", type=float, default=PART_WEIGHT)
+    parser.add_argument(
+        "--background-distillation-weight",
+        type=float,
+        default=BACKGROUND_DISTILLATION_WEIGHT,
+    )
+    parser.add_argument(
+        "--gradient-loss-weight", type=float, default=GRADIENT_LOSS_WEIGHT
+    )
+    parser.add_argument(
+        "--laplacian-loss-weight", type=float, default=LAPLACIAN_LOSS_WEIGHT
+    )
+    parser.add_argument(
+        "--selection-objective",
+        choices=SELECTION_OBJECTIVES,
+        default="global-failures",
+    )
+    parser.add_argument(
+        "--augmentations-per-training-row",
+        type=int,
+        default=1,
+    )
+    parser.add_argument(
+        "--training-augmentation",
+        choices=TRAINING_AUGMENTATION_PROFILES,
+        default=PHOTO_DOMAIN_AUGMENTATION,
+    )
+    args = parser.parse_args()
+    evidence = train(
+        args.corpus_root,
+        args.output_dir,
+        epochs=args.epochs,
+        learning_rate=args.learning_rate,
+        device=args.device,
+        part_weight=args.part_weight,
+        background_distillation_weight=args.background_distillation_weight,
+        gradient_loss_weight=args.gradient_loss_weight,
+        laplacian_loss_weight=args.laplacian_loss_weight,
+        selection_objective=args.selection_objective,
+        augmentations_per_training_row=args.augmentations_per_training_row,
+        training_augmentation=args.training_augmentation,
+    )
+    print(json.dumps(evidence["decision"], indent=2))
+    if not evidence["decision"]["eligible_for_exact_production_gate"]:
+        raise SystemExit(2)
+
+
+if __name__ == "__main__":
+    main()

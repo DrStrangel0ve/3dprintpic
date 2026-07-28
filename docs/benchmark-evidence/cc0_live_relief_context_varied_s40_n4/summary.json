@@ -1,0 +1,288 @@
+{
+  "aggregate": {
+    "all_exact_stl_shell_checks_passed": true,
+    "all_topology_checks_passed": true,
+    "face_rows": 3,
+    "maximum_attachment_boundary_change_mm": 0.005537986755371094,
+    "maximum_background_rms_retention": 1.0003180067199258,
+    "maximum_boundary_max_to_limit_ratio": 0.558009147644043,
+    "maximum_boundary_p99_to_limit_ratio": 0.8,
+    "maximum_exact_normalized_rmse": 0.17600770278061387,
+    "maximum_face_interior_p99_change_mm": 0.0002987289428710953,
+    "maximum_far_background_cap_violation_mm": 2.2910535335540771e-07,
+    "maximum_feasible_attachment_jump_mm": 0.8000001907348633,
+    "maximum_input_background_depth_span": 0.4051640856266021,
+    "minimum_appearance_lighting_correlation": 0.98844867287378,
+    "minimum_background_depth_correlation": 0.999987749395106,
+    "minimum_background_gradient_correlation": 0.9986151682797955,
+    "minimum_background_rms_retention": 0.9999645546605928,
+    "minimum_exact_gradient_correlation": 0.5043308294625521,
+    "minimum_exact_shape_correlation": 0.804772096405643,
+    "minimum_input_background_depth_span": 0.25575513362884517,
+    "minimum_paired_source_aligned_capture_ratio": 0.7263620275565668,
+    "minimum_paired_source_detail_correlation": 0.5327108324803226,
+    "object_rows": 1,
+    "passed": true,
+    "passed_rows": 4,
+    "rows": 4
+  },
+  "checks": {
+    "all_behavioral_rows_passed": true,
+    "compact_rows_match_full_rows": true,
+    "initial_failure_isolated": true,
+    "passed": true,
+    "production_gates_unchanged": true,
+    "response_checksums_match": true,
+    "server_and_producer_provenance_passed": true
+  },
+  "configuration": {
+    "background_profiles": [
+      "deep_shelves",
+      "layered_studio"
+    ],
+    "baseline_background_photo_detail_mm": 0.0,
+    "candidate_background_photo_detail_mm": 0.6,
+    "lighting_profiles": [
+      "overhead",
+      "side_right",
+      "soft_left"
+    ],
+    "max_xy_size_mm": 96.0,
+    "relief_height_mm": 30.0,
+    "selection_background_depth_ratio": 0.65
+  },
+  "full_summary_sha256": "bd18cb4594b32fe40e0e4e44093b22cd5209507ff2121aa6657e963e85e03167",
+  "generator": {
+    "path": "backend/benchmark/summarize_cc0_live_relief_context.py",
+    "sha256": "2b36e1360b1d8b25240d286325a43bedd6a9901a5b2250373c6d0b22be277bde"
+  },
+  "measured_fixture_correction": {
+    "failed_row_id": "eyewear_overhead_panel_384",
+    "final_detection": {
+      "component_coverage_ratio": 0.6920659858601729,
+      "component_width_ratio": 0.8519829385950229,
+      "dark_coverage_ratio": 0.5773762765121759,
+      "deoccluded": true,
+      "detected": true,
+      "minimum_component_coverage_ratio": 0.45,
+      "minimum_component_width_ratio": 0.6,
+      "minimum_dark_coverage_ratio": 0.4
+    },
+    "final_occluder_opacity": 0.6,
+    "initial_detection": {
+      "component_coverage_ratio": 0.43008314436885864,
+      "component_width_ratio": 0.8544245523084169,
+      "dark_coverage_ratio": 0.34845049130763417,
+      "deoccluded": false,
+      "detected": false,
+      "minimum_component_coverage_ratio": 0.45,
+      "minimum_component_width_ratio": 0.6,
+      "minimum_dark_coverage_ratio": 0.4
+    },
+    "initial_full_summary_sha256": "d5050e5dc94c4dcebbff41ede132c5d77ad70d0f93418bf5778410005d623e5d",
+    "initial_occluder_opacity": 0.42,
+    "initial_passed_rows": 3,
+    "initial_revision": "b7d1088e1481ad5cce8fecddd2d0cb63caffe9ef",
+    "only_failed_gate": "occlusion_deoccluded",
+    "passed": true,
+    "production_gates_unchanged": true
+  },
+  "privacy": "CC0 MakeHuman synthetic heads, generated procedural objects, and deterministic procedural scene materials only",
+  "producer_files": [
+    {
+      "path": "backend/benchmark/assets/makehuman_cc0_heads/asset.json",
+      "sha256": "b9e6497fadf4fc3ff304fcdd9342afbb2d6a46ef765029d991ce27d1f6c36497"
+    },
+    {
+      "path": "backend/benchmark/makehuman_face_fixture.py",
+      "sha256": "cebfa22935e2b40d45b468f517163f83a6b4645881eec78bf68699da80e58752"
+    },
+    {
+      "path": "backend/benchmark/mesh_rendering.py",
+      "sha256": "a695fed111fb65bc62aca09b8095b7c7d14ce44a03e7702b760edf49464d1395"
+    },
+    {
+      "path": "backend/benchmark/run_background_photo_detail_sweep.py",
+      "sha256": "1d8d920086239910e9051d0d694003c5a41f286ffe73190df0c3adba766b49c5"
+    },
+    {
+      "path": "backend/benchmark/run_cc0_live_face_variation_matrix.py",
+      "sha256": "d44d3457e330d0091adfac383a9934b04d49107617e39c449abe0d85628c90ec"
+    },
+    {
+      "path": "backend/benchmark/run_makehuman_face_depth_smoke.py",
+      "sha256": "d21076043e1bd230cfc0961721abad09ebfcc5fffbf65563a942fc0615e1a706"
+    },
+    {
+      "path": "backend/benchmark/run_private_background_photo_detail_replay.py",
+      "sha256": "3c6fffc40f5c3d0780e7c1923f474729140131aedbfb2a8b87429c278bdf7c47"
+    },
+    {
+      "path": "backend/benchmark/run_relief_scene_regression.py",
+      "sha256": "063b1ca970ea7588c441ba0f665be9580c803fafc624456ff49ea44557619d24"
+    },
+    {
+      "path": "backend/benchmark/run_relief_visual_sweep.py",
+      "sha256": "1bd1e43e2d952ee18f5184247477a4df618de252f4b21cd02da92c01a2c8c1cb"
+    },
+    {
+      "path": "backend/benchmark/summarize_private_live_api_background_replay.py",
+      "sha256": "d72df4001539a66733955424f3ed70b170659b66cf35f8e678fec1996820d299"
+    }
+  ],
+  "revision": "37e920a475155e732f533e63c98b94b3570a3e16",
+  "rows": [
+    {
+      "appearance_minimum_lighting_correlation": 0.9955326127659376,
+      "appearance_normal_mean_cosine": 0.9991772129038403,
+      "attachment_constraint_conflicts": 6,
+      "background_depth_correlation": 0.999987749395106,
+      "background_gradient_correlation": 0.9986151682797955,
+      "background_profile": "deep_shelves",
+      "background_rms_retention": 0.9999645546605928,
+      "boundary_max_to_limit_ratio": 0.29161959886550903,
+      "boundary_p99_to_limit_ratio": 0.5589639544486996,
+      "detected_faces": 1,
+      "elevation_deg": -4.0,
+      "exact_gradient_correlation": 0.6254522002958621,
+      "exact_normalized_rmse": 0.17600770278061387,
+      "exact_shape_correlation": 0.804772096405643,
+      "exact_stl_shell_passed": true,
+      "far_background_cap_violation_mm": 2.2910535335540771e-07,
+      "feasible_attachment_jump_max_mm": 0.8000001907348633,
+      "input_background_depth_span": 0.4051640856266021,
+      "lighting_profile": "side_right",
+      "paired_attachment_boundary_max_change_mm": 0.0002193450927734375,
+      "paired_face_interior_p99_change_mm": 3.322601318359389e-05,
+      "paired_source_aligned_capture_ratio": 0.8435033118591779,
+      "paired_source_detail_correlation": 0.7858597548529753,
+      "passed": true,
+      "refined_faces": 1,
+      "row_id": "small_side_lit_shelves_256",
+      "scene_kind": "face",
+      "selected_detail_regions": 0,
+      "selection_bbox_ratio": [
+        0.31640625,
+        0.296875
+      ],
+      "target_dimension": 256,
+      "topology_passed": true,
+      "yaw_deg": 29.0
+    },
+    {
+      "appearance_minimum_lighting_correlation": 0.989506454355507,
+      "appearance_normal_mean_cosine": 0.9958544346014084,
+      "attachment_constraint_conflicts": 16,
+      "background_depth_correlation": 0.9999995585288199,
+      "background_gradient_correlation": 0.9999079470977328,
+      "background_profile": "layered_studio",
+      "background_rms_retention": 0.9999970413823862,
+      "boundary_max_to_limit_ratio": 0.558009147644043,
+      "boundary_p99_to_limit_ratio": 0.8,
+      "detected_faces": 1,
+      "elevation_deg": 3.0,
+      "exact_gradient_correlation": 0.6692541959033285,
+      "exact_normalized_rmse": 0.10228774052028691,
+      "exact_shape_correlation": 0.9446217251925394,
+      "exact_stl_shell_passed": true,
+      "eyewear_deoccluded_faces": 1,
+      "eyewear_detected": true,
+      "far_background_cap_violation_mm": 2.2910535335540771e-07,
+      "feasible_attachment_jump_max_mm": 0.8000001907348633,
+      "input_background_depth_span": 0.25575513362884517,
+      "lighting_profile": "overhead",
+      "paired_attachment_boundary_max_change_mm": 0.0003604888916015625,
+      "paired_face_interior_p99_change_mm": 7.175445556640604e-05,
+      "paired_source_aligned_capture_ratio": 0.7795321950436226,
+      "paired_source_detail_correlation": 0.655883297723947,
+      "passed": true,
+      "refined_faces": 1,
+      "row_id": "eyewear_overhead_panel_384",
+      "scene_kind": "face",
+      "selected_detail_regions": 0,
+      "selection_bbox_ratio": [
+        0.5833333333333334,
+        0.4973958333333333
+      ],
+      "target_dimension": 384,
+      "topology_passed": true,
+      "yaw_deg": -17.0
+    },
+    {
+      "appearance_minimum_lighting_correlation": 0.98844867287378,
+      "appearance_normal_mean_cosine": 0.9972768055319955,
+      "attachment_constraint_conflicts": 20,
+      "background_depth_correlation": 0.9999986765548656,
+      "background_gradient_correlation": 0.9998470025789771,
+      "background_profile": "layered_studio",
+      "background_rms_retention": 0.9999951731977775,
+      "boundary_max_to_limit_ratio": 0.3992283344268799,
+      "boundary_p99_to_limit_ratio": 0.760086655616757,
+      "detected_faces": 1,
+      "elevation_deg": -2.0,
+      "exact_gradient_correlation": 0.5043308294625521,
+      "exact_normalized_rmse": 0.13503251764780175,
+      "exact_shape_correlation": 0.8954416884820499,
+      "exact_stl_shell_passed": true,
+      "far_background_cap_violation_mm": 2.2910535335540771e-07,
+      "feasible_attachment_jump_max_mm": 0.8000001907348633,
+      "input_background_depth_span": 0.25795263051986694,
+      "lighting_profile": "soft_left",
+      "paired_attachment_boundary_max_change_mm": 0.005537986755371094,
+      "paired_face_interior_p99_change_mm": 0.0002987289428710953,
+      "paired_source_aligned_capture_ratio": 0.7263620275565668,
+      "paired_source_detail_correlation": 0.7105336747912508,
+      "passed": true,
+      "refined_faces": 1,
+      "row_id": "strong_turn_layered_384",
+      "scene_kind": "face",
+      "selected_detail_regions": 0,
+      "selection_bbox_ratio": [
+        0.6510416666666666,
+        0.6484375
+      ],
+      "target_dimension": 384,
+      "topology_passed": true,
+      "yaw_deg": 32.0
+    },
+    {
+      "appearance_minimum_lighting_correlation": 0.9994789822690714,
+      "appearance_normal_mean_cosine": 0.999914798980471,
+      "attachment_constraint_conflicts": 12,
+      "background_depth_correlation": 0.9999886889985549,
+      "background_gradient_correlation": 0.9995794289892267,
+      "background_profile": "deep_shelves",
+      "background_rms_retention": 1.0003180067199258,
+      "boundary_max_to_limit_ratio": 0.45866429805755615,
+      "boundary_p99_to_limit_ratio": 0.6809979677200317,
+      "detected_faces": 0,
+      "elevation_deg": -9.0,
+      "exact_gradient_correlation": 0.5782070685073287,
+      "exact_normalized_rmse": 0.08213579833697084,
+      "exact_shape_correlation": 0.9682477039158616,
+      "exact_stl_shell_passed": true,
+      "far_background_cap_violation_mm": 2.2910535335540771e-07,
+      "feasible_attachment_jump_max_mm": 0.8000001907348633,
+      "input_background_depth_span": 0.3799472188949584,
+      "lighting_profile": "side_right",
+      "paired_attachment_boundary_max_change_mm": 5.7220458984375e-06,
+      "paired_face_interior_p99_change_mm": 1.52587890625e-05,
+      "paired_source_aligned_capture_ratio": 0.8488353976785853,
+      "paired_source_detail_correlation": 0.5327108324803226,
+      "passed": true,
+      "refined_faces": 0,
+      "row_id": "multilobe_object_shelves_384",
+      "scene_kind": "object",
+      "selected_detail_regions": 1,
+      "selection_bbox_ratio": [
+        0.6979166666666666,
+        0.5130208333333334
+      ],
+      "target_dimension": 384,
+      "topology_passed": true,
+      "yaw_deg": 31.0
+    }
+  ],
+  "run_kind": "cc0_generated_live_relief_context_matrix_compact",
+  "schema_version": 1
+}

@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "run_kind": "cc0_makehuman_live_face_variation_matrix_compact",
+  "revision": "4549b28eae7864799ab4adb0fc4d4a7499fae99b",
+  "full_summary_sha256": "6e529aa41dfe93b9af95b73207e0114a325cdee55c353166a4446cde57eda0c4",
+  "privacy": "CC0 MakeHuman synthetic heads and deterministic procedural scene materials only",
+  "configuration": {
+    "relief_height_mm": 30.0,
+    "max_xy_size_mm": 96.0,
+    "candidate_background_photo_detail_mm": 0.6,
+    "baseline_background_photo_detail_mm": 0.0,
+    "selection_background_depth_ratio": 0.65
+  },
+  "aggregate": {
+    "rows": 4,
+    "passed_rows": 4,
+    "minimum_exact_shape_correlation": 0.9016232817199769,
+    "minimum_exact_gradient_correlation": 0.5594039246478805,
+    "maximum_exact_normalized_rmse": 0.12964703912298292,
+    "minimum_face_lighting_correlation": 0.9792754935702386,
+    "minimum_background_depth_correlation": 0.9999307566901472,
+    "minimum_background_gradient_correlation": 0.9919664277973775,
+    "minimum_paired_source_detail_correlation": 0.6547481391811526,
+    "maximum_face_interior_p99_change_mm": 0.0001068115234375,
+    "maximum_far_background_cap_violation_mm": 2.2910535335540771e-07,
+    "maximum_feasible_attachment_jump_mm": 0.8000001907348633,
+    "all_topology_checks_passed": true,
+    "all_exact_stl_shell_checks_passed": true,
+    "passed": true
+  },
+  "rows": [
+    {
+      "row_id": "small_off_axis_yaw_256",
+      "target_dimension": 256,
+      "yaw_deg": 24.0,
+      "face_bbox_ratio": [0.30859375, 0.28515625],
+      "validated_faces": 1,
+      "exact_shape_correlation": 0.9016232817199769,
+      "exact_gradient_correlation": 0.8625915633365075,
+      "exact_normalized_rmse": 0.12964703912298292,
+      "paired_source_detail_correlation": 0.6547481391811526,
+      "paired_detail_p95_ratio": 0.5469703674316406,
+      "passed": true
+    },
+    {
+      "row_id": "centered_neutral_384",
+      "target_dimension": 384,
+      "yaw_deg": 0.0,
+      "face_bbox_ratio": [0.6979166666666666, 0.5572916666666666],
+      "validated_faces": 1,
+      "exact_shape_correlation": 0.9714779873435493,
+      "exact_gradient_correlation": 0.6055917032866227,
+      "exact_normalized_rmse": 0.081306095589604,
+      "paired_source_detail_correlation": 0.6702305382899025,
+      "paired_detail_p95_ratio": 0.6988321741422018,
+      "passed": true
+    },
+    {
+      "row_id": "offset_occluded_turn_384",
+      "target_dimension": 384,
+      "yaw_deg": -20.0,
+      "face_bbox_ratio": [0.6171875, 0.5651041666666666],
+      "validated_faces": 1,
+      "eyewear_detected": true,
+      "source_depth_already_consistent": true,
+      "exact_shape_correlation": 0.9452038888703207,
+      "exact_gradient_correlation": 0.665459803938655,
+      "exact_normalized_rmse": 0.10148369162788713,
+      "paired_source_detail_correlation": 0.8495870872190264,
+      "paired_detail_p95_ratio": 0.7084786891937256,
+      "passed": true
+    },
+    {
+      "row_id": "close_positive_turn_384",
+      "target_dimension": 384,
+      "yaw_deg": 14.0,
+      "face_bbox_ratio": [0.796875, 0.7161458333333334],
+      "validated_faces": 1,
+      "exact_shape_correlation": 0.9722798016871016,
+      "exact_gradient_correlation": 0.5594039246478805,
+      "exact_normalized_rmse": 0.07679202228959545,
+      "paired_source_detail_correlation": 0.6576964845200522,
+      "paired_detail_p95_ratio": 0.6922265291213989,
+      "passed": true
+    }
+  ]
+}

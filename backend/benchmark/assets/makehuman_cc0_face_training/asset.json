@@ -1,0 +1,1950 @@
+{
+  "derivation": {
+    "axes": "+x anatomical left, +y up, +z forward",
+    "coordinate_units": "MakeHuman native decimeters",
+    "head_minimum_y": 5.35,
+    "render_groups": [
+      "body",
+      "helper-l-eye",
+      "helper-r-eye"
+    ],
+    "triangulation": "fan triangulation preserving OBJ face order"
+  },
+  "fixture": {
+    "face_count": 9262,
+    "faces_sha256": "48d90543b2f0a9fe77e32ec445c2ce37e99edfe0ddd1f34e9e1bf3dd37c058cb",
+    "file": "makehuman_cc0_face_training.npz",
+    "part_support_vertices": {
+      "left_eye": 732,
+      "left_eyebrow": 429,
+      "mouth": 939,
+      "nose": 730,
+      "right_eye": 732,
+      "right_eyebrow": 409
+    },
+    "profiles": [
+      {
+        "bounds": [
+          -1.8984999656677246,
+          4.726300239562988,
+          -0.5187000036239624,
+          1.8984999656677246,
+          7.897899627685547,
+          1.5896999835968018
+        ],
+        "name": "mh_caucasian_female__neutral",
+        "skin_tone": [
+          0.74,
+          0.5,
+          0.39
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/caucasian-female-young.target",
+            "scale": 1.0,
+            "sha256": "6352040adcd91d48bc2266a65246ff0be39afb1f3d309311426204a95c1cbd77"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-oval.target",
+            "scale": 0.32,
+            "sha256": "f873122d889a9ba0f730b76e43fbd16b955ffb9f7cfe08c2752347d5f774b48f"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-scale-horiz-decr.target",
+            "scale": 0.22,
+            "sha256": "5cf77aa83f1ab83d019e3ba965521c88364ec729b68104fc802a95a9bff8dd76"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-scale-horiz-incr.target",
+            "scale": 0.16,
+            "sha256": "04b91799a42ffdd7c377b9ae180d861e250b5f5790161eb4659700e587e836ba"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-bones-incr.target",
+            "scale": 0.18,
+            "sha256": "b0316f8ec8b656c7a3a9c18c6f92503461e675ab89cf55e35f6c9e9423bf2cb2"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-bones-incr.target",
+            "scale": 0.18,
+            "sha256": "cc4b1623f47de2f705739019e8ceb820c90c2c5f5688dc8791924c78a2714222"
+          }
+        ],
+        "vertices_sha256": "df7d351a266841cd84c2b15df09090d83a2ba9746e15fd92dc7ce99a45a38487"
+      },
+      {
+        "bounds": [
+          -1.8984999656677246,
+          4.726300239562988,
+          -0.5187000036239624,
+          1.8984999656677246,
+          7.897899627685547,
+          1.5896999835968018
+        ],
+        "name": "mh_caucasian_female__smile",
+        "skin_tone": [
+          0.74,
+          0.5,
+          0.39
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/caucasian-female-young.target",
+            "scale": 1.0,
+            "sha256": "6352040adcd91d48bc2266a65246ff0be39afb1f3d309311426204a95c1cbd77"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-oval.target",
+            "scale": 0.32,
+            "sha256": "f873122d889a9ba0f730b76e43fbd16b955ffb9f7cfe08c2752347d5f774b48f"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-scale-horiz-decr.target",
+            "scale": 0.22,
+            "sha256": "5cf77aa83f1ab83d019e3ba965521c88364ec729b68104fc802a95a9bff8dd76"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-scale-horiz-incr.target",
+            "scale": 0.16,
+            "sha256": "04b91799a42ffdd7c377b9ae180d861e250b5f5790161eb4659700e587e836ba"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-bones-incr.target",
+            "scale": 0.18,
+            "sha256": "b0316f8ec8b656c7a3a9c18c6f92503461e675ab89cf55e35f6c9e9423bf2cb2"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-bones-incr.target",
+            "scale": 0.18,
+            "sha256": "cc4b1623f47de2f705739019e8ceb820c90c2c5f5688dc8791924c78a2714222"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-corner-puller.target",
+            "scale": 0.5,
+            "sha256": "cb7e7ea90f88c5f3b5509e91b4767bbee5828215590134cc66d79520bf28ea9c"
+          }
+        ],
+        "vertices_sha256": "38200ec0daccd63870e787bc5c40bb4893df6b4863077b6830559d58ae621c76"
+      },
+      {
+        "bounds": [
+          -1.8984999656677246,
+          4.726300239562988,
+          -0.5187000036239624,
+          1.8984999656677246,
+          7.897899627685547,
+          1.5896999835968018
+        ],
+        "name": "mh_caucasian_female__mouth_open",
+        "skin_tone": [
+          0.74,
+          0.5,
+          0.39
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/caucasian-female-young.target",
+            "scale": 1.0,
+            "sha256": "6352040adcd91d48bc2266a65246ff0be39afb1f3d309311426204a95c1cbd77"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-oval.target",
+            "scale": 0.32,
+            "sha256": "f873122d889a9ba0f730b76e43fbd16b955ffb9f7cfe08c2752347d5f774b48f"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-scale-horiz-decr.target",
+            "scale": 0.22,
+            "sha256": "5cf77aa83f1ab83d019e3ba965521c88364ec729b68104fc802a95a9bff8dd76"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-scale-horiz-incr.target",
+            "scale": 0.16,
+            "sha256": "04b91799a42ffdd7c377b9ae180d861e250b5f5790161eb4659700e587e836ba"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-bones-incr.target",
+            "scale": 0.18,
+            "sha256": "b0316f8ec8b656c7a3a9c18c6f92503461e675ab89cf55e35f6c9e9423bf2cb2"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-bones-incr.target",
+            "scale": 0.18,
+            "sha256": "cc4b1623f47de2f705739019e8ceb820c90c2c5f5688dc8791924c78a2714222"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-open.target",
+            "scale": 0.36,
+            "sha256": "8cb683e6cca007903dd3cc1d2916a3930460c8e06fc80e0ab02f73f8e97529b5"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-eversion.target",
+            "scale": 0.12,
+            "sha256": "167cfa768a45569d48875d12fc46e0be5b8f97651a83f543fcc2ee228c78418a"
+          }
+        ],
+        "vertices_sha256": "465e386e55b2b1683a38f630d2a2568790dd97917db73d620d6af6774a249d55"
+      },
+      {
+        "bounds": [
+          -1.8984999656677246,
+          4.726300239562988,
+          -0.5187000036239624,
+          1.8984999656677246,
+          7.897899627685547,
+          1.5896999835968018
+        ],
+        "name": "mh_caucasian_female__asymmetric",
+        "skin_tone": [
+          0.74,
+          0.5,
+          0.39
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/caucasian-female-young.target",
+            "scale": 1.0,
+            "sha256": "6352040adcd91d48bc2266a65246ff0be39afb1f3d309311426204a95c1cbd77"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-oval.target",
+            "scale": 0.32,
+            "sha256": "f873122d889a9ba0f730b76e43fbd16b955ffb9f7cfe08c2752347d5f774b48f"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-scale-horiz-decr.target",
+            "scale": 0.22,
+            "sha256": "5cf77aa83f1ab83d019e3ba965521c88364ec729b68104fc802a95a9bff8dd76"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-scale-horiz-incr.target",
+            "scale": 0.16,
+            "sha256": "04b91799a42ffdd7c377b9ae180d861e250b5f5790161eb4659700e587e836ba"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-bones-incr.target",
+            "scale": 0.18,
+            "sha256": "b0316f8ec8b656c7a3a9c18c6f92503461e675ab89cf55e35f6c9e9423bf2cb2"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-bones-incr.target",
+            "scale": 0.18,
+            "sha256": "cc4b1623f47de2f705739019e8ceb820c90c2c5f5688dc8791924c78a2714222"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/eyebrows-left-up.target",
+            "scale": 0.34,
+            "sha256": "8f00a3aa1975d9fd4819f42fb240fadf6393fdb197c22cd1a42c6b8d18e7ddf7"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-part-later.target",
+            "scale": 0.22,
+            "sha256": "f93f14ac7840524d57ddac4bf5a71c12f7b704767d93e449ff07bca7a0cfca87"
+          }
+        ],
+        "vertices_sha256": "04c7ca58ff99e3b061dd92309be2252b8d6229b360ace0b94072765743ce656c"
+      },
+      {
+        "bounds": [
+          -2.11650013923645,
+          5.985300064086914,
+          -0.6304000020027161,
+          2.11650013923645,
+          9.268500328063965,
+          1.774459958076477
+        ],
+        "name": "mh_caucasian_male__neutral",
+        "skin_tone": [
+          0.68,
+          0.45,
+          0.34
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/caucasian-male-young.target",
+            "scale": 1.0,
+            "sha256": "d08abdacbe89c3c74a2782b29386ca6ab24ab72467dd01642ea356702a27aff0"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-square.target",
+            "scale": 0.3,
+            "sha256": "c71e79474291c8de78f6b7c4a49e218deac058f96e64bf696625cef119250af7"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-hump-incr.target",
+            "scale": 0.2,
+            "sha256": "ad843d0eedb5a86cb7a677f309c8691b72498852e98e709fb36aea299411e37f"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-scale-depth-incr.target",
+            "scale": 0.16,
+            "sha256": "3124cc7e11c4d2fdfa489e2d830b7cd70cd5ce6ad4c4c072b3fd002eb3804f88"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-volume-decr.target",
+            "scale": 0.14,
+            "sha256": "efd058e8729129e82eeabbdcae82a17582df50be02a00e46278b35365e842bad"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-volume-decr.target",
+            "scale": 0.14,
+            "sha256": "44e41f6f2e769cce4a7c83ca224405cd3f95fdcfaa5133573f4c56013c54441f"
+          }
+        ],
+        "vertices_sha256": "3e37aa439ab1e0231689facee9db091b6b077d0148b77205e04c605625f29a74"
+      },
+      {
+        "bounds": [
+          -2.11650013923645,
+          5.985300064086914,
+          -0.6304000020027161,
+          2.11650013923645,
+          9.268500328063965,
+          1.774459958076477
+        ],
+        "name": "mh_caucasian_male__smile",
+        "skin_tone": [
+          0.68,
+          0.45,
+          0.34
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/caucasian-male-young.target",
+            "scale": 1.0,
+            "sha256": "d08abdacbe89c3c74a2782b29386ca6ab24ab72467dd01642ea356702a27aff0"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-square.target",
+            "scale": 0.3,
+            "sha256": "c71e79474291c8de78f6b7c4a49e218deac058f96e64bf696625cef119250af7"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-hump-incr.target",
+            "scale": 0.2,
+            "sha256": "ad843d0eedb5a86cb7a677f309c8691b72498852e98e709fb36aea299411e37f"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-scale-depth-incr.target",
+            "scale": 0.16,
+            "sha256": "3124cc7e11c4d2fdfa489e2d830b7cd70cd5ce6ad4c4c072b3fd002eb3804f88"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-volume-decr.target",
+            "scale": 0.14,
+            "sha256": "efd058e8729129e82eeabbdcae82a17582df50be02a00e46278b35365e842bad"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-volume-decr.target",
+            "scale": 0.14,
+            "sha256": "44e41f6f2e769cce4a7c83ca224405cd3f95fdcfaa5133573f4c56013c54441f"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-corner-puller.target",
+            "scale": 0.5,
+            "sha256": "cb7e7ea90f88c5f3b5509e91b4767bbee5828215590134cc66d79520bf28ea9c"
+          }
+        ],
+        "vertices_sha256": "7add7d14cc6900b77e7c85d6f69a16b3f5cf5e3ed787c96657afe7cf671cc60f"
+      },
+      {
+        "bounds": [
+          -2.11650013923645,
+          5.985300064086914,
+          -0.6304000020027161,
+          2.11650013923645,
+          9.268500328063965,
+          1.774459958076477
+        ],
+        "name": "mh_caucasian_male__mouth_open",
+        "skin_tone": [
+          0.68,
+          0.45,
+          0.34
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/caucasian-male-young.target",
+            "scale": 1.0,
+            "sha256": "d08abdacbe89c3c74a2782b29386ca6ab24ab72467dd01642ea356702a27aff0"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-square.target",
+            "scale": 0.3,
+            "sha256": "c71e79474291c8de78f6b7c4a49e218deac058f96e64bf696625cef119250af7"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-hump-incr.target",
+            "scale": 0.2,
+            "sha256": "ad843d0eedb5a86cb7a677f309c8691b72498852e98e709fb36aea299411e37f"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-scale-depth-incr.target",
+            "scale": 0.16,
+            "sha256": "3124cc7e11c4d2fdfa489e2d830b7cd70cd5ce6ad4c4c072b3fd002eb3804f88"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-volume-decr.target",
+            "scale": 0.14,
+            "sha256": "efd058e8729129e82eeabbdcae82a17582df50be02a00e46278b35365e842bad"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-volume-decr.target",
+            "scale": 0.14,
+            "sha256": "44e41f6f2e769cce4a7c83ca224405cd3f95fdcfaa5133573f4c56013c54441f"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-open.target",
+            "scale": 0.36,
+            "sha256": "8cb683e6cca007903dd3cc1d2916a3930460c8e06fc80e0ab02f73f8e97529b5"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-eversion.target",
+            "scale": 0.12,
+            "sha256": "167cfa768a45569d48875d12fc46e0be5b8f97651a83f543fcc2ee228c78418a"
+          }
+        ],
+        "vertices_sha256": "29ce1d247c44b8ae33d693d72e7ffa767224317bf8933860b8382e9e4c6238aa"
+      },
+      {
+        "bounds": [
+          -2.11650013923645,
+          5.985300064086914,
+          -0.6304000020027161,
+          2.11650013923645,
+          9.268500328063965,
+          1.774459958076477
+        ],
+        "name": "mh_caucasian_male__asymmetric",
+        "skin_tone": [
+          0.68,
+          0.45,
+          0.34
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/caucasian-male-young.target",
+            "scale": 1.0,
+            "sha256": "d08abdacbe89c3c74a2782b29386ca6ab24ab72467dd01642ea356702a27aff0"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-square.target",
+            "scale": 0.3,
+            "sha256": "c71e79474291c8de78f6b7c4a49e218deac058f96e64bf696625cef119250af7"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-hump-incr.target",
+            "scale": 0.2,
+            "sha256": "ad843d0eedb5a86cb7a677f309c8691b72498852e98e709fb36aea299411e37f"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-scale-depth-incr.target",
+            "scale": 0.16,
+            "sha256": "3124cc7e11c4d2fdfa489e2d830b7cd70cd5ce6ad4c4c072b3fd002eb3804f88"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-volume-decr.target",
+            "scale": 0.14,
+            "sha256": "efd058e8729129e82eeabbdcae82a17582df50be02a00e46278b35365e842bad"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-volume-decr.target",
+            "scale": 0.14,
+            "sha256": "44e41f6f2e769cce4a7c83ca224405cd3f95fdcfaa5133573f4c56013c54441f"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/eyebrows-left-up.target",
+            "scale": 0.34,
+            "sha256": "8f00a3aa1975d9fd4819f42fb240fadf6393fdb197c22cd1a42c6b8d18e7ddf7"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-part-later.target",
+            "scale": 0.22,
+            "sha256": "f93f14ac7840524d57ddac4bf5a71c12f7b704767d93e449ff07bca7a0cfca87"
+          }
+        ],
+        "vertices_sha256": "37285602a412456ebb2276982d33a6e293cf6a3398d9adef21eb6ce201b3a33e"
+      },
+      {
+        "bounds": [
+          -1.9735000133514404,
+          5.23330020904541,
+          -0.5376999974250793,
+          1.9735000133514404,
+          8.486299514770508,
+          1.542699933052063
+        ],
+        "name": "mh_african_female__neutral",
+        "skin_tone": [
+          0.4,
+          0.24,
+          0.18
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/african-female-young.target",
+            "scale": 1.0,
+            "sha256": "7ef412cdbb161c5d5b21bb751d773b094c63fc5689befa948301530923e2ce6c"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-round.target",
+            "scale": 0.3,
+            "sha256": "090c41f70cfc39a4dda94d4ccb7c297ed6d88a60714d7e33c7329af4d378c7fc"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-nostrils-width-incr.target",
+            "scale": 0.22,
+            "sha256": "ac2ee587acf1ab785b394f57759f866a0d4614bbd0aa8b1081593ec8147b89a9"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-upperlip-volume-incr.target",
+            "scale": 0.16,
+            "sha256": "73916c93fbeeedcefd4279c2153a1d7ccb6b2c394fbfb6d50e0bf4d2bb365af2"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-inner-incr.target",
+            "scale": 0.14,
+            "sha256": "102fd97366fcd69137a5a8cfff920d0cbea34be89cf94adecac771c886daebee"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-inner-incr.target",
+            "scale": 0.14,
+            "sha256": "28e24fe7ffa8b3f7fef6b8ee92da381ac3ad9de61e8c3c7ed5dd40b4688c7b17"
+          }
+        ],
+        "vertices_sha256": "3b182884570cbe8072a386a877248cb736bc82953214dd142d7e456c5923e14f"
+      },
+      {
+        "bounds": [
+          -1.9735000133514404,
+          5.23330020904541,
+          -0.5376999974250793,
+          1.9735000133514404,
+          8.486299514770508,
+          1.542699933052063
+        ],
+        "name": "mh_african_female__smile",
+        "skin_tone": [
+          0.4,
+          0.24,
+          0.18
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/african-female-young.target",
+            "scale": 1.0,
+            "sha256": "7ef412cdbb161c5d5b21bb751d773b094c63fc5689befa948301530923e2ce6c"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-round.target",
+            "scale": 0.3,
+            "sha256": "090c41f70cfc39a4dda94d4ccb7c297ed6d88a60714d7e33c7329af4d378c7fc"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-nostrils-width-incr.target",
+            "scale": 0.22,
+            "sha256": "ac2ee587acf1ab785b394f57759f866a0d4614bbd0aa8b1081593ec8147b89a9"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-upperlip-volume-incr.target",
+            "scale": 0.16,
+            "sha256": "73916c93fbeeedcefd4279c2153a1d7ccb6b2c394fbfb6d50e0bf4d2bb365af2"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-inner-incr.target",
+            "scale": 0.14,
+            "sha256": "102fd97366fcd69137a5a8cfff920d0cbea34be89cf94adecac771c886daebee"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-inner-incr.target",
+            "scale": 0.14,
+            "sha256": "28e24fe7ffa8b3f7fef6b8ee92da381ac3ad9de61e8c3c7ed5dd40b4688c7b17"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/african/mouth-corner-puller.target",
+            "scale": 0.5,
+            "sha256": "f661bf5ecadfda8f2e0b1457fa11dcdf5bb1a7ac6247811a12d4c6ed360596c8"
+          }
+        ],
+        "vertices_sha256": "c405db429233f6a2ff79fbc25106d51d07111941911d7e97669f55f911a58d67"
+      },
+      {
+        "bounds": [
+          -1.9735000133514404,
+          5.23330020904541,
+          -0.5376999974250793,
+          1.9735000133514404,
+          8.486299514770508,
+          1.542699933052063
+        ],
+        "name": "mh_african_female__mouth_open",
+        "skin_tone": [
+          0.4,
+          0.24,
+          0.18
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/african-female-young.target",
+            "scale": 1.0,
+            "sha256": "7ef412cdbb161c5d5b21bb751d773b094c63fc5689befa948301530923e2ce6c"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-round.target",
+            "scale": 0.3,
+            "sha256": "090c41f70cfc39a4dda94d4ccb7c297ed6d88a60714d7e33c7329af4d378c7fc"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-nostrils-width-incr.target",
+            "scale": 0.22,
+            "sha256": "ac2ee587acf1ab785b394f57759f866a0d4614bbd0aa8b1081593ec8147b89a9"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-upperlip-volume-incr.target",
+            "scale": 0.16,
+            "sha256": "73916c93fbeeedcefd4279c2153a1d7ccb6b2c394fbfb6d50e0bf4d2bb365af2"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-inner-incr.target",
+            "scale": 0.14,
+            "sha256": "102fd97366fcd69137a5a8cfff920d0cbea34be89cf94adecac771c886daebee"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-inner-incr.target",
+            "scale": 0.14,
+            "sha256": "28e24fe7ffa8b3f7fef6b8ee92da381ac3ad9de61e8c3c7ed5dd40b4688c7b17"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/african/mouth-open.target",
+            "scale": 0.36,
+            "sha256": "1c720053d76ea7eca4b3a1dd9b5183b2e5325ccb6ede902f868f9053f4c84bc9"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/african/mouth-eversion.target",
+            "scale": 0.12,
+            "sha256": "7d84ba28dc8db6d68196d2539dff1ebc8282bd80eb2a524ce54284ac3557c555"
+          }
+        ],
+        "vertices_sha256": "96687dd1daa0fd796507bef99a30866d466124f9e90aca98badba31f91aea751"
+      },
+      {
+        "bounds": [
+          -1.9735000133514404,
+          5.23330020904541,
+          -0.5376999974250793,
+          1.9735000133514404,
+          8.486299514770508,
+          1.542699933052063
+        ],
+        "name": "mh_african_female__asymmetric",
+        "skin_tone": [
+          0.4,
+          0.24,
+          0.18
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/african-female-young.target",
+            "scale": 1.0,
+            "sha256": "7ef412cdbb161c5d5b21bb751d773b094c63fc5689befa948301530923e2ce6c"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-round.target",
+            "scale": 0.3,
+            "sha256": "090c41f70cfc39a4dda94d4ccb7c297ed6d88a60714d7e33c7329af4d378c7fc"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-nostrils-width-incr.target",
+            "scale": 0.22,
+            "sha256": "ac2ee587acf1ab785b394f57759f866a0d4614bbd0aa8b1081593ec8147b89a9"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-upperlip-volume-incr.target",
+            "scale": 0.16,
+            "sha256": "73916c93fbeeedcefd4279c2153a1d7ccb6b2c394fbfb6d50e0bf4d2bb365af2"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-inner-incr.target",
+            "scale": 0.14,
+            "sha256": "102fd97366fcd69137a5a8cfff920d0cbea34be89cf94adecac771c886daebee"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-inner-incr.target",
+            "scale": 0.14,
+            "sha256": "28e24fe7ffa8b3f7fef6b8ee92da381ac3ad9de61e8c3c7ed5dd40b4688c7b17"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/african/eyebrows-left-up.target",
+            "scale": 0.34,
+            "sha256": "8f00a3aa1975d9fd4819f42fb240fadf6393fdb197c22cd1a42c6b8d18e7ddf7"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/african/mouth-part-later.target",
+            "scale": 0.22,
+            "sha256": "acf0f45330d4fb5417b50979c5f0b5401a0b7c01c009dd7e68cf14cc74926ced"
+          }
+        ],
+        "vertices_sha256": "eba7b6bf9ed69e4b89b4c7ea1a8d514f0287ffeb5619597575fb960726ceb219"
+      },
+      {
+        "bounds": [
+          -2.195500135421753,
+          6.520299911499023,
+          -0.6554000377655029,
+          2.195500135421753,
+          9.953660011291504,
+          1.7286999225616455
+        ],
+        "name": "mh_african_male__neutral",
+        "skin_tone": [
+          0.3,
+          0.17,
+          0.13
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/african-male-young.target",
+            "scale": 1.0,
+            "sha256": "8a48f5233dcc550a31f4ef2bf4ea2a7b089e9f9f0e6b555b34984d867f1cfc1a"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-rectangular.target",
+            "scale": 0.28,
+            "sha256": "5ebc7ad4b5936b8868ae9fc0a37536956e14134588769eff8287804b0370277d"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-width2-incr.target",
+            "scale": 0.2,
+            "sha256": "45bb7bdfbae2ac404cea6b67999afcd58ab973786147fa19a903ec1113afe3f8"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-lowerlip-volume-incr.target",
+            "scale": 0.16,
+            "sha256": "082e7a91b2d8c930eb4b3c027407a0e94d16dfdc710cc161bd0bc87191435213"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-bones-incr.target",
+            "scale": 0.16,
+            "sha256": "b0316f8ec8b656c7a3a9c18c6f92503461e675ab89cf55e35f6c9e9423bf2cb2"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-bones-incr.target",
+            "scale": 0.16,
+            "sha256": "cc4b1623f47de2f705739019e8ceb820c90c2c5f5688dc8791924c78a2714222"
+          }
+        ],
+        "vertices_sha256": "47e3b2e9cbc42cca6f2860ca72c3049aa976286aac4fbac5c84ce2bc4426d966"
+      },
+      {
+        "bounds": [
+          -2.195500135421753,
+          6.520299911499023,
+          -0.6554000377655029,
+          2.195500135421753,
+          9.953660011291504,
+          1.7286999225616455
+        ],
+        "name": "mh_african_male__smile",
+        "skin_tone": [
+          0.3,
+          0.17,
+          0.13
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/african-male-young.target",
+            "scale": 1.0,
+            "sha256": "8a48f5233dcc550a31f4ef2bf4ea2a7b089e9f9f0e6b555b34984d867f1cfc1a"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-rectangular.target",
+            "scale": 0.28,
+            "sha256": "5ebc7ad4b5936b8868ae9fc0a37536956e14134588769eff8287804b0370277d"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-width2-incr.target",
+            "scale": 0.2,
+            "sha256": "45bb7bdfbae2ac404cea6b67999afcd58ab973786147fa19a903ec1113afe3f8"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-lowerlip-volume-incr.target",
+            "scale": 0.16,
+            "sha256": "082e7a91b2d8c930eb4b3c027407a0e94d16dfdc710cc161bd0bc87191435213"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-bones-incr.target",
+            "scale": 0.16,
+            "sha256": "b0316f8ec8b656c7a3a9c18c6f92503461e675ab89cf55e35f6c9e9423bf2cb2"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-bones-incr.target",
+            "scale": 0.16,
+            "sha256": "cc4b1623f47de2f705739019e8ceb820c90c2c5f5688dc8791924c78a2714222"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/african/mouth-corner-puller.target",
+            "scale": 0.5,
+            "sha256": "f661bf5ecadfda8f2e0b1457fa11dcdf5bb1a7ac6247811a12d4c6ed360596c8"
+          }
+        ],
+        "vertices_sha256": "30f6c4c40b1cdd67e950cf86315e7f1ba9d18487d3d622d913d2b94b7e8e925f"
+      },
+      {
+        "bounds": [
+          -2.195500135421753,
+          6.520299911499023,
+          -0.6554000377655029,
+          2.195500135421753,
+          9.953660011291504,
+          1.7286999225616455
+        ],
+        "name": "mh_african_male__mouth_open",
+        "skin_tone": [
+          0.3,
+          0.17,
+          0.13
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/african-male-young.target",
+            "scale": 1.0,
+            "sha256": "8a48f5233dcc550a31f4ef2bf4ea2a7b089e9f9f0e6b555b34984d867f1cfc1a"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-rectangular.target",
+            "scale": 0.28,
+            "sha256": "5ebc7ad4b5936b8868ae9fc0a37536956e14134588769eff8287804b0370277d"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-width2-incr.target",
+            "scale": 0.2,
+            "sha256": "45bb7bdfbae2ac404cea6b67999afcd58ab973786147fa19a903ec1113afe3f8"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-lowerlip-volume-incr.target",
+            "scale": 0.16,
+            "sha256": "082e7a91b2d8c930eb4b3c027407a0e94d16dfdc710cc161bd0bc87191435213"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-bones-incr.target",
+            "scale": 0.16,
+            "sha256": "b0316f8ec8b656c7a3a9c18c6f92503461e675ab89cf55e35f6c9e9423bf2cb2"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-bones-incr.target",
+            "scale": 0.16,
+            "sha256": "cc4b1623f47de2f705739019e8ceb820c90c2c5f5688dc8791924c78a2714222"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/african/mouth-open.target",
+            "scale": 0.36,
+            "sha256": "1c720053d76ea7eca4b3a1dd9b5183b2e5325ccb6ede902f868f9053f4c84bc9"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/african/mouth-eversion.target",
+            "scale": 0.12,
+            "sha256": "7d84ba28dc8db6d68196d2539dff1ebc8282bd80eb2a524ce54284ac3557c555"
+          }
+        ],
+        "vertices_sha256": "c85d065d8830f03da6025e00989e06ce323f121089f861585cbecbc630321646"
+      },
+      {
+        "bounds": [
+          -2.195500135421753,
+          6.520299911499023,
+          -0.6554000377655029,
+          2.195500135421753,
+          9.953660011291504,
+          1.7286999225616455
+        ],
+        "name": "mh_african_male__asymmetric",
+        "skin_tone": [
+          0.3,
+          0.17,
+          0.13
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/african-male-young.target",
+            "scale": 1.0,
+            "sha256": "8a48f5233dcc550a31f4ef2bf4ea2a7b089e9f9f0e6b555b34984d867f1cfc1a"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-rectangular.target",
+            "scale": 0.28,
+            "sha256": "5ebc7ad4b5936b8868ae9fc0a37536956e14134588769eff8287804b0370277d"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-width2-incr.target",
+            "scale": 0.2,
+            "sha256": "45bb7bdfbae2ac404cea6b67999afcd58ab973786147fa19a903ec1113afe3f8"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-lowerlip-volume-incr.target",
+            "scale": 0.16,
+            "sha256": "082e7a91b2d8c930eb4b3c027407a0e94d16dfdc710cc161bd0bc87191435213"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-bones-incr.target",
+            "scale": 0.16,
+            "sha256": "b0316f8ec8b656c7a3a9c18c6f92503461e675ab89cf55e35f6c9e9423bf2cb2"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-bones-incr.target",
+            "scale": 0.16,
+            "sha256": "cc4b1623f47de2f705739019e8ceb820c90c2c5f5688dc8791924c78a2714222"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/african/eyebrows-left-up.target",
+            "scale": 0.34,
+            "sha256": "8f00a3aa1975d9fd4819f42fb240fadf6393fdb197c22cd1a42c6b8d18e7ddf7"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/african/mouth-part-later.target",
+            "scale": 0.22,
+            "sha256": "acf0f45330d4fb5417b50979c5f0b5401a0b7c01c009dd7e68cf14cc74926ced"
+          }
+        ],
+        "vertices_sha256": "e2173c21792611e7834dcbb6610a76f26389a12920a0287a9efd8052779dd1bb"
+      },
+      {
+        "bounds": [
+          -1.7584999799728394,
+          3.8403000831604004,
+          -0.48469996452331543,
+          1.7584999799728394,
+          6.776299476623535,
+          1.4090200662612915
+        ],
+        "name": "mh_asian_female__neutral",
+        "skin_tone": [
+          0.66,
+          0.44,
+          0.32
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/asian-female-young.target",
+            "scale": 1.0,
+            "sha256": "60f2128a9b0e2e74b2bc513f014f2662be960b6cfa6fd11516632be7e0b241ac"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-diamond.target",
+            "scale": 0.28,
+            "sha256": "e09adddbb66fa1552124f6110529314b8ad64918f09f086d1b3ed01e67a04e50"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-scale-depth-decr.target",
+            "scale": 0.18,
+            "sha256": "ace2c724050a95a41aba6495f8a8cf8fa4a5fbd399a819fcf01418071afc5fc9"
+          },
+          {
+            "path": "makehuman/data/targets/eyes/l-eye-scale-incr.target",
+            "scale": 0.13,
+            "sha256": "6764116d877f2ca09b06c7f65ae6c304e6eefec0241b6eb0b62df8a53d528d42"
+          },
+          {
+            "path": "makehuman/data/targets/eyes/r-eye-scale-incr.target",
+            "scale": 0.13,
+            "sha256": "58112cbcd06f3d10c7c5f1ee87a6b0d707e1d018b965b1502537a6c0880abfa6"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-volume-incr.target",
+            "scale": 0.13,
+            "sha256": "2feb867d7fd13579e0f8147f15e1f523bb5fe3bd8a5dd2765f7a4c816a09b10b"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-volume-incr.target",
+            "scale": 0.13,
+            "sha256": "95091cd82733b729a40b0fa32c2cacc13a3cd174b3978d9b52287a76027a1b4c"
+          }
+        ],
+        "vertices_sha256": "54a2422a9a6f40a7057cf518e9c3d6262c0aa78318a5cd91f7b1a07f68f2c75b"
+      },
+      {
+        "bounds": [
+          -1.7584999799728394,
+          3.8403000831604004,
+          -0.48469996452331543,
+          1.7584999799728394,
+          6.776299476623535,
+          1.4090200662612915
+        ],
+        "name": "mh_asian_female__smile",
+        "skin_tone": [
+          0.66,
+          0.44,
+          0.32
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/asian-female-young.target",
+            "scale": 1.0,
+            "sha256": "60f2128a9b0e2e74b2bc513f014f2662be960b6cfa6fd11516632be7e0b241ac"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-diamond.target",
+            "scale": 0.28,
+            "sha256": "e09adddbb66fa1552124f6110529314b8ad64918f09f086d1b3ed01e67a04e50"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-scale-depth-decr.target",
+            "scale": 0.18,
+            "sha256": "ace2c724050a95a41aba6495f8a8cf8fa4a5fbd399a819fcf01418071afc5fc9"
+          },
+          {
+            "path": "makehuman/data/targets/eyes/l-eye-scale-incr.target",
+            "scale": 0.13,
+            "sha256": "6764116d877f2ca09b06c7f65ae6c304e6eefec0241b6eb0b62df8a53d528d42"
+          },
+          {
+            "path": "makehuman/data/targets/eyes/r-eye-scale-incr.target",
+            "scale": 0.13,
+            "sha256": "58112cbcd06f3d10c7c5f1ee87a6b0d707e1d018b965b1502537a6c0880abfa6"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-volume-incr.target",
+            "scale": 0.13,
+            "sha256": "2feb867d7fd13579e0f8147f15e1f523bb5fe3bd8a5dd2765f7a4c816a09b10b"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-volume-incr.target",
+            "scale": 0.13,
+            "sha256": "95091cd82733b729a40b0fa32c2cacc13a3cd174b3978d9b52287a76027a1b4c"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/asian/mouth-corner-puller.target",
+            "scale": 0.5,
+            "sha256": "cb7e7ea90f88c5f3b5509e91b4767bbee5828215590134cc66d79520bf28ea9c"
+          }
+        ],
+        "vertices_sha256": "a860bc56fe9bed5e34752c8c0b16ef5547c7938a7a46c124e7d296aa4b4cf53f"
+      },
+      {
+        "bounds": [
+          -1.7584999799728394,
+          3.8403000831604004,
+          -0.48469996452331543,
+          1.7584999799728394,
+          6.776299476623535,
+          1.4090200662612915
+        ],
+        "name": "mh_asian_female__mouth_open",
+        "skin_tone": [
+          0.66,
+          0.44,
+          0.32
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/asian-female-young.target",
+            "scale": 1.0,
+            "sha256": "60f2128a9b0e2e74b2bc513f014f2662be960b6cfa6fd11516632be7e0b241ac"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-diamond.target",
+            "scale": 0.28,
+            "sha256": "e09adddbb66fa1552124f6110529314b8ad64918f09f086d1b3ed01e67a04e50"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-scale-depth-decr.target",
+            "scale": 0.18,
+            "sha256": "ace2c724050a95a41aba6495f8a8cf8fa4a5fbd399a819fcf01418071afc5fc9"
+          },
+          {
+            "path": "makehuman/data/targets/eyes/l-eye-scale-incr.target",
+            "scale": 0.13,
+            "sha256": "6764116d877f2ca09b06c7f65ae6c304e6eefec0241b6eb0b62df8a53d528d42"
+          },
+          {
+            "path": "makehuman/data/targets/eyes/r-eye-scale-incr.target",
+            "scale": 0.13,
+            "sha256": "58112cbcd06f3d10c7c5f1ee87a6b0d707e1d018b965b1502537a6c0880abfa6"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-volume-incr.target",
+            "scale": 0.13,
+            "sha256": "2feb867d7fd13579e0f8147f15e1f523bb5fe3bd8a5dd2765f7a4c816a09b10b"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-volume-incr.target",
+            "scale": 0.13,
+            "sha256": "95091cd82733b729a40b0fa32c2cacc13a3cd174b3978d9b52287a76027a1b4c"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/asian/mouth-open.target",
+            "scale": 0.36,
+            "sha256": "b694ebea725a9686c58bb7a5f36c85edfd28b72f66d3ae948ca6a338676c84b1"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/asian/mouth-eversion.target",
+            "scale": 0.12,
+            "sha256": "167cfa768a45569d48875d12fc46e0be5b8f97651a83f543fcc2ee228c78418a"
+          }
+        ],
+        "vertices_sha256": "b4307e877436772de95b56a0dfd54731de8c0a15ec721fac4e4b6e7e2136115c"
+      },
+      {
+        "bounds": [
+          -1.7584999799728394,
+          3.8403000831604004,
+          -0.48469996452331543,
+          1.7584999799728394,
+          6.776299476623535,
+          1.4090200662612915
+        ],
+        "name": "mh_asian_female__asymmetric",
+        "skin_tone": [
+          0.66,
+          0.44,
+          0.32
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/asian-female-young.target",
+            "scale": 1.0,
+            "sha256": "60f2128a9b0e2e74b2bc513f014f2662be960b6cfa6fd11516632be7e0b241ac"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-diamond.target",
+            "scale": 0.28,
+            "sha256": "e09adddbb66fa1552124f6110529314b8ad64918f09f086d1b3ed01e67a04e50"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-scale-depth-decr.target",
+            "scale": 0.18,
+            "sha256": "ace2c724050a95a41aba6495f8a8cf8fa4a5fbd399a819fcf01418071afc5fc9"
+          },
+          {
+            "path": "makehuman/data/targets/eyes/l-eye-scale-incr.target",
+            "scale": 0.13,
+            "sha256": "6764116d877f2ca09b06c7f65ae6c304e6eefec0241b6eb0b62df8a53d528d42"
+          },
+          {
+            "path": "makehuman/data/targets/eyes/r-eye-scale-incr.target",
+            "scale": 0.13,
+            "sha256": "58112cbcd06f3d10c7c5f1ee87a6b0d707e1d018b965b1502537a6c0880abfa6"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-volume-incr.target",
+            "scale": 0.13,
+            "sha256": "2feb867d7fd13579e0f8147f15e1f523bb5fe3bd8a5dd2765f7a4c816a09b10b"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-volume-incr.target",
+            "scale": 0.13,
+            "sha256": "95091cd82733b729a40b0fa32c2cacc13a3cd174b3978d9b52287a76027a1b4c"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/asian/eyebrows-left-up.target",
+            "scale": 0.34,
+            "sha256": "8f00a3aa1975d9fd4819f42fb240fadf6393fdb197c22cd1a42c6b8d18e7ddf7"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/asian/mouth-part-later.target",
+            "scale": 0.22,
+            "sha256": "34072a2b1867a019b07538e9c0bcf8be6b14e5df895823fd6a88516fde2c3368"
+          }
+        ],
+        "vertices_sha256": "77e1ac4c1346a0faaceeab247f94a3352e093d5d4068add2d9541e412cba46a3"
+      },
+      {
+        "bounds": [
+          -1.9665000438690186,
+          4.826300144195557,
+          -0.6974000334739685,
+          1.9665000438690186,
+          8.09529972076416,
+          1.5419000387191772
+        ],
+        "name": "mh_asian_male__neutral",
+        "skin_tone": [
+          0.58,
+          0.38,
+          0.28
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/asian-male-young.target",
+            "scale": 1.0,
+            "sha256": "04a159f731c6c7e68aa91d1b12ae15a90c510da6b1536dfb818d98415b4eb6ec"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-invertedtriangular.target",
+            "scale": 0.26,
+            "sha256": "5d11d5e59ebc97deafe982a3c21d921ece2a7bfd11a41574fed0e85734a5204d"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-point-width-incr.target",
+            "scale": 0.18,
+            "sha256": "fb1bb83f5a72e297ea12fa444e1ab761bd91ea324ddbd6d9989b2fa18d3f248d"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-scale-horiz-decr.target",
+            "scale": 0.16,
+            "sha256": "d671e1345420c4d4400eb6d548b9ae57a856ec860b1b57d3c6c99a92a718df3e"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-inner-decr.target",
+            "scale": 0.13,
+            "sha256": "677e95a44c5baf686c4f87abae2c763a82953ab4d11df0f5c6525ffdc6321f0e"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-inner-decr.target",
+            "scale": 0.13,
+            "sha256": "f499569d3000e8dd5e66d771b6269bcfe9f6179cca9d00aca05aee51e5af0565"
+          }
+        ],
+        "vertices_sha256": "e5c0dbfff6169c52d481b3f02b74aaf8f2ab42c4d978d8b571ed89c75c9e41e4"
+      },
+      {
+        "bounds": [
+          -1.9665000438690186,
+          4.826300144195557,
+          -0.6974000334739685,
+          1.9665000438690186,
+          8.09529972076416,
+          1.5419000387191772
+        ],
+        "name": "mh_asian_male__smile",
+        "skin_tone": [
+          0.58,
+          0.38,
+          0.28
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/asian-male-young.target",
+            "scale": 1.0,
+            "sha256": "04a159f731c6c7e68aa91d1b12ae15a90c510da6b1536dfb818d98415b4eb6ec"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-invertedtriangular.target",
+            "scale": 0.26,
+            "sha256": "5d11d5e59ebc97deafe982a3c21d921ece2a7bfd11a41574fed0e85734a5204d"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-point-width-incr.target",
+            "scale": 0.18,
+            "sha256": "fb1bb83f5a72e297ea12fa444e1ab761bd91ea324ddbd6d9989b2fa18d3f248d"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-scale-horiz-decr.target",
+            "scale": 0.16,
+            "sha256": "d671e1345420c4d4400eb6d548b9ae57a856ec860b1b57d3c6c99a92a718df3e"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-inner-decr.target",
+            "scale": 0.13,
+            "sha256": "677e95a44c5baf686c4f87abae2c763a82953ab4d11df0f5c6525ffdc6321f0e"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-inner-decr.target",
+            "scale": 0.13,
+            "sha256": "f499569d3000e8dd5e66d771b6269bcfe9f6179cca9d00aca05aee51e5af0565"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/asian/mouth-corner-puller.target",
+            "scale": 0.5,
+            "sha256": "cb7e7ea90f88c5f3b5509e91b4767bbee5828215590134cc66d79520bf28ea9c"
+          }
+        ],
+        "vertices_sha256": "e6a1414b4182399e4edfc3b45be68f5c406d86ac312dd9befee5091de8c004cc"
+      },
+      {
+        "bounds": [
+          -1.9665000438690186,
+          4.826300144195557,
+          -0.6974000334739685,
+          1.9665000438690186,
+          8.09529972076416,
+          1.5419000387191772
+        ],
+        "name": "mh_asian_male__mouth_open",
+        "skin_tone": [
+          0.58,
+          0.38,
+          0.28
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/asian-male-young.target",
+            "scale": 1.0,
+            "sha256": "04a159f731c6c7e68aa91d1b12ae15a90c510da6b1536dfb818d98415b4eb6ec"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-invertedtriangular.target",
+            "scale": 0.26,
+            "sha256": "5d11d5e59ebc97deafe982a3c21d921ece2a7bfd11a41574fed0e85734a5204d"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-point-width-incr.target",
+            "scale": 0.18,
+            "sha256": "fb1bb83f5a72e297ea12fa444e1ab761bd91ea324ddbd6d9989b2fa18d3f248d"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-scale-horiz-decr.target",
+            "scale": 0.16,
+            "sha256": "d671e1345420c4d4400eb6d548b9ae57a856ec860b1b57d3c6c99a92a718df3e"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-inner-decr.target",
+            "scale": 0.13,
+            "sha256": "677e95a44c5baf686c4f87abae2c763a82953ab4d11df0f5c6525ffdc6321f0e"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-inner-decr.target",
+            "scale": 0.13,
+            "sha256": "f499569d3000e8dd5e66d771b6269bcfe9f6179cca9d00aca05aee51e5af0565"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/asian/mouth-open.target",
+            "scale": 0.36,
+            "sha256": "b694ebea725a9686c58bb7a5f36c85edfd28b72f66d3ae948ca6a338676c84b1"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/asian/mouth-eversion.target",
+            "scale": 0.12,
+            "sha256": "167cfa768a45569d48875d12fc46e0be5b8f97651a83f543fcc2ee228c78418a"
+          }
+        ],
+        "vertices_sha256": "86e0022dfcfe0ae14a131e998d356e85deb3630e2dd7cfb78a4954ace012dd23"
+      },
+      {
+        "bounds": [
+          -1.9665000438690186,
+          4.826300144195557,
+          -0.6974000334739685,
+          1.9665000438690186,
+          8.09529972076416,
+          1.5419000387191772
+        ],
+        "name": "mh_asian_male__asymmetric",
+        "skin_tone": [
+          0.58,
+          0.38,
+          0.28
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/asian-male-young.target",
+            "scale": 1.0,
+            "sha256": "04a159f731c6c7e68aa91d1b12ae15a90c510da6b1536dfb818d98415b4eb6ec"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-invertedtriangular.target",
+            "scale": 0.26,
+            "sha256": "5d11d5e59ebc97deafe982a3c21d921ece2a7bfd11a41574fed0e85734a5204d"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-point-width-incr.target",
+            "scale": 0.18,
+            "sha256": "fb1bb83f5a72e297ea12fa444e1ab761bd91ea324ddbd6d9989b2fa18d3f248d"
+          },
+          {
+            "path": "makehuman/data/targets/mouth/mouth-scale-horiz-decr.target",
+            "scale": 0.16,
+            "sha256": "d671e1345420c4d4400eb6d548b9ae57a856ec860b1b57d3c6c99a92a718df3e"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-inner-decr.target",
+            "scale": 0.13,
+            "sha256": "677e95a44c5baf686c4f87abae2c763a82953ab4d11df0f5c6525ffdc6321f0e"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-inner-decr.target",
+            "scale": 0.13,
+            "sha256": "f499569d3000e8dd5e66d771b6269bcfe9f6179cca9d00aca05aee51e5af0565"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/asian/eyebrows-left-up.target",
+            "scale": 0.34,
+            "sha256": "8f00a3aa1975d9fd4819f42fb240fadf6393fdb197c22cd1a42c6b8d18e7ddf7"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/asian/mouth-part-later.target",
+            "scale": 0.22,
+            "sha256": "34072a2b1867a019b07538e9c0bcf8be6b14e5df895823fd6a88516fde2c3368"
+          }
+        ],
+        "vertices_sha256": "146a280a51a8b3625bbc300911fcc1f740e0b487bf20ceee8b712c2d20b76fc9"
+      },
+      {
+        "bounds": [
+          -1.8660001754760742,
+          4.536799907684326,
+          -0.5112000107765198,
+          1.8660001754760742,
+          7.642049789428711,
+          1.4816999435424805
+        ],
+        "name": "mh_mixed_female__neutral",
+        "skin_tone": [
+          0.53,
+          0.34,
+          0.25
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/african-female-young.target",
+            "scale": 0.5,
+            "sha256": "7ef412cdbb161c5d5b21bb751d773b094c63fc5689befa948301530923e2ce6c"
+          },
+          {
+            "path": "makehuman/data/targets/macrodetails/asian-female-young.target",
+            "scale": 0.5,
+            "sha256": "60f2128a9b0e2e74b2bc513f014f2662be960b6cfa6fd11516632be7e0b241ac"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-triangular.target",
+            "scale": 0.25,
+            "sha256": "e3932ec71152c5dfec1a51a86cd11eb85c63d80ce0f7848d7d5edfb00f85dedb"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-curve-concave.target",
+            "scale": 0.18,
+            "sha256": "928503e95f107ca5cf9d91a2fdc5ec14b71a52212cf12e5fc9673a5fd8f8f46d"
+          },
+          {
+            "path": "makehuman/data/targets/forehead/forehead-temple-incr.target",
+            "scale": 0.15,
+            "sha256": "fb4f95d9c85402fd35599d1a949f5dd302504fee63e49d8de83ae61063baedb8"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-trans-up.target",
+            "scale": 0.12,
+            "sha256": "ea341c15bb56ba760e42913940c514915f251cb9230815ab74d59636f0f6fa0b"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-trans-up.target",
+            "scale": 0.12,
+            "sha256": "4ab3a6b5f419daa60063c48363f381b82f951e8e513d2a5a749055818b6ce223"
+          }
+        ],
+        "vertices_sha256": "34776c0289c20aea7c2bff3fbffe5cc05455f9f4135110b13efd759a857043cd"
+      },
+      {
+        "bounds": [
+          -1.8660001754760742,
+          4.536799907684326,
+          -0.5112000107765198,
+          1.8660001754760742,
+          7.642049789428711,
+          1.4816999435424805
+        ],
+        "name": "mh_mixed_female__smile",
+        "skin_tone": [
+          0.53,
+          0.34,
+          0.25
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/african-female-young.target",
+            "scale": 0.5,
+            "sha256": "7ef412cdbb161c5d5b21bb751d773b094c63fc5689befa948301530923e2ce6c"
+          },
+          {
+            "path": "makehuman/data/targets/macrodetails/asian-female-young.target",
+            "scale": 0.5,
+            "sha256": "60f2128a9b0e2e74b2bc513f014f2662be960b6cfa6fd11516632be7e0b241ac"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-triangular.target",
+            "scale": 0.25,
+            "sha256": "e3932ec71152c5dfec1a51a86cd11eb85c63d80ce0f7848d7d5edfb00f85dedb"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-curve-concave.target",
+            "scale": 0.18,
+            "sha256": "928503e95f107ca5cf9d91a2fdc5ec14b71a52212cf12e5fc9673a5fd8f8f46d"
+          },
+          {
+            "path": "makehuman/data/targets/forehead/forehead-temple-incr.target",
+            "scale": 0.15,
+            "sha256": "fb4f95d9c85402fd35599d1a949f5dd302504fee63e49d8de83ae61063baedb8"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-trans-up.target",
+            "scale": 0.12,
+            "sha256": "ea341c15bb56ba760e42913940c514915f251cb9230815ab74d59636f0f6fa0b"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-trans-up.target",
+            "scale": 0.12,
+            "sha256": "4ab3a6b5f419daa60063c48363f381b82f951e8e513d2a5a749055818b6ce223"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-corner-puller.target",
+            "scale": 0.5,
+            "sha256": "cb7e7ea90f88c5f3b5509e91b4767bbee5828215590134cc66d79520bf28ea9c"
+          }
+        ],
+        "vertices_sha256": "eb536540a8890e6188cceaeb9fb7cce471c77c348770da09b2964efe85f92dea"
+      },
+      {
+        "bounds": [
+          -1.8660001754760742,
+          4.536799907684326,
+          -0.5112000107765198,
+          1.8660001754760742,
+          7.642049789428711,
+          1.4816999435424805
+        ],
+        "name": "mh_mixed_female__mouth_open",
+        "skin_tone": [
+          0.53,
+          0.34,
+          0.25
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/african-female-young.target",
+            "scale": 0.5,
+            "sha256": "7ef412cdbb161c5d5b21bb751d773b094c63fc5689befa948301530923e2ce6c"
+          },
+          {
+            "path": "makehuman/data/targets/macrodetails/asian-female-young.target",
+            "scale": 0.5,
+            "sha256": "60f2128a9b0e2e74b2bc513f014f2662be960b6cfa6fd11516632be7e0b241ac"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-triangular.target",
+            "scale": 0.25,
+            "sha256": "e3932ec71152c5dfec1a51a86cd11eb85c63d80ce0f7848d7d5edfb00f85dedb"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-curve-concave.target",
+            "scale": 0.18,
+            "sha256": "928503e95f107ca5cf9d91a2fdc5ec14b71a52212cf12e5fc9673a5fd8f8f46d"
+          },
+          {
+            "path": "makehuman/data/targets/forehead/forehead-temple-incr.target",
+            "scale": 0.15,
+            "sha256": "fb4f95d9c85402fd35599d1a949f5dd302504fee63e49d8de83ae61063baedb8"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-trans-up.target",
+            "scale": 0.12,
+            "sha256": "ea341c15bb56ba760e42913940c514915f251cb9230815ab74d59636f0f6fa0b"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-trans-up.target",
+            "scale": 0.12,
+            "sha256": "4ab3a6b5f419daa60063c48363f381b82f951e8e513d2a5a749055818b6ce223"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-open.target",
+            "scale": 0.36,
+            "sha256": "8cb683e6cca007903dd3cc1d2916a3930460c8e06fc80e0ab02f73f8e97529b5"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-eversion.target",
+            "scale": 0.12,
+            "sha256": "167cfa768a45569d48875d12fc46e0be5b8f97651a83f543fcc2ee228c78418a"
+          }
+        ],
+        "vertices_sha256": "f99e25831f646e5223c99f8c6cba90369ec47d363b908c126a7c92acd977c2b6"
+      },
+      {
+        "bounds": [
+          -1.8660001754760742,
+          4.536799907684326,
+          -0.5112000107765198,
+          1.8660001754760742,
+          7.642049789428711,
+          1.4816999435424805
+        ],
+        "name": "mh_mixed_female__asymmetric",
+        "skin_tone": [
+          0.53,
+          0.34,
+          0.25
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/african-female-young.target",
+            "scale": 0.5,
+            "sha256": "7ef412cdbb161c5d5b21bb751d773b094c63fc5689befa948301530923e2ce6c"
+          },
+          {
+            "path": "makehuman/data/targets/macrodetails/asian-female-young.target",
+            "scale": 0.5,
+            "sha256": "60f2128a9b0e2e74b2bc513f014f2662be960b6cfa6fd11516632be7e0b241ac"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-triangular.target",
+            "scale": 0.25,
+            "sha256": "e3932ec71152c5dfec1a51a86cd11eb85c63d80ce0f7848d7d5edfb00f85dedb"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-curve-concave.target",
+            "scale": 0.18,
+            "sha256": "928503e95f107ca5cf9d91a2fdc5ec14b71a52212cf12e5fc9673a5fd8f8f46d"
+          },
+          {
+            "path": "makehuman/data/targets/forehead/forehead-temple-incr.target",
+            "scale": 0.15,
+            "sha256": "fb4f95d9c85402fd35599d1a949f5dd302504fee63e49d8de83ae61063baedb8"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-trans-up.target",
+            "scale": 0.12,
+            "sha256": "ea341c15bb56ba760e42913940c514915f251cb9230815ab74d59636f0f6fa0b"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-trans-up.target",
+            "scale": 0.12,
+            "sha256": "4ab3a6b5f419daa60063c48363f381b82f951e8e513d2a5a749055818b6ce223"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/eyebrows-left-up.target",
+            "scale": 0.34,
+            "sha256": "8f00a3aa1975d9fd4819f42fb240fadf6393fdb197c22cd1a42c6b8d18e7ddf7"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-part-later.target",
+            "scale": 0.22,
+            "sha256": "f93f14ac7840524d57ddac4bf5a71c12f7b704767d93e449ff07bca7a0cfca87"
+          }
+        ],
+        "vertices_sha256": "751c097434b96679a17742fba70ad1cf662845042f11dbce4f79210acaa99f40"
+      },
+      {
+        "bounds": [
+          -2.1559998989105225,
+          6.252799987792969,
+          -0.6428999900817871,
+          2.1559998989105225,
+          9.676599502563477,
+          1.7446999549865723
+        ],
+        "name": "mh_mixed_male__neutral",
+        "skin_tone": [
+          0.47,
+          0.29,
+          0.22
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/caucasian-male-young.target",
+            "scale": 0.5,
+            "sha256": "d08abdacbe89c3c74a2782b29386ca6ab24ab72467dd01642ea356702a27aff0"
+          },
+          {
+            "path": "makehuman/data/targets/macrodetails/african-male-young.target",
+            "scale": 0.5,
+            "sha256": "8a48f5233dcc550a31f4ef2bf4ea2a7b089e9f9f0e6b555b34984d867f1cfc1a"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-diamond.target",
+            "scale": 0.24,
+            "sha256": "e09adddbb66fa1552124f6110529314b8ad64918f09f086d1b3ed01e67a04e50"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-greek-incr.target",
+            "scale": 0.17,
+            "sha256": "eb95869ed459e15e6c7c994ca1d31800160eebdf45fa81830c1243dadd09dfe7"
+          },
+          {
+            "path": "makehuman/data/targets/forehead/forehead-nubian-incr.target",
+            "scale": 0.14,
+            "sha256": "2575941469e356a4bc6d388e9738c43f463cf1052161240fe386c77e335ab9c8"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-volume-decr.target",
+            "scale": 0.12,
+            "sha256": "efd058e8729129e82eeabbdcae82a17582df50be02a00e46278b35365e842bad"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-volume-decr.target",
+            "scale": 0.12,
+            "sha256": "44e41f6f2e769cce4a7c83ca224405cd3f95fdcfaa5133573f4c56013c54441f"
+          }
+        ],
+        "vertices_sha256": "0d980a17a93c6665bbc019b065835d134deda472740ed42f30ee63c118fea5eb"
+      },
+      {
+        "bounds": [
+          -2.1559998989105225,
+          6.252799987792969,
+          -0.6428999900817871,
+          2.1559998989105225,
+          9.676599502563477,
+          1.7446999549865723
+        ],
+        "name": "mh_mixed_male__smile",
+        "skin_tone": [
+          0.47,
+          0.29,
+          0.22
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/caucasian-male-young.target",
+            "scale": 0.5,
+            "sha256": "d08abdacbe89c3c74a2782b29386ca6ab24ab72467dd01642ea356702a27aff0"
+          },
+          {
+            "path": "makehuman/data/targets/macrodetails/african-male-young.target",
+            "scale": 0.5,
+            "sha256": "8a48f5233dcc550a31f4ef2bf4ea2a7b089e9f9f0e6b555b34984d867f1cfc1a"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-diamond.target",
+            "scale": 0.24,
+            "sha256": "e09adddbb66fa1552124f6110529314b8ad64918f09f086d1b3ed01e67a04e50"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-greek-incr.target",
+            "scale": 0.17,
+            "sha256": "eb95869ed459e15e6c7c994ca1d31800160eebdf45fa81830c1243dadd09dfe7"
+          },
+          {
+            "path": "makehuman/data/targets/forehead/forehead-nubian-incr.target",
+            "scale": 0.14,
+            "sha256": "2575941469e356a4bc6d388e9738c43f463cf1052161240fe386c77e335ab9c8"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-volume-decr.target",
+            "scale": 0.12,
+            "sha256": "efd058e8729129e82eeabbdcae82a17582df50be02a00e46278b35365e842bad"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-volume-decr.target",
+            "scale": 0.12,
+            "sha256": "44e41f6f2e769cce4a7c83ca224405cd3f95fdcfaa5133573f4c56013c54441f"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-corner-puller.target",
+            "scale": 0.5,
+            "sha256": "cb7e7ea90f88c5f3b5509e91b4767bbee5828215590134cc66d79520bf28ea9c"
+          }
+        ],
+        "vertices_sha256": "abc5e008485d466a006f6f5e0ed616f6a209aad8bd1bc5b834cc4db1e6bc2ac8"
+      },
+      {
+        "bounds": [
+          -2.1559998989105225,
+          6.252799987792969,
+          -0.6428999900817871,
+          2.1559998989105225,
+          9.676599502563477,
+          1.7446999549865723
+        ],
+        "name": "mh_mixed_male__mouth_open",
+        "skin_tone": [
+          0.47,
+          0.29,
+          0.22
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/caucasian-male-young.target",
+            "scale": 0.5,
+            "sha256": "d08abdacbe89c3c74a2782b29386ca6ab24ab72467dd01642ea356702a27aff0"
+          },
+          {
+            "path": "makehuman/data/targets/macrodetails/african-male-young.target",
+            "scale": 0.5,
+            "sha256": "8a48f5233dcc550a31f4ef2bf4ea2a7b089e9f9f0e6b555b34984d867f1cfc1a"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-diamond.target",
+            "scale": 0.24,
+            "sha256": "e09adddbb66fa1552124f6110529314b8ad64918f09f086d1b3ed01e67a04e50"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-greek-incr.target",
+            "scale": 0.17,
+            "sha256": "eb95869ed459e15e6c7c994ca1d31800160eebdf45fa81830c1243dadd09dfe7"
+          },
+          {
+            "path": "makehuman/data/targets/forehead/forehead-nubian-incr.target",
+            "scale": 0.14,
+            "sha256": "2575941469e356a4bc6d388e9738c43f463cf1052161240fe386c77e335ab9c8"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-volume-decr.target",
+            "scale": 0.12,
+            "sha256": "efd058e8729129e82eeabbdcae82a17582df50be02a00e46278b35365e842bad"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-volume-decr.target",
+            "scale": 0.12,
+            "sha256": "44e41f6f2e769cce4a7c83ca224405cd3f95fdcfaa5133573f4c56013c54441f"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-open.target",
+            "scale": 0.36,
+            "sha256": "8cb683e6cca007903dd3cc1d2916a3930460c8e06fc80e0ab02f73f8e97529b5"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-eversion.target",
+            "scale": 0.12,
+            "sha256": "167cfa768a45569d48875d12fc46e0be5b8f97651a83f543fcc2ee228c78418a"
+          }
+        ],
+        "vertices_sha256": "644143fbf15f005915ee65953c7341ad5f09d5eec4469484c6ed21f97e437032"
+      },
+      {
+        "bounds": [
+          -2.1559998989105225,
+          6.252799987792969,
+          -0.6428999900817871,
+          2.1559998989105225,
+          9.676599502563477,
+          1.7446999549865723
+        ],
+        "name": "mh_mixed_male__asymmetric",
+        "skin_tone": [
+          0.47,
+          0.29,
+          0.22
+        ],
+        "targets": [
+          {
+            "path": "makehuman/data/targets/macrodetails/caucasian-male-young.target",
+            "scale": 0.5,
+            "sha256": "d08abdacbe89c3c74a2782b29386ca6ab24ab72467dd01642ea356702a27aff0"
+          },
+          {
+            "path": "makehuman/data/targets/macrodetails/african-male-young.target",
+            "scale": 0.5,
+            "sha256": "8a48f5233dcc550a31f4ef2bf4ea2a7b089e9f9f0e6b555b34984d867f1cfc1a"
+          },
+          {
+            "path": "makehuman/data/targets/head/head-diamond.target",
+            "scale": 0.24,
+            "sha256": "e09adddbb66fa1552124f6110529314b8ad64918f09f086d1b3ed01e67a04e50"
+          },
+          {
+            "path": "makehuman/data/targets/nose/nose-greek-incr.target",
+            "scale": 0.17,
+            "sha256": "eb95869ed459e15e6c7c994ca1d31800160eebdf45fa81830c1243dadd09dfe7"
+          },
+          {
+            "path": "makehuman/data/targets/forehead/forehead-nubian-incr.target",
+            "scale": 0.14,
+            "sha256": "2575941469e356a4bc6d388e9738c43f463cf1052161240fe386c77e335ab9c8"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/l-cheek-volume-decr.target",
+            "scale": 0.12,
+            "sha256": "efd058e8729129e82eeabbdcae82a17582df50be02a00e46278b35365e842bad"
+          },
+          {
+            "path": "makehuman/data/targets/cheek/r-cheek-volume-decr.target",
+            "scale": 0.12,
+            "sha256": "44e41f6f2e769cce4a7c83ca224405cd3f95fdcfaa5133573f4c56013c54441f"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/eyebrows-left-up.target",
+            "scale": 0.34,
+            "sha256": "8f00a3aa1975d9fd4819f42fb240fadf6393fdb197c22cd1a42c6b8d18e7ddf7"
+          },
+          {
+            "path": "makehuman/data/targets/expression/units/caucasian/mouth-part-later.target",
+            "scale": 0.22,
+            "sha256": "f93f14ac7840524d57ddac4bf5a71c12f7b704767d93e449ff07bca7a0cfca87"
+          }
+        ],
+        "vertices_sha256": "ed6733ae9f6fbfe84f469ecb216844498b6f29556198c2fafdc45eea00af2147"
+      }
+    ],
+    "sha256": "5da31444928a0d4d28522cd21dd4f5506946fdbb3c1436cabbbbea12ec054361",
+    "size_bytes": 1081896,
+    "vertex_count": 4662
+  },
+  "license": "CC0-1.0",
+  "schema_version": 1,
+  "source": {
+    "asset_license_path": "LICENSE.ASSETS.md",
+    "asset_license_sha256": "5f3ab0cf6f7ebe92efe4b83213131c617d308d164eeefd5da230373640b0c226",
+    "base_mesh_path": "makehuman/data/3dobjs/base.obj",
+    "base_mesh_sha256": "bea00279464133e86b634220cd2774ebf3b470de280d11222a6b2269e4a8d950",
+    "commit": "a8bc2d54ff0ac92e78ff71431b1023eda42bf482",
+    "part_target_directories": {
+      "eyebrows": {
+        "file_count": 6,
+        "sha256": "7b6508e1c2a1858268a273eee7b3fa86c6701d75e59f92235bee37f7d7a973eb"
+      },
+      "left_eye": {
+        "file_count": 34,
+        "sha256": "45118291c8955e5e8acf2bc2166ec39d7b6dee8d498498dd238d1e43ef15378b"
+      },
+      "mouth": {
+        "file_count": 44,
+        "sha256": "023bef8466d53964b6ae96438ae8576fc576773d650d2eeaa061d9661149cbec"
+      },
+      "nose": {
+        "file_count": 42,
+        "sha256": "a13be7267caff5f69c702d5281692bbb246c4f2801f18bc43aa430e0b5c2211b"
+      },
+      "right_eye": {
+        "file_count": 34,
+        "sha256": "626919bc6761af97f55e42052fcc62d93dc66a0deab71b7d8a13a45d7c03da10"
+      }
+    },
+    "profile_target_files": {
+      "makehuman/data/targets/cheek/l-cheek-bones-incr.target": "b0316f8ec8b656c7a3a9c18c6f92503461e675ab89cf55e35f6c9e9423bf2cb2",
+      "makehuman/data/targets/cheek/l-cheek-inner-decr.target": "677e95a44c5baf686c4f87abae2c763a82953ab4d11df0f5c6525ffdc6321f0e",
+      "makehuman/data/targets/cheek/l-cheek-inner-incr.target": "102fd97366fcd69137a5a8cfff920d0cbea34be89cf94adecac771c886daebee",
+      "makehuman/data/targets/cheek/l-cheek-trans-up.target": "ea341c15bb56ba760e42913940c514915f251cb9230815ab74d59636f0f6fa0b",
+      "makehuman/data/targets/cheek/l-cheek-volume-decr.target": "efd058e8729129e82eeabbdcae82a17582df50be02a00e46278b35365e842bad",
+      "makehuman/data/targets/cheek/l-cheek-volume-incr.target": "2feb867d7fd13579e0f8147f15e1f523bb5fe3bd8a5dd2765f7a4c816a09b10b",
+      "makehuman/data/targets/cheek/r-cheek-bones-incr.target": "cc4b1623f47de2f705739019e8ceb820c90c2c5f5688dc8791924c78a2714222",
+      "makehuman/data/targets/cheek/r-cheek-inner-decr.target": "f499569d3000e8dd5e66d771b6269bcfe9f6179cca9d00aca05aee51e5af0565",
+      "makehuman/data/targets/cheek/r-cheek-inner-incr.target": "28e24fe7ffa8b3f7fef6b8ee92da381ac3ad9de61e8c3c7ed5dd40b4688c7b17",
+      "makehuman/data/targets/cheek/r-cheek-trans-up.target": "4ab3a6b5f419daa60063c48363f381b82f951e8e513d2a5a749055818b6ce223",
+      "makehuman/data/targets/cheek/r-cheek-volume-decr.target": "44e41f6f2e769cce4a7c83ca224405cd3f95fdcfaa5133573f4c56013c54441f",
+      "makehuman/data/targets/cheek/r-cheek-volume-incr.target": "95091cd82733b729a40b0fa32c2cacc13a3cd174b3978d9b52287a76027a1b4c",
+      "makehuman/data/targets/expression/units/african/eyebrows-left-up.target": "8f00a3aa1975d9fd4819f42fb240fadf6393fdb197c22cd1a42c6b8d18e7ddf7",
+      "makehuman/data/targets/expression/units/african/mouth-corner-puller.target": "f661bf5ecadfda8f2e0b1457fa11dcdf5bb1a7ac6247811a12d4c6ed360596c8",
+      "makehuman/data/targets/expression/units/african/mouth-eversion.target": "7d84ba28dc8db6d68196d2539dff1ebc8282bd80eb2a524ce54284ac3557c555",
+      "makehuman/data/targets/expression/units/african/mouth-open.target": "1c720053d76ea7eca4b3a1dd9b5183b2e5325ccb6ede902f868f9053f4c84bc9",
+      "makehuman/data/targets/expression/units/african/mouth-part-later.target": "acf0f45330d4fb5417b50979c5f0b5401a0b7c01c009dd7e68cf14cc74926ced",
+      "makehuman/data/targets/expression/units/asian/eyebrows-left-up.target": "8f00a3aa1975d9fd4819f42fb240fadf6393fdb197c22cd1a42c6b8d18e7ddf7",
+      "makehuman/data/targets/expression/units/asian/mouth-corner-puller.target": "cb7e7ea90f88c5f3b5509e91b4767bbee5828215590134cc66d79520bf28ea9c",
+      "makehuman/data/targets/expression/units/asian/mouth-eversion.target": "167cfa768a45569d48875d12fc46e0be5b8f97651a83f543fcc2ee228c78418a",
+      "makehuman/data/targets/expression/units/asian/mouth-open.target": "b694ebea725a9686c58bb7a5f36c85edfd28b72f66d3ae948ca6a338676c84b1",
+      "makehuman/data/targets/expression/units/asian/mouth-part-later.target": "34072a2b1867a019b07538e9c0bcf8be6b14e5df895823fd6a88516fde2c3368",
+      "makehuman/data/targets/expression/units/caucasian/eyebrows-left-up.target": "8f00a3aa1975d9fd4819f42fb240fadf6393fdb197c22cd1a42c6b8d18e7ddf7",
+      "makehuman/data/targets/expression/units/caucasian/mouth-corner-puller.target": "cb7e7ea90f88c5f3b5509e91b4767bbee5828215590134cc66d79520bf28ea9c",
+      "makehuman/data/targets/expression/units/caucasian/mouth-eversion.target": "167cfa768a45569d48875d12fc46e0be5b8f97651a83f543fcc2ee228c78418a",
+      "makehuman/data/targets/expression/units/caucasian/mouth-open.target": "8cb683e6cca007903dd3cc1d2916a3930460c8e06fc80e0ab02f73f8e97529b5",
+      "makehuman/data/targets/expression/units/caucasian/mouth-part-later.target": "f93f14ac7840524d57ddac4bf5a71c12f7b704767d93e449ff07bca7a0cfca87",
+      "makehuman/data/targets/eyes/l-eye-scale-incr.target": "6764116d877f2ca09b06c7f65ae6c304e6eefec0241b6eb0b62df8a53d528d42",
+      "makehuman/data/targets/eyes/r-eye-scale-incr.target": "58112cbcd06f3d10c7c5f1ee87a6b0d707e1d018b965b1502537a6c0880abfa6",
+      "makehuman/data/targets/forehead/forehead-nubian-incr.target": "2575941469e356a4bc6d388e9738c43f463cf1052161240fe386c77e335ab9c8",
+      "makehuman/data/targets/forehead/forehead-temple-incr.target": "fb4f95d9c85402fd35599d1a949f5dd302504fee63e49d8de83ae61063baedb8",
+      "makehuman/data/targets/head/head-diamond.target": "e09adddbb66fa1552124f6110529314b8ad64918f09f086d1b3ed01e67a04e50",
+      "makehuman/data/targets/head/head-invertedtriangular.target": "5d11d5e59ebc97deafe982a3c21d921ece2a7bfd11a41574fed0e85734a5204d",
+      "makehuman/data/targets/head/head-oval.target": "f873122d889a9ba0f730b76e43fbd16b955ffb9f7cfe08c2752347d5f774b48f",
+      "makehuman/data/targets/head/head-rectangular.target": "5ebc7ad4b5936b8868ae9fc0a37536956e14134588769eff8287804b0370277d",
+      "makehuman/data/targets/head/head-round.target": "090c41f70cfc39a4dda94d4ccb7c297ed6d88a60714d7e33c7329af4d378c7fc",
+      "makehuman/data/targets/head/head-square.target": "c71e79474291c8de78f6b7c4a49e218deac058f96e64bf696625cef119250af7",
+      "makehuman/data/targets/head/head-triangular.target": "e3932ec71152c5dfec1a51a86cd11eb85c63d80ce0f7848d7d5edfb00f85dedb",
+      "makehuman/data/targets/macrodetails/african-female-young.target": "7ef412cdbb161c5d5b21bb751d773b094c63fc5689befa948301530923e2ce6c",
+      "makehuman/data/targets/macrodetails/african-male-young.target": "8a48f5233dcc550a31f4ef2bf4ea2a7b089e9f9f0e6b555b34984d867f1cfc1a",
+      "makehuman/data/targets/macrodetails/asian-female-young.target": "60f2128a9b0e2e74b2bc513f014f2662be960b6cfa6fd11516632be7e0b241ac",
+      "makehuman/data/targets/macrodetails/asian-male-young.target": "04a159f731c6c7e68aa91d1b12ae15a90c510da6b1536dfb818d98415b4eb6ec",
+      "makehuman/data/targets/macrodetails/caucasian-female-young.target": "6352040adcd91d48bc2266a65246ff0be39afb1f3d309311426204a95c1cbd77",
+      "makehuman/data/targets/macrodetails/caucasian-male-young.target": "d08abdacbe89c3c74a2782b29386ca6ab24ab72467dd01642ea356702a27aff0",
+      "makehuman/data/targets/mouth/mouth-lowerlip-volume-incr.target": "082e7a91b2d8c930eb4b3c027407a0e94d16dfdc710cc161bd0bc87191435213",
+      "makehuman/data/targets/mouth/mouth-scale-horiz-decr.target": "d671e1345420c4d4400eb6d548b9ae57a856ec860b1b57d3c6c99a92a718df3e",
+      "makehuman/data/targets/mouth/mouth-scale-horiz-incr.target": "04b91799a42ffdd7c377b9ae180d861e250b5f5790161eb4659700e587e836ba",
+      "makehuman/data/targets/mouth/mouth-upperlip-volume-incr.target": "73916c93fbeeedcefd4279c2153a1d7ccb6b2c394fbfb6d50e0bf4d2bb365af2",
+      "makehuman/data/targets/nose/nose-curve-concave.target": "928503e95f107ca5cf9d91a2fdc5ec14b71a52212cf12e5fc9673a5fd8f8f46d",
+      "makehuman/data/targets/nose/nose-greek-incr.target": "eb95869ed459e15e6c7c994ca1d31800160eebdf45fa81830c1243dadd09dfe7",
+      "makehuman/data/targets/nose/nose-hump-incr.target": "ad843d0eedb5a86cb7a677f309c8691b72498852e98e709fb36aea299411e37f",
+      "makehuman/data/targets/nose/nose-nostrils-width-incr.target": "ac2ee587acf1ab785b394f57759f866a0d4614bbd0aa8b1081593ec8147b89a9",
+      "makehuman/data/targets/nose/nose-point-width-incr.target": "fb1bb83f5a72e297ea12fa444e1ab761bd91ea324ddbd6d9989b2fa18d3f248d",
+      "makehuman/data/targets/nose/nose-scale-depth-decr.target": "ace2c724050a95a41aba6495f8a8cf8fa4a5fbd399a819fcf01418071afc5fc9",
+      "makehuman/data/targets/nose/nose-scale-depth-incr.target": "3124cc7e11c4d2fdfa489e2d830b7cd70cd5ce6ad4c4c072b3fd002eb3804f88",
+      "makehuman/data/targets/nose/nose-scale-horiz-decr.target": "5cf77aa83f1ab83d019e3ba965521c88364ec729b68104fc802a95a9bff8dd76",
+      "makehuman/data/targets/nose/nose-width2-incr.target": "45bb7bdfbae2ac404cea6b67999afcd58ab973786147fa19a903ec1113afe3f8"
+    },
+    "repository": "https://github.com/makehumancommunity/makehuman"
+  }
+}

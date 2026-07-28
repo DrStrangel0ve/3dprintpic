@@ -1,0 +1,991 @@
+{
+  "adapter": {
+    "path": "D:\\CodexResearch\\clean-worktrees\\3dprintpic-zimage-962772d\\backend\\benchmark\\mhr_photoreal_domain_transfer_corpus.py",
+    "sha256": "b540b3dceff776cd2d3f75af82a4fc19e22f60477975cbabe9e9851b9e5b8e3b"
+  },
+  "adapter_repository": {
+    "adapter_relative_path": "backend/benchmark/mhr_photoreal_domain_transfer_corpus.py",
+    "adapter_tracked": true,
+    "clean": true,
+    "revision": "1b2de69eed0248e38cfa89ad24897ca307103194",
+    "root": "D:\\CodexResearch\\clean-worktrees\\3dprintpic-zimage-962772d",
+    "status": []
+  },
+  "checks": {
+    "adapter_is_tracked": true,
+    "adapter_repository_clean": true,
+    "controlnet_exists": true,
+    "controlnet_hash_pinned": true,
+    "controlnet_hash_reads_consistent": true,
+    "controlnet_size_pinned": true,
+    "dependencies_available": true,
+    "depth_evaluator_dependency_versions_pinned": true,
+    "depth_evaluator_files_complete": true,
+    "depth_evaluator_hashes_pinned": true,
+    "depth_evaluator_no_unexpected_files": true,
+    "depth_evaluator_sizes_pinned": true,
+    "model_files_complete": true,
+    "model_has_no_unexpected_consumed_files": true,
+    "model_has_no_unexpected_safetensors": true,
+    "model_hash_reads_consistent": true,
+    "model_hashes_pinned": true,
+    "model_sizes_pinned": true,
+    "source_clean": true,
+    "source_files_complete": true,
+    "source_revision_pinned": true
+  },
+  "controlnet": {
+    "block_accepted_bytes": 6712485600,
+    "block_accepted_ranges": 801,
+    "block_aggregate_attempts": 1,
+    "block_aggregate_hash_checks": 1,
+    "block_aggregate_hash_failures": 0,
+    "block_mismatch_reads": 0,
+    "block_quorum": 2,
+    "block_quorum_error": null,
+    "block_quorum_failures": 0,
+    "block_read_attempts": 1602,
+    "block_read_failures": 0,
+    "block_retry_count": 0,
+    "block_short_reads": 0,
+    "block_size_bytes": 8388608,
+    "block_size_change_reads": 0,
+    "exists": true,
+    "expected_sha256": "d1251cc7bc3486bc61d25c3be498ef394c31c85ddf4ee9137d2e933411f4a689",
+    "expected_size_bytes": 6712485600,
+    "filename": "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors",
+    "hash_attempt_count": 1,
+    "hash_attempt_limit_per_read": 5,
+    "hash_mismatch_attempts": 0,
+    "hash_pinned": true,
+    "hash_read_count": 1,
+    "hash_reads_consistent": true,
+    "hash_reads_required": 1,
+    "id": "alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1",
+    "path": "D:\\CodexResearch\\providers\\zimage-controlnet-recovery-5155fc5\\Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors",
+    "recovered_hash_mismatches": 0,
+    "revision": "5155fc56d17821007d6f62ac192c09e0f0e72016",
+    "sha256": "d1251cc7bc3486bc61d25c3be498ef394c31c85ddf4ee9137d2e933411f4a689",
+    "sha256_attempt_groups": [
+      [
+        "d1251cc7bc3486bc61d25c3be498ef394c31c85ddf4ee9137d2e933411f4a689"
+      ]
+    ],
+    "sha256_observations": [
+      "d1251cc7bc3486bc61d25c3be498ef394c31c85ddf4ee9137d2e933411f4a689"
+    ],
+    "size_bytes": 6712485600,
+    "size_pinned": true,
+    "stat_error": null,
+    "terminal_hash_mismatches": 0
+  },
+  "dependencies": {
+    "PIL": true,
+    "einops": true,
+    "modelscope": true,
+    "numpy": true,
+    "safetensors": true,
+    "torch": true,
+    "transformers": true
+  },
+  "dependency_versions": {
+    "Pillow": "12.2.0",
+    "diffusers": "0.39.0",
+    "einops": "0.8.2",
+    "modelscope": "1.38.1",
+    "numpy": "2.4.4",
+    "safetensors": "0.8.0",
+    "torch": "2.7.1+cu128",
+    "transformers": "5.13.0"
+  },
+  "depth_evaluator": {
+    "checks": {
+      "dependency_versions_pinned": true,
+      "files_complete": true,
+      "hashes_pinned": true,
+      "no_unexpected_files": true,
+      "sizes_pinned": true
+    },
+    "dependency_versions": {
+      "torch": "2.7.1+cu128",
+      "transformers": "5.13.0"
+    },
+    "expected_dependency_versions": {
+      "torch": "2.7.1+cu128",
+      "transformers": "5.13.0"
+    },
+    "files": {
+      "config.json": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "c56698d3643dde1f83ea2212759e6b31a22b8f827246a36dd007ee8a22b3ff75",
+        "expected_size_bytes": 950,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "C:\\Users\\arnav\\.cache\\huggingface\\hub\\models--depth-anything--Depth-Anything-V2-Small-hf\\snapshots\\5426e4f0f36572d16453bbda7a8389317b1bef99\\config.json",
+        "recovered_hash_mismatches": 0,
+        "sha256": "c56698d3643dde1f83ea2212759e6b31a22b8f827246a36dd007ee8a22b3ff75",
+        "sha256_attempt_groups": [
+          [
+            "c56698d3643dde1f83ea2212759e6b31a22b8f827246a36dd007ee8a22b3ff75"
+          ]
+        ],
+        "sha256_observations": [
+          "c56698d3643dde1f83ea2212759e6b31a22b8f827246a36dd007ee8a22b3ff75"
+        ],
+        "size_bytes": 950,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "model.safetensors": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70",
+        "expected_size_bytes": 99173660,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "C:\\Users\\arnav\\.cache\\huggingface\\hub\\models--depth-anything--Depth-Anything-V2-Small-hf\\snapshots\\5426e4f0f36572d16453bbda7a8389317b1bef99\\model.safetensors",
+        "recovered_hash_mismatches": 0,
+        "sha256": "3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70",
+        "sha256_attempt_groups": [
+          [
+            "3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70"
+          ]
+        ],
+        "sha256_observations": [
+          "3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70"
+        ],
+        "size_bytes": 99173660,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "preprocessor_config.json": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "d41175c0d889477ca8fc67191e540faef14baf6275157b3fdecf78469e6bbf84",
+        "expected_size_bytes": 775,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "C:\\Users\\arnav\\.cache\\huggingface\\hub\\models--depth-anything--Depth-Anything-V2-Small-hf\\snapshots\\5426e4f0f36572d16453bbda7a8389317b1bef99\\preprocessor_config.json",
+        "recovered_hash_mismatches": 0,
+        "sha256": "d41175c0d889477ca8fc67191e540faef14baf6275157b3fdecf78469e6bbf84",
+        "sha256_attempt_groups": [
+          [
+            "d41175c0d889477ca8fc67191e540faef14baf6275157b3fdecf78469e6bbf84"
+          ]
+        ],
+        "sha256_observations": [
+          "d41175c0d889477ca8fc67191e540faef14baf6275157b3fdecf78469e6bbf84"
+        ],
+        "size_bytes": 775,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      }
+    },
+    "id": "depth-anything/Depth-Anything-V2-Small-hf",
+    "revision": "5426e4f0f36572d16453bbda7a8389317b1bef99",
+    "root": "C:\\Users\\arnav\\.cache\\huggingface\\hub\\models--depth-anything--Depth-Anything-V2-Small-hf\\snapshots\\5426e4f0f36572d16453bbda7a8389317b1bef99",
+    "runnable": true,
+    "unexpected_files": []
+  },
+  "license": {
+    "controlnet": "Apache-2.0",
+    "model": "Apache-2.0",
+    "production_eligible": true,
+    "source": "Apache-2.0"
+  },
+  "model": {
+    "files": {
+      "text_encoder/config.json": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "8ba006f74fecfaaeb392872a60f4a480e7ec9860153d2e1b769ec81f9a147f8a",
+        "expected_size_bytes": 726,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\text_encoder\\config.json",
+        "recovered_hash_mismatches": 0,
+        "sha256": "8ba006f74fecfaaeb392872a60f4a480e7ec9860153d2e1b769ec81f9a147f8a",
+        "sha256_attempt_groups": [
+          [
+            "8ba006f74fecfaaeb392872a60f4a480e7ec9860153d2e1b769ec81f9a147f8a"
+          ]
+        ],
+        "sha256_observations": [
+          "8ba006f74fecfaaeb392872a60f4a480e7ec9860153d2e1b769ec81f9a147f8a"
+        ],
+        "size_bytes": 726,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "text_encoder/generation_config.json": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "2325da0f15bb848e018c5ae071b7943332e9f871d6b60e2ed22ca97d4cb993d2",
+        "expected_size_bytes": 239,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\text_encoder\\generation_config.json",
+        "recovered_hash_mismatches": 0,
+        "sha256": "2325da0f15bb848e018c5ae071b7943332e9f871d6b60e2ed22ca97d4cb993d2",
+        "sha256_attempt_groups": [
+          [
+            "2325da0f15bb848e018c5ae071b7943332e9f871d6b60e2ed22ca97d4cb993d2"
+          ]
+        ],
+        "sha256_observations": [
+          "2325da0f15bb848e018c5ae071b7943332e9f871d6b60e2ed22ca97d4cb993d2"
+        ],
+        "size_bytes": 239,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "text_encoder/model-00001-of-00003.safetensors": {
+        "block_accepted_bytes": 3957900840,
+        "block_accepted_ranges": 472,
+        "block_aggregate_attempts": 1,
+        "block_aggregate_hash_checks": 1,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": 2,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 944,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": 8388608,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223",
+        "expected_size_bytes": 3957900840,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 5,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\text_encoder\\model-00001-of-00003.safetensors",
+        "recovered_hash_mismatches": 0,
+        "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223",
+        "sha256_attempt_groups": [
+          [
+            "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+          ]
+        ],
+        "sha256_observations": [
+          "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+        ],
+        "size_bytes": 3957900840,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "text_encoder/model-00002-of-00003.safetensors": {
+        "block_accepted_bytes": 3987450520,
+        "block_accepted_ranges": 476,
+        "block_aggregate_attempts": 1,
+        "block_aggregate_hash_checks": 1,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": 2,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 952,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": 8388608,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5",
+        "expected_size_bytes": 3987450520,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 5,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\text_encoder\\model-00002-of-00003.safetensors",
+        "recovered_hash_mismatches": 0,
+        "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5",
+        "sha256_attempt_groups": [
+          [
+            "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+          ]
+        ],
+        "sha256_observations": [
+          "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+        ],
+        "size_bytes": 3987450520,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "text_encoder/model-00003-of-00003.safetensors": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "7ca841ee75b9c61267c0c6148fd8d096d3d21b6d3e161256a9b878154f91fc52",
+        "expected_size_bytes": 99630640,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\text_encoder\\model-00003-of-00003.safetensors",
+        "recovered_hash_mismatches": 0,
+        "sha256": "7ca841ee75b9c61267c0c6148fd8d096d3d21b6d3e161256a9b878154f91fc52",
+        "sha256_attempt_groups": [
+          [
+            "7ca841ee75b9c61267c0c6148fd8d096d3d21b6d3e161256a9b878154f91fc52"
+          ]
+        ],
+        "sha256_observations": [
+          "7ca841ee75b9c61267c0c6148fd8d096d3d21b6d3e161256a9b878154f91fc52"
+        ],
+        "size_bytes": 99630640,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "text_encoder/model.safetensors.index.json": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "6dc0981b8829fead746441f68f38f24c5ca4a3a66351f652c26c6df0efc43ab2",
+        "expected_size_bytes": 32819,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\text_encoder\\model.safetensors.index.json",
+        "recovered_hash_mismatches": 0,
+        "sha256": "6dc0981b8829fead746441f68f38f24c5ca4a3a66351f652c26c6df0efc43ab2",
+        "sha256_attempt_groups": [
+          [
+            "6dc0981b8829fead746441f68f38f24c5ca4a3a66351f652c26c6df0efc43ab2"
+          ]
+        ],
+        "sha256_observations": [
+          "6dc0981b8829fead746441f68f38f24c5ca4a3a66351f652c26c6df0efc43ab2"
+        ],
+        "size_bytes": 32819,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "tokenizer/merges.txt": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+        "expected_size_bytes": 1671853,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\tokenizer\\merges.txt",
+        "recovered_hash_mismatches": 0,
+        "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+        "sha256_attempt_groups": [
+          [
+            "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+          ]
+        ],
+        "sha256_observations": [
+          "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+        ],
+        "size_bytes": 1671853,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "tokenizer/tokenizer.json": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+        "expected_size_bytes": 11422654,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\tokenizer\\tokenizer.json",
+        "recovered_hash_mismatches": 0,
+        "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+        "sha256_attempt_groups": [
+          [
+            "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+          ]
+        ],
+        "sha256_observations": [
+          "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+        ],
+        "size_bytes": 11422654,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "tokenizer/tokenizer_config.json": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101",
+        "expected_size_bytes": 9732,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\tokenizer\\tokenizer_config.json",
+        "recovered_hash_mismatches": 0,
+        "sha256": "d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101",
+        "sha256_attempt_groups": [
+          [
+            "d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101"
+          ]
+        ],
+        "sha256_observations": [
+          "d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101"
+        ],
+        "size_bytes": 9732,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "tokenizer/vocab.json": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+        "expected_size_bytes": 2776833,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\tokenizer\\vocab.json",
+        "recovered_hash_mismatches": 0,
+        "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+        "sha256_attempt_groups": [
+          [
+            "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+          ]
+        ],
+        "sha256_observations": [
+          "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+        ],
+        "size_bytes": 2776833,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "transformer/config.json": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "06d49d1ae533f825c4704cc616fc8bc7826e9d449dde292cc7a95163c69af24a",
+        "expected_size_bytes": 473,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\transformer\\config.json",
+        "recovered_hash_mismatches": 0,
+        "sha256": "06d49d1ae533f825c4704cc616fc8bc7826e9d449dde292cc7a95163c69af24a",
+        "sha256_attempt_groups": [
+          [
+            "06d49d1ae533f825c4704cc616fc8bc7826e9d449dde292cc7a95163c69af24a"
+          ]
+        ],
+        "sha256_observations": [
+          "06d49d1ae533f825c4704cc616fc8bc7826e9d449dde292cc7a95163c69af24a"
+        ],
+        "size_bytes": 473,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "transformer/diffusion_pytorch_model-00001-of-00003.safetensors": {
+        "block_accepted_bytes": 9973693184,
+        "block_accepted_ranges": 1189,
+        "block_aggregate_attempts": 1,
+        "block_aggregate_hash_checks": 1,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": 2,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 2378,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": 8388608,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "95facd593e2549e8252acb571c653d57f7ddb7f1060d4e81712f152555a88804",
+        "expected_size_bytes": 9973693184,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 5,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\transformer\\diffusion_pytorch_model-00001-of-00003.safetensors",
+        "recovered_hash_mismatches": 0,
+        "sha256": "95facd593e2549e8252acb571c653d57f7ddb7f1060d4e81712f152555a88804",
+        "sha256_attempt_groups": [
+          [
+            "95facd593e2549e8252acb571c653d57f7ddb7f1060d4e81712f152555a88804"
+          ]
+        ],
+        "sha256_observations": [
+          "95facd593e2549e8252acb571c653d57f7ddb7f1060d4e81712f152555a88804"
+        ],
+        "size_bytes": 9973693184,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "transformer/diffusion_pytorch_model-00002-of-00003.safetensors": {
+        "block_accepted_bytes": 9973714824,
+        "block_accepted_ranges": 1189,
+        "block_aggregate_attempts": 1,
+        "block_aggregate_hash_checks": 1,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": 2,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 2378,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": 8388608,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "a4bbe43ee184a1fb5af4b412d27555f532893bdc3165b1149e304ed82b5d7015",
+        "expected_size_bytes": 9973714824,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 5,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\transformer\\diffusion_pytorch_model-00002-of-00003.safetensors",
+        "recovered_hash_mismatches": 0,
+        "sha256": "a4bbe43ee184a1fb5af4b412d27555f532893bdc3165b1149e304ed82b5d7015",
+        "sha256_attempt_groups": [
+          [
+            "a4bbe43ee184a1fb5af4b412d27555f532893bdc3165b1149e304ed82b5d7015"
+          ]
+        ],
+        "sha256_observations": [
+          "a4bbe43ee184a1fb5af4b412d27555f532893bdc3165b1149e304ed82b5d7015"
+        ],
+        "size_bytes": 9973714824,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "transformer/diffusion_pytorch_model-00003-of-00003.safetensors": {
+        "block_accepted_bytes": 4672282880,
+        "block_accepted_ranges": 557,
+        "block_aggregate_attempts": 1,
+        "block_aggregate_hash_checks": 1,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": 2,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 1114,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": 8388608,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "aba4e37a590e63210878160a718d916d80398f4e1f78ab6c9b2b2a00d92769fa",
+        "expected_size_bytes": 4672282880,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 5,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\transformer\\diffusion_pytorch_model-00003-of-00003.safetensors",
+        "recovered_hash_mismatches": 0,
+        "sha256": "aba4e37a590e63210878160a718d916d80398f4e1f78ab6c9b2b2a00d92769fa",
+        "sha256_attempt_groups": [
+          [
+            "aba4e37a590e63210878160a718d916d80398f4e1f78ab6c9b2b2a00d92769fa"
+          ]
+        ],
+        "sha256_observations": [
+          "aba4e37a590e63210878160a718d916d80398f4e1f78ab6c9b2b2a00d92769fa"
+        ],
+        "size_bytes": 4672282880,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "transformer/diffusion_pytorch_model.safetensors.index.json": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "182a119d8018bfc61c9a62685a384af3b7d4a2f8aabbe766e07c9e1eda5b97ab",
+        "expected_size_bytes": 48969,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\transformer\\diffusion_pytorch_model.safetensors.index.json",
+        "recovered_hash_mismatches": 0,
+        "sha256": "182a119d8018bfc61c9a62685a384af3b7d4a2f8aabbe766e07c9e1eda5b97ab",
+        "sha256_attempt_groups": [
+          [
+            "182a119d8018bfc61c9a62685a384af3b7d4a2f8aabbe766e07c9e1eda5b97ab"
+          ]
+        ],
+        "sha256_observations": [
+          "182a119d8018bfc61c9a62685a384af3b7d4a2f8aabbe766e07c9e1eda5b97ab"
+        ],
+        "size_bytes": 48969,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "vae/config.json": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "e80af1e64a71883a9d10c3159d2e493e5934508da57852f6a180ae6ae63b14bd",
+        "expected_size_bytes": 805,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\vae\\config.json",
+        "recovered_hash_mismatches": 0,
+        "sha256": "e80af1e64a71883a9d10c3159d2e493e5934508da57852f6a180ae6ae63b14bd",
+        "sha256_attempt_groups": [
+          [
+            "e80af1e64a71883a9d10c3159d2e493e5934508da57852f6a180ae6ae63b14bd"
+          ]
+        ],
+        "sha256_observations": [
+          "e80af1e64a71883a9d10c3159d2e493e5934508da57852f6a180ae6ae63b14bd"
+        ],
+        "size_bytes": 805,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      },
+      "vae/diffusion_pytorch_model.safetensors": {
+        "block_accepted_bytes": 0,
+        "block_accepted_ranges": 0,
+        "block_aggregate_attempts": 0,
+        "block_aggregate_hash_checks": 0,
+        "block_aggregate_hash_failures": 0,
+        "block_mismatch_reads": 0,
+        "block_quorum": null,
+        "block_quorum_error": null,
+        "block_quorum_failures": 0,
+        "block_read_attempts": 0,
+        "block_read_failures": 0,
+        "block_retry_count": 0,
+        "block_short_reads": 0,
+        "block_size_bytes": null,
+        "block_size_change_reads": 0,
+        "exists": true,
+        "expected_sha256": "f5b59a26851551b67ae1fe58d32e76486e1e812def4696a4bea97f16604d40a3",
+        "expected_size_bytes": 167666902,
+        "hash_attempt_count": 1,
+        "hash_attempt_limit_per_read": 1,
+        "hash_mismatch_attempts": 0,
+        "hash_pinned": true,
+        "hash_read_count": 1,
+        "hash_reads_consistent": true,
+        "hash_reads_required": 1,
+        "path": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072\\vae\\diffusion_pytorch_model.safetensors",
+        "recovered_hash_mismatches": 0,
+        "sha256": "f5b59a26851551b67ae1fe58d32e76486e1e812def4696a4bea97f16604d40a3",
+        "sha256_attempt_groups": [
+          [
+            "f5b59a26851551b67ae1fe58d32e76486e1e812def4696a4bea97f16604d40a3"
+          ]
+        ],
+        "sha256_observations": [
+          "f5b59a26851551b67ae1fe58d32e76486e1e812def4696a4bea97f16604d40a3"
+        ],
+        "size_bytes": 167666902,
+        "size_pinned": true,
+        "stat_error": null,
+        "terminal_hash_mismatches": 0
+      }
+    },
+    "id": "Tongyi-MAI/Z-Image-Turbo",
+    "revision": "f332072aa78be7aecdf3ee76d5c247082da564a6",
+    "root": "D:\\CodexResearch\\providers\\zimage\\Z-Image-Turbo-f332072",
+    "unexpected_consumed_files": [],
+    "unexpected_safetensors": []
+  },
+  "provider": "zimage-turbo-controlnet-union-2.1-2602-8steps",
+  "runnable": true,
+  "schema_version": 1,
+  "source": {
+    "actual_revision": "fb337fbb90945ff829de69dbd44ded618f73e889",
+    "expected_revision": "fb337fbb90945ff829de69dbd44ded618f73e889",
+    "missing_files": [],
+    "root": "D:\\CodexResearch\\providers\\DiffSynth-Studio-fb337fbb",
+    "tracked_status": "",
+    "url": "https://github.com/modelscope/DiffSynth-Studio.git"
+  }
+}

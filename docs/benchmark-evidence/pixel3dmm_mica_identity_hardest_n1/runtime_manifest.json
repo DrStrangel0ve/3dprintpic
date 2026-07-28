@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "captured_date": "2026-07-18",
+  "research_only": true,
+  "production_eligible": false,
+  "sources": {
+    "mica": {
+      "url": "https://github.com/Zielon/MICA.git",
+      "revision": "af22e7a5810d474bc28a1433db533723d6bd2b07",
+      "license": "single-user non-commercial research; redistribution prohibited",
+      "license_sha256": "d73db7ecf18dca3b4088a55d03ace2b69cce72fdd83a2feb237a6bb988bce514",
+      "tracked_source_clean": true,
+      "checkout_line_endings": "LF-preserving"
+    },
+    "pixel3dmm": {
+      "url": "https://github.com/SimonGiebenhain/pixel3dmm.git",
+      "revision": "fcd1fa973c7715b02a8948dfc679dff53cf85924",
+      "license": "CC BY-NC 4.0"
+    },
+    "easy_pixel3dmm": {
+      "url": "https://github.com/tobias-kirschstein/easy-pixel3dmm.git",
+      "revision": "1d4e55dc3b9189627be0143a113696ec1769ef68",
+      "license": "CC BY-NC 4.0"
+    }
+  },
+  "runtime": {
+    "python": "3.9.25",
+    "pytorch": "2.7.1+cu128",
+    "gpu": "NVIDIA GeForce RTX 3080 Ti",
+    "mica_elapsed_seconds": 3.251912,
+    "mica_peak_vram_gib": 0.777869701385498,
+    "pixel3dmm_tracking_iterations": 800,
+    "pixel3dmm_tracking_elapsed_seconds": 77.2333095,
+    "pixel3dmm_tracking_peak_vram_gib": 0.21523046493530273
+  },
+  "public_checkpoint": {
+    "name": "mica.tar",
+    "size_bytes": 502647880,
+    "sha256": "4542a467d9e8f7521474a1d00eac89552bebef0b331b72bf7fbd6f065ff64d7b"
+  },
+  "registered_assets_not_redistributed": {
+    "license": "FLAME registered non-commercial single-user research terms",
+    "generic_model_pkl_sha256": "efcd14cc4a69f3a3d9af8ded80146b5b6b50df3bd74cf69108213b144eba725b",
+    "flame_masks_pkl_sha256": "ccefbe1ac0774ff78c68caf2c627b4abc067a6555ebeb0be5d5b0812366ab492",
+    "landmark_embedding_npy_sha256": "8095348eeafce5a02f6bd8765146307f9567a3f03b316d788a2e47336d667954"
+  },
+  "input_sha256": {
+    "privacy_safe_source_png": "c5dddf6a8731b1cfa34f04ee05b4edd4829fa944a076c68f064db8072d9c4338",
+    "derived_source_x4_png": "5b534ffd67ed702317b4d1522fdb884d23871e6cb9a620a0bf1b9d02b66d5639",
+    "pipnet_wflw98_landmarks": "a1e661a6c57f2d8e5eb4f8c811e1453b58117923a167f68d5f440c81ced17641"
+  },
+  "alignment": {
+    "method": "pipnet_wflw98_to_arcface_five_point_similarity",
+    "wflw_indices": [96, 97, 54, 76, 82],
+    "official_antelopev2_used": false,
+    "reason": "InsightFace required an unavailable native Windows build in the isolated runtime",
+    "matrix": [
+      [0.6511744856834412, 0.0031757839024066925, -137.7578582763672],
+      [-0.0031757839024066925, 0.6511744856834412, -244.24302673339844]
+    ],
+    "aligned_image_sha256": "ee5addd575c155f7c1d15243303af8a3fe61ca0465bb1ea500948eb92329154b"
+  },
+  "identity": {
+    "coefficients": 300,
+    "l2_norm": 9.99173355102539,
+    "sha256": "0d88a0f2ef781d2e9ca29df870ea318111241bcc07a66a780806b4e0f4cac5e1",
+    "canonical_vertices_sha256": "247e2a246fee26039720800e701a645d1b9eb4e2e5a4f5ed691844c88d23ae4f"
+  },
+  "fit_artifact_sha256_not_redistributed": {
+    "checkpoint_frame": "57ee53d8ecc8af7360f2da3ab58b0180eacd7911b57ab6f3baa088e274cb3dcd",
+    "posed_mesh_ply": "293fddc60b91f0d88d88e1e813242c69159c9225e18a63c3f9d1b85591c076da",
+    "canonical_mesh_ply": "1b7bbab91d41cfdb87adb797d0274c2790595c6961d8d9d5be7f1589a9f39906",
+    "result_mp4": "eb6416fca9eb7478eea407a366a9c2251c03da6209e2fa2e0b5f4fbce5e5a461"
+  },
+  "source_modifications": {
+    "official_mica_source_modified": false,
+    "external_runner_torch_load_weights_only_false": true,
+    "weights_only_note": "required for the official legacy MICA checkpoint under PyTorch 2.7"
+  }
+}

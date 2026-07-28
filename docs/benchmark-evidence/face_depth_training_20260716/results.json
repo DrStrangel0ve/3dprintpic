@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "status": "hold",
+  "corpus": {
+    "privacy": "CC0 MakeHuman geometry and deterministic procedural scenes only",
+    "profiles": 32,
+    "identity_groups": 8,
+    "expressions": 4,
+    "rows": 320,
+    "split_counts": {
+      "train": 240,
+      "validation": 40,
+      "sealed": 40
+    },
+    "faces_lte_80_px": 172,
+    "faces_lte_90_px": 192,
+    "occluded_rows": 64,
+    "empty_named_part_masks": 0,
+    "fixture_sha256": "5da31444928a0d4d28522cd21dd4f5506946fdbb3c1436cabbbbea12ec054361",
+    "render_summary_sha256": "b4e8776e12e9f4b1842c1d69b5f3233a2e1e894d1d1f1ed4756a3186dc642243"
+  },
+  "head_training": {
+    "model_id": "depth-anything/Depth-Anything-V2-Large-hf",
+    "model_revision": "7581137eff8d4e94f6e796d3baea0e9fa79b22d2",
+    "trained_parameters": 331969,
+    "epochs": 2,
+    "runtime_seconds": 84.9299521,
+    "incremental_peak_vram_gb": 0.8652234,
+    "raw_epoch_2_validation_failures": 183,
+    "selected_blend_alpha": 0.1,
+    "validation": {
+      "baseline": {
+        "combined_part_failures": 200,
+        "median_shape_correlation": 0.9084221156,
+        "median_gradient_correlation": 0.6526534587,
+        "median_normalized_rmse": 0.1267022942
+      },
+      "candidate": {
+        "combined_part_failures": 194,
+        "median_shape_correlation": 0.9084718537,
+        "median_gradient_correlation": 0.6526710947,
+        "median_normalized_rmse": 0.1266831704
+      }
+    },
+    "sealed": {
+      "baseline": {
+        "combined_part_failures": 242,
+        "median_shape_correlation": 0.8392628042,
+        "median_gradient_correlation": 0.719669677,
+        "median_normalized_rmse": 0.1530421746
+      },
+      "candidate": {
+        "combined_part_failures": 241,
+        "median_shape_correlation": 0.8395574345,
+        "median_gradient_correlation": 0.7213409831,
+        "median_normalized_rmse": 0.1529331157
+      }
+    },
+    "reproducibility": {
+      "second_run_strict_candidate_available": false,
+      "mitigation": "deterministic PyTorch and CuDNN algorithms now requested"
+    }
+  },
+  "exact_production_replay": {
+    "local_baseline_min_correlation": 0.9999995192,
+    "local_baseline_max_absolute_difference": 0.0014544725,
+    "rows": [
+      {
+        "row_id": "small_side_lit_shelves_256",
+        "face_height_pixels": 76,
+        "baseline_failures": 10,
+        "candidate_failures": 10
+      },
+      {
+        "row_id": "eyewear_overhead_panel_384",
+        "face_height_pixels": 191,
+        "baseline_failures": 3,
+        "candidate_failures": 3
+      },
+      {
+        "row_id": "strong_turn_layered_384",
+        "face_height_pixels": 249,
+        "baseline_failures": 6,
+        "candidate_failures": 6
+      }
+    ],
+    "baseline": {
+      "combined_part_failures": 19,
+      "median_shape_correlation": 0.8956416778,
+      "median_gradient_correlation": 0.6255334666,
+      "median_normalized_rmse": 0.1349104279
+    },
+    "candidate": {
+      "combined_part_failures": 19,
+      "median_shape_correlation": 0.8956392513,
+      "median_gradient_correlation": 0.6235788144,
+      "median_normalized_rmse": 0.13491191
+    },
+    "full_strength_diagnostic_improved_hard_row": false,
+    "eligible_for_full_stl_replay": false
+  },
+  "decision": {
+    "production_change": false,
+    "head_only_lane_closed": true,
+    "next_lane": "post-normalization bounded residual adapter trained in production local-depth space"
+  }
+}

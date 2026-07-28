@@ -1,0 +1,105 @@
+[
+  {
+    "name": "masked",
+    "method": "masked"
+  },
+  {
+    "name": "mirror",
+    "method": "mirror"
+  },
+  {
+    "name": "biharmonic",
+    "method": "biharmonic"
+  },
+  {
+    "name": "qwen_edit_baseline_s20_s512",
+    "method": "qwen-image-edit",
+    "model_name": "Qwen/Qwen-Image-Edit",
+    "prompt": "Complete the missing half of the same {category} with matching geometry, lighting, viewpoint, and background. Treat the white blank region as the edit area. Keep the visible half unchanged.",
+    "steps": 20,
+    "guidance": 4.0,
+    "seed": 1234,
+    "inpaint_max_dimension": 512,
+    "modern_cache_full": true
+  },
+  {
+    "name": "qwen_edit_strict_white_region_s20_s512",
+    "method": "qwen-image-edit",
+    "model_name": "Qwen/Qwen-Image-Edit",
+    "prompt": "The image contains one centered {category}. One half is visible and the other half is a pure white missing region. Edit only the pure white region: replace it with the missing half of the same single {category}. Match the visible half's silhouette, scale, material, lighting, camera angle, and background. Do not change the visible half, do not add a second object, and do not leave any white blank area.",
+    "steps": 20,
+    "guidance": 4.0,
+    "seed": 1234,
+    "inpaint_max_dimension": 512,
+    "modern_cache_full": true
+  },
+  {
+    "name": "qwen_edit_mirror_prefill_refine_s20_s512",
+    "method": "qwen-image-edit",
+    "model_name": "Qwen/Qwen-Image-Edit",
+    "prompt": "The missing half has been prefilled with a mirrored geometry guess from the visible half. Refine only that prefilled half so the {category} becomes one continuous plausible 3D object with consistent silhouette, shading, viewpoint, and background. Keep the visible original half unchanged.",
+    "steps": 20,
+    "guidance": 4.0,
+    "seed": 1234,
+    "inpaint_max_dimension": 512,
+    "edit_mask_fill": "mirror",
+    "modern_cache_full": true
+  },
+  {
+    "name": "qwen_edit_biharmonic_prefill_refine_s20_s512",
+    "method": "qwen-image-edit",
+    "model_name": "Qwen/Qwen-Image-Edit",
+    "prompt": "The missing half has been prefilled with a smooth interpolation guess. Refine only that prefilled half into the missing side of the same {category}, preserving one continuous silhouette, consistent depth, lighting, viewpoint, and background. Keep the visible original half unchanged.",
+    "steps": 20,
+    "guidance": 4.0,
+    "seed": 1234,
+    "inpaint_max_dimension": 512,
+    "edit_mask_fill": "biharmonic",
+    "modern_cache_full": true
+  },
+  {
+    "name": "qwen_edit_symmetry_depth_s20_s512",
+    "method": "qwen-image-edit",
+    "model_name": "Qwen/Qwen-Image-Edit",
+    "prompt": "Use the visible half of the {category} as a strict geometric reference. Reconstruct the hidden half inside the white region as the same object continued across the center seam, with a plausible symmetric outline, smooth depth surface, consistent shading, and the same background. Prioritize 3D shape coherence and object silhouette over decorative texture. Keep the visible half unchanged.",
+    "steps": 20,
+    "guidance": 4.0,
+    "seed": 1234,
+    "inpaint_max_dimension": 512,
+    "modern_cache_full": true
+  },
+  {
+    "name": "qwen_edit_lowcfg_shape_s20_s512",
+    "method": "qwen-image-edit",
+    "model_name": "Qwen/Qwen-Image-Edit",
+    "prompt": "Fill the white missing half with the rest of the same {category}. Preserve the original viewpoint and make the completed object read as one continuous 3D object with a clean silhouette and consistent depth. Keep all non-white pixels unchanged.",
+    "steps": 20,
+    "guidance": 2.0,
+    "seed": 1234,
+    "inpaint_max_dimension": 512,
+    "modern_cache_full": true
+  },
+  {
+    "name": "qwen_edit_center_seam_single_object_s20_s512",
+    "method": "qwen-image-edit",
+    "model_name": "Qwen/Qwen-Image-Edit",
+    "prompt": "The vertical center seam separates visible pixels from a white missing half. Edit only the white half so the {category}'s outline, shading, perspective, and surface continue smoothly across the seam. The result must be one continuous object, not a duplicate object, and the visible half must stay unchanged.",
+    "steps": 20,
+    "guidance": 4.0,
+    "seed": 1234,
+    "inpaint_max_dimension": 512,
+    "modern_cache_full": true
+  },
+  {
+    "name": "qwen_edit_checker_region_s20_s512",
+    "method": "qwen-image-edit",
+    "model_name": "Qwen/Qwen-Image-Edit",
+    "prompt": "The checkerboard region marks missing pixels. Replace only that region with the missing half of the same {category}, matching silhouette, lighting, viewpoint, depth, and background. Keep the visible non-checkerboard pixels unchanged and produce one continuous object.",
+    "steps": 20,
+    "guidance": 4.0,
+    "seed": 1234,
+    "inpaint_max_dimension": 512,
+    "edit_mask_fill": "checker",
+    "modern_cache_full": true
+  }
+]

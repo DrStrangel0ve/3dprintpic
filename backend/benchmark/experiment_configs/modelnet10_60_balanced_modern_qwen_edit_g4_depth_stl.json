@@ -1,0 +1,25 @@
+[
+  {
+    "name": "masked",
+    "method": "masked"
+  },
+  {
+    "name": "mirror",
+    "method": "mirror"
+  },
+  {
+    "name": "biharmonic",
+    "method": "biharmonic"
+  },
+  {
+    "name": "qwen_edit_s20_s512",
+    "method": "qwen-image-edit",
+    "model_name": "Qwen/Qwen-Image-Edit",
+    "prompt": "Complete the missing half of the same {category} with matching geometry, lighting, viewpoint, and background. Treat the white blank region as the edit area. Keep the visible half unchanged.",
+    "steps": 20,
+    "guidance": 4.0,
+    "seed": 1234,
+    "inpaint_max_dimension": 512,
+    "modern_cache_full": true
+  }
+]

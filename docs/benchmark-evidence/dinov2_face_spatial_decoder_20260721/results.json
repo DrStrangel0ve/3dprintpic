@@ -1,0 +1,220 @@
+{
+  "schema_version": 2,
+  "status": "hold",
+  "production_changed": false,
+  "source_geometry_training_and_evaluation_only": true,
+  "encoder": {
+    "model_id": "facebook/dinov2-small",
+    "revision": "ed25f3a31f01632728cabb09d1542f84ab7b0056",
+    "license": "Apache-2.0",
+    "implementation": "transformers.Dinov2Model",
+    "transformers_version": "5.13.0",
+    "feature_shape": [384, 16, 16],
+    "full_source_crop_preserved": true,
+    "processor_resize": false,
+    "processor_center_crop": false,
+    "files": {
+      "config.json": {
+        "bytes": 547,
+        "sha256": "1809f83e3bdb1609a501a610ad4a742f4fd8ae44d72ca4aa0df52d1f2ac8628d"
+      },
+      "preprocessor_config.json": {
+        "bytes": 436,
+        "sha256": "14e780d86fa1861f8751f868d7f45425b5feb55c38ca26f152ca5097ab30f828"
+      },
+      "model.safetensors": {
+        "bytes": 88249960,
+        "sha256": "ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1"
+      }
+    }
+  },
+  "cache_binding": {
+    "schema_version": 2,
+    "method": "cc0_production_native_face_surface_residual",
+    "row_count": 80,
+    "row_bytes": 20592948,
+    "manifest_sha256": "37efec0884c9f6918a50b4b842cbe76911c06a677f503af14cbffd2a8cff1ac0",
+    "summary_sha256": "c15d826f7240904284ffbdeb78eeae1a2b193b1eb5c2b62852bc0b9bcf9e5049",
+    "expected_summary_sha256": "c15d826f7240904284ffbdeb78eeae1a2b193b1eb5c2b62852bc0b9bcf9e5049",
+    "ordered_row_content_sha256": "134b6035fa3c50304a7c4d441ba21bfaa0baf4494785f2cdb8b60e473162c80b",
+    "artifact_count": 720,
+    "artifact_bytes": 36201444,
+    "ordered_artifact_content_sha256": "8cff6943e1197c85fa73ac5072b94f21ee3b349f42bb9aaaf1a64e4cb39e5f1c"
+  },
+  "overfit": {
+    "row_count": 2,
+    "face_height_pixels": 70,
+    "initial_loss": 0.20238128304481506,
+    "best_loss": 0.19304032623767853,
+    "best_initial_ratio": 0.9538447594233895,
+    "maximum_ratio": 0.97,
+    "passed": true,
+    "best_epoch": 32,
+    "training_runtime_seconds": 2.8215758000005735,
+    "training_peak_vram_gib": 0.1795363426208496,
+    "checkpoint_bytes": 981729,
+    "checkpoint_sha256": "0bf2295812438e274cc2fbc489126f445b9c06ddd59dfa0a94e7aa2a3f3dbf0f",
+    "evidence_bytes": 53462,
+    "evidence_sha256": "e9b9f6cc3a3d7e4a2eda68f11615bfb04fe29a1337a548654e7471d1a859f45f"
+  },
+  "split": {
+    "train_rows": 48,
+    "validation_rows": 16,
+    "sealed_rows": 16,
+    "sealed_opened": false,
+    "initial_validation_loss": 0.2213355451822281,
+    "best_validation_loss": 0.21197211742401123,
+    "best_epoch": 16,
+    "training_runtime_seconds": 11.271280100001604,
+    "training_peak_vram_gib": 0.4414668083190918,
+    "trainable_parameters": 241473,
+    "validation": [
+      {
+        "alpha": 0.0,
+        "part_failures": 189,
+        "median_shape_correlation": 0.8399247912791115,
+        "median_raw_gradient_correlation": 0.45120068879655484,
+        "median_normalized_rmse": 0.17972928300458865,
+        "whole_face_regressions": 0,
+        "named_part_regressions": 0,
+        "selected": true
+      },
+      {
+        "alpha": 0.05,
+        "part_failures": 189,
+        "median_shape_correlation": 0.8402966720309795,
+        "median_raw_gradient_correlation": 0.4514796646439967,
+        "median_normalized_rmse": 0.1795290607855537,
+        "whole_face_regressions": 0,
+        "named_part_regressions": 134,
+        "first_regression": {
+          "row_id": "gnm_female_middle_eastern_v03__corners_down_04",
+          "part": "left_eye",
+          "metric": "shape_correlation",
+          "baseline": 0.6677149154471478,
+          "candidate": 0.6667928266386306
+        },
+        "selected": false
+      },
+      {
+        "alpha": 0.1,
+        "part_failures": 188,
+        "median_shape_correlation": 0.8406580252265748,
+        "median_raw_gradient_correlation": 0.45169870499899056,
+        "median_normalized_rmse": 0.17933407835894444,
+        "whole_face_regressions": 0,
+        "named_part_regressions": 128,
+        "first_regression": {
+          "row_id": "gnm_female_middle_eastern_v03__corners_down_04",
+          "part": "left_eye",
+          "metric": "shape_correlation",
+          "baseline": 0.6677149154471478,
+          "candidate": 0.6658444976272505
+        },
+        "selected": false
+      },
+      {
+        "alpha": 0.2,
+        "part_failures": 187,
+        "median_shape_correlation": 0.84134880519857,
+        "median_raw_gradient_correlation": 0.451948906835971,
+        "median_normalized_rmse": 0.17896012538479789,
+        "whole_face_regressions": 0,
+        "named_part_regressions": 129,
+        "first_regression": {
+          "row_id": "gnm_female_middle_eastern_v03__corners_down_04",
+          "part": "left_eye",
+          "metric": "shape_correlation",
+          "baseline": 0.6677149154471478,
+          "candidate": 0.663866471348528
+        },
+        "selected": false
+      },
+      {
+        "alpha": 0.35,
+        "part_failures": 183,
+        "median_shape_correlation": 0.8422298830467772,
+        "median_raw_gradient_correlation": 0.45207300741797574,
+        "median_normalized_rmse": 0.17848263241766424,
+        "whole_face_regressions": 1,
+        "named_part_regressions": 132,
+        "first_regression": {
+          "row_id": "gnm_female_middle_eastern_v03__corners_down_04",
+          "part": "left_eye",
+          "metric": "shape_correlation",
+          "baseline": 0.6677149154471478,
+          "candidate": 0.660687704428363
+        },
+        "selected": false
+      },
+      {
+        "alpha": 0.5,
+        "part_failures": 180,
+        "median_shape_correlation": 0.8429628751536973,
+        "median_raw_gradient_correlation": 0.4515625557068187,
+        "median_normalized_rmse": 0.1780851647960452,
+        "whole_face_regressions": 1,
+        "named_part_regressions": 134,
+        "first_regression": {
+          "row_id": "gnm_female_middle_eastern_v03__corners_down_04",
+          "part": "left_eye",
+          "metric": "shape_correlation",
+          "baseline": 0.6677149154471478,
+          "candidate": 0.6572145706947605
+        },
+        "selected": false
+      },
+      {
+        "alpha": 0.75,
+        "part_failures": 177,
+        "median_shape_correlation": 0.8437969484495679,
+        "median_raw_gradient_correlation": 0.4512294302601866,
+        "median_normalized_rmse": 0.17762470742206984,
+        "whole_face_regressions": 2,
+        "named_part_regressions": 143,
+        "first_regression": {
+          "row_id": "gnm_female_middle_eastern_v03__corners_down_04",
+          "part": "left_eye",
+          "metric": "shape_correlation",
+          "baseline": 0.6677149154471478,
+          "candidate": 0.650158185981981
+        },
+        "selected": false
+      },
+      {
+        "alpha": 1.0,
+        "part_failures": 176,
+        "median_shape_correlation": 0.8440806828278679,
+        "median_raw_gradient_correlation": 0.45102410269543647,
+        "median_normalized_rmse": 0.17746613131719974,
+        "whole_face_regressions": 2,
+        "named_part_regressions": 159,
+        "first_regression": {
+          "row_id": "gnm_female_middle_eastern_v03__corners_down_04",
+          "part": "left_eye",
+          "metric": "shape_correlation",
+          "baseline": 0.6677149154471478,
+          "candidate": 0.6483043754580797
+        },
+        "selected": false
+      }
+    ],
+    "checkpoint_bytes": 981545,
+    "checkpoint_sha256": "96ce46af9708cbee09a6470f784273b3979cf4f7213f9bc5d2d23954ef07281c",
+    "evidence_bytes": 7283645,
+    "evidence_sha256": "62b3683d1e2c26667d64e11874908617026bc2aa9e47100232806a376ef92e17"
+  },
+  "decision": {
+    "validation_strictly_improves": false,
+    "sealed_opened": false,
+    "sealed_strictly_improves": false,
+    "advance_to_exact_photo": false,
+    "advance_to_30mm_physical_replay": false
+  },
+  "invalidated_exploratory_result": {
+    "used_processor_center_crop": true,
+    "flipped_encoded_vit_tokens": true,
+    "numeric_six_part_pairing_missing": true,
+    "used_for_decision": false
+  }
+}

@@ -1,0 +1,138 @@
+{
+  "schema_version": 2,
+  "status": "hold",
+  "production_changed": false,
+  "implementation_commit": "37647a672f8a2b5f8ac7b6bd3bbcc26b5ae07d0e",
+  "trainer_sha256": "491a68a2d90869f6f8449972dd35912e903ab41956e6e1f509f779b1ff3c8b8b",
+  "owned_git_status": [],
+  "source_geometry_training_and_evaluation_only": true,
+  "preferred_provider_preflight": {
+    "provider": "facebook/dinov3-convnext-tiny-pretrain-lvd1689m",
+    "official_source": "https://github.com/facebookresearch/dinov3",
+    "transformers_multiscale_api_available": true,
+    "official_weights_gated": true,
+    "authenticated_access_available": false,
+    "cached_weights_available": false,
+    "executed": false,
+    "fallback_selected": "pyramid-448"
+  },
+  "encoder": {
+    "model_id": "facebook/dinov2-small",
+    "revision": "ed25f3a31f01632728cabb09d1542f84ab7b0056",
+    "license": "Apache-2.0",
+    "profile": "pyramid-448",
+    "input_size": 448,
+    "hidden_state_indices": [3, 6, 9, 12],
+    "intermediate_stage_normalization": "encoder.layernorm",
+    "feature_shape": [1536, 32, 32],
+    "cache_dtype": "torch.float16",
+    "preserves_full_source_crop": true,
+    "processor_resize": false,
+    "processor_center_crop": false,
+    "files": {
+      "config.json": {
+        "bytes": 547,
+        "sha256": "1809f83e3bdb1609a501a610ad4a742f4fd8ae44d72ca4aa0df52d1f2ac8628d"
+      },
+      "preprocessor_config.json": {
+        "bytes": 436,
+        "sha256": "14e780d86fa1861f8751f868d7f45425b5feb55c38ca26f152ca5097ab30f828"
+      },
+      "model.safetensors": {
+        "bytes": 88249960,
+        "sha256": "ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1"
+      }
+    }
+  },
+  "corpus": {
+    "summary_sha256": "67abfa2b59e00f9cf7c0d3ae6a9b66960d7b97203b9d57b5b92ec791216d94bc",
+    "cache_manifest_sha256": "f408f166d7cd11fe6c6b9a84b9ac9df9d4d0a78da905f2295dd912b88dd4fe61",
+    "ordered_cache_row_sha256": "c23d0a83e03c60cebb66f3229ff36ae456a8578d8a28a426af5129efcaeba5ab",
+    "split_counts": {
+      "train": 191,
+      "validation": 32,
+      "sealed": 32
+    },
+    "identity_disjoint": true
+  },
+  "legacy_compatibility": {
+    "profile": "final-224",
+    "historical_schema_v1_strict_load_supported": true,
+    "historical_state_dict_inference_bit_exact": true,
+    "capacity_replay_initial_loss": 0.19393302500247955,
+    "capacity_replay_best_loss": 0.18724696338176727,
+    "capacity_replay_ratio": 0.9655238625776771,
+    "capacity_replay_passed": true
+  },
+  "overfit": {
+    "row_count": 2,
+    "initial_loss": 0.19393302500247955,
+    "best_loss": 0.18677376210689545,
+    "best_initial_ratio": 0.9630838383741368,
+    "maximum_ratio": 0.97,
+    "passed": true,
+    "best_epoch": 32,
+    "encoder_runtime_seconds": 0.3569683999994595,
+    "encoder_peak_vram_gib": 0.09915637969970703,
+    "training_runtime_seconds": 3.1714123000001564,
+    "training_peak_vram_gib": 0.1937241554260254,
+    "process_peak_rss_gib": 2.3653717041015625,
+    "checkpoint_bytes": 1427425,
+    "checkpoint_sha256": "2d0e8e59f1bd8731bc8bd57855cdbd3b30d1b0435f5fa646d21042ce0019ed3d",
+    "evidence_bytes": 57193,
+    "evidence_sha256": "99250c681e1c78bd58d3f1363baf47760fb4e92db3213277442801f8c9d15084"
+  },
+  "split": {
+    "train_rows": 191,
+    "validation_rows": 32,
+    "sealed_rows": 32,
+    "sealed_opened": false,
+    "initial_validation_loss": 0.1833086609840393,
+    "best_validation_loss": 0.17099586129188538,
+    "best_epoch": 16,
+    "training_runtime_seconds": 50.44271969999954,
+    "training_peak_vram_gib": 0.9046421051025391,
+    "process_peak_rss_gib": 4.193637847900391,
+    "encoder_runtime_seconds": 2.3108788000008644,
+    "encoder_peak_vram_gib": 0.17611217498779297,
+    "cached_feature_bytes": 701497344,
+    "trainable_parameters": 352065,
+    "baseline": {
+      "part_failures": 353,
+      "median_shape_correlation": 0.8204019550113084,
+      "median_raw_gradient_correlation": 0.3994444233089299,
+      "median_normalized_rmse": 0.1862674050402449
+    },
+    "validation": [
+      {"alpha": 0.05, "part_failures": 351, "median_shape_correlation": 0.8209262631497628, "median_raw_gradient_correlation": 0.3999181997995448, "median_normalized_rmse": 0.18614054553947681, "whole_face_regressions": 1, "named_part_regressions": 239},
+      {"alpha": 0.10, "part_failures": 348, "median_shape_correlation": 0.8214152478860105, "median_raw_gradient_correlation": 0.40032324293494453, "median_normalized_rmse": 0.18601682557820606, "whole_face_regressions": 1, "named_part_regressions": 239},
+      {"alpha": 0.20, "part_failures": 342, "median_shape_correlation": 0.822577395490148, "median_raw_gradient_correlation": 0.400974655745025, "median_normalized_rmse": 0.1857818868071719, "whole_face_regressions": 1, "named_part_regressions": 236},
+      {"alpha": 0.35, "part_failures": 333, "median_shape_correlation": 0.824173481079244, "median_raw_gradient_correlation": 0.40138008678582954, "median_normalized_rmse": 0.1854694597000055, "whole_face_regressions": 1, "named_part_regressions": 240},
+      {"alpha": 0.50, "part_failures": 325, "median_shape_correlation": 0.8248151994583444, "median_raw_gradient_correlation": 0.4029951358176377, "median_normalized_rmse": 0.18529503114136475, "whole_face_regressions": 1, "named_part_regressions": 252},
+      {"alpha": 0.75, "part_failures": 314, "median_shape_correlation": 0.8250007106913586, "median_raw_gradient_correlation": 0.4055133326093431, "median_normalized_rmse": 0.18521807808397228, "whole_face_regressions": 1, "named_part_regressions": 280},
+      {"alpha": 1.00, "part_failures": 312, "median_shape_correlation": 0.82503862938398, "median_raw_gradient_correlation": 0.40679430774283787, "median_normalized_rmse": 0.18519728569706084, "whole_face_regressions": 1, "named_part_regressions": 309}
+    ],
+    "alpha_1_regressions_by_part": {
+      "left_eye": 46,
+      "left_eyebrow": 58,
+      "mouth": 72,
+      "nose": 44,
+      "right_eye": 54,
+      "right_eyebrow": 35
+    },
+    "checkpoint_bytes": 1426985,
+    "checkpoint_sha256": "65ca6d8982afcb82f986ad7edfa273ce87872c4e4b92da2388f718e290b6dd31",
+    "evidence_bytes": 14439999,
+    "evidence_sha256": "2730c2f1faa95e93536c8f883d7e2a850e843935746f08466e96a9cb7ad8ae8a"
+  },
+  "decision": {
+    "validation_strictly_improves": false,
+    "sealed_opened": false,
+    "advance_to_exact_photo": false,
+    "advance_to_30mm_physical_replay": false,
+    "production_changed": false
+  },
+  "validation": {
+    "focused_tests_passed": 67
+  }
+}

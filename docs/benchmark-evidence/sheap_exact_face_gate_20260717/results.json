@@ -1,0 +1,253 @@
+{
+  "schema_version": 2,
+  "status": "hold",
+  "production_changed": false,
+  "stl_replay_run": false,
+  "base_revision": "acdba1f5d932ed67d5d2d16ed123a3bf0b3ac1a9",
+  "row_id": "small_side_lit_shelves_256",
+  "privacy": {
+    "training_and_evaluation": "CC0 MakeHuman geometry and deterministic procedural scenes only",
+    "private_artifacts_published": false,
+    "source_geometry_runtime_eligible": false
+  },
+  "provider": {
+    "name": "SHeaP",
+    "source_url": "https://github.com/nlml/SHeaP",
+    "paper_url": "https://arxiv.org/abs/2504.12292",
+    "source_revision": "33f21125a1c353e1cb534cf9776fefd9e6cce719",
+    "release": "v1.0.0",
+    "vertices": 5023,
+    "faces": 9976,
+    "network_size": 224,
+    "vertical_fov_degrees": 14.2539,
+    "front_surface": "minimum-positive-camera-depth",
+    "depth_interpolation": "perspective-correct-reciprocal-depth",
+    "source_and_weights_license": "CC BY-NC 4.0",
+    "flame_asset": "research-only authenticated local asset; never redistribute",
+    "research_only": true,
+    "production_eligible": false
+  },
+  "checkpoints": {
+    "expressive": {
+      "size_bytes": 348292433,
+      "sha256": "4d769f493072aa2e98770ed1b71db784bc3ee0a2132a0fd36aab841ee591c5e2"
+    },
+    "paper": {
+      "size_bytes": 348352867,
+      "sha256": "e79addb1b56beb1cf5198020da27e790fa79681544ce1cece58460af9a923d25"
+    }
+  },
+  "local_assets": {
+    "flame_source_size_bytes": 53023716,
+    "flame_source_sha256": "efcd14cc4a69f3a3d9af8ded80146b5b6b50df3bd74cf69108213b144eba725b",
+    "flame_tensor_size_bytes": 26784481,
+    "flame_tensor_sha256": "0d3082630291dcdb7186e8553f02083062cce37389c89ad913b47661ed20021f",
+    "eyelids_sha256": "d5d5a2abbc71384b203451085337b0f9a581619bc839838a92b32a80d76ad9fa",
+    "mediapipe_embedding_size_bytes": 4518,
+    "mediapipe_embedding_sha256": "8863363013fc6fe3752d4318ea02a1784970200616a54b785920cdd0568816fc",
+    "face_landmarker_model_size_bytes": 3758596,
+    "face_landmarker_model_sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+  },
+  "input_hashes": {
+    "source": "2aca3775162f1b2320a47dbfead27e49e2d7b29654d80151d8ebc17315a8c074",
+    "selection_mask": "853d871ac859dc0904cd866bc8e552a55efbc3af8ba59d2da3ee4aac3583d0ef",
+    "exact_depth": "a21f6396c57abd850786e00d40cf2776e048f7b8d0664170e86cdca8fa27a21b",
+    "baseline": "417202239d046203027c01d8a9c2f8a6b8a5e057b95385174b144575f5df4fe6",
+    "metadata": "2a5c858b75542ec05494daeeff79cb19439fcc0da6695fec95f70a87656744d2",
+    "local_face_depth": "e1f4d129185ddd56ebf5cf0541952fa8470e87da1caf8f550aa493ad266dbab6",
+    "face_mask": "929245e9e1192e09cfcf7ea246e04f8392bfb092bff346bbbd74f8d85d165cbc",
+    "mediapipe_embedding": "8863363013fc6fe3752d4318ea02a1784970200616a54b785920cdd0568816fc",
+    "face_landmarker_model": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+    "part_mask:left_eye": "76ffb7dc7df0fb93f94278276260ee9d97bfc09b31128593dafddfc06c4ee85f",
+    "part_mask:left_eyebrow": "2b0f98d2eb9d0b0b56e3ec5fcf0aad58b99ff0cbd391589d253c035eda9ee1a3",
+    "part_mask:mouth": "25ef20b733f902fd5fee88249a59a10b9fb48e563c402822bd3b0decf7c52c99",
+    "part_mask:nose": "fc8de05a6f93302a375f8822dff6f9e81196a65fbcfcb840c15c09ebd72bda8e",
+    "part_mask:right_eye": "3bb1b841ecccd9fdfc2779dfefd4898343be1c1a9b85a95a911716578bfc10d1",
+    "part_mask:right_eyebrow": "f60d4c00e0234472047f16e71c0929ba2029fd733c605def5bf6f1230adc726d"
+  },
+  "crop": {
+    "selection_bbox_xyxy": [130, 91, 211, 167],
+    "detected_face_bbox_xyxy": [162, 102, 193, 139],
+    "crop_detector_bbox_xyxy": [161, 102, 192, 139],
+    "crop_detector_baseline_iou": 0.9375,
+    "crop_detector_landmark_count": 478,
+    "crop_detector_landmarks_sha256": "2a7f0ca0376626b97b46e37827e92af6729bbe824f5e3ce776f3ef6cb3288a0c",
+    "official_formula_head_crop_xyxy": [141, 76, 211, 146],
+    "face_crop_margin": 0.9,
+    "face_crop_shift_up": 0.5
+  },
+  "gate": {
+    "provider_alphas": [0.125, 0.25, 0.5],
+    "geometry_variants": ["camera", "landmark_similarity"],
+    "strict_parts": [
+      "left_eye",
+      "left_eyebrow",
+      "mouth",
+      "nose",
+      "right_eye",
+      "right_eyebrow"
+    ],
+    "strict_metrics_per_part": 7,
+    "minimum_provider_face_coverage": 0.5,
+    "background_value_exact": true,
+    "attachment_boundary_value_exact": true
+  },
+  "baseline": {
+    "shape_correlation": 0.8047738479934161,
+    "raw_gradient_correlation": 0.625533466645662,
+    "normalized_shape_rmse": 0.17600701052848092,
+    "combined_named_part_failures": 10
+  },
+  "results": {
+    "expressive": {
+      "status": "hold",
+      "selected_variant": "landmark_similarity_a0.125",
+      "shape_correlation": 0.8051383275941483,
+      "raw_gradient_correlation": 0.6257986952172105,
+      "normalized_shape_rmse": 0.1758603897473595,
+      "combined_named_part_failures": 10,
+      "passed_part_metric_checks": 31,
+      "total_part_metric_checks": 42,
+      "strictly_improved_parts": 3,
+      "provider_face_coverage": 0.9284313725490196,
+      "runtime_seconds": 0.5622683999972651,
+      "peak_vram_gib": 0.3904242515563965,
+      "uncertainty": 0.9116374254226685,
+      "registration": {
+        "scale": 1.0111519944011165,
+        "rotation_degrees": 1.4637275073374783,
+        "residual_median_pixels": 0.39083899429751395,
+        "residual_p95_pixels": 0.7978978447041979
+      },
+      "candidate_sha256": "48f8c3022ad604a13f4d1f4c0814bfea3429077e110cba2620e5dc54fefecde6",
+      "metrics_sha256": "e522bf2d38ac22e1baa251dd5d1661604290b0c111470d73adc3d9edd19034d2",
+      "provider_depth_sha256": "3abd2cc1eb4a3906a16cb739ac6e6177696f3ed97cb61b1179cb2f570298dbdd",
+      "provider_projected_vertices_sha256": "77fe0e05e1fca15073593a379bb863c9fa049f6faf8578fb9e184ecbf1932803"
+    },
+    "paper": {
+      "status": "hold",
+      "selected_variant": "landmark_similarity_a0.125",
+      "shape_correlation": 0.8051110318807294,
+      "raw_gradient_correlation": 0.6258103435811128,
+      "normalized_shape_rmse": 0.17587137664659305,
+      "combined_named_part_failures": 10,
+      "passed_part_metric_checks": 31,
+      "total_part_metric_checks": 42,
+      "strictly_improved_parts": 3,
+      "provider_face_coverage": 0.9137254901960784,
+      "runtime_seconds": 0.6346813999989536,
+      "peak_vram_gib": 0.3904242515563965,
+      "uncertainty": 1.0303932428359985,
+      "registration": {
+        "scale": 0.9966271890855699,
+        "rotation_degrees": 1.5422644500389413,
+        "residual_median_pixels": 0.4737186675116153,
+        "residual_p95_pixels": 0.9951901936799297
+      },
+      "candidate_sha256": "7264d6f9be2aa9984ae9203a3a238372ad891566a423b72e7cb86e40b3b74344",
+      "metrics_sha256": "47064f05c8805678a8efd29faf08437e0ad8f90231a6b126638704f4b9334952",
+      "provider_depth_sha256": "b7712c5846921f06252acc28c680b19a3d4516a0353fa04064b41439d2b352a7",
+      "provider_projected_vertices_sha256": "d4f1966bac843203dbf311c1ce4c1f295d0ebf1987b7fb98486501f78aeba02a"
+    }
+  },
+  "failed_part_checks_for_both_checkpoints": {
+    "left_eye": ["affine_span_non_regression"],
+    "left_eyebrow": ["shape_rmse_non_regression"],
+    "mouth": ["affine_bias_non_regression"],
+    "nose": ["affine_rmse_non_regression", "affine_bias_non_regression"],
+    "right_eye": [
+      "shape_correlation_non_regression",
+      "affine_rmse_non_regression",
+      "affine_p95_non_regression",
+      "affine_bias_non_regression"
+    ],
+    "right_eyebrow": [
+      "shape_correlation_non_regression",
+      "raw_gradient_non_regression"
+    ]
+  },
+  "runtime_attestation": {
+    "python": "3.11.8",
+    "packages": {
+      "mediapipe": "0.10.35",
+      "numpy": "2.4.4",
+      "opencv": "5.0.0",
+      "pillow": "12.2.0",
+      "scipy": "1.17.1",
+      "torch": "2.11.0+cu128",
+      "torchvision": "0.26.0+cu128",
+      "roma": "1.5.4"
+    },
+    "cuda": {
+      "torch_cuda_version": "12.8",
+      "cudnn_version": 91900,
+      "device_name": "NVIDIA GeForce RTX 3080 Ti",
+      "device_capability": [8, 6]
+    },
+    "determinism": {
+      "seed": 0,
+      "deterministic_algorithms": true,
+      "cudnn_benchmark": false,
+      "cudnn_deterministic": true,
+      "cudnn_allow_tf32": false,
+      "cuda_matmul_allow_tf32": false,
+      "float32_matmul_precision": "highest",
+      "cublas_workspace_config": ":4096:8"
+    }
+  },
+  "measurement_source_manifest": {
+    "schema_version": 1,
+    "files": {
+      "backend/benchmark/evaluate_sheap_small_face_exact_gate.py": "c183c25ba9c55620bc38621892b953a8f2b4f1cf21be77dd84177088e1014f7b",
+      "backend/benchmark/evaluate_vggheads_small_face_exact_gate.py": "284d73df0fe883aaf793fd9c7caf05e42d0540c12551e2e1eb16f52421cb0c36",
+      "backend/benchmark/face_part_metrics.py": "671a6051f460cef076a749a00357ffea79d787abb1f62717c839521ea2119df6",
+      "backend/benchmark/run_cc0_live_face_variation_matrix.py": "97c927a6d1787eba95977d2d853aa7d944c5efa2e58accbc8c98deb8d8a28398",
+      "backend/benchmark/run_makehuman_face_depth_smoke.py": "e0c15b9ef245432b978cbd7f9c5b2374ad0811109e3bb99deffa1b81f30a112a",
+      "backend/benchmark/sheap_depth_provider.py": "971dc1af4801fcaac1c3154acadee2cf1285cd34f62160e8aefe89135a2bb9c0",
+      "backend/benchmark/vggheads_depth_provider.py": "6d000c89d09fe69871ded8f6f89d9ca65d055618a93c0578a5115534df313322"
+    },
+    "functions": {
+      "backend.benchmark.evaluate_vggheads_small_face_exact_gate.build_small_face_candidate": "8a4cf984060e6bf623e0cd17ddf12d7ee7438e82b3b7b26681da207f906b1199",
+      "backend.benchmark.vggheads_depth_provider.fill_depth_nearest": "2256fb974469db96d324d6fefc5da4315b0ccb7bba0cd1d9c51fdbe85d0615b7",
+      "backend.benchmark.vggheads_depth_provider.normalize_front_depth": "29a877ed792234c508ffce9db1bba2a5542ab11a3d375c02f0ebb0a512f4b650",
+      "backend.benchmark.vggheads_depth_provider.subject_interior_taper": "86281f20ff614ce9a260938c993d8b70383aa31f502085154b1610f36db8874d",
+      "backend.benchmark.run_cc0_live_face_variation_matrix._exact_face_depth_quality": "d39d6df8a3280382c88a22fbc2cf4994bcc169444c3acf80e2637781bdea770b",
+      "backend.benchmark.face_part_metrics.face_part_cross_height_metrics": "4a6a536b67cff6b0ceaec02112df9e8da7335e53dfadff3ccd49a6f2dd58b384",
+      "backend.benchmark.face_part_metrics.face_part_affine_surface_error_metrics": "7d829475f2f057db97a25b4903687da232ecd8403f679a741a687a81dbf261dc",
+      "backend.benchmark.run_makehuman_face_depth_smoke._correlation": "6b8e248cd535d2e352bc378b0eb70dcd93bf1f37e89686e17f97cb554536a230",
+      "backend.benchmark.sheap_depth_provider.SHeaPProvider": "65ec147bc46434003f2de2d3bdc64baf120f2553794ff85e92aec5be47bd117d",
+      "backend.face_depth_refinement.fuse_face_surface_residual": "d0af1ef417c16838d39cabc2a5e7f322d4eee4c618fa8c98ce927829de33c80f",
+      "backend.face_depth_refinement._fit_face_depth": "fe55cc3f9742c812cd1b518b17fddcd76d32499e76a887394ec423a3e0e0be10",
+      "backend.face_depth_refinement._resize_float": "2069d73000168ff0ba29ea2cd7f6dd6774acf82083329e0df9ed1daa5015b8c4",
+      "backend.face_depth_refinement._resize_mask": "8761040aaa1e610117f1db4309e90562b41eec2474de222cd60faaac82aaf958",
+      "backend.face_depth_refinement._robust_span": "e66fd23695fd3624b8fb893b55ce0df550fad2f7b501930f8bf41d95494c17fc",
+      "backend.pic_to_3d._resize_nan_aware": "0343c8ce25d0b95dc1f0ef219a5d65d1d2eb6df4fe98cf1399bf41c004ed8136"
+    },
+    "captured_defaults": {
+      "face_feather_ratio": 0.2,
+      "face_max_correction_ratio": 0.08
+    }
+  },
+  "validation": {
+    "focused_tests_passed": 26,
+    "full_backend_tests_passed": 831,
+    "full_backend_subtests_passed": 87,
+    "full_backend_failures": 4,
+    "full_backend_warnings": 2,
+    "full_backend_failure_scope": "pre-existing dirty production face-relief path outside the owned SHeaP files"
+  },
+  "raw_evidence_sha256": {
+    "adapter": "971dc1af4801fcaac1c3154acadee2cf1285cd34f62160e8aefe89135a2bb9c0",
+    "evaluator": "c183c25ba9c55620bc38621892b953a8f2b4f1cf21be77dd84177088e1014f7b",
+    "expressive": "cd53535f2f466804bc55b9c29024e9ba64d9e1e17ab9f96a52f6a7ec9318ae83",
+    "paper": "e50aab143af6d3d41da9a254029afd9ef2563789ec17366b95648e7aa582a477"
+  },
+  "decision": {
+    "selected_research_checkpoint": "expressive",
+    "exact_small_face_gate_passed": false,
+    "all_six_parts_improved": false,
+    "production_enabled": false,
+    "lane_closed": true,
+    "next_gate": "require a different upstream camera-aligned face provider to improve eye, brow, nose, and mouth depth before any 30 mm STL replay"
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "run": "relief_background_prominence_v4",
+  "privacy": "checksum-pinned canonical face plus deterministic analytic backgrounds only",
+  "implementation_provenance": {
+    "revision": "2dea653881460a6b4b39d67fe1c2d2ce8ae62f7d",
+    "canonical_face_paths_clean": true,
+    "varied_scene_paths_clean": true
+  },
+  "settings": {
+    "background_depth_ratio_previous": 0.5,
+    "background_depth_ratio_selected": 0.65,
+    "face_detail_correlation_floor_previous": 0.8,
+    "face_detail_correlation_floor_selected": 0.85,
+    "relief_heights_mm": [20.0, 30.0, 40.0],
+    "yaws_deg": [-45.0, 0.0, 45.0],
+    "canonical_face_rows": 54,
+    "varied_scene_rows": 6
+  },
+  "background_comparison": {
+    "baseline_artifact": {
+      "background_depth_ratio": 0.5,
+      "path": "docs/benchmark-evidence/canonical_face_variants_height_v3_n54/canonical-variant-summary.json",
+      "implementation_revision": "c0bc7ccb81ac724e6cdb3a99b7d406f9dbb2d36a",
+      "implementation_paths_clean": true,
+      "size_bytes": 1107212,
+      "sha256": "9a3502fee5af8a7cff55891d21c88e8ed514967a21aab8bc60720c908fc8e2fc"
+    },
+    "previous_median_height_above_base_mm": 15.0,
+    "selected_median_height_above_base_mm": 19.5,
+    "height_gain_ratio": 1.3,
+    "previous_median_p05_p95_span_mm": 8.160086154937744,
+    "selected_median_p05_p95_span_mm": 11.44811201095581,
+    "span_gain_ratio": 1.402941309626818
+  },
+  "canonical_face_matrix": {
+    "completed_rows": 54,
+    "failed_rows": 0,
+    "minimum_face_lighting_correlation": 0.9961052031522579,
+    "minimum_named_part_shape_correlation": 0.9744342201295846,
+    "minimum_named_part_gradient_correlation": 0.9701457675143201,
+    "maximum_named_part_p95_error_mm": 1.298596864929478,
+    "minimum_background_correlation": 0.9999999999999998,
+    "minimum_background_gradient_correlation": 0.9999999999999998,
+    "maximum_far_background_mm": 26.010000228881836,
+    "primary_face_solve_rows": 44,
+    "high_detail_retry_rows": 10,
+    "all_printable": true,
+    "local_summary_size_bytes": 1109357,
+    "local_summary_sha256": "3fcb89ad0d78ed45d9d8f262fcbb673e31667d88b7bfbc247e53a412ed831f52"
+  },
+  "varied_scene_matrix": {
+    "completed_rows": 6,
+    "failed_rows": 0,
+    "minimum_face_correlation": 0.9705725905718369,
+    "minimum_recoverable_context_coverage_ratio": 0.862898516874927,
+    "minimum_background_correlation": 1.0,
+    "minimum_background_gradient_correlation": 0.9999999999999999,
+    "maximum_far_background_mm": 19.510000228881836,
+    "maximum_feasible_attachment_jump_mm": 0.8000001907348633,
+    "all_printable": true,
+    "local_summary_size_bytes": 21530,
+    "local_summary_sha256": "ca90e1d91f7202b759c65a0bbab9b2bc4a91137626d45cce25a7156557bcc836"
+  }
+}

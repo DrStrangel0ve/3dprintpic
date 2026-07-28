@@ -1,0 +1,37 @@
+{
+  "implementation_revision": "9d46feadcfe143a06ed58fc934f2616fb420b982",
+  "implementation_clean": true,
+  "decision": "hold",
+  "model": {
+    "parameters": 106225,
+    "best_epoch": 19,
+    "runtime_seconds": 13.091083899998921,
+    "incremental_peak_vram_gb": 0.46149253845214844,
+    "checkpoint_sha256": "05fdef1b8c2a0b898f799303b0a3dace5e84f65e0d334c419637cf3cf44ceda9"
+  },
+  "validation": {
+    "minimum_correlation": 0.08451916926858082,
+    "minimum_gradient_correlation": 0.8948315730178759,
+    "targets_reachable": true,
+    "checkpoint_gate_eligible": false
+  },
+  "held_out": [
+    {
+      "scene": "caucasian_female_smile/centered",
+      "baseline_correlation": -0.5047845446978236,
+      "corrected_correlation": -0.44485104073290593,
+      "baseline_gradient_correlation": 0.53461121557572,
+      "corrected_gradient_correlation": 0.8318340069894323,
+      "selected_face_bit_exact": true
+    },
+    {
+      "scene": "asian_female_asymmetric/right_frame",
+      "baseline_correlation": -0.5484465541888048,
+      "corrected_correlation": -0.47194781873964564,
+      "baseline_gradient_correlation": 0.542687369981606,
+      "corrected_gradient_correlation": 0.8766956066570303,
+      "selected_face_bit_exact": true
+    }
+  ]
+}
+

@@ -1,0 +1,26 @@
+{
+  "compact_archive": {
+    "bytes": 1513003,
+    "entries": 247,
+    "sha256": "0c77ea4d78af8ce52c25ab6cc0548d51e8380be5e5abf18faf75c92edf7597ac"
+  },
+  "duration_seconds": 935.85,
+  "eval_rows": 40,
+  "full_archive": {
+    "bytes": 336432138,
+    "sha256": "1f3740b5db4cff5a9da1d42c0ad55ed480f086a06d0251b4150d9300f3cf9279"
+  },
+  "gpu": {
+    "memory_total_gb": 95.5927734375,
+    "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition"
+  },
+  "input_payload": {
+    "bytes": 806667,
+    "payload_branch_commit": "3756b06",
+    "sha256": "df95f584fb6ade9126baee5cbd193fa88df94fec74dcca86a5719e3a4b748303"
+  },
+  "manifest_sha256": "5c8d61d39e840c003bc36d683188bb94c219fb96b7cc03e59bb1ffcab9852c6f",
+  "notebook_url": "https://colab.research.google.com/github/DrStrangel0ve/3dprintpic/blob/codex-colab-payloads/colab_payloads/run_colab_hunyuan3d_2mv_decimator_ablation_s40_s6_n4_fetch_notebook.ipynb",
+  "run_name": "g4_stl_first_hunyuan3d_2mv_decimator_ablation_s40_s6_n4",
+  "runtime_commit": "9e37d1c026236211f29052a990cb80aa8d3e55b4"
+}

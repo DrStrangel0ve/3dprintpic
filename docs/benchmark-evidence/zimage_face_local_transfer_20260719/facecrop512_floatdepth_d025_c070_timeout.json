@@ -1,0 +1,31 @@
+{
+  "adapter_revision": "1b2de69eed0248e38cfa89ad24897ca307103194",
+  "candidate": {
+    "control_scale": 0.7,
+    "denoising_strength": 0.25,
+    "face_crop_size": 512,
+    "seed": 20260719,
+    "steps": 8
+  },
+  "comparison_valid": false,
+  "completed_artifacts": [
+    "depth_control.png",
+    "preflight.json",
+    "provider_control_crop.png",
+    "provider_input_crop.png"
+  ],
+  "generated_image_available": false,
+  "preflight": {
+    "controlnet_block_mismatch_reads": 0,
+    "controlnet_block_read_attempts": 1602,
+    "controlnet_block_retry_count": 0,
+    "controlnet_hash_pinned": true,
+    "runnable": true,
+    "sha256": "40dd10401a4bfabc49901efdb719a0185e790ba165ca37bcb064047ce548e165"
+  },
+  "reason": "process_timeout_before_generated_output",
+  "result_json_available": false,
+  "schema_version": 1,
+  "status": "invalid_timeout",
+  "timeout_seconds": 3604
+}

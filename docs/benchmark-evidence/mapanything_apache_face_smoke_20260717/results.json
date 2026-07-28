@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "run_id": "mapanything_apache_face_smoke_20260717",
+  "status": "hold",
+  "production_changed": false,
+  "privacy": "public CC0 deterministic face control only",
+  "provider": {
+    "source_repository": "https://github.com/facebookresearch/map-anything.git",
+    "source_revision": "c845b8f4f6cde0c20aecd87573656c3f69f5b2b0",
+    "source_license": "Apache-2.0",
+    "model_id": "facebook/map-anything-apache",
+    "model_revision": "00f9c245bbcb60522d1ed7f9e9d88462c6e3f38a",
+    "model_license": "Apache-2.0",
+    "model_config_sha256": "65701d09d99ed37a21d295f0d138978b3d584ab3bccdbcb4a2853da212b676c5",
+    "model_safetensors_size_bytes": 4914062480,
+    "model_safetensors_sha256": "fa06c0fdccefc5048e072c85935d5789b1e36b307f3859033c17f9dcb9fd5201",
+    "dinov2_source_repository": "https://github.com/facebookresearch/dinov2.git",
+    "dinov2_source_revision": "7764ea0f912e53c92e82eb78a2a1631e92725fc8",
+    "dinov2_source_license": "Apache-2.0",
+    "dinov2_model_name": "dinov2_vitg14",
+    "uniception_version": "0.1.7"
+  },
+  "configuration": {
+    "row_id": "small_side_lit_shelves_256",
+    "face_height_pixels": 76,
+    "input": "complete 256x256 RGB image",
+    "inference_shape": [518, 518],
+    "views": 1,
+    "memory_efficient_inference": true,
+    "minibatch_size": 1,
+    "amp_dtype": "fp16",
+    "apply_mask": false,
+    "mask_edges": false,
+    "candidate_signal": "raw camera-frame depth_z, positive away from camera",
+    "face_crop": false,
+    "affine_normalization": false,
+    "sign_search": false,
+    "scale_search": false,
+    "fusion": false,
+    "repair": false
+  },
+  "runtime": {
+    "device": "NVIDIA GeForce RTX 3080 Ti",
+    "load_seconds": 40.91267360000347,
+    "inference_seconds": 1.2520661000016844,
+    "peak_vram_gib": 5.634765625
+  },
+  "geometry_contract": {
+    "all_finite": true,
+    "depth_min": 3.144284248352051,
+    "depth_max": 4.358773708343506,
+    "maximum_abs_depth_vs_point_z": 0.0,
+    "ray_norm_min": 0.9999998876975512,
+    "ray_norm_max": 1.000000118407689,
+    "ray_norm_mean": 1.0000000000318117,
+    "focal_x": 464.9202575683594,
+    "focal_y": 466.6703796386719,
+    "principal_x": 258.232666015625,
+    "principal_y": 257.2600402832031,
+    "valid_homogeneous_pose_row": true
+  },
+  "strict_adapter_validation": {
+    "mapanything_source_clean_and_exact": true,
+    "dinov2_source_clean_and_exact": true,
+    "checkpoint_size_and_sha256_exact": true,
+    "model_config_sha256_exact": true,
+    "huggingface_local_files_only": true,
+    "huggingface_offline_environment_forced": true,
+    "foreign_preloaded_dinov2_modules_rejected": true,
+    "dinov2_torch_hub_routed_to_local_source": true,
+    "dinov2_external_pretrained_weights_disabled": true,
+    "uniception_version_pinned": true,
+    "output_depth_sha256_exact_replay": true,
+    "output_depth_sha256": "a3b0e5193f0d6dc749a5d58a01b94bce3e6781d56d732cf18970dada8b1ebbc4",
+    "runtime_seconds": 0.9373190000042086,
+    "peak_allocated_vram_gib": 5.19162130355835
+  },
+  "exact_face_gate": {
+    "incumbent": {
+      "shape_correlation": 0.8066024259968169,
+      "gradient_correlation": 0.626152053674374,
+      "normalized_rmse": 0.175269513152677,
+      "combined_named_part_failures": 8,
+      "shape_failed_parts": [
+        "left_eye",
+        "left_eyebrow",
+        "mouth",
+        "nose",
+        "right_eye"
+      ],
+      "affine_failed_parts": [
+        "left_eye",
+        "left_eyebrow",
+        "mouth"
+      ]
+    },
+    "candidate": {
+      "shape_correlation": 0.8094257543840839,
+      "gradient_correlation": 0.5749005621193681,
+      "normalized_rmse": 0.1741213650518294,
+      "combined_named_part_failures": 10,
+      "shape_failed_parts": [
+        "left_eye",
+        "left_eyebrow",
+        "mouth",
+        "nose",
+        "right_eye"
+      ],
+      "affine_failed_parts": [
+        "left_eye",
+        "left_eyebrow",
+        "mouth",
+        "nose",
+        "right_eyebrow"
+      ]
+    },
+    "checks": {
+      "candidate_failures_at_most_7": false,
+      "no_named_part_regression": false,
+      "shape_no_regression": true,
+      "gradient_no_regression": false,
+      "rmse_no_regression": true,
+      "passed": false
+    }
+  },
+  "decision": {
+    "provider_lane_closed": true,
+    "stl_emitted": false,
+    "relief_30mm_run": false,
+    "reason": "Raw camera-Z depth increased named-part failures from 8 to 10 and reduced gradient correlation by 0.05125. The one-row gate failed before postprocessing.",
+    "next_action": "Shift to materially more diverse license-clean paired face geometry supervision rather than tune or fuse this generic provider."
+  },
+  "raw_evidence": {
+    "source_image": {
+      "sha256": "2aca3775162f1b2320a47dbfead27e49e2d7b29654d80151d8ebc17315a8c074",
+      "size_bytes": 41706
+    },
+    "prediction_npz": {
+      "sha256": "118d87c58c76ffb434911437f95896e20cdfed080514c7f705cfdbe5b3405267",
+      "size_bytes": 7187095
+    },
+    "resized_depth": {
+      "sha256": "a3b0e5193f0d6dc749a5d58a01b94bce3e6781d56d732cf18970dada8b1ebbc4",
+      "size_bytes": 262272
+    },
+    "runtime_stats": {
+      "sha256": "51fce5468ca825b4078257c781a075fd8afdd8c73728890ec9cd2cbde4a9fbe0",
+      "size_bytes": 967
+    },
+    "geometry_contract": {
+      "sha256": "7c632b31ca7067a8652f749143fd7ac9e0fe45daa374020e697b9db7401a00cd",
+      "size_bytes": 488
+    },
+    "strict_adapter_metadata": {
+      "sha256": "f8d22a8e63c735c3719a04cfb3b6e062aa62702cbe28ed2d62602f3c90f15d83",
+      "size_bytes": 1655
+    }
+  }
+}

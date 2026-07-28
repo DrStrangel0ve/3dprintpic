@@ -1,0 +1,438 @@
+{
+  "alignment": {
+    "checks": {
+      "all_parts": false,
+      "anatomical_ordering": true,
+      "exact_part_geometry": true,
+      "face_boundary_h95": false,
+      "face_center": true,
+      "face_height": false,
+      "face_mask_iou": false,
+      "landmark_median": false,
+      "landmark_p95": true,
+      "non_noop_rgb_transfer": true,
+      "output_dimensions_exact": true,
+      "outside_selection_bit_exact": true
+    },
+    "comparison": "candidate-versus-parent-detector-with-no-registration",
+    "detection": {
+      "candidate": {
+        "attempts": [
+          {
+            "component_bbox": [
+              86,
+              91,
+              135,
+              166
+            ],
+            "detected_faces": 1,
+            "effective_minimum_face_pixels": 32,
+            "input_shape": [
+              384,
+              384
+            ],
+            "roi_bbox": [
+              39,
+              57,
+              182,
+              200
+            ]
+          }
+        ],
+        "detected_faces": 1,
+        "eligible_components": 1,
+        "enabled": true,
+        "fallback_errors_clean": true,
+        "selection_detail_fallback_regions": 0,
+        "validated_face_regions": 1
+      },
+      "candidate_detector": "selection-roi:mediapipe-face-landmarker",
+      "candidate_errors": [],
+      "parent": {
+        "attempts": [
+          {
+            "component_bbox": [
+              86,
+              91,
+              135,
+              166
+            ],
+            "detected_faces": 1,
+            "effective_minimum_face_pixels": 32,
+            "input_shape": [
+              384,
+              384
+            ],
+            "roi_bbox": [
+              39,
+              57,
+              182,
+              200
+            ]
+          }
+        ],
+        "detected_faces": 1,
+        "eligible_components": 1,
+        "enabled": true,
+        "fallback_errors_clean": true,
+        "selection_detail_fallback_regions": 0,
+        "validated_face_regions": 1
+      },
+      "parent_detector": "selection-roi:mediapipe-face-landmarker",
+      "parent_errors": []
+    },
+    "metrics": {
+      "anatomical_ordering_preserved": true,
+      "candidate_anatomical_ordering": {
+        "eye_left_to_right_x": -1,
+        "eye_to_nose_y": 1,
+        "eyebrow_left_to_right_x": 1,
+        "eyebrow_to_eye_y": 1,
+        "nose_to_mouth_y": 1
+      },
+      "exact_part_alignment": {
+        "available": true,
+        "comparison": "candidate-and-parent-detector-masks-versus-exact-projection",
+        "parts": {
+          "left_eye": {
+            "absolute_passed": true,
+            "absolute_thresholds": {
+              "maximum_boundary_h95_pixels": 18.0,
+              "maximum_centroid_displacement_pixels": 18.0,
+              "minimum_mask_iou": 0.0
+            },
+            "boundary_h95_increase_pixels": -0.9312578922944059,
+            "candidate": {
+              "boundary_h95_pixels": 15.239549134153476,
+              "centroid_displacement_pixels": 15.440256324968363,
+              "mask_iou": 0.0
+            },
+            "centroid_increase_pixels": -0.9146408716682188,
+            "iou_regression": 0.0,
+            "parent": {
+              "boundary_h95_pixels": 16.170807026447882,
+              "centroid_displacement_pixels": 16.354897196636582,
+              "mask_iou": 0.0
+            }
+          },
+          "left_eyebrow": {
+            "absolute_passed": true,
+            "absolute_thresholds": {
+              "maximum_boundary_h95_pixels": 8.0,
+              "maximum_centroid_displacement_pixels": 5.0,
+              "minimum_mask_iou": 0.0
+            },
+            "boundary_h95_increase_pixels": -0.25617633343838175,
+            "candidate": {
+              "boundary_h95_pixels": 5.684656829757473,
+              "centroid_displacement_pixels": 2.8373046114376703,
+              "mask_iou": 0.022222222222222223
+            },
+            "centroid_increase_pixels": -0.616208230069883,
+            "iou_regression": -0.022222222222222223,
+            "parent": {
+              "boundary_h95_pixels": 5.940833163195855,
+              "centroid_displacement_pixels": 3.4535128415075533,
+              "mask_iou": 0.0
+            }
+          },
+          "mouth": {
+            "absolute_passed": true,
+            "absolute_thresholds": {
+              "maximum_boundary_h95_pixels": 8.0,
+              "maximum_centroid_displacement_pixels": 4.0,
+              "minimum_mask_iou": 0.12
+            },
+            "boundary_h95_increase_pixels": 0.0,
+            "candidate": {
+              "boundary_h95_pixels": 6.0,
+              "centroid_displacement_pixels": 0.9601041729021573,
+              "mask_iou": 0.17164179104477612
+            },
+            "centroid_increase_pixels": -1.0814911579028879,
+            "iou_regression": -0.022388059701492546,
+            "parent": {
+              "boundary_h95_pixels": 6.0,
+              "centroid_displacement_pixels": 2.041595330805045,
+              "mask_iou": 0.14925373134328357
+            }
+          },
+          "nose": {
+            "absolute_passed": true,
+            "absolute_thresholds": {
+              "maximum_boundary_h95_pixels": 11.0,
+              "maximum_centroid_displacement_pixels": 4.0,
+              "minimum_mask_iou": 0.3
+            },
+            "boundary_h95_increase_pixels": 0.9473841187694543,
+            "candidate": {
+              "boundary_h95_pixels": 10.0,
+              "centroid_displacement_pixels": 1.962092334905668,
+              "mask_iou": 0.35714285714285715
+            },
+            "centroid_increase_pixels": 0.4295692884733222,
+            "iou_regression": -0.03553481694185212,
+            "parent": {
+              "boundary_h95_pixels": 9.052615881230546,
+              "centroid_displacement_pixels": 1.5325230464323458,
+              "mask_iou": 0.32160804020100503
+            }
+          },
+          "right_eye": {
+            "absolute_passed": true,
+            "absolute_thresholds": {
+              "maximum_boundary_h95_pixels": 12.0,
+              "maximum_centroid_displacement_pixels": 10.0,
+              "minimum_mask_iou": 0.0
+            },
+            "boundary_h95_increase_pixels": 0.9710858065606214,
+            "candidate": {
+              "boundary_h95_pixels": 11.551315688243534,
+              "centroid_displacement_pixels": 8.363384886038638,
+              "mask_iou": 0.0
+            },
+            "centroid_increase_pixels": 0.44806901928145315,
+            "iou_regression": 0.0,
+            "parent": {
+              "boundary_h95_pixels": 10.580229881682913,
+              "centroid_displacement_pixels": 7.915315866757185,
+              "mask_iou": 0.0
+            }
+          },
+          "right_eyebrow": {
+            "absolute_passed": true,
+            "absolute_thresholds": {
+              "maximum_boundary_h95_pixels": 8.0,
+              "maximum_centroid_displacement_pixels": 7.0,
+              "minimum_mask_iou": 0.2
+            },
+            "boundary_h95_increase_pixels": -0.8761702617667186,
+            "candidate": {
+              "boundary_h95_pixels": 5.563479642218822,
+              "centroid_displacement_pixels": 4.644356760582742,
+              "mask_iou": 0.22522522522522523
+            },
+            "centroid_increase_pixels": -0.5045896999373927,
+            "iou_regression": 0.011616880037932653,
+            "parent": {
+              "boundary_h95_pixels": 6.439649903985541,
+              "centroid_displacement_pixels": 5.1489464605201345,
+              "mask_iou": 0.23684210526315788
+            }
+          }
+        }
+      },
+      "face_boundary_h95_pixels": 2.0,
+      "face_center_displacement_ratio": 0.0149071198499986,
+      "face_height_retention": 0.9787234042553191,
+      "face_mask_iou": 0.9420111042566317,
+      "inside_changed_fraction": 0.991352473192667,
+      "inside_rgb_rms": 10.243422508239746,
+      "landmark_median_pixels": 1.2175773537315684,
+      "landmark_p95_pixels": 1.694530709129279,
+      "outside_changed_pixels": 0,
+      "parent_anatomical_ordering": {
+        "eye_left_to_right_x": -1,
+        "eye_to_nose_y": 1,
+        "eyebrow_left_to_right_x": 1,
+        "eyebrow_to_eye_y": 1,
+        "nose_to_mouth_y": 1
+      },
+      "parts": {
+        "left_eye": {
+          "boundary_h95_pixels": 1.1656854249492374,
+          "centroid_displacement_pixels": 1.1490094706579501,
+          "mask_iou": 0.42857142857142855
+        },
+        "left_eyebrow": {
+          "boundary_h95_pixels": 1.0,
+          "centroid_displacement_pixels": 1.0307764064044151,
+          "mask_iou": 0.4
+        },
+        "mouth": {
+          "boundary_h95_pixels": 1.4553062831294306,
+          "centroid_displacement_pixels": 1.5974060376589723,
+          "mask_iou": 0.34375
+        },
+        "nose": {
+          "boundary_h95_pixels": 1.4142135623730951,
+          "centroid_displacement_pixels": 1.356192097252752,
+          "mask_iou": 0.6707317073170732
+        },
+        "right_eye": {
+          "boundary_h95_pixels": 2.0,
+          "centroid_displacement_pixels": 1.346291201783626,
+          "mask_iou": 0.2
+        },
+        "right_eyebrow": {
+          "boundary_h95_pixels": 1.0,
+          "centroid_displacement_pixels": 0.5496416631924649,
+          "mask_iou": 0.7547169811320755
+        }
+      }
+    },
+    "passed": false,
+    "schema_version": 1,
+    "thresholds": {
+      "maximum_exact_part_boundary_h95_increase_pixels": 1.0,
+      "maximum_exact_part_centroid_increase_pixels": 1.0,
+      "maximum_exact_part_iou_regression": 0.02,
+      "maximum_face_boundary_h95_pixels": 1.5,
+      "maximum_face_center_displacement_ratio": 0.015,
+      "maximum_face_height_retention": 1.02,
+      "maximum_landmark_median_pixels": 1.0,
+      "maximum_landmark_p95_pixels": 2.0,
+      "maximum_part_boundary_h95_pixels": 1.5,
+      "maximum_part_centroid_displacement_pixels": 1.0,
+      "minimum_face_height_retention": 0.98,
+      "minimum_face_mask_iou": 0.98,
+      "minimum_inside_changed_fraction": 0.2,
+      "minimum_inside_rgb_rms": 3.0,
+      "minimum_part_mask_iou": 0.95
+    }
+  },
+  "derived_corpus": null,
+  "expansion_authorized": false,
+  "provenance": {
+    "candidate_sha256": "88b422de2f634148c192b5f8798fa21c4b9f3be724d4c2d29967e3a7a77bb51c",
+    "configuration": {
+      "control_scale": 0.9,
+      "denoising_strength": 0.35,
+      "depth_control": "uint8_rgb_round(255*(1-exact_normalized_scene_depth))",
+      "face_local_crop": {
+        "context_ratio": 1.9,
+        "control_resampling": "bilinear",
+        "inverse_resampling": "lanczos",
+        "rgb_resampling": "lanczos",
+        "source_bbox_xyxy": [
+          39,
+          57,
+          182,
+          200
+        ],
+        "source_size": 143,
+        "target_size": 512
+      },
+      "output_dimensions": [
+        256,
+        256
+      ],
+      "prompt": "A natural documentary photograph of the same adult person and the same scene shown in the input. Preserve the exact camera, head pose, facial expression, silhouette, eye positions, nose, mouth, ears, lighting direction, occlusions, and background geometry. Replace only the synthetic face material with realistic human skin, hair, eyes, and lips. No retouching, no beautification, no face reshaping, no added objects.",
+      "provider_input_dimensions": [
+        512,
+        512
+      ],
+      "resize_or_warp": {
+        "context_ratio": 1.9,
+        "control_resampling": "bilinear",
+        "inverse_resampling": "lanczos",
+        "rgb_resampling": "lanczos",
+        "source_bbox_xyxy": [
+          39,
+          57,
+          182,
+          200
+        ],
+        "source_size": 143,
+        "target_size": 512
+      },
+      "row_id": "mhr_training_identity_000__scene_00",
+      "seed": 20260719,
+      "steps": 8,
+      "vram_limit_gib": 8.0
+    },
+    "configuration_sha256": "0e84a47f9737091d0c58c4420cc12f734ff1a136230ba331c2c3a7f04bd713a7",
+    "control_image_sha256": "349ad0b54d29babf4b415bea1cf48be42408e66406b46fe8dcf430a69cf5999d",
+    "parent": {
+      "asset_sha256": {
+        "exact_camera_depth": "44a49fda5cbe10de4ea4dfe2bf6357eec9ddb745afe8207dfeb4ad31f066c4f5",
+        "exact_camera_normals": "11c9c63f9eb330b1e0d9c8061024380ff4358b238ece1d839eb4fdd37a043ccf",
+        "exact_depth": "f5afadc03d7953d0849ca8a2c835ed8966ba96473a52b196ab41484957ea6308",
+        "geometry_target:expression": "6fac01d2f35e9369826f83c86324807c4c5664c68571fb569597d0b0b02e1278",
+        "geometry_target:identity": "7cb5d056171354daf3e21c466efa646e74afa8aee6347c662be2e6f98e13a542",
+        "part:left_eye": "97e71b3ac52f775c57824e2c2bfda6615c2407929b14c23ade93f5c2120074af",
+        "part:left_eyebrow": "b3d9a928f74f820f3199d04c9ec8f0508a5fd1449d1855671a862370ad875090",
+        "part:mouth": "9c074e050098bb7189f93b92ce78026967f46719575f65ee43a1ef7c7ad6a116",
+        "part:nose": "ba2276f5a8340e0a552567d56ed46dacc52412501bb71a17174fe1173a39b4bd",
+        "part:right_eye": "e3dba3e00ec354c73aaaf91570708ad9d16df42d4dc36f6767225f9aeba48d45",
+        "part:right_eyebrow": "7296dd14438b7ee4f50d92db69a5de21ce79395df3753524eb6cb2ed2e00ce1c",
+        "selection_mask": "042dca6afa2926baf4c670e442d0a977b4e2a45bbbdd8efde75432843153c9e6",
+        "source": "53cf4d83bc054af0431dd1f605463de46070bfd34324ff194205a8c7e1b38015"
+      },
+      "root": "D:\\CodexResearch\\3dprintpic-runs\\mhr_semantic_v2_training_n320_20260720",
+      "row_id": "mhr_training_identity_000__scene_00",
+      "summary_path": "D:\\CodexResearch\\3dprintpic-runs\\mhr_semantic_v2_training_n320_20260720\\summary.json",
+      "summary_sha256": "d8717cced1d8f6753c15a7367dc1c84c5e62e0439f87b4380cca65f55fd665a5",
+      "training_supervision_path": "D:\\CodexResearch\\3dprintpic-runs\\mhr_semantic_v2_training_n320_20260720\\training_supervision.json",
+      "training_supervision_sha256": "42cb6169170f0dd31a8715aefdf45229749d4418d54d19e4d5c48b8452c59acb"
+    },
+    "preflight_sha256": "3692f0e1ca938f16711c8324ed714440b00963d973b786d18735b5d84156ff93",
+    "provider": "zimage-turbo-controlnet-union-2.1-2602-8steps",
+    "raw_generated_sha256": "2885c153a1d4735879fd410e94e7a663cb398234cc30073cf622d17548e847c5"
+  },
+  "raw_depth_geometry": {
+    "available": false,
+    "passed": false,
+    "reason": "rgb_alignment_gate_failed",
+    "schema_version": 1
+  },
+  "reason": "unregistered RGB alignment gate failed",
+  "runtime": {
+    "compute_capability": [
+      8,
+      6
+    ],
+    "device": "NVIDIA GeForce RTX 3080 Ti",
+    "device_index": 0,
+    "device_wide_peak_available": false,
+    "disk_offload": true,
+    "disk_offload_preparing_device": "cuda:0",
+    "disk_offload_reason": "official CUDA-staged layer offload on the pinned torch 2.7.1 runtime; CPU staging exceeds the Windows paging-file mapping limit",
+    "dtype": "bfloat16",
+    "inference_seconds": 527.7309349999996,
+    "load_seconds": 27.83384379999916,
+    "main_model_load_seconds": 0.42336280000017723,
+    "materialized_direct_meta_parameters": [
+      "x_pad_token",
+      "cap_pad_token"
+    ],
+    "owned_disk_map_reads": {
+      "buffer_size": 9223372036854775807,
+      "disk_maps": 4,
+      "patched_classes": [
+        "diffsynth.core.vram.disk_map.DiskMap"
+      ],
+      "read_mode": "on_demand_safetensors",
+      "storage_devices": [
+        "cuda:0"
+      ],
+      "supported_dtypes": [
+        "BF16",
+        "F32"
+      ],
+      "tensor_reads_are_owned": true,
+      "tensor_transport": "validated_bytes_to_owned_torch"
+    },
+    "peak_allocated_vram_gib": 13.462749481201172,
+    "peak_reserved_vram_gib": 13.50390625,
+    "peak_vram_gib": 13.462749481201172,
+    "post_empty_cache_disk_map_refresh": {
+      "calls": 5,
+      "refreshed_maps": 4
+    },
+    "provider_import_files": {
+      "pipeline": "D:\\CodexResearch\\providers\\DiffSynth-Studio-fb337fbb\\diffsynth\\pipelines\\z_image.py",
+      "pipeline_package": "D:\\CodexResearch\\providers\\DiffSynth-Studio-fb337fbb\\diffsynth\\__init__.py"
+    },
+    "sequential_text_encoder_mapping": true,
+    "text_post_empty_cache_disk_map_refresh": {
+      "calls": 1,
+      "refreshed_maps": 1
+    },
+    "text_precompute_seconds": 26.56976299999951,
+    "total_seconds": 555.5679316000023,
+    "vram_limit_gib": 8.0
+  },
+  "schema_version": 1,
+  "status": "hold"
+}

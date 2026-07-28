@@ -1,0 +1,2700 @@
+{
+  "schema_version": 2,
+  "run_kind": "cc0_varied_scene_live_api_face_background_30mm",
+  "privacy": "CC0 generated heads, deterministic backgrounds, and procedural objects; aggregate metrics and content hashes only",
+  "implementation_provenance": {
+    "revision": "15a3a2580586e2d2fac4624a9d2b253e62980342",
+    "clean": true,
+    "paths": [
+      "backend/face_depth_refinement.py",
+      "backend/main.py",
+      "backend/pic_to_3d.py"
+    ]
+  },
+  "matrix": {
+    "cases": [
+      "centered",
+      "left",
+      "right"
+    ],
+    "relief_height_mm": 30.0,
+    "physical_size_mm": 96.0,
+    "target_dimension": 256,
+    "candidate_background_photo_detail_mm": 0.6,
+    "selection_background_depth_ratio": 0.65
+  },
+  "gates": {
+    "face_appearance": {
+      "minimum_normal_mean_cosine": 0.95,
+      "minimum_normal_p05_cosine": 0.85,
+      "maximum_normal_angle_p95_deg": 30.0,
+      "minimum_lighting_correlation": 0.8,
+      "maximum_lighting_mae": 0.08,
+      "minimum_lighting_rms_retention": 0.75,
+      "maximum_lighting_rms_retention": 1.4
+    },
+    "background_appearance": {
+      "minimum_normal_mean_cosine": 0.98,
+      "minimum_normal_p05_cosine": 0.9,
+      "maximum_normal_angle_p95_deg": 25.0,
+      "minimum_lighting_correlation": 0.95,
+      "maximum_lighting_mae": 0.05,
+      "minimum_lighting_rms_retention": 0.75,
+      "maximum_lighting_rms_retention": 1.25
+    },
+    "source_aligned_background_detail": {
+      "minimum_intended_background_source_detail_correlation": 0.3,
+      "minimum_realized_p95_ratio": 0.12,
+      "maximum_realized_p95_ratio": 1.05,
+      "maximum_face_interior_p99_change_mm": 0.01,
+      "maximum_face_interior_change_mm": 0.05,
+      "maximum_attachment_boundary_change_mm": 0.1,
+      "minimum_background_coverage_ratio": 0.35,
+      "minimum_source_aligned_capture_ratio": 0.12
+    },
+    "emitted_shell": {
+      "maximum_sample_error_mm": 1e-05,
+      "maximum_rms_error_mm": 1e-06,
+      "maximum_coordinate_error_mm": 1e-05,
+      "minimum_facet_normal_cosine": 0.999999,
+      "require_exact_triangle_count": true,
+      "require_exact_connectivity": true
+    }
+  },
+  "cases": {
+    "centered": {
+      "fixture": {
+        "source_sha256": "368b04492a8b73d749e14646fae757331705ee3b095df19df6ae4851846ff973",
+        "selection_mask_sha256": "ce8d5a5ba498b28220e46ae768f2daac76be2d91132a33e335c0bc4ee409398d"
+      },
+      "rows": {
+        "baseline": {
+          "request": {
+            "posted_fields": [
+              "background_photo_detail_mm",
+              "max_xy_size",
+              "selection_job_id",
+              "target_dimension",
+              "z_scale"
+            ],
+            "response_sha256": "6f218133a19c13e23dcb9dc824c0b2d9f328b11d87d2732406d4feb55d50d026",
+            "elapsed_seconds": 15.226089499992668,
+            "checks": {
+              "http_status": true,
+              "background_photo_detail": true,
+              "selection_ratio_omitted": true
+            }
+          },
+          "runtime": {
+            "available": true,
+            "revision": "15a3a2580586e2d2fac4624a9d2b253e62980342",
+            "clean": true,
+            "status": [],
+            "source": "git-worktree"
+          },
+          "observed_controls": {
+            "background_photo_detail_mm": 0.0,
+            "selection_background_depth_ratio": 0.65
+          },
+          "face_refinement": {
+            "applied": true,
+            "detected_faces": 1,
+            "refined_faces": 1,
+            "detector": "mediapipe-face-landmarker",
+            "landmark_count": 478,
+            "minimum_face_pixels": {
+              "requested": 96,
+              "effective": 64
+            },
+            "detector_errors": []
+          },
+          "face_appearance": {
+            "available": true,
+            "samples": 4101,
+            "normal_mean_cosine": 0.998518317746522,
+            "normal_p05_cosine": 0.9986892730122037,
+            "normal_angle_median_deg": 0.23618490822959304,
+            "normal_angle_p95_deg": 2.9338722491296383,
+            "minimum_lighting_correlation": 0.9956419474406963,
+            "maximum_lighting_mae": 0.004651497202771609,
+            "minimum_lighting_rms_retention": 1.0049945928152864,
+            "maximum_lighting_rms_retention": 1.0113872975694942,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "component_count": 1,
+            "components": [
+              {
+                "component": 1,
+                "available": true,
+                "samples": 4101,
+                "normal_mean_cosine": 0.998518317746522,
+                "normal_p05_cosine": 0.9986892730122037,
+                "normal_angle_median_deg": 0.23618490822959304,
+                "normal_angle_p95_deg": 2.9338722491296383,
+                "minimum_lighting_correlation": 0.9956419474406963,
+                "maximum_lighting_mae": 0.004651497202771609,
+                "minimum_lighting_rms_retention": 1.0049945928152864,
+                "maximum_lighting_rms_retention": 1.0113872975694942,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9956419474406963,
+                    "mean_absolute_error": 0.003994630404822523,
+                    "rms_retention": 1.0049945928152864
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9962656099401361,
+                    "mean_absolute_error": 0.004651497202771609,
+                    "rms_retention": 1.0087394555348392
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.996744740436005,
+                    "mean_absolute_error": 0.004348281738775477,
+                    "rms_retention": 1.0113872975694942
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.9988270727948819,
+                    "mean_absolute_error": 0.0032212642904897917,
+                    "rms_retention": 1.0068191390698278
+                  }
+                ],
+                "reference_samples": 4101,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 4746,
+                "boundary_exclusion_mm": 0.8,
+                "boundary_exclusion_px": 2,
+                "minimum_samples": 64
+              }
+            ]
+          },
+          "face_appearance_checks": {
+            "telemetry": true,
+            "coverage": true,
+            "normal_field": true,
+            "lighting": true,
+            "lighting_energy": true,
+            "components": true,
+            "passed": true
+          },
+          "background_appearance": {
+            "available": true,
+            "samples": 40025,
+            "normal_mean_cosine": 0.9999442439037839,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9994915026916956,
+            "maximum_lighting_mae": 0.000150362779110341,
+            "minimum_lighting_rms_retention": 1.000752120836705,
+            "maximum_lighting_rms_retention": 1.0010465669792656,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "component_count": 1,
+            "components": [
+              {
+                "component": 1,
+                "available": true,
+                "samples": 40025,
+                "normal_mean_cosine": 0.9999442439037839,
+                "normal_p05_cosine": 0.9999999999999998,
+                "normal_angle_median_deg": 0.0,
+                "normal_angle_p95_deg": 1.2074182697257333e-06,
+                "minimum_lighting_correlation": 0.9994915026916956,
+                "maximum_lighting_mae": 0.000150362779110341,
+                "minimum_lighting_rms_retention": 1.000752120836705,
+                "maximum_lighting_rms_retention": 1.0010465669792656,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9997009412813157,
+                    "mean_absolute_error": 0.00013985776088892976,
+                    "rms_retention": 1.0010325907118287
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9996865471047475,
+                    "mean_absolute_error": 0.000150362779110341,
+                    "rms_retention": 1.000752120836705
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.9995485245948093,
+                    "mean_absolute_error": 0.0001321984721689275,
+                    "rms_retention": 1.0008734951330431
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.9994915026916956,
+                    "mean_absolute_error": 0.00011087695027041494,
+                    "rms_retention": 1.0010465669792656
+                  }
+                ],
+                "reference_samples": 40025,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 47149,
+                "boundary_exclusion_mm": 1.5,
+                "boundary_exclusion_px": 4,
+                "minimum_samples": 64
+              }
+            ]
+          },
+          "background_appearance_checks": {
+            "telemetry": true,
+            "coverage": true,
+            "normal_field": true,
+            "lighting": true,
+            "lighting_energy": true,
+            "components": true,
+            "passed": true
+          },
+          "background_depth": {
+            "available": true,
+            "passed": true,
+            "samples": 42959,
+            "correlation": 0.9999972363810904,
+            "rms_retention": 0.9999807638389011,
+            "span_retention": 1.0,
+            "gradient_correlation": 0.9995224584957039,
+            "gradient_rms_retention": 1.0015481343804165,
+            "quality_failures": [],
+            "reference_samples": 42959,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "boundary_exclusion_mm": 1.5,
+            "boundary_exclusion_px": 4,
+            "minimum_correlation": 0.8,
+            "minimum_rms_retention": 0.5,
+            "minimum_span_retention": 0.5,
+            "minimum_gradient_correlation": 0.58,
+            "minimum_gradient_rms_retention": 0.25,
+            "maximum_rms_retention": 1.5,
+            "maximum_span_retention": 1.5,
+            "maximum_gradient_rms_retention": 1.75,
+            "maximum_mean_shift_mm": 2.0,
+            "maximum_boundary_jump_mm": 6.0,
+            "local_window_mm": 6.0,
+            "minimum_local_correlation": 0.35,
+            "maximum_local_shape_error_ratio": 0.95,
+            "gradient_samples": 85026,
+            "mean_shift_mm": 0.0009566907534388491,
+            "boundary_samples": 828,
+            "reference_boundary_jump_p99_mm": 1.3162250518798828,
+            "reference_boundary_jump_max_mm": 1.6848411560058594,
+            "output_boundary_jump_p99_mm": 1.3162250518798828,
+            "output_boundary_jump_max_mm": 1.6848411560058594,
+            "effective_boundary_jump_p99_limit_mm": 6.0,
+            "effective_boundary_jump_max_limit_mm": 12.0,
+            "reference_rms_mm": 7.707499207390108,
+            "output_rms_mm": 7.707350944693685,
+            "reference_span_p02_p98_mm": 19.500000229105353,
+            "output_span_p02_p98_mm": 19.500000229105353,
+            "reference_gradient_rms_mm": 0.4007472917898537,
+            "output_gradient_rms_mm": 0.40136770245013237,
+            "localized_structure": {
+              "available": true,
+              "passed": true,
+              "window_mm": 6.0,
+              "window_px": 15,
+              "stride_px": 7,
+              "border_exclusion_px": 7,
+              "minimum_samples_per_window": 113,
+              "minimum_window_coverage_ratio": 0.5,
+              "measured_window_count": 757,
+              "structured_window_count": 183,
+              "failed_window_count": 0,
+              "minimum_structure_rms_mm": 0.6165999365912087,
+              "minimum_correlation": 0.35,
+              "maximum_shape_error_ratio": 0.95,
+              "minimum_window_correlation": 0.9938513426379784,
+              "maximum_window_shape_error_ratio": 0.11271790564338131,
+              "worst_window": {
+                "row": 77,
+                "col": 56,
+                "samples": 225,
+                "reference_rms_mm": 0.6576282724192983,
+                "correlation": 0.9938513426379784,
+                "shape_error_ratio": 0.11271790564338131
+              },
+              "flat_or_smooth_reference": false
+            },
+            "enforced": true
+          },
+          "background_depth_checks": {
+            "available": true,
+            "coverage": true,
+            "correlation": true,
+            "rms_retention": true,
+            "span_retention": true,
+            "gradient_correlation": true,
+            "gradient_rms_retention": true,
+            "mean_shift": true,
+            "boundary_p99": true,
+            "boundary_max": true,
+            "localized_structure": true,
+            "no_reported_failures": true,
+            "producer_quality_agrees": true,
+            "passed": true
+          },
+          "physical_cap": {
+            "far_background_ceiling_mm": 19.509999999776483,
+            "far_background_max_mm": 19.510000228881836,
+            "far_background_cap_violation_mm": 0.0,
+            "attachment_step_limit_mm": 0.8,
+            "feasible_attachment_jump_max_mm": 0.8000001907348633,
+            "attachment_constraint_conflicts": 27,
+            "attachment_constraint_conflict_max_mm": 1.7696819305419922,
+            "far_background_cap_passed": true,
+            "feasible_attachment_constraints_passed": true,
+            "attachment_constraints_passed": false,
+            "emission_passed": true
+          },
+          "physical_cap_checks": {
+            "emission": true,
+            "far_background_flag": true,
+            "feasible_attachment_flag": true,
+            "zero_far_violation": true,
+            "far_height_within_ceiling": true,
+            "feasible_jump_within_limit": true,
+            "passed": true
+          },
+          "topology": {
+            "stl_is_watertight": true,
+            "stl_is_volume": true,
+            "stl_is_manifold": true,
+            "stl_nonmanifold_edge_count": 0,
+            "stl_degenerate_face_count": 0,
+            "stl_winding_consistent": true,
+            "stl_component_count": 1,
+            "stl_positive_volume": true,
+            "stl_z_range": 30.00937843322754
+          },
+          "shell": {
+            "expected_shell_triangle_count": 232320,
+            "actual_shell_triangle_count": 232320,
+            "invalid_shell_triangle_count": 0,
+            "max_abs_error_mm": 0.0,
+            "rms_error_mm": 0.0,
+            "max_shell_coordinate_error_mm": 3.051757815342171e-06,
+            "minimum_shell_normal_cosine": 0.9999999999546552,
+            "complete_shell_verified": true,
+            "passed": true,
+            "maximum_sample_error_mm": 1e-05,
+            "maximum_rms_error_mm": 1e-06,
+            "maximum_coordinate_error_mm": 1e-05,
+            "minimum_facet_normal_cosine_required": 0.999999,
+            "shell_triangle_count_match": true,
+            "shell_connectivity_match": true,
+            "sample_grid_passed": true,
+            "facet_geometry_passed": true
+          },
+          "checks": {
+            "request": true,
+            "runtime": true,
+            "face_refinement": true,
+            "face_appearance": true,
+            "background_appearance": true,
+            "background_depth": true,
+            "physical_cap": true,
+            "topology": true,
+            "shell": true,
+            "passed": true
+          }
+        },
+        "candidate": {
+          "request": {
+            "posted_fields": [
+              "max_xy_size",
+              "selection_job_id",
+              "target_dimension",
+              "z_scale"
+            ],
+            "response_sha256": "30bb045d6ab17fff535853aa0f2dc2e9c2ed8d8af233c6ee4b38654c0a78e84f",
+            "elapsed_seconds": 4.53860590000113,
+            "checks": {
+              "http_status": true,
+              "background_photo_detail": true,
+              "selection_ratio_omitted": true
+            }
+          },
+          "runtime": {
+            "available": true,
+            "revision": "15a3a2580586e2d2fac4624a9d2b253e62980342",
+            "clean": true,
+            "status": [],
+            "source": "git-worktree"
+          },
+          "observed_controls": {
+            "background_photo_detail_mm": 0.6,
+            "selection_background_depth_ratio": 0.65
+          },
+          "face_refinement": {
+            "applied": true,
+            "detected_faces": 1,
+            "refined_faces": 1,
+            "detector": "mediapipe-face-landmarker",
+            "landmark_count": 478,
+            "minimum_face_pixels": {
+              "requested": 96,
+              "effective": 64
+            },
+            "detector_errors": []
+          },
+          "face_appearance": {
+            "available": true,
+            "samples": 4101,
+            "normal_mean_cosine": 0.9985182797479074,
+            "normal_p05_cosine": 0.9986900834667847,
+            "normal_angle_median_deg": 0.23615324536086255,
+            "normal_angle_p95_deg": 2.9329648681791536,
+            "minimum_lighting_correlation": 0.9956419115173871,
+            "maximum_lighting_mae": 0.004651139715059692,
+            "minimum_lighting_rms_retention": 1.004992540205037,
+            "maximum_lighting_rms_retention": 1.011389436491742,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "component_count": 1,
+            "components": [
+              {
+                "component": 1,
+                "available": true,
+                "samples": 4101,
+                "normal_mean_cosine": 0.9985182797479074,
+                "normal_p05_cosine": 0.9986900834667847,
+                "normal_angle_median_deg": 0.23615324536086255,
+                "normal_angle_p95_deg": 2.9329648681791536,
+                "minimum_lighting_correlation": 0.9956419115173871,
+                "maximum_lighting_mae": 0.004651139715059692,
+                "minimum_lighting_rms_retention": 1.004992540205037,
+                "maximum_lighting_rms_retention": 1.011389436491742,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9956419115173871,
+                    "mean_absolute_error": 0.003994203867531515,
+                    "rms_retention": 1.004992540205037
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9962655744968724,
+                    "mean_absolute_error": 0.004651139715059692,
+                    "rms_retention": 1.0087393585740958
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.9967445513168139,
+                    "mean_absolute_error": 0.004347905767693291,
+                    "rms_retention": 1.011389436491742
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.9988268508358357,
+                    "mean_absolute_error": 0.003220903463562031,
+                    "rms_retention": 1.0068198984182626
+                  }
+                ],
+                "reference_samples": 4101,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 4746,
+                "boundary_exclusion_mm": 0.8,
+                "boundary_exclusion_px": 2,
+                "minimum_samples": 64
+              }
+            ]
+          },
+          "face_appearance_checks": {
+            "telemetry": true,
+            "coverage": true,
+            "normal_field": true,
+            "lighting": true,
+            "lighting_energy": true,
+            "components": true,
+            "passed": true
+          },
+          "background_appearance": {
+            "available": true,
+            "samples": 40025,
+            "normal_mean_cosine": 0.9999366951995028,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9996421995369785,
+            "maximum_lighting_mae": 0.00016247968294933756,
+            "minimum_lighting_rms_retention": 1.0003769871850854,
+            "maximum_lighting_rms_retention": 1.0008645007802646,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "component_count": 1,
+            "components": [
+              {
+                "component": 1,
+                "available": true,
+                "samples": 40025,
+                "normal_mean_cosine": 0.9999366951995028,
+                "normal_p05_cosine": 0.9999999999999998,
+                "normal_angle_median_deg": 0.0,
+                "normal_angle_p95_deg": 1.2074182697257333e-06,
+                "minimum_lighting_correlation": 0.9996421995369785,
+                "maximum_lighting_mae": 0.00016247968294933756,
+                "minimum_lighting_rms_retention": 1.0003769871850854,
+                "maximum_lighting_rms_retention": 1.0008645007802646,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9997171723189618,
+                    "mean_absolute_error": 0.00013367576080815656,
+                    "rms_retention": 1.0008645007802646
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9996421995369785,
+                    "mean_absolute_error": 0.00016247968294933756,
+                    "rms_retention": 1.0005896403759267
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.999687335489411,
+                    "mean_absolute_error": 0.0001408487029425167,
+                    "rms_retention": 1.0003769871850854
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.9996579507346219,
+                    "mean_absolute_error": 0.00011036677765083359,
+                    "rms_retention": 1.0005085006282288
+                  }
+                ],
+                "reference_samples": 40025,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 47149,
+                "boundary_exclusion_mm": 1.5,
+                "boundary_exclusion_px": 4,
+                "minimum_samples": 64
+              }
+            ]
+          },
+          "background_appearance_checks": {
+            "telemetry": true,
+            "coverage": true,
+            "normal_field": true,
+            "lighting": true,
+            "lighting_energy": true,
+            "components": true,
+            "passed": true
+          },
+          "background_depth": {
+            "available": true,
+            "passed": true,
+            "samples": 42959,
+            "correlation": 0.9999972135542895,
+            "rms_retention": 0.9999798704693349,
+            "span_retention": 1.0,
+            "gradient_correlation": 0.9995460923599784,
+            "gradient_rms_retention": 1.0013472282404814,
+            "quality_failures": [],
+            "reference_samples": 42959,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "boundary_exclusion_mm": 1.5,
+            "boundary_exclusion_px": 4,
+            "minimum_correlation": 0.8,
+            "minimum_rms_retention": 0.5,
+            "minimum_span_retention": 0.5,
+            "minimum_gradient_correlation": 0.58,
+            "minimum_gradient_rms_retention": 0.25,
+            "maximum_rms_retention": 1.5,
+            "maximum_span_retention": 1.5,
+            "maximum_gradient_rms_retention": 1.75,
+            "maximum_mean_shift_mm": 2.0,
+            "maximum_boundary_jump_mm": 6.0,
+            "local_window_mm": 6.0,
+            "minimum_local_correlation": 0.35,
+            "maximum_local_shape_error_ratio": 0.95,
+            "gradient_samples": 85026,
+            "mean_shift_mm": 0.0009432018084633273,
+            "boundary_samples": 828,
+            "reference_boundary_jump_p99_mm": 1.316227912902832,
+            "reference_boundary_jump_max_mm": 1.6848411560058594,
+            "output_boundary_jump_p99_mm": 1.316227912902832,
+            "output_boundary_jump_max_mm": 1.6848411560058594,
+            "effective_boundary_jump_p99_limit_mm": 6.0,
+            "effective_boundary_jump_max_limit_mm": 12.0,
+            "reference_rms_mm": 7.635517750990299,
+            "output_rms_mm": 7.635364051601587,
+            "reference_span_p02_p98_mm": 19.498666325360535,
+            "output_span_p02_p98_mm": 19.498666325360535,
+            "reference_gradient_rms_mm": 0.40873941195295005,
+            "output_gradient_rms_mm": 0.40929007723173083,
+            "localized_structure": {
+              "available": true,
+              "passed": true,
+              "window_mm": 6.0,
+              "window_px": 15,
+              "stride_px": 7,
+              "border_exclusion_px": 7,
+              "minimum_samples_per_window": 113,
+              "minimum_window_coverage_ratio": 0.5,
+              "measured_window_count": 757,
+              "structured_window_count": 188,
+              "failed_window_count": 0,
+              "minimum_structure_rms_mm": 0.6108414200792239,
+              "minimum_correlation": 0.35,
+              "maximum_shape_error_ratio": 0.95,
+              "minimum_window_correlation": 0.9933533722949207,
+              "maximum_window_shape_error_ratio": 0.11648811178785767,
+              "worst_window": {
+                "row": 77,
+                "col": 56,
+                "samples": 225,
+                "reference_rms_mm": 0.6314551522386052,
+                "correlation": 0.9933533722949207,
+                "shape_error_ratio": 0.11648811178785767
+              },
+              "flat_or_smooth_reference": false
+            },
+            "enforced": true
+          },
+          "background_depth_checks": {
+            "available": true,
+            "coverage": true,
+            "correlation": true,
+            "rms_retention": true,
+            "span_retention": true,
+            "gradient_correlation": true,
+            "gradient_rms_retention": true,
+            "mean_shift": true,
+            "boundary_p99": true,
+            "boundary_max": true,
+            "localized_structure": true,
+            "no_reported_failures": true,
+            "producer_quality_agrees": true,
+            "passed": true
+          },
+          "physical_cap": {
+            "far_background_ceiling_mm": 19.509999999776483,
+            "far_background_max_mm": 19.510000228881836,
+            "far_background_cap_violation_mm": 0.0,
+            "attachment_step_limit_mm": 0.8,
+            "feasible_attachment_jump_max_mm": 0.8000001907348633,
+            "attachment_constraint_conflicts": 27,
+            "attachment_constraint_conflict_max_mm": 1.7696809768676758,
+            "far_background_cap_passed": true,
+            "feasible_attachment_constraints_passed": true,
+            "attachment_constraints_passed": false,
+            "emission_passed": true
+          },
+          "physical_cap_checks": {
+            "emission": true,
+            "far_background_flag": true,
+            "feasible_attachment_flag": true,
+            "zero_far_violation": true,
+            "far_height_within_ceiling": true,
+            "feasible_jump_within_limit": true,
+            "passed": true
+          },
+          "topology": {
+            "stl_is_watertight": true,
+            "stl_is_volume": true,
+            "stl_is_manifold": true,
+            "stl_nonmanifold_edge_count": 0,
+            "stl_degenerate_face_count": 0,
+            "stl_winding_consistent": true,
+            "stl_component_count": 1,
+            "stl_positive_volume": true,
+            "stl_z_range": 30.00937843322754
+          },
+          "shell": {
+            "expected_shell_triangle_count": 232320,
+            "actual_shell_triangle_count": 232320,
+            "invalid_shell_triangle_count": 0,
+            "max_abs_error_mm": 0.0,
+            "rms_error_mm": 0.0,
+            "max_shell_coordinate_error_mm": 3.051757815342171e-06,
+            "minimum_shell_normal_cosine": 0.9999999999546632,
+            "complete_shell_verified": true,
+            "passed": true,
+            "maximum_sample_error_mm": 1e-05,
+            "maximum_rms_error_mm": 1e-06,
+            "maximum_coordinate_error_mm": 1e-05,
+            "minimum_facet_normal_cosine_required": 0.999999,
+            "shell_triangle_count_match": true,
+            "shell_connectivity_match": true,
+            "sample_grid_passed": true,
+            "facet_geometry_passed": true
+          },
+          "checks": {
+            "request": true,
+            "runtime": true,
+            "face_refinement": true,
+            "face_appearance": true,
+            "background_appearance": true,
+            "background_depth": true,
+            "physical_cap": true,
+            "topology": true,
+            "shell": true,
+            "passed": true
+          }
+        }
+      },
+      "source_aligned_background_detail": {
+        "requested_detail_mm": 0.6,
+        "active_source_detail_correlation": 0.7121255682429767,
+        "source_detail_correlation_intended_background": 0.6559133658194312,
+        "source_detail_correlation_all_background": 0.2489929787526436,
+        "background_delta_rms_mm": 0.23978676820446984,
+        "background_delta_p95_mm": 0.4398887255229056,
+        "background_delta_p95_all_background_mm": 0.4372007932513952,
+        "background_delta_max_mm": 0.5994827151298523,
+        "realized_p95_ratio": 0.7331478758715093,
+        "face_interior_p99_change_mm": 0.00010961532592773313,
+        "max_face_interior_change_mm": 0.00027179718017578125,
+        "max_attachment_boundary_change_mm": 0.0007801055908203125,
+        "background_coverage_ratio": 0.9678438451991425,
+        "active_detail_coverage_ratio": 0.6525160780774004,
+        "source_aligned_capture_ratio": 0.5455234320354395,
+        "protection_halo_px": 13.28125,
+        "checks": {
+          "intended_background_source_detail_correlation": true,
+          "realized_p95": true,
+          "face_interior": true,
+          "attachment_boundary": true,
+          "coverage": true,
+          "source_aligned_capture": true,
+          "passed": true
+        }
+      },
+      "checks": {
+        "baseline": true,
+        "candidate": true,
+        "source_aligned_background_detail": true,
+        "passed": true
+      }
+    },
+    "left": {
+      "fixture": {
+        "source_sha256": "9e7b2f8d6a0699efe64e23c4adf8a05ed97b9247f33c72e6490491ce413152aa",
+        "selection_mask_sha256": "5e56022c6bf8674cf68523bb9175d7ae05646ebb774135cb83d1155ccdaf1245"
+      },
+      "rows": {
+        "baseline": {
+          "request": {
+            "posted_fields": [
+              "background_photo_detail_mm",
+              "max_xy_size",
+              "selection_job_id",
+              "target_dimension",
+              "z_scale"
+            ],
+            "response_sha256": "07ab78cc45df3f3f540d2c33bb92ac90559028a1813ee16a03e1a738203105fc",
+            "elapsed_seconds": 4.323653100000229,
+            "checks": {
+              "http_status": true,
+              "background_photo_detail": true,
+              "selection_ratio_omitted": true
+            }
+          },
+          "runtime": {
+            "available": true,
+            "revision": "15a3a2580586e2d2fac4624a9d2b253e62980342",
+            "clean": true,
+            "status": [],
+            "source": "git-worktree"
+          },
+          "observed_controls": {
+            "background_photo_detail_mm": 0.0,
+            "selection_background_depth_ratio": 0.65
+          },
+          "face_refinement": {
+            "applied": true,
+            "detected_faces": 1,
+            "refined_faces": 1,
+            "detector": "mediapipe-face-landmarker",
+            "landmark_count": 478,
+            "minimum_face_pixels": {
+              "requested": 96,
+              "effective": 64
+            },
+            "detector_errors": []
+          },
+          "face_appearance": {
+            "available": true,
+            "samples": 9027,
+            "normal_mean_cosine": 0.9982759503533262,
+            "normal_p05_cosine": 0.9977987452103789,
+            "normal_angle_median_deg": 0.10664059403411381,
+            "normal_angle_p95_deg": 3.80233241275402,
+            "minimum_lighting_correlation": 0.9944963113981021,
+            "maximum_lighting_mae": 0.004327909818835633,
+            "minimum_lighting_rms_retention": 0.987764507148066,
+            "maximum_lighting_rms_retention": 1.0046324507746203,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "component_count": 1,
+            "components": [
+              {
+                "component": 1,
+                "available": true,
+                "samples": 9027,
+                "normal_mean_cosine": 0.9982759503533262,
+                "normal_p05_cosine": 0.9977987452103789,
+                "normal_angle_median_deg": 0.10664059403411381,
+                "normal_angle_p95_deg": 3.80233241275402,
+                "minimum_lighting_correlation": 0.9944963113981021,
+                "maximum_lighting_mae": 0.004327909818835633,
+                "minimum_lighting_rms_retention": 0.987764507148066,
+                "maximum_lighting_rms_retention": 1.0046324507746203,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9944963113981021,
+                    "mean_absolute_error": 0.004327909818835633,
+                    "rms_retention": 0.987764507148066
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9969763068811601,
+                    "mean_absolute_error": 0.003383605647285403,
+                    "rms_retention": 0.9998580481240058
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.9966352941691753,
+                    "mean_absolute_error": 0.0033920355457286236,
+                    "rms_retention": 1.0021462677375694
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.997132162630995,
+                    "mean_absolute_error": 0.002823322989003547,
+                    "rms_retention": 1.0046324507746203
+                  }
+                ],
+                "reference_samples": 9027,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 9975,
+                "boundary_exclusion_mm": 0.8,
+                "boundary_exclusion_px": 2,
+                "minimum_samples": 64
+              }
+            ]
+          },
+          "face_appearance_checks": {
+            "telemetry": true,
+            "coverage": true,
+            "normal_field": true,
+            "lighting": true,
+            "lighting_energy": true,
+            "components": true,
+            "passed": true
+          },
+          "background_appearance": {
+            "available": true,
+            "samples": 27338,
+            "normal_mean_cosine": 0.9998539341513092,
+            "normal_p05_cosine": 0.9999999999999999,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 8.537736462515939e-07,
+            "minimum_lighting_correlation": 0.9988235441113821,
+            "maximum_lighting_mae": 0.0001804548120460778,
+            "minimum_lighting_rms_retention": 1.0003633417341504,
+            "maximum_lighting_rms_retention": 1.0011702306753911,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "component_count": 1,
+            "components": [
+              {
+                "component": 1,
+                "available": true,
+                "samples": 27338,
+                "normal_mean_cosine": 0.9998539341513092,
+                "normal_p05_cosine": 0.9999999999999999,
+                "normal_angle_median_deg": 0.0,
+                "normal_angle_p95_deg": 8.537736462515939e-07,
+                "minimum_lighting_correlation": 0.9988235441113821,
+                "maximum_lighting_mae": 0.0001804548120460778,
+                "minimum_lighting_rms_retention": 1.0003633417341504,
+                "maximum_lighting_rms_retention": 1.0011702306753911,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9990191144573688,
+                    "mean_absolute_error": 0.00017310071450706843,
+                    "rms_retention": 1.0011702306753911
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9988235441113821,
+                    "mean_absolute_error": 0.0001804548120460778,
+                    "rms_retention": 1.001133305321891
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.9998017678569191,
+                    "mean_absolute_error": 9.859586789008326e-05,
+                    "rms_retention": 1.0003633417341504
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.9994774124746196,
+                    "mean_absolute_error": 0.0001363868605215153,
+                    "rms_retention": 1.0005846183883975
+                  }
+                ],
+                "reference_samples": 27338,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 34933,
+                "boundary_exclusion_mm": 1.5,
+                "boundary_exclusion_px": 4,
+                "minimum_samples": 64
+              }
+            ]
+          },
+          "background_appearance_checks": {
+            "telemetry": true,
+            "coverage": true,
+            "normal_field": true,
+            "lighting": true,
+            "lighting_energy": true,
+            "components": true,
+            "passed": true
+          },
+          "background_depth": {
+            "available": true,
+            "passed": true,
+            "samples": 30349,
+            "correlation": 0.9999884207490035,
+            "rms_retention": 0.9998055223905492,
+            "span_retention": 1.0,
+            "gradient_correlation": 0.9986777689520786,
+            "gradient_rms_retention": 0.9980225640992073,
+            "quality_failures": [],
+            "reference_samples": 30349,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "boundary_exclusion_mm": 1.5,
+            "boundary_exclusion_px": 4,
+            "minimum_correlation": 0.8,
+            "minimum_rms_retention": 0.5,
+            "minimum_span_retention": 0.5,
+            "minimum_gradient_correlation": 0.58,
+            "minimum_gradient_rms_retention": 0.25,
+            "maximum_rms_retention": 1.5,
+            "maximum_span_retention": 1.5,
+            "maximum_gradient_rms_retention": 1.75,
+            "maximum_mean_shift_mm": 2.0,
+            "maximum_boundary_jump_mm": 6.0,
+            "local_window_mm": 6.0,
+            "minimum_local_correlation": 0.35,
+            "maximum_local_shape_error_ratio": 0.95,
+            "gradient_samples": 59750,
+            "mean_shift_mm": 0.0001139074312407317,
+            "boundary_samples": 1020,
+            "reference_boundary_jump_p99_mm": 1.0378265380859375,
+            "reference_boundary_jump_max_mm": 1.3582110404968262,
+            "output_boundary_jump_p99_mm": 1.0378265380859375,
+            "output_boundary_jump_max_mm": 1.3582110404968262,
+            "effective_boundary_jump_p99_limit_mm": 6.0,
+            "effective_boundary_jump_max_limit_mm": 12.0,
+            "reference_rms_mm": 5.4905641751351295,
+            "output_rms_mm": 5.489496383339813,
+            "reference_span_p02_p98_mm": 19.500000229105353,
+            "output_span_p02_p98_mm": 19.500000229105353,
+            "reference_gradient_rms_mm": 0.4008606379779912,
+            "output_gradient_rms_mm": 0.4000679617612389,
+            "localized_structure": {
+              "available": true,
+              "passed": true,
+              "window_mm": 6.0,
+              "window_px": 15,
+              "stride_px": 7,
+              "border_exclusion_px": 7,
+              "minimum_samples_per_window": 113,
+              "minimum_window_coverage_ratio": 0.5,
+              "measured_window_count": 490,
+              "structured_window_count": 124,
+              "failed_window_count": 0,
+              "minimum_structure_rms_mm": 0.4392451340108104,
+              "minimum_correlation": 0.35,
+              "maximum_shape_error_ratio": 0.95,
+              "minimum_window_correlation": 0.9976794387576673,
+              "maximum_window_shape_error_ratio": 0.07865484584912551,
+              "worst_window": {
+                "row": 70,
+                "col": 217,
+                "samples": 202,
+                "reference_rms_mm": 1.3501886496345648,
+                "correlation": 0.9976794387576673,
+                "shape_error_ratio": 0.06828690168999557
+              },
+              "flat_or_smooth_reference": false
+            },
+            "enforced": true
+          },
+          "background_depth_checks": {
+            "available": true,
+            "coverage": true,
+            "correlation": true,
+            "rms_retention": true,
+            "span_retention": true,
+            "gradient_correlation": true,
+            "gradient_rms_retention": true,
+            "mean_shift": true,
+            "boundary_p99": true,
+            "boundary_max": true,
+            "localized_structure": true,
+            "no_reported_failures": true,
+            "producer_quality_agrees": true,
+            "passed": true
+          },
+          "physical_cap": {
+            "far_background_ceiling_mm": 19.509999999776483,
+            "far_background_max_mm": 19.510000228881836,
+            "far_background_cap_violation_mm": 0.0,
+            "attachment_step_limit_mm": 0.8,
+            "feasible_attachment_jump_max_mm": 0.8000001907348633,
+            "attachment_constraint_conflicts": 19,
+            "attachment_constraint_conflict_max_mm": 1.1164216995239258,
+            "far_background_cap_passed": true,
+            "feasible_attachment_constraints_passed": true,
+            "attachment_constraints_passed": false,
+            "emission_passed": true
+          },
+          "physical_cap_checks": {
+            "emission": true,
+            "far_background_flag": true,
+            "feasible_attachment_flag": true,
+            "zero_far_violation": true,
+            "far_height_within_ceiling": true,
+            "feasible_jump_within_limit": true,
+            "passed": true
+          },
+          "topology": {
+            "stl_is_watertight": true,
+            "stl_is_volume": true,
+            "stl_is_manifold": true,
+            "stl_nonmanifold_edge_count": 0,
+            "stl_degenerate_face_count": 0,
+            "stl_winding_consistent": true,
+            "stl_component_count": 1,
+            "stl_positive_volume": true,
+            "stl_z_range": 30.009288787841797
+          },
+          "shell": {
+            "expected_shell_triangle_count": 232320,
+            "actual_shell_triangle_count": 232320,
+            "invalid_shell_triangle_count": 0,
+            "max_abs_error_mm": 0.0,
+            "rms_error_mm": 0.0,
+            "max_shell_coordinate_error_mm": 3.051757815342171e-06,
+            "minimum_shell_normal_cosine": 0.9999999999550333,
+            "complete_shell_verified": true,
+            "passed": true,
+            "maximum_sample_error_mm": 1e-05,
+            "maximum_rms_error_mm": 1e-06,
+            "maximum_coordinate_error_mm": 1e-05,
+            "minimum_facet_normal_cosine_required": 0.999999,
+            "shell_triangle_count_match": true,
+            "shell_connectivity_match": true,
+            "sample_grid_passed": true,
+            "facet_geometry_passed": true
+          },
+          "checks": {
+            "request": true,
+            "runtime": true,
+            "face_refinement": true,
+            "face_appearance": true,
+            "background_appearance": true,
+            "background_depth": true,
+            "physical_cap": true,
+            "topology": true,
+            "shell": true,
+            "passed": true
+          }
+        },
+        "candidate": {
+          "request": {
+            "posted_fields": [
+              "max_xy_size",
+              "selection_job_id",
+              "target_dimension",
+              "z_scale"
+            ],
+            "response_sha256": "e55170aad1c6689b7fffe25a305232baadde51a6e97de7012eca219b8fa3cf9e",
+            "elapsed_seconds": 4.588254899994354,
+            "checks": {
+              "http_status": true,
+              "background_photo_detail": true,
+              "selection_ratio_omitted": true
+            }
+          },
+          "runtime": {
+            "available": true,
+            "revision": "15a3a2580586e2d2fac4624a9d2b253e62980342",
+            "clean": true,
+            "status": [],
+            "source": "git-worktree"
+          },
+          "observed_controls": {
+            "background_photo_detail_mm": 0.6,
+            "selection_background_depth_ratio": 0.65
+          },
+          "face_refinement": {
+            "applied": true,
+            "detected_faces": 1,
+            "refined_faces": 1,
+            "detector": "mediapipe-face-landmarker",
+            "landmark_count": 478,
+            "minimum_face_pixels": {
+              "requested": 96,
+              "effective": 64
+            },
+            "detector_errors": []
+          },
+          "face_appearance": {
+            "available": true,
+            "samples": 9027,
+            "normal_mean_cosine": 0.9982759183143999,
+            "normal_p05_cosine": 0.9977987246480439,
+            "normal_angle_median_deg": 0.10655928450484,
+            "normal_angle_p95_deg": 3.8023502691683144,
+            "minimum_lighting_correlation": 0.9944962085432845,
+            "maximum_lighting_mae": 0.004327682855865625,
+            "minimum_lighting_rms_retention": 0.9877647933277909,
+            "maximum_lighting_rms_retention": 1.0046309781391833,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "component_count": 1,
+            "components": [
+              {
+                "component": 1,
+                "available": true,
+                "samples": 9027,
+                "normal_mean_cosine": 0.9982759183143999,
+                "normal_p05_cosine": 0.9977987246480439,
+                "normal_angle_median_deg": 0.10655928450484,
+                "normal_angle_p95_deg": 3.8023502691683144,
+                "minimum_lighting_correlation": 0.9944962085432845,
+                "maximum_lighting_mae": 0.004327682855865625,
+                "minimum_lighting_rms_retention": 0.9877647933277909,
+                "maximum_lighting_rms_retention": 1.0046309781391833,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9944962085432845,
+                    "mean_absolute_error": 0.004327682855865625,
+                    "rms_retention": 0.9877647933277909
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9969762925471456,
+                    "mean_absolute_error": 0.0033831165121564963,
+                    "rms_retention": 0.999856506998632
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.9966352111719217,
+                    "mean_absolute_error": 0.0033919165299343998,
+                    "rms_retention": 1.0021459597121103
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.9971320908676701,
+                    "mean_absolute_error": 0.0028230460777107337,
+                    "rms_retention": 1.0046309781391833
+                  }
+                ],
+                "reference_samples": 9027,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 9975,
+                "boundary_exclusion_mm": 0.8,
+                "boundary_exclusion_px": 2,
+                "minimum_samples": 64
+              }
+            ]
+          },
+          "face_appearance_checks": {
+            "telemetry": true,
+            "coverage": true,
+            "normal_field": true,
+            "lighting": true,
+            "lighting_energy": true,
+            "components": true,
+            "passed": true
+          },
+          "background_appearance": {
+            "available": true,
+            "samples": 27338,
+            "normal_mean_cosine": 0.9998528948099202,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9988470250850273,
+            "maximum_lighting_mae": 0.0001791157725291828,
+            "minimum_lighting_rms_retention": 1.0002109793322576,
+            "maximum_lighting_rms_retention": 1.0010972058681433,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "component_count": 1,
+            "components": [
+              {
+                "component": 1,
+                "available": true,
+                "samples": 27338,
+                "normal_mean_cosine": 0.9998528948099202,
+                "normal_p05_cosine": 0.9999999999999998,
+                "normal_angle_median_deg": 0.0,
+                "normal_angle_p95_deg": 1.2074182697257333e-06,
+                "minimum_lighting_correlation": 0.9988470250850273,
+                "maximum_lighting_mae": 0.0001791157725291828,
+                "minimum_lighting_rms_retention": 1.0002109793322576,
+                "maximum_lighting_rms_retention": 1.0010972058681433,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9989522081300151,
+                    "mean_absolute_error": 0.00017290566904952398,
+                    "rms_retention": 1.0010972058681433
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9988470250850273,
+                    "mean_absolute_error": 0.0001791157725291828,
+                    "rms_retention": 1.0010310902358428
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.9998533618170357,
+                    "mean_absolute_error": 9.643407007974555e-05,
+                    "rms_retention": 1.0002109793322576
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.9995994405245463,
+                    "mean_absolute_error": 0.00013746446049347108,
+                    "rms_retention": 1.0003994013790334
+                  }
+                ],
+                "reference_samples": 27338,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 34933,
+                "boundary_exclusion_mm": 1.5,
+                "boundary_exclusion_px": 4,
+                "minimum_samples": 64
+              }
+            ]
+          },
+          "background_appearance_checks": {
+            "telemetry": true,
+            "coverage": true,
+            "normal_field": true,
+            "lighting": true,
+            "lighting_energy": true,
+            "components": true,
+            "passed": true
+          },
+          "background_depth": {
+            "available": true,
+            "passed": true,
+            "samples": 30349,
+            "correlation": 0.9999882508880352,
+            "rms_retention": 0.9998023786472625,
+            "span_retention": 1.0,
+            "gradient_correlation": 0.9987037953486756,
+            "gradient_rms_retention": 0.998040352693059,
+            "quality_failures": [],
+            "reference_samples": 30349,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "boundary_exclusion_mm": 1.5,
+            "boundary_exclusion_px": 4,
+            "minimum_correlation": 0.8,
+            "minimum_rms_retention": 0.5,
+            "minimum_span_retention": 0.5,
+            "minimum_gradient_correlation": 0.58,
+            "minimum_gradient_rms_retention": 0.25,
+            "maximum_rms_retention": 1.5,
+            "maximum_span_retention": 1.5,
+            "maximum_gradient_rms_retention": 1.75,
+            "maximum_mean_shift_mm": 2.0,
+            "maximum_boundary_jump_mm": 6.0,
+            "local_window_mm": 6.0,
+            "minimum_local_correlation": 0.35,
+            "maximum_local_shape_error_ratio": 0.95,
+            "gradient_samples": 59750,
+            "mean_shift_mm": 0.00010779694711094795,
+            "boundary_samples": 1020,
+            "reference_boundary_jump_p99_mm": 1.0378273105621338,
+            "reference_boundary_jump_max_mm": 1.3582029342651367,
+            "output_boundary_jump_p99_mm": 1.0378273105621338,
+            "output_boundary_jump_max_mm": 1.3582029342651367,
+            "effective_boundary_jump_p99_limit_mm": 6.0,
+            "effective_boundary_jump_max_limit_mm": 12.0,
+            "reference_rms_mm": 5.44628437344283,
+            "output_rms_mm": 5.445208071357557,
+            "reference_span_p02_p98_mm": 19.499317615255713,
+            "output_span_p02_p98_mm": 19.499317615255713,
+            "reference_gradient_rms_mm": 0.4048484324027044,
+            "output_gradient_rms_mm": 0.40405507226242715,
+            "localized_structure": {
+              "available": true,
+              "passed": true,
+              "window_mm": 6.0,
+              "window_px": 15,
+              "stride_px": 7,
+              "border_exclusion_px": 7,
+              "minimum_samples_per_window": 113,
+              "minimum_window_coverage_ratio": 0.5,
+              "measured_window_count": 490,
+              "structured_window_count": 125,
+              "failed_window_count": 0,
+              "minimum_structure_rms_mm": 0.4357027498754264,
+              "minimum_correlation": 0.35,
+              "maximum_shape_error_ratio": 0.95,
+              "minimum_window_correlation": 0.9975852411912653,
+              "maximum_window_shape_error_ratio": 0.08099772562502992,
+              "worst_window": {
+                "row": 70,
+                "col": 217,
+                "samples": 202,
+                "reference_rms_mm": 1.316096620045109,
+                "correlation": 0.9975852411912653,
+                "shape_error_ratio": 0.06961646890255968
+              },
+              "flat_or_smooth_reference": false
+            },
+            "enforced": true
+          },
+          "background_depth_checks": {
+            "available": true,
+            "coverage": true,
+            "correlation": true,
+            "rms_retention": true,
+            "span_retention": true,
+            "gradient_correlation": true,
+            "gradient_rms_retention": true,
+            "mean_shift": true,
+            "boundary_p99": true,
+            "boundary_max": true,
+            "localized_structure": true,
+            "no_reported_failures": true,
+            "producer_quality_agrees": true,
+            "passed": true
+          },
+          "physical_cap": {
+            "far_background_ceiling_mm": 19.509999999776483,
+            "far_background_max_mm": 19.510000228881836,
+            "far_background_cap_violation_mm": 0.0,
+            "attachment_step_limit_mm": 0.8,
+            "feasible_attachment_jump_max_mm": 0.8000001907348633,
+            "attachment_constraint_conflicts": 20,
+            "attachment_constraint_conflict_max_mm": 1.1164050102233887,
+            "far_background_cap_passed": true,
+            "feasible_attachment_constraints_passed": true,
+            "attachment_constraints_passed": false,
+            "emission_passed": true
+          },
+          "physical_cap_checks": {
+            "emission": true,
+            "far_background_flag": true,
+            "feasible_attachment_flag": true,
+            "zero_far_violation": true,
+            "far_height_within_ceiling": true,
+            "feasible_jump_within_limit": true,
+            "passed": true
+          },
+          "topology": {
+            "stl_is_watertight": true,
+            "stl_is_volume": true,
+            "stl_is_manifold": true,
+            "stl_nonmanifold_edge_count": 0,
+            "stl_degenerate_face_count": 0,
+            "stl_winding_consistent": true,
+            "stl_component_count": 1,
+            "stl_positive_volume": true,
+            "stl_z_range": 30.009288787841797
+          },
+          "shell": {
+            "expected_shell_triangle_count": 232320,
+            "actual_shell_triangle_count": 232320,
+            "invalid_shell_triangle_count": 0,
+            "max_abs_error_mm": 0.0,
+            "rms_error_mm": 0.0,
+            "max_shell_coordinate_error_mm": 3.051757815342171e-06,
+            "minimum_shell_normal_cosine": 0.9999999999550333,
+            "complete_shell_verified": true,
+            "passed": true,
+            "maximum_sample_error_mm": 1e-05,
+            "maximum_rms_error_mm": 1e-06,
+            "maximum_coordinate_error_mm": 1e-05,
+            "minimum_facet_normal_cosine_required": 0.999999,
+            "shell_triangle_count_match": true,
+            "shell_connectivity_match": true,
+            "sample_grid_passed": true,
+            "facet_geometry_passed": true
+          },
+          "checks": {
+            "request": true,
+            "runtime": true,
+            "face_refinement": true,
+            "face_appearance": true,
+            "background_appearance": true,
+            "background_depth": true,
+            "physical_cap": true,
+            "topology": true,
+            "shell": true,
+            "passed": true
+          }
+        }
+      },
+      "source_aligned_background_detail": {
+        "requested_detail_mm": 0.6,
+        "active_source_detail_correlation": 0.6687789991071147,
+        "source_detail_correlation_intended_background": 0.7307284076243122,
+        "source_detail_correlation_all_background": 0.02889583949568107,
+        "background_delta_rms_mm": 0.20841563874826877,
+        "background_delta_p95_mm": 0.3802956651896238,
+        "background_delta_p95_all_background_mm": 0.37374561093747616,
+        "background_delta_max_mm": 0.5980101134628057,
+        "realized_p95_ratio": 0.633826108649373,
+        "face_interior_p99_change_mm": 7.62939453125e-05,
+        "max_face_interior_change_mm": 0.0001583099365234375,
+        "max_attachment_boundary_change_mm": 0.000484466552734375,
+        "background_coverage_ratio": 0.9531365313653136,
+        "active_detail_coverage_ratio": 0.6491236162361623,
+        "source_aligned_capture_ratio": 0.5016453735965931,
+        "protection_halo_px": 13.28125,
+        "checks": {
+          "intended_background_source_detail_correlation": true,
+          "realized_p95": true,
+          "face_interior": true,
+          "attachment_boundary": true,
+          "coverage": true,
+          "source_aligned_capture": true,
+          "passed": true
+        }
+      },
+      "checks": {
+        "baseline": true,
+        "candidate": true,
+        "source_aligned_background_detail": true,
+        "passed": true
+      }
+    },
+    "right": {
+      "fixture": {
+        "source_sha256": "d69fc20ea774f1b4c9701e66be48a5382c38277d163dc415aeb58b791e1bc26a",
+        "selection_mask_sha256": "e417d8d61a7cef5915e02a13a1eb4bec830b2982d603827d7c55eeb102b63016"
+      },
+      "rows": {
+        "baseline": {
+          "request": {
+            "posted_fields": [
+              "background_photo_detail_mm",
+              "max_xy_size",
+              "selection_job_id",
+              "target_dimension",
+              "z_scale"
+            ],
+            "response_sha256": "99b902ce676b842d3ab14c7d8e09a62f9bce8a2dc110395604eca64849e6de39",
+            "elapsed_seconds": 4.493172200003755,
+            "checks": {
+              "http_status": true,
+              "background_photo_detail": true,
+              "selection_ratio_omitted": true
+            }
+          },
+          "runtime": {
+            "available": true,
+            "revision": "15a3a2580586e2d2fac4624a9d2b253e62980342",
+            "clean": true,
+            "status": [],
+            "source": "git-worktree"
+          },
+          "observed_controls": {
+            "background_photo_detail_mm": 0.0,
+            "selection_background_depth_ratio": 0.65
+          },
+          "face_refinement": {
+            "applied": true,
+            "detected_faces": 1,
+            "refined_faces": 1,
+            "detector": "mediapipe-face-landmarker",
+            "landmark_count": 478,
+            "minimum_face_pixels": {
+              "requested": 96,
+              "effective": 64
+            },
+            "detector_errors": []
+          },
+          "face_appearance": {
+            "available": true,
+            "samples": 11119,
+            "normal_mean_cosine": 0.9973176188392519,
+            "normal_p05_cosine": 0.9969932587818797,
+            "normal_angle_median_deg": 0.08308395875140448,
+            "normal_angle_p95_deg": 4.4442095952072185,
+            "minimum_lighting_correlation": 0.9903614536467269,
+            "maximum_lighting_mae": 0.005069938814068968,
+            "minimum_lighting_rms_retention": 0.9987060425388304,
+            "maximum_lighting_rms_retention": 1.0072745755419275,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "component_count": 1,
+            "components": [
+              {
+                "component": 1,
+                "available": true,
+                "samples": 11119,
+                "normal_mean_cosine": 0.9973176188392519,
+                "normal_p05_cosine": 0.9969932587818797,
+                "normal_angle_median_deg": 0.08308395875140448,
+                "normal_angle_p95_deg": 4.4442095952072185,
+                "minimum_lighting_correlation": 0.9903614536467269,
+                "maximum_lighting_mae": 0.005069938814068968,
+                "minimum_lighting_rms_retention": 0.9987060425388304,
+                "maximum_lighting_rms_retention": 1.0072745755419275,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9903614536467269,
+                    "mean_absolute_error": 0.005069938814068968,
+                    "rms_retention": 0.9987060425388304
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9932880757461953,
+                    "mean_absolute_error": 0.004554517557688647,
+                    "rms_retention": 1.0072745755419275
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.9923318688435666,
+                    "mean_absolute_error": 0.005003058310615892,
+                    "rms_retention": 1.004661458796234
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.9969119946491277,
+                    "mean_absolute_error": 0.003393064127310808,
+                    "rms_retention": 1.0007504366272895
+                  }
+                ],
+                "reference_samples": 11119,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 12191,
+                "boundary_exclusion_mm": 0.8,
+                "boundary_exclusion_px": 2,
+                "minimum_samples": 64
+              }
+            ]
+          },
+          "face_appearance_checks": {
+            "telemetry": true,
+            "coverage": true,
+            "normal_field": true,
+            "lighting": true,
+            "lighting_energy": true,
+            "components": true,
+            "passed": true
+          },
+          "background_appearance": {
+            "available": true,
+            "samples": 27880,
+            "normal_mean_cosine": 0.9999956391836556,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9999613542114576,
+            "maximum_lighting_mae": 3.3570983871543094e-05,
+            "minimum_lighting_rms_retention": 0.9995949804595349,
+            "maximum_lighting_rms_retention": 1.0001460246789364,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "component_count": 4,
+            "components": [
+              {
+                "component": 1,
+                "available": true,
+                "samples": 279,
+                "normal_mean_cosine": 0.9999436850293028,
+                "normal_p05_cosine": 0.9993531822091531,
+                "normal_angle_median_deg": 0.0,
+                "normal_angle_p95_deg": 2.060784868173397,
+                "minimum_lighting_correlation": 0.9982373895615244,
+                "maximum_lighting_mae": 0.0010360550464001792,
+                "minimum_lighting_rms_retention": 0.9921341916279702,
+                "maximum_lighting_rms_retention": 0.9983899732924122,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9997792907412346,
+                    "mean_absolute_error": 0.0003962992590530966,
+                    "rms_retention": 0.9983899732924122
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9982373895615244,
+                    "mean_absolute_error": 0.0010360550464001792,
+                    "rms_retention": 0.9921341916279702
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.9999519994534795,
+                    "mean_absolute_error": 0.0002523967868244477,
+                    "rms_retention": 0.9979842283436662
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.9998459901049216,
+                    "mean_absolute_error": 0.00022860150876602585,
+                    "rms_retention": 0.9981882606161567
+                  }
+                ],
+                "reference_samples": 279,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 1118,
+                "boundary_exclusion_mm": 1.5,
+                "boundary_exclusion_px": 4,
+                "minimum_samples": 64
+              },
+              {
+                "component": 2,
+                "available": true,
+                "samples": 25206,
+                "normal_mean_cosine": 0.9999960948184604,
+                "normal_p05_cosine": 0.9999999999999998,
+                "normal_angle_median_deg": 0.0,
+                "normal_angle_p95_deg": 1.2074182697257333e-06,
+                "minimum_lighting_correlation": 0.999877191848419,
+                "maximum_lighting_mae": 3.4338662493636456e-05,
+                "minimum_lighting_rms_retention": 0.9986345744337921,
+                "maximum_lighting_rms_retention": 1.000144175333573,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9999844023402994,
+                    "mean_absolute_error": 2.0055175078130843e-05,
+                    "rms_retention": 0.9998539437816596
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9999862246389043,
+                    "mean_absolute_error": 2.0750692257702655e-05,
+                    "rms_retention": 1.0000823262213112
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.999877191848419,
+                    "mean_absolute_error": 3.4338662493636456e-05,
+                    "rms_retention": 0.9986345744337921
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.9999328568237025,
+                    "mean_absolute_error": 2.709597024354354e-05,
+                    "rms_retention": 1.000144175333573
+                  }
+                ],
+                "reference_samples": 25206,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 28726,
+                "boundary_exclusion_mm": 1.5,
+                "boundary_exclusion_px": 4,
+                "minimum_samples": 64
+              },
+              {
+                "component": 3,
+                "available": true,
+                "samples": 698,
+                "normal_mean_cosine": 0.9999893500329918,
+                "normal_p05_cosine": 0.9999999999999998,
+                "normal_angle_median_deg": 0.0,
+                "normal_angle_p95_deg": 1.2074182697257333e-06,
+                "minimum_lighting_correlation": 0.9999100279309476,
+                "maximum_lighting_mae": 0.00010512248886677704,
+                "minimum_lighting_rms_retention": 0.9996077835288599,
+                "maximum_lighting_rms_retention": 1.0,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9999944270708924,
+                    "mean_absolute_error": 4.750017722174109e-05,
+                    "rms_retention": 0.9997408915573872
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9999100279309476,
+                    "mean_absolute_error": 0.00010512248886677704,
+                    "rms_retention": 0.9996077835288599
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.9999999999999998,
+                    "mean_absolute_error": 0.0,
+                    "rms_retention": 1.0
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 1.0000000000000002,
+                    "mean_absolute_error": 0.0,
+                    "rms_retention": 1.0
+                  }
+                ],
+                "reference_samples": 698,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 1435,
+                "boundary_exclusion_mm": 1.5,
+                "boundary_exclusion_px": 4,
+                "minimum_samples": 64
+              },
+              {
+                "component": 4,
+                "available": true,
+                "samples": 1697,
+                "normal_mean_cosine": 1.0,
+                "normal_p05_cosine": 1.0,
+                "normal_angle_median_deg": 0.0,
+                "normal_angle_p95_deg": 0.0,
+                "minimum_lighting_correlation": 0.9999999999999999,
+                "maximum_lighting_mae": 0.0,
+                "minimum_lighting_rms_retention": 1.0,
+                "maximum_lighting_rms_retention": 1.0,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9999999999999999,
+                    "mean_absolute_error": 0.0,
+                    "rms_retention": 1.0
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 1.0000000000000002,
+                    "mean_absolute_error": 0.0,
+                    "rms_retention": 1.0
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 1.0000000000000002,
+                    "mean_absolute_error": 0.0,
+                    "rms_retention": 1.0
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.9999999999999999,
+                    "mean_absolute_error": 0.0,
+                    "rms_retention": 1.0
+                  }
+                ],
+                "reference_samples": 1697,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 3319,
+                "boundary_exclusion_mm": 1.5,
+                "boundary_exclusion_px": 4,
+                "minimum_samples": 64
+              }
+            ]
+          },
+          "background_appearance_checks": {
+            "telemetry": true,
+            "coverage": true,
+            "normal_field": true,
+            "lighting": true,
+            "lighting_energy": true,
+            "components": true,
+            "passed": true
+          },
+          "background_depth": {
+            "available": true,
+            "passed": true,
+            "samples": 30413,
+            "correlation": 0.9999987387449657,
+            "rms_retention": 1.0000375776363672,
+            "span_retention": 1.0,
+            "gradient_correlation": 0.99985294263702,
+            "gradient_rms_retention": 0.998878952037163,
+            "quality_failures": [],
+            "reference_samples": 30413,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "boundary_exclusion_mm": 1.5,
+            "boundary_exclusion_px": 4,
+            "minimum_correlation": 0.8,
+            "minimum_rms_retention": 0.5,
+            "minimum_span_retention": 0.5,
+            "minimum_gradient_correlation": 0.58,
+            "minimum_gradient_rms_retention": 0.25,
+            "maximum_rms_retention": 1.5,
+            "maximum_span_retention": 1.5,
+            "maximum_gradient_rms_retention": 1.75,
+            "maximum_mean_shift_mm": 2.0,
+            "maximum_boundary_jump_mm": 6.0,
+            "local_window_mm": 6.0,
+            "minimum_local_correlation": 0.35,
+            "maximum_local_shape_error_ratio": 0.95,
+            "gradient_samples": 59998,
+            "mean_shift_mm": 0.0004614928348805517,
+            "boundary_samples": 970,
+            "reference_boundary_jump_p99_mm": 2.363374800682057,
+            "reference_boundary_jump_max_mm": 3.172079086303711,
+            "output_boundary_jump_p99_mm": 2.363374800682057,
+            "output_boundary_jump_max_mm": 3.172079086303711,
+            "effective_boundary_jump_p99_limit_mm": 6.0,
+            "effective_boundary_jump_max_limit_mm": 12.0,
+            "reference_rms_mm": 5.301014493037689,
+            "output_rms_mm": 5.301213692632686,
+            "reference_span_p02_p98_mm": 19.500000229105353,
+            "output_span_p02_p98_mm": 19.500000229105353,
+            "reference_gradient_rms_mm": 0.3744452891734559,
+            "output_gradient_rms_mm": 0.3740255180448341,
+            "localized_structure": {
+              "available": true,
+              "passed": true,
+              "window_mm": 6.0,
+              "window_px": 15,
+              "stride_px": 7,
+              "border_exclusion_px": 7,
+              "minimum_samples_per_window": 113,
+              "minimum_window_coverage_ratio": 0.5,
+              "measured_window_count": 526,
+              "structured_window_count": 111,
+              "failed_window_count": 0,
+              "minimum_structure_rms_mm": 0.42408115944301517,
+              "minimum_correlation": 0.35,
+              "maximum_shape_error_ratio": 0.95,
+              "minimum_window_correlation": 0.9999367916826278,
+              "maximum_window_shape_error_ratio": 0.012497909026467144,
+              "worst_window": {
+                "row": 203,
+                "col": 182,
+                "samples": 141,
+                "reference_rms_mm": 1.9518744896892908,
+                "correlation": 0.9999367916826278,
+                "shape_error_ratio": 0.011533063118091474
+              },
+              "flat_or_smooth_reference": false
+            },
+            "enforced": true
+          },
+          "background_depth_checks": {
+            "available": true,
+            "coverage": true,
+            "correlation": true,
+            "rms_retention": true,
+            "span_retention": true,
+            "gradient_correlation": true,
+            "gradient_rms_retention": true,
+            "mean_shift": true,
+            "boundary_p99": true,
+            "boundary_max": true,
+            "localized_structure": true,
+            "no_reported_failures": true,
+            "producer_quality_agrees": true,
+            "passed": true
+          },
+          "physical_cap": {
+            "far_background_ceiling_mm": 19.509999999776483,
+            "far_background_max_mm": 19.510000228881836,
+            "far_background_cap_violation_mm": 0.0,
+            "attachment_step_limit_mm": 0.8,
+            "feasible_attachment_jump_max_mm": 0.8000001907348633,
+            "attachment_constraint_conflicts": 26,
+            "attachment_constraint_conflict_max_mm": 4.744156837463379,
+            "far_background_cap_passed": true,
+            "feasible_attachment_constraints_passed": true,
+            "attachment_constraints_passed": false,
+            "emission_passed": true
+          },
+          "physical_cap_checks": {
+            "emission": true,
+            "far_background_flag": true,
+            "feasible_attachment_flag": true,
+            "zero_far_violation": true,
+            "far_height_within_ceiling": true,
+            "feasible_jump_within_limit": true,
+            "passed": true
+          },
+          "topology": {
+            "stl_is_watertight": true,
+            "stl_is_volume": true,
+            "stl_is_manifold": true,
+            "stl_nonmanifold_edge_count": 0,
+            "stl_degenerate_face_count": 0,
+            "stl_winding_consistent": true,
+            "stl_component_count": 1,
+            "stl_positive_volume": true,
+            "stl_z_range": 30.009702682495117
+          },
+          "shell": {
+            "expected_shell_triangle_count": 232320,
+            "actual_shell_triangle_count": 232320,
+            "invalid_shell_triangle_count": 0,
+            "max_abs_error_mm": 0.0,
+            "rms_error_mm": 0.0,
+            "max_shell_coordinate_error_mm": 3.051757815342171e-06,
+            "minimum_shell_normal_cosine": 0.9999999999547923,
+            "complete_shell_verified": true,
+            "passed": true,
+            "maximum_sample_error_mm": 1e-05,
+            "maximum_rms_error_mm": 1e-06,
+            "maximum_coordinate_error_mm": 1e-05,
+            "minimum_facet_normal_cosine_required": 0.999999,
+            "shell_triangle_count_match": true,
+            "shell_connectivity_match": true,
+            "sample_grid_passed": true,
+            "facet_geometry_passed": true
+          },
+          "checks": {
+            "request": true,
+            "runtime": true,
+            "face_refinement": true,
+            "face_appearance": true,
+            "background_appearance": true,
+            "background_depth": true,
+            "physical_cap": true,
+            "topology": true,
+            "shell": true,
+            "passed": true
+          }
+        },
+        "candidate": {
+          "request": {
+            "posted_fields": [
+              "max_xy_size",
+              "selection_job_id",
+              "target_dimension",
+              "z_scale"
+            ],
+            "response_sha256": "635a81bd0e7ab4771c4ba7dc72cee77fcd1db330aa87bfb269fc737163ca6a70",
+            "elapsed_seconds": 4.292045800000778,
+            "checks": {
+              "http_status": true,
+              "background_photo_detail": true,
+              "selection_ratio_omitted": true
+            }
+          },
+          "runtime": {
+            "available": true,
+            "revision": "15a3a2580586e2d2fac4624a9d2b253e62980342",
+            "clean": true,
+            "status": [],
+            "source": "git-worktree"
+          },
+          "observed_controls": {
+            "background_photo_detail_mm": 0.6,
+            "selection_background_depth_ratio": 0.65
+          },
+          "face_refinement": {
+            "applied": true,
+            "detected_faces": 1,
+            "refined_faces": 1,
+            "detector": "mediapipe-face-landmarker",
+            "landmark_count": 478,
+            "minimum_face_pixels": {
+              "requested": 96,
+              "effective": 64
+            },
+            "detector_errors": []
+          },
+          "face_appearance": {
+            "available": true,
+            "samples": 11119,
+            "normal_mean_cosine": 0.9973176145638409,
+            "normal_p05_cosine": 0.9969931396858439,
+            "normal_angle_median_deg": 0.08290657052354371,
+            "normal_angle_p95_deg": 4.444297656851601,
+            "minimum_lighting_correlation": 0.9903614185368942,
+            "maximum_lighting_mae": 0.005069878090694705,
+            "minimum_lighting_rms_retention": 0.9987063664753241,
+            "maximum_lighting_rms_retention": 1.0072737578638293,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "component_count": 1,
+            "components": [
+              {
+                "component": 1,
+                "available": true,
+                "samples": 11119,
+                "normal_mean_cosine": 0.9973176145638409,
+                "normal_p05_cosine": 0.9969931396858439,
+                "normal_angle_median_deg": 0.08290657052354371,
+                "normal_angle_p95_deg": 4.444297656851601,
+                "minimum_lighting_correlation": 0.9903614185368942,
+                "maximum_lighting_mae": 0.005069878090694705,
+                "minimum_lighting_rms_retention": 0.9987063664753241,
+                "maximum_lighting_rms_retention": 1.0072737578638293,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9903614185368942,
+                    "mean_absolute_error": 0.005069878090694705,
+                    "rms_retention": 0.9987063664753241
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9932880423368073,
+                    "mean_absolute_error": 0.004554355908376965,
+                    "rms_retention": 1.0072737578638293
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.9923318407444762,
+                    "mean_absolute_error": 0.005003013688268857,
+                    "rms_retention": 1.004661752285318
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.9969119853933591,
+                    "mean_absolute_error": 0.003392994983902945,
+                    "rms_retention": 1.0007500789219415
+                  }
+                ],
+                "reference_samples": 11119,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 12191,
+                "boundary_exclusion_mm": 0.8,
+                "boundary_exclusion_px": 2,
+                "minimum_samples": 64
+              }
+            ]
+          },
+          "face_appearance_checks": {
+            "telemetry": true,
+            "coverage": true,
+            "normal_field": true,
+            "lighting": true,
+            "lighting_energy": true,
+            "components": true,
+            "passed": true
+          },
+          "background_appearance": {
+            "available": true,
+            "samples": 27880,
+            "normal_mean_cosine": 0.9999955040598065,
+            "normal_p05_cosine": 0.9999999999999998,
+            "normal_angle_median_deg": 0.0,
+            "normal_angle_p95_deg": 1.2074182697257333e-06,
+            "minimum_lighting_correlation": 0.9999709096660075,
+            "maximum_lighting_mae": 3.493491474442355e-05,
+            "minimum_lighting_rms_retention": 0.9997119178422678,
+            "maximum_lighting_rms_retention": 1.0000835456854713,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "component_count": 4,
+            "components": [
+              {
+                "component": 1,
+                "available": true,
+                "samples": 279,
+                "normal_mean_cosine": 0.9999436977349369,
+                "normal_p05_cosine": 0.9993533038636017,
+                "normal_angle_median_deg": 0.0,
+                "normal_angle_p95_deg": 2.0605910358349906,
+                "minimum_lighting_correlation": 0.9983319375814242,
+                "maximum_lighting_mae": 0.0010359142248251392,
+                "minimum_lighting_rms_retention": 0.9925705284534022,
+                "maximum_lighting_rms_retention": 0.9982762139456173,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9997592811519133,
+                    "mean_absolute_error": 0.00039627657065566377,
+                    "rms_retention": 0.9982762139456173
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9983319375814242,
+                    "mean_absolute_error": 0.0010359142248251392,
+                    "rms_retention": 0.9925705284534022
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.9999459210441453,
+                    "mean_absolute_error": 0.0002524950631133602,
+                    "rms_retention": 0.9977000278883591
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.9997869024648317,
+                    "mean_absolute_error": 0.00022860001693650791,
+                    "rms_retention": 0.9973932145816454
+                  }
+                ],
+                "reference_samples": 279,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 1118,
+                "boundary_exclusion_mm": 1.5,
+                "boundary_exclusion_px": 4,
+                "minimum_samples": 64
+              },
+              {
+                "component": 2,
+                "available": true,
+                "samples": 25206,
+                "normal_mean_cosine": 0.9999959452187456,
+                "normal_p05_cosine": 0.9999999999999998,
+                "normal_angle_median_deg": 0.0,
+                "normal_angle_p95_deg": 1.2074182697257333e-06,
+                "minimum_lighting_correlation": 0.9999458027626118,
+                "maximum_lighting_mae": 3.584619933610652e-05,
+                "minimum_lighting_rms_retention": 0.999435784038614,
+                "maximum_lighting_rms_retention": 1.0000818800728781,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.9999840062863631,
+                    "mean_absolute_error": 1.993130676539947e-05,
+                    "rms_retention": 0.999840676860182
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9999861222431763,
+                    "mean_absolute_error": 2.2252298048854e-05,
+                    "rms_retention": 1.0000818800728781
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 0.9999458027626118,
+                    "mean_absolute_error": 3.584619933610652e-05,
+                    "rms_retention": 0.999435784038614
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 0.9999654702819952,
+                    "mean_absolute_error": 2.845062210269107e-05,
+                    "rms_retention": 1.0000368098212191
+                  }
+                ],
+                "reference_samples": 25206,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 28726,
+                "boundary_exclusion_mm": 1.5,
+                "boundary_exclusion_px": 4,
+                "minimum_samples": 64
+              },
+              {
+                "component": 3,
+                "available": true,
+                "samples": 698,
+                "normal_mean_cosine": 0.999989350051084,
+                "normal_p05_cosine": 0.9999999999999998,
+                "normal_angle_median_deg": 0.0,
+                "normal_angle_p95_deg": 1.2074182697257333e-06,
+                "minimum_lighting_correlation": 0.9999064465529195,
+                "maximum_lighting_mae": 0.0001051224345453677,
+                "minimum_lighting_rms_retention": 0.9996098604070883,
+                "maximum_lighting_rms_retention": 1.0,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 0.999994252486339,
+                    "mean_absolute_error": 4.750015629842802e-05,
+                    "rms_retention": 0.9997344806716424
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 0.9999064465529195,
+                    "mean_absolute_error": 0.0001051224345453677,
+                    "rms_retention": 0.9996098604070883
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 1.0,
+                    "mean_absolute_error": 0.0,
+                    "rms_retention": 1.0
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 1.0,
+                    "mean_absolute_error": 0.0,
+                    "rms_retention": 1.0
+                  }
+                ],
+                "reference_samples": 698,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 1435,
+                "boundary_exclusion_mm": 1.5,
+                "boundary_exclusion_px": 4,
+                "minimum_samples": 64
+              },
+              {
+                "component": 4,
+                "available": true,
+                "samples": 1697,
+                "normal_mean_cosine": 1.0,
+                "normal_p05_cosine": 1.0,
+                "normal_angle_median_deg": 0.0,
+                "normal_angle_p95_deg": 0.0,
+                "minimum_lighting_correlation": 1.0,
+                "maximum_lighting_mae": 0.0,
+                "minimum_lighting_rms_retention": 1.0,
+                "maximum_lighting_rms_retention": 1.0,
+                "lights": [
+                  {
+                    "name": "frontal",
+                    "correlation": 1.0,
+                    "mean_absolute_error": 0.0,
+                    "rms_retention": 1.0
+                  },
+                  {
+                    "name": "upper_left",
+                    "correlation": 1.0,
+                    "mean_absolute_error": 0.0,
+                    "rms_retention": 1.0
+                  },
+                  {
+                    "name": "upper_right",
+                    "correlation": 1.0000000000000002,
+                    "mean_absolute_error": 0.0,
+                    "rms_retention": 1.0
+                  },
+                  {
+                    "name": "grazing_right",
+                    "correlation": 1.0,
+                    "mean_absolute_error": 0.0,
+                    "rms_retention": 1.0
+                  }
+                ],
+                "reference_samples": 1697,
+                "missing_candidate_samples": 0,
+                "candidate_coverage_ratio": 1.0,
+                "minimum_coverage_ratio": 1.0,
+                "region_pixels": 3319,
+                "boundary_exclusion_mm": 1.5,
+                "boundary_exclusion_px": 4,
+                "minimum_samples": 64
+              }
+            ]
+          },
+          "background_appearance_checks": {
+            "telemetry": true,
+            "coverage": true,
+            "normal_field": true,
+            "lighting": true,
+            "lighting_energy": true,
+            "components": true,
+            "passed": true
+          },
+          "background_depth": {
+            "available": true,
+            "passed": true,
+            "samples": 30413,
+            "correlation": 0.9999987308941016,
+            "rms_retention": 1.0000371770664305,
+            "span_retention": 0.9999998803688993,
+            "gradient_correlation": 0.9998550414249823,
+            "gradient_rms_retention": 0.9989166635101829,
+            "quality_failures": [],
+            "reference_samples": 30413,
+            "missing_candidate_samples": 0,
+            "candidate_coverage_ratio": 1.0,
+            "minimum_coverage_ratio": 1.0,
+            "boundary_exclusion_mm": 1.5,
+            "boundary_exclusion_px": 4,
+            "minimum_correlation": 0.8,
+            "minimum_rms_retention": 0.5,
+            "minimum_span_retention": 0.5,
+            "minimum_gradient_correlation": 0.58,
+            "minimum_gradient_rms_retention": 0.25,
+            "maximum_rms_retention": 1.5,
+            "maximum_span_retention": 1.5,
+            "maximum_gradient_rms_retention": 1.75,
+            "maximum_mean_shift_mm": 2.0,
+            "maximum_boundary_jump_mm": 6.0,
+            "local_window_mm": 6.0,
+            "minimum_local_correlation": 0.35,
+            "maximum_local_shape_error_ratio": 0.95,
+            "gradient_samples": 59998,
+            "mean_shift_mm": 0.0004607617384220218,
+            "boundary_samples": 970,
+            "reference_boundary_jump_p99_mm": 2.363374800682057,
+            "reference_boundary_jump_max_mm": 3.172079086303711,
+            "output_boundary_jump_p99_mm": 2.363374800682057,
+            "output_boundary_jump_max_mm": 3.172079086303711,
+            "effective_boundary_jump_p99_limit_mm": 6.0,
+            "effective_boundary_jump_max_limit_mm": 12.0,
+            "reference_rms_mm": 5.281101083879035,
+            "output_rms_mm": 5.281297419724856,
+            "reference_span_p02_p98_mm": 19.499751909300684,
+            "output_span_p02_p98_mm": 19.4997495765239,
+            "reference_gradient_rms_mm": 0.37865506032828977,
+            "output_gradient_rms_mm": 0.37824484948438225,
+            "localized_structure": {
+              "available": true,
+              "passed": true,
+              "window_mm": 6.0,
+              "window_px": 15,
+              "stride_px": 7,
+              "border_exclusion_px": 7,
+              "minimum_samples_per_window": 113,
+              "minimum_window_coverage_ratio": 0.5,
+              "measured_window_count": 526,
+              "structured_window_count": 107,
+              "failed_window_count": 0,
+              "minimum_structure_rms_mm": 0.4224880867103228,
+              "minimum_correlation": 0.35,
+              "maximum_shape_error_ratio": 0.95,
+              "minimum_window_correlation": 0.9999322319757892,
+              "maximum_window_shape_error_ratio": 0.01267765574685309,
+              "worst_window": {
+                "row": 203,
+                "col": 182,
+                "samples": 141,
+                "reference_rms_mm": 1.9247677349011325,
+                "correlation": 0.9999322319757892,
+                "shape_error_ratio": 0.011875579795367608
+              },
+              "flat_or_smooth_reference": false
+            },
+            "enforced": true
+          },
+          "background_depth_checks": {
+            "available": true,
+            "coverage": true,
+            "correlation": true,
+            "rms_retention": true,
+            "span_retention": true,
+            "gradient_correlation": true,
+            "gradient_rms_retention": true,
+            "mean_shift": true,
+            "boundary_p99": true,
+            "boundary_max": true,
+            "localized_structure": true,
+            "no_reported_failures": true,
+            "producer_quality_agrees": true,
+            "passed": true
+          },
+          "physical_cap": {
+            "far_background_ceiling_mm": 19.509999999776483,
+            "far_background_max_mm": 19.510000228881836,
+            "far_background_cap_violation_mm": 0.0,
+            "attachment_step_limit_mm": 0.8,
+            "feasible_attachment_jump_max_mm": 0.8000001907348633,
+            "attachment_constraint_conflicts": 26,
+            "attachment_constraint_conflict_max_mm": 4.744156837463379,
+            "far_background_cap_passed": true,
+            "feasible_attachment_constraints_passed": true,
+            "attachment_constraints_passed": false,
+            "emission_passed": true
+          },
+          "physical_cap_checks": {
+            "emission": true,
+            "far_background_flag": true,
+            "feasible_attachment_flag": true,
+            "zero_far_violation": true,
+            "far_height_within_ceiling": true,
+            "feasible_jump_within_limit": true,
+            "passed": true
+          },
+          "topology": {
+            "stl_is_watertight": true,
+            "stl_is_volume": true,
+            "stl_is_manifold": true,
+            "stl_nonmanifold_edge_count": 0,
+            "stl_degenerate_face_count": 0,
+            "stl_winding_consistent": true,
+            "stl_component_count": 1,
+            "stl_positive_volume": true,
+            "stl_z_range": 30.009702682495117
+          },
+          "shell": {
+            "expected_shell_triangle_count": 232320,
+            "actual_shell_triangle_count": 232320,
+            "invalid_shell_triangle_count": 0,
+            "max_abs_error_mm": 0.0,
+            "rms_error_mm": 0.0,
+            "max_shell_coordinate_error_mm": 3.051757815342171e-06,
+            "minimum_shell_normal_cosine": 0.9999999999547923,
+            "complete_shell_verified": true,
+            "passed": true,
+            "maximum_sample_error_mm": 1e-05,
+            "maximum_rms_error_mm": 1e-06,
+            "maximum_coordinate_error_mm": 1e-05,
+            "minimum_facet_normal_cosine_required": 0.999999,
+            "shell_triangle_count_match": true,
+            "shell_connectivity_match": true,
+            "sample_grid_passed": true,
+            "facet_geometry_passed": true
+          },
+          "checks": {
+            "request": true,
+            "runtime": true,
+            "face_refinement": true,
+            "face_appearance": true,
+            "background_appearance": true,
+            "background_depth": true,
+            "physical_cap": true,
+            "topology": true,
+            "shell": true,
+            "passed": true
+          }
+        }
+      },
+      "source_aligned_background_detail": {
+        "requested_detail_mm": 0.6,
+        "active_source_detail_correlation": 0.5614708299859806,
+        "source_detail_correlation_intended_background": 0.5527992115411151,
+        "source_detail_correlation_all_background": 0.2121597435510833,
+        "background_delta_rms_mm": 0.16297821574857507,
+        "background_delta_p95_mm": 0.23585998080670834,
+        "background_delta_p95_all_background_mm": 0.23136224895715715,
+        "background_delta_max_mm": 0.5813384559005499,
+        "realized_p95_ratio": 0.3930999680111806,
+        "face_interior_p99_change_mm": 4.00543212890625e-05,
+        "max_face_interior_change_mm": 0.00012969970703125,
+        "max_attachment_boundary_change_mm": 0.00026416778564453125,
+        "background_coverage_ratio": 0.8489702517162472,
+        "active_detail_coverage_ratio": 0.6524761452441604,
+        "source_aligned_capture_ratio": 0.7309667904185526,
+        "protection_halo_px": 13.28125,
+        "checks": {
+          "intended_background_source_detail_correlation": true,
+          "realized_p95": true,
+          "face_interior": true,
+          "attachment_boundary": true,
+          "coverage": true,
+          "source_aligned_capture": true,
+          "passed": true
+        }
+      },
+      "checks": {
+        "baseline": true,
+        "candidate": true,
+        "source_aligned_background_detail": true,
+        "passed": true
+      }
+    }
+  },
+  "detector_controls": {
+    "schema_version": 1,
+    "run_kind": "face_detector_positive_and_negative_controls",
+    "privacy": "CC0 generated heads, deterministic backgrounds, and procedural objects",
+    "implementation_provenance": {
+      "available": true,
+      "clean": true,
+      "revision": "1a2bfe7a590a6901846a2dc3b9171cb4447b9847",
+      "paths": [
+        "backend/face_depth_refinement.py",
+        "backend/benchmark/run_face_detector_controls.py"
+      ],
+      "status": []
+    },
+    "minimum_face_pixels": 64,
+    "models": {
+      "yunet": {
+        "revision": "47534e27c9851bb1128ccc0102f1145e27f23f98",
+        "sha256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+        "score_threshold": 0.9
+      },
+      "haar": {
+        "revision": "opencv-4.10.0",
+        "sha256": "0f7d4527844eb514d4a4948e822da90fbb16a34a0bbbbc6adc6498747a5aafb0"
+      }
+    },
+    "positive_control": {
+      "control": "cc0_centered_face",
+      "shape": [
+        256,
+        256,
+        3
+      ],
+      "rgb_sha256": "65383ab741b808325c6b0bc1c7be7de359b05406517820428292c854125deed1",
+      "yunet_count": 1,
+      "yunet_confidences": [
+        0.9266412258148193
+      ],
+      "final_chain_count": 1,
+      "final_chain_detectors": [
+        "mediapipe-face-landmarker"
+      ],
+      "final_chain_errors": []
+    },
+    "negative_controls": [
+      {
+        "control": "cc0_centered_background_only",
+        "shape": [
+          256,
+          256,
+          3
+        ],
+        "rgb_sha256": "d7e25f91dc702585215969b1b00d92e42db2ad9f7b4aee9567a93e866816e5dc",
+        "mediapipe_count": 0,
+        "yunet_count": 0,
+        "yunet_confidences": [],
+        "haar_count": 0,
+        "final_chain_count": 0,
+        "final_chain_detectors": [],
+        "final_chain_errors": []
+      },
+      {
+        "control": "cc0_left_background_only",
+        "shape": [
+          256,
+          256,
+          3
+        ],
+        "rgb_sha256": "020f84668275639188ca8fd1e69af850c8043b8967ffcab52b27d5c7fbc5e0d0",
+        "mediapipe_count": 0,
+        "yunet_count": 0,
+        "yunet_confidences": [],
+        "haar_count": 0,
+        "final_chain_count": 0,
+        "final_chain_detectors": [],
+        "final_chain_errors": []
+      },
+      {
+        "control": "cc0_right_background_only",
+        "shape": [
+          256,
+          256,
+          3
+        ],
+        "rgb_sha256": "7dd758d5d0e6bd8d911efbb12b9418e0d2ef63a3e6d84f743945f232447d3d57",
+        "mediapipe_count": 0,
+        "yunet_count": 0,
+        "yunet_confidences": [],
+        "haar_count": 0,
+        "final_chain_count": 0,
+        "final_chain_detectors": [],
+        "final_chain_errors": []
+      },
+      {
+        "control": "procedural_object_0",
+        "shape": [
+          256,
+          256,
+          3
+        ],
+        "rgb_sha256": "82b4903cffd8d554eaefeaea792868e5be6297f979a66a23cdbbf8e7492dbd48",
+        "mediapipe_count": 0,
+        "yunet_count": 0,
+        "yunet_confidences": [],
+        "haar_count": 0,
+        "final_chain_count": 0,
+        "final_chain_detectors": [],
+        "final_chain_errors": []
+      },
+      {
+        "control": "procedural_object_1",
+        "shape": [
+          256,
+          256,
+          3
+        ],
+        "rgb_sha256": "7c8578c85bf6db0c4e9da0e403134d51045013519d36cbaabc66a84f0ed6f63c",
+        "mediapipe_count": 0,
+        "yunet_count": 0,
+        "yunet_confidences": [],
+        "haar_count": 0,
+        "final_chain_count": 0,
+        "final_chain_detectors": [],
+        "final_chain_errors": []
+      },
+      {
+        "control": "procedural_object_2",
+        "shape": [
+          256,
+          256,
+          3
+        ],
+        "rgb_sha256": "d4a4ebc6e799de7f4a42e9a1e653a1bfefc4da491dbce91b2687d45da6661686",
+        "mediapipe_count": 0,
+        "yunet_count": 0,
+        "yunet_confidences": [],
+        "haar_count": 0,
+        "final_chain_count": 0,
+        "final_chain_detectors": [],
+        "final_chain_errors": []
+      },
+      {
+        "control": "high_contrast_checkerboard",
+        "shape": [
+          256,
+          256,
+          3
+        ],
+        "rgb_sha256": "0d376a8c9816897ce47552519b64d854898d062678b07d0a63b2a61c58cbfaf0",
+        "mediapipe_count": 0,
+        "yunet_count": 0,
+        "yunet_confidences": [],
+        "haar_count": 0,
+        "final_chain_count": 0,
+        "final_chain_detectors": [],
+        "final_chain_errors": []
+      },
+      {
+        "control": "blank_neutral",
+        "shape": [
+          256,
+          256,
+          3
+        ],
+        "rgb_sha256": "089058543264220089be75f18013e4c03196c9335923ebbd32b1f777f476e856",
+        "mediapipe_count": 0,
+        "yunet_count": 0,
+        "yunet_confidences": [],
+        "haar_count": 0,
+        "final_chain_count": 0,
+        "final_chain_detectors": [],
+        "final_chain_errors": []
+      }
+    ],
+    "checks": {
+      "implementation_provenance_clean": true,
+      "positive_yunet_detected": true,
+      "positive_final_chain_detected": true,
+      "positive_final_chain_clean": true,
+      "all_mediapipe_negative": true,
+      "all_yunet_negative": true,
+      "all_haar_negative": true,
+      "all_final_chain_negative": true,
+      "all_final_chain_clean": true,
+      "passed": true
+    }
+  },
+  "checks": {
+    "all_cases_passed": true,
+    "detector_controls_passed": true,
+    "passed": true
+  }
+}

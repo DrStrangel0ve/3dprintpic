@@ -1,0 +1,43 @@
+{
+  "combined_dir": "",
+  "duration_seconds": 2388.395,
+  "eval_config": "/content/3dprintpic/backend/output/completion-benchmark/colab_g4/g4_stl_first_hunyuan3d_2mv_optimal_d985_s40_n10/configs/modern_plus_weighted_lora.json",
+  "eval_config_report": {
+    "exists": true,
+    "is_file": true,
+    "path": "/content/3dprintpic/backend/output/completion-benchmark/colab_g4/g4_stl_first_hunyuan3d_2mv_optimal_d985_s40_n10/configs/modern_plus_weighted_lora.json",
+    "sha256": "0eef624b460e0274047197dc1a00d9ae2acf4c03e2f4972818a1a08fc03f50f0",
+    "size_bytes": 4330
+  },
+  "eval_dirs": [
+    "/content/3dprintpic/backend/output/completion-benchmark/colab_g4/g4_stl_first_hunyuan3d_2mv_optimal_d985_s40_n10/experiments/modern_weighted_eval_s0_n10"
+  ],
+  "finished_at": "2026-07-12T16:51:12+00:00",
+  "lora_weights": "",
+  "manifest": "/content/3dprintpic_colab_inputs/modelnet10_hunyuan3d_2mv_optimal_d985_s40_n10/inputs/manifest.jsonl",
+  "manifest_report": {
+    "exists": true,
+    "is_file": true,
+    "path": "/content/3dprintpic_colab_inputs/modelnet10_hunyuan3d_2mv_optimal_d985_s40_n10/inputs/manifest.jsonl",
+    "sha256": "617576b7ee9a426dcef3e5edb3b94f7e8c44094a3d04ec78eaab1ad2d367e743",
+    "size_bytes": 63971
+  },
+  "repo_state": {
+    "branch": "main",
+    "dirty": false,
+    "head": "a674560f7a537c45477c9c028cdfa61831ae52d9",
+    "remote_origin": "https://github.com/DrStrangel0ve/3dprintpic.git",
+    "repo_root": "/content/3dprintpic",
+    "status_short": ""
+  },
+  "source_modern_config": {
+    "exists": true,
+    "is_file": true,
+    "path": "/content/3dprintpic/backend/benchmark/experiment_configs/modelnet10_60_balanced_stl_quality_hunyuan3d_2mv_optimal_d985_s40_n10.json",
+    "sha256": "0eef624b460e0274047197dc1a00d9ae2acf4c03e2f4972818a1a08fc03f50f0",
+    "size_bytes": 4330
+  },
+  "started_at": "2026-07-12T16:11:24+00:00",
+  "training_metadata": "",
+  "weighted_metadata": ""
+}

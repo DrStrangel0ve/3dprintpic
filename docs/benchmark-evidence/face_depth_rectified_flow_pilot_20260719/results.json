@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "run_kind": "face-depth-rectified-flow-vs-endpoint-matched-control",
+  "date": "2026-07-19",
+  "decision": "hold",
+  "production_changed": false,
+  "promotion_eligible": false,
+  "stop_reason": "step-budget-complete",
+  "source_revision": "1d5d8d8b2a9bed39d640dc35830126ff779b77cc",
+  "raw_results_file": {
+    "sha256": "230cb3f2d96c1838653cc0949ad72d5e505b34774c44ca895d6e7b13c3f50c3a",
+    "bytes": 659456,
+    "published": false
+  },
+  "raw_run_folder": {
+    "file_count": 403,
+    "bytes": 185721376,
+    "published": false
+  },
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 3080 Ti",
+    "gpu_total_vram_gib": 11.9993896484375,
+    "peak_vram_gib": 2.1100211143493652,
+    "torch": "2.7.1+cu128",
+    "python": "3.11.8"
+  },
+  "runtime_seconds": 366.45649109999795,
+  "pilot": {
+    "steps": 1200,
+    "batch_size": 8,
+    "sample_size": 96,
+    "evaluation_interval": 300,
+    "inference_steps": 8,
+    "inference_seed_count": 4,
+    "parameter_count_each": 1808001,
+    "endpoint_objective_matched": true,
+    "training_objective": "endpoint-supervised-flow-parameterization",
+    "target_velocity_mse": false,
+    "equal_parameter_control": true,
+    "latent_vae": false,
+    "random_initialization": true,
+    "best_step_flow": 1200,
+    "best_step_control": 1200
+  },
+  "corpus": {
+    "provider": "meta-mhr-v1.0.1-camera-depth",
+    "summary_sha256": "d8717cced1d8f6753c15a7367dc1c84c5e62e0439f87b4380cca65f55fd665a5",
+    "production_training_eligible": false,
+    "identity_disjoint": true,
+    "split_counts": {
+      "train": 240,
+      "validation": 40,
+      "sealed": 40
+    },
+    "sealed_labels_loaded_after_training": true
+  },
+  "coarse_depth": {
+    "model_id": "depth-anything/Depth-Anything-V2-Large-hf",
+    "revision": "7581137eff8d4e94f6e796d3baea0e9fa79b22d2",
+    "model_sha256": "4e01e34ed5549b529b70b92d53226bc370f03041977b390d3dde45d47f516cf9",
+    "processor_sha256": "d41175c0d889477ca8fc67191e540faef14baf6275157b3fdecf78469e6bbf84",
+    "local_files_only": true
+  },
+  "validation_part_failures": [
+    {"step": 300, "flow": 429, "control": 371},
+    {"step": 600, "flow": 378, "control": 269},
+    {"step": 900, "flow": 370, "control": 244},
+    {"step": 1200, "flow": 296, "control": 227}
+  ],
+  "sealed": {
+    "flow": {
+      "row_count": 40,
+      "combined_part_failures": 313,
+      "median_shape_correlation": 0.9504643286699932,
+      "median_gradient_correlation": 0.8145937467104017,
+      "median_normalized_rmse": 0.10223077316320187,
+      "source_background_bit_exact": true,
+      "background_contract": "emitted-correction-zero-outside-face-support",
+      "small_turned": {
+        "row_count": 30,
+        "combined_part_failures": 243,
+        "median_shape_correlation": 0.9525938006792969,
+        "median_gradient_correlation": 0.8176756729894052,
+        "median_normalized_rmse": 0.10199553781288945,
+        "source_background_bit_exact": true
+      },
+      "uncertainty": {
+        "calibration_mode": "sealed-using-validation-scale",
+        "calibration_scale_90": 36.259658676201646,
+        "validation_calibrated_90_interval_coverage": 0.9095453707308079,
+        "mad_absolute_error_spearman": 0.12341514368317037,
+        "raw_sample_quantile_claimed": false
+      }
+    },
+    "control": {
+      "row_count": 40,
+      "combined_part_failures": 230,
+      "median_shape_correlation": 0.9620219841331126,
+      "median_gradient_correlation": 0.7986370956432233,
+      "median_normalized_rmse": 0.09032244485337455,
+      "source_background_bit_exact": true,
+      "background_contract": "emitted-correction-zero-outside-face-support",
+      "small_turned": {
+        "row_count": 30,
+        "combined_part_failures": 190,
+        "median_shape_correlation": 0.9630951923338288,
+        "median_gradient_correlation": 0.8129306424763407,
+        "median_normalized_rmse": 0.09032244485337455,
+        "source_background_bit_exact": true
+      }
+    }
+  },
+  "advance_gate": {
+    "decision": "hold",
+    "paired_small_turned": {
+      "row_count": 30,
+      "wins": 2,
+      "ties": 0,
+      "win_rate": 0.06666666666666667
+    },
+    "small_turned_part_failure_reduction": -0.2789473684210526,
+    "checks": {
+      "overall_gradient_not_regressed": true,
+      "overall_rmse_not_regressed": false,
+      "overall_shape_not_regressed": false,
+      "paired_win_rate_at_least_0_8": false,
+      "part_failure_reduction_at_least_0_25": false,
+      "uncertainty_spearman_at_least_0_35": false,
+      "validation_calibrated_90_coverage_in_0_85_0_95": true,
+      "runtime_cap_passed": true,
+      "vram_cap_passed": true,
+      "source_background_bit_exact": true,
+      "sealed_labels_loaded_after_training": true
+    }
+  },
+  "checkpoints": {
+    "flow_sha256": "0cf43b5e02f853cb6d1d06a821a9dd4b1dfaf1bdd03530434d916f53ed741000",
+    "control_sha256": "bfecd157dae71e31d5924f67861f631095372813ee23b5cfaf47bde0a8686eab",
+    "published": false
+  }
+}

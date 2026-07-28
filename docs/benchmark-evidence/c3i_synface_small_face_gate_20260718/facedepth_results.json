@@ -1,0 +1,5268 @@
+{
+  "advancing_candidates": [],
+  "corpus": {
+    "demo_asset_license": "not stated in source repository",
+    "provider": "c3i-synface-official-demo-depth",
+    "raw_dataset_reference": {
+      "doi": "10.17632/z4454fyd8b.1",
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "title": "C3I-SynFace female data part 1"
+    },
+    "row_count": 10,
+    "source_revision": "dc8adfffbfd38818b72d0ad3776eb66724fafe95",
+    "summary_sha256": "1b7a35d45f0a1e45f05694ecc711869b223a5f9f319ebf90968ee8b12d054bb9"
+  },
+  "current_refined": {
+    "available_rows": 10,
+    "combined_part_failures": 104,
+    "median_gradient_correlation": 0.5630079854274175,
+    "median_normalized_rmse": 0.07968363207747728,
+    "median_shape_correlation": 0.9512273399638838,
+    "part_failure_opportunities": 120,
+    "part_failure_rate": 0.8666666666666667,
+    "row_count": 10
+  },
+  "global_depth": {
+    "available_rows": 10,
+    "combined_part_failures": 109,
+    "median_gradient_correlation": 0.5480516395039834,
+    "median_normalized_rmse": 0.08070660678096139,
+    "median_shape_correlation": 0.9507069561715434,
+    "part_failure_opportunities": 120,
+    "part_failure_rate": 0.9083333333333333,
+    "row_count": 10
+  },
+  "global_model": {
+    "id": "depth-anything/Depth-Anything-V2-Large-hf",
+    "model_sha256": "4e01e34ed5549b529b70b92d53226bc370f03041977b390d3dde45d47f516cf9",
+    "revision": "7581137eff8d4e94f6e796d3baea0e9fa79b22d2"
+  },
+  "method": "c3i-synface-demo-facedepth-checkpoint-gate",
+  "provider": {
+    "checkpoint": {
+      "checkpoint_bytes": 57906985,
+      "checkpoint_sha256": "95ac733d761459e7f2072ba2862467c4d605b4cf4ae90491a757d93553123b17",
+      "checks": {
+        "checkpoint_present": true,
+        "checkpoint_sha256_exact": true,
+        "checkpoint_size_exact": true
+      },
+      "expected_checkpoint_bytes": 57906985,
+      "expected_checkpoint_sha256": "95ac733d761459e7f2072ba2862467c4d605b4cf4ae90491a757d93553123b17",
+      "ready": true
+    },
+    "depth_semantics": "inverse camera depth; higher is nearer",
+    "input_modes": {
+      "native-aspect": "long side 480 pixels; both dimensions rounded to multiples of 32",
+      "official-stretch": [
+        480,
+        640
+      ]
+    },
+    "mirror_checkpoint_blob": "61ab3564afb9f2fe01aee84d6810aca38c6ad624",
+    "mirror_repository": "https://github.com/Yimin-zhou/2DImage-Relighting",
+    "mirror_revision": "bdf553705d4c996fb25d1747a0a005d80fa8b06d",
+    "published_checkpoint_url": "https://nuigalwayie-my.sharepoint.com/:u:/g/personal/f_khan4_nuigalway_ie/EepkuVajAhdIjZoQm5Weyx4BjXcEZy-uw5OWxxMXq1WJPA?e=rv3aSY",
+    "published_checkpoint_url_status": "404-observed-2026-07-18",
+    "repository": "https://github.com/khan9048/Facial_depth_estimation",
+    "revision": "dc8adfffbfd38818b72d0ad3776eb66724fafe95",
+    "verification": "Research mirror only; exact bytes are pinned, but no publisher checksum is available."
+  },
+  "provider_candidates": {
+    "facedepth_native_aspect_bgr_fused": {
+      "decision": {
+        "checks": {
+          "absolute_part_failure_rate_within_limit": false,
+          "all_current_metrics_finite": true,
+          "all_current_rows_available": true,
+          "all_current_rows_have_expected_orientation": true,
+          "all_current_rows_have_full_coverage": true,
+          "at_least_one_strict_improvement": false,
+          "full_corpus_evaluated": true,
+          "median_gradient_no_regression": false,
+          "median_rmse_no_regression": false,
+          "median_shape_no_regression": false,
+          "paired_rows_complete": true,
+          "part_failures_no_regression": false,
+          "per_row_gradient_regression_bounded": false,
+          "per_row_part_failures_no_regression": false,
+          "per_row_rmse_regression_bounded": true,
+          "per_row_shape_regression_bounded": true
+        },
+        "failed_checks": [
+          "part_failures_no_regression",
+          "median_shape_no_regression",
+          "median_gradient_no_regression",
+          "median_rmse_no_regression",
+          "per_row_part_failures_no_regression",
+          "per_row_gradient_regression_bounded",
+          "absolute_part_failure_rate_within_limit",
+          "at_least_one_strict_improvement"
+        ],
+        "status": "hold"
+      },
+      "promotion_eligible": true,
+      "summary": {
+        "available_rows": 10,
+        "combined_part_failures": 106,
+        "median_gradient_correlation": 0.5550848132965338,
+        "median_normalized_rmse": 0.0799927885813126,
+        "median_shape_correlation": 0.9507272185766639,
+        "part_failure_opportunities": 120,
+        "part_failure_rate": 0.8833333333333333,
+        "row_count": 10
+      }
+    },
+    "facedepth_native_aspect_bgr_raw": {
+      "decision": {
+        "checks": {
+          "absolute_part_failure_rate_within_limit": false,
+          "all_current_metrics_finite": true,
+          "all_current_rows_available": true,
+          "all_current_rows_have_expected_orientation": true,
+          "all_current_rows_have_full_coverage": true,
+          "at_least_one_strict_improvement": false,
+          "full_corpus_evaluated": true,
+          "median_gradient_no_regression": false,
+          "median_rmse_no_regression": false,
+          "median_shape_no_regression": false,
+          "paired_rows_complete": true,
+          "part_failures_no_regression": false,
+          "per_row_gradient_regression_bounded": false,
+          "per_row_part_failures_no_regression": false,
+          "per_row_rmse_regression_bounded": false,
+          "per_row_shape_regression_bounded": false
+        },
+        "failed_checks": [
+          "part_failures_no_regression",
+          "median_shape_no_regression",
+          "median_gradient_no_regression",
+          "median_rmse_no_regression",
+          "per_row_part_failures_no_regression",
+          "per_row_shape_regression_bounded",
+          "per_row_gradient_regression_bounded",
+          "per_row_rmse_regression_bounded",
+          "absolute_part_failure_rate_within_limit",
+          "at_least_one_strict_improvement"
+        ],
+        "status": "hold"
+      },
+      "promotion_eligible": false,
+      "summary": {
+        "available_rows": 10,
+        "combined_part_failures": 118,
+        "median_gradient_correlation": 0.32850787089135913,
+        "median_normalized_rmse": 0.15934448295133186,
+        "median_shape_correlation": 0.7889939783954258,
+        "part_failure_opportunities": 120,
+        "part_failure_rate": 0.9833333333333333,
+        "row_count": 10
+      }
+    },
+    "facedepth_native_aspect_rgb_fused": {
+      "decision": {
+        "checks": {
+          "absolute_part_failure_rate_within_limit": false,
+          "all_current_metrics_finite": true,
+          "all_current_rows_available": true,
+          "all_current_rows_have_expected_orientation": true,
+          "all_current_rows_have_full_coverage": true,
+          "at_least_one_strict_improvement": false,
+          "full_corpus_evaluated": true,
+          "median_gradient_no_regression": false,
+          "median_rmse_no_regression": false,
+          "median_shape_no_regression": false,
+          "paired_rows_complete": true,
+          "part_failures_no_regression": false,
+          "per_row_gradient_regression_bounded": false,
+          "per_row_part_failures_no_regression": false,
+          "per_row_rmse_regression_bounded": true,
+          "per_row_shape_regression_bounded": true
+        },
+        "failed_checks": [
+          "part_failures_no_regression",
+          "median_shape_no_regression",
+          "median_gradient_no_regression",
+          "median_rmse_no_regression",
+          "per_row_part_failures_no_regression",
+          "per_row_gradient_regression_bounded",
+          "absolute_part_failure_rate_within_limit",
+          "at_least_one_strict_improvement"
+        ],
+        "status": "hold"
+      },
+      "promotion_eligible": true,
+      "summary": {
+        "available_rows": 10,
+        "combined_part_failures": 108,
+        "median_gradient_correlation": 0.5546090425533643,
+        "median_normalized_rmse": 0.0800687787159218,
+        "median_shape_correlation": 0.950641971080316,
+        "part_failure_opportunities": 120,
+        "part_failure_rate": 0.9,
+        "row_count": 10
+      }
+    },
+    "facedepth_native_aspect_rgb_raw": {
+      "decision": {
+        "checks": {
+          "absolute_part_failure_rate_within_limit": false,
+          "all_current_metrics_finite": true,
+          "all_current_rows_available": true,
+          "all_current_rows_have_expected_orientation": true,
+          "all_current_rows_have_full_coverage": true,
+          "at_least_one_strict_improvement": false,
+          "full_corpus_evaluated": true,
+          "median_gradient_no_regression": false,
+          "median_rmse_no_regression": false,
+          "median_shape_no_regression": false,
+          "paired_rows_complete": true,
+          "part_failures_no_regression": false,
+          "per_row_gradient_regression_bounded": false,
+          "per_row_part_failures_no_regression": false,
+          "per_row_rmse_regression_bounded": false,
+          "per_row_shape_regression_bounded": false
+        },
+        "failed_checks": [
+          "part_failures_no_regression",
+          "median_shape_no_regression",
+          "median_gradient_no_regression",
+          "median_rmse_no_regression",
+          "per_row_part_failures_no_regression",
+          "per_row_shape_regression_bounded",
+          "per_row_gradient_regression_bounded",
+          "per_row_rmse_regression_bounded",
+          "absolute_part_failure_rate_within_limit",
+          "at_least_one_strict_improvement"
+        ],
+        "status": "hold"
+      },
+      "promotion_eligible": false,
+      "summary": {
+        "available_rows": 10,
+        "combined_part_failures": 120,
+        "median_gradient_correlation": 0.2666586574826302,
+        "median_normalized_rmse": 0.17849935014540336,
+        "median_shape_correlation": 0.7430820840931964,
+        "part_failure_opportunities": 120,
+        "part_failure_rate": 1.0,
+        "row_count": 10
+      }
+    },
+    "facedepth_official_stretch_bgr_fused": {
+      "decision": {
+        "checks": {
+          "absolute_part_failure_rate_within_limit": false,
+          "all_current_metrics_finite": true,
+          "all_current_rows_available": true,
+          "all_current_rows_have_expected_orientation": true,
+          "all_current_rows_have_full_coverage": true,
+          "at_least_one_strict_improvement": false,
+          "full_corpus_evaluated": true,
+          "median_gradient_no_regression": false,
+          "median_rmse_no_regression": false,
+          "median_shape_no_regression": false,
+          "paired_rows_complete": true,
+          "part_failures_no_regression": false,
+          "per_row_gradient_regression_bounded": false,
+          "per_row_part_failures_no_regression": false,
+          "per_row_rmse_regression_bounded": true,
+          "per_row_shape_regression_bounded": true
+        },
+        "failed_checks": [
+          "part_failures_no_regression",
+          "median_shape_no_regression",
+          "median_gradient_no_regression",
+          "median_rmse_no_regression",
+          "per_row_part_failures_no_regression",
+          "per_row_gradient_regression_bounded",
+          "absolute_part_failure_rate_within_limit",
+          "at_least_one_strict_improvement"
+        ],
+        "status": "hold"
+      },
+      "promotion_eligible": true,
+      "summary": {
+        "available_rows": 10,
+        "combined_part_failures": 109,
+        "median_gradient_correlation": 0.5541759032449818,
+        "median_normalized_rmse": 0.07998496195503324,
+        "median_shape_correlation": 0.9507499042460619,
+        "part_failure_opportunities": 120,
+        "part_failure_rate": 0.9083333333333333,
+        "row_count": 10
+      }
+    },
+    "facedepth_official_stretch_bgr_raw": {
+      "decision": {
+        "checks": {
+          "absolute_part_failure_rate_within_limit": false,
+          "all_current_metrics_finite": true,
+          "all_current_rows_available": true,
+          "all_current_rows_have_expected_orientation": true,
+          "all_current_rows_have_full_coverage": true,
+          "at_least_one_strict_improvement": false,
+          "full_corpus_evaluated": true,
+          "median_gradient_no_regression": false,
+          "median_rmse_no_regression": false,
+          "median_shape_no_regression": false,
+          "paired_rows_complete": true,
+          "part_failures_no_regression": false,
+          "per_row_gradient_regression_bounded": false,
+          "per_row_part_failures_no_regression": false,
+          "per_row_rmse_regression_bounded": false,
+          "per_row_shape_regression_bounded": false
+        },
+        "failed_checks": [
+          "part_failures_no_regression",
+          "median_shape_no_regression",
+          "median_gradient_no_regression",
+          "median_rmse_no_regression",
+          "per_row_part_failures_no_regression",
+          "per_row_shape_regression_bounded",
+          "per_row_gradient_regression_bounded",
+          "per_row_rmse_regression_bounded",
+          "absolute_part_failure_rate_within_limit",
+          "at_least_one_strict_improvement"
+        ],
+        "status": "hold"
+      },
+      "promotion_eligible": false,
+      "summary": {
+        "available_rows": 10,
+        "combined_part_failures": 120,
+        "median_gradient_correlation": 0.3211326164299803,
+        "median_normalized_rmse": 0.1460642255586991,
+        "median_shape_correlation": 0.8130234828158562,
+        "part_failure_opportunities": 120,
+        "part_failure_rate": 1.0,
+        "row_count": 10
+      }
+    },
+    "facedepth_official_stretch_rgb_fused": {
+      "decision": {
+        "checks": {
+          "absolute_part_failure_rate_within_limit": false,
+          "all_current_metrics_finite": true,
+          "all_current_rows_available": true,
+          "all_current_rows_have_expected_orientation": true,
+          "all_current_rows_have_full_coverage": true,
+          "at_least_one_strict_improvement": false,
+          "full_corpus_evaluated": true,
+          "median_gradient_no_regression": false,
+          "median_rmse_no_regression": false,
+          "median_shape_no_regression": false,
+          "paired_rows_complete": true,
+          "part_failures_no_regression": false,
+          "per_row_gradient_regression_bounded": false,
+          "per_row_part_failures_no_regression": false,
+          "per_row_rmse_regression_bounded": true,
+          "per_row_shape_regression_bounded": true
+        },
+        "failed_checks": [
+          "part_failures_no_regression",
+          "median_shape_no_regression",
+          "median_gradient_no_regression",
+          "median_rmse_no_regression",
+          "per_row_part_failures_no_regression",
+          "per_row_gradient_regression_bounded",
+          "absolute_part_failure_rate_within_limit",
+          "at_least_one_strict_improvement"
+        ],
+        "status": "hold"
+      },
+      "promotion_eligible": true,
+      "summary": {
+        "available_rows": 10,
+        "combined_part_failures": 109,
+        "median_gradient_correlation": 0.552415746201971,
+        "median_normalized_rmse": 0.08004051818043557,
+        "median_shape_correlation": 0.9506864052847646,
+        "part_failure_opportunities": 120,
+        "part_failure_rate": 0.9083333333333333,
+        "row_count": 10
+      }
+    },
+    "facedepth_official_stretch_rgb_raw": {
+      "decision": {
+        "checks": {
+          "absolute_part_failure_rate_within_limit": false,
+          "all_current_metrics_finite": true,
+          "all_current_rows_available": true,
+          "all_current_rows_have_expected_orientation": true,
+          "all_current_rows_have_full_coverage": true,
+          "at_least_one_strict_improvement": false,
+          "full_corpus_evaluated": true,
+          "median_gradient_no_regression": false,
+          "median_rmse_no_regression": false,
+          "median_shape_no_regression": false,
+          "paired_rows_complete": true,
+          "part_failures_no_regression": false,
+          "per_row_gradient_regression_bounded": false,
+          "per_row_part_failures_no_regression": false,
+          "per_row_rmse_regression_bounded": false,
+          "per_row_shape_regression_bounded": false
+        },
+        "failed_checks": [
+          "part_failures_no_regression",
+          "median_shape_no_regression",
+          "median_gradient_no_regression",
+          "median_rmse_no_regression",
+          "per_row_part_failures_no_regression",
+          "per_row_shape_regression_bounded",
+          "per_row_gradient_regression_bounded",
+          "per_row_rmse_regression_bounded",
+          "absolute_part_failure_rate_within_limit",
+          "at_least_one_strict_improvement"
+        ],
+        "status": "hold"
+      },
+      "promotion_eligible": false,
+      "summary": {
+        "available_rows": 10,
+        "combined_part_failures": 119,
+        "median_gradient_correlation": 0.25634793495667946,
+        "median_normalized_rmse": 0.17060455261545585,
+        "median_shape_correlation": 0.7515408727815094,
+        "part_failure_opportunities": 120,
+        "part_failure_rate": 0.9916666666666667,
+        "row_count": 10
+      }
+    }
+  },
+  "rows": [
+    {
+      "current_metadata": {
+        "refined_faces": 1
+      },
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5891469211374566,
+        "normalized_rmse": 0.06660579965785297,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9664046935323279,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [],
+        "roi": {
+          "enabled": false,
+          "reason": "full_image_face_detected"
+        },
+        "scope": "full-image"
+      },
+      "face_height_pixels": 78,
+      "facedepth_native_aspect_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5655688523494934,
+        "normalized_rmse": 0.06726243566853146,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9657272191511824,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.40499289871956595,
+        "normalized_rmse": 0.15212940411164708,
+        "shape_check_failures": {},
+        "shape_correlation": 0.8095489317933243,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5648007569736073,
+        "normalized_rmse": 0.06727324999956046,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9657160019986374,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.35161985167325027,
+        "normalized_rmse": 0.1733030195657489,
+        "shape_check_failures": {},
+        "shape_correlation": 0.7434789789190472,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.567944436042852,
+        "normalized_rmse": 0.0672276079835125,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9657633309872987,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.37732366764959624,
+        "normalized_rmse": 0.11747509673844532,
+        "shape_check_failures": {},
+        "shape_correlation": 0.8913453804366931,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5669849488633751,
+        "normalized_rmse": 0.0672400875977879,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9657503935355817,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.37335652354403126,
+        "normalized_rmse": 0.1439319516255963,
+        "shape_check_failures": {},
+        "shape_correlation": 0.8315704808310838,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5505046444663045,
+        "normalized_rmse": 0.07148341142612259,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9612014267019034,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "provider_metadata": {
+        "facedepth_native_aspect_bgr_fused": {
+          "alignment_anchor_pixels": 1813,
+          "alignment_offset": 0.22565488649180998,
+          "alignment_scale": 0.3188896099147202,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            131,
+            108
+          ],
+          "max_abs_correction": 0.003349276026710868,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_bgr_raw": {
+          "alignment_anchor_pixels": 1813,
+          "alignment_offset": 0.22565488649180998,
+          "alignment_scale": 0.3188896099147202,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            131,
+            108
+          ],
+          "max_abs_correction": 0.003349276026710868,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_fused": {
+          "alignment_anchor_pixels": 1789,
+          "alignment_offset": 0.2631263735268724,
+          "alignment_scale": 0.26953057704494027,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            131,
+            108
+          ],
+          "max_abs_correction": 0.0032888760324567556,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_raw": {
+          "alignment_anchor_pixels": 1789,
+          "alignment_offset": 0.2631263735268724,
+          "alignment_scale": 0.26953057704494027,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            131,
+            108
+          ],
+          "max_abs_correction": 0.0032888760324567556,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_fused": {
+          "alignment_anchor_pixels": 1802,
+          "alignment_offset": 0.23917875410563433,
+          "alignment_scale": 0.29457154321323176,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            131,
+            108
+          ],
+          "max_abs_correction": 0.017041388899087906,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_raw": {
+          "alignment_anchor_pixels": 1802,
+          "alignment_offset": 0.23917875410563433,
+          "alignment_scale": 0.29457154321323176,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            131,
+            108
+          ],
+          "max_abs_correction": 0.017041388899087906,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_fused": {
+          "alignment_anchor_pixels": 1800,
+          "alignment_offset": 0.2862851917743683,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            131,
+            108
+          ],
+          "max_abs_correction": 0.007371800951659679,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_raw": {
+          "alignment_anchor_pixels": 1800,
+          "alignment_offset": 0.2862851917743683,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            131,
+            108
+          ],
+          "max_abs_correction": 0.007371800951659679,
+          "refined_faces": 1
+        }
+      },
+      "row_id": "c3i_demo_0000"
+    },
+    {
+      "current_metadata": {
+        "refined_faces": 1
+      },
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.57751768849434,
+        "normalized_rmse": 0.07105716568384199,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9506464069127389,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [],
+        "roi": {
+          "enabled": false,
+          "reason": "full_image_face_detected"
+        },
+        "scope": "full-image"
+      },
+      "face_height_pixels": 78,
+      "facedepth_native_aspect_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5651278208936307,
+        "normalized_rmse": 0.07147017174301613,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9500559039786608,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.27554487927392285,
+        "normalized_rmse": 0.15800492056928056,
+        "shape_check_failures": {},
+        "shape_correlation": 0.7238664519847159,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5644111869247705,
+        "normalized_rmse": 0.07148371069499354,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9500364822513521,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": false
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.2172902911745572,
+        "normalized_rmse": 0.18369568072505782,
+        "shape_check_failures": {},
+        "shape_correlation": 0.5971619294256753,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5659002423599974,
+        "normalized_rmse": 0.07144484877220686,
+        "shape_check_failures": {},
+        "shape_correlation": 0.950092219028175,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": false,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.19909007414608856,
+        "normalized_rmse": 0.15664791713852896,
+        "shape_check_failures": {},
+        "shape_correlation": 0.7294682638365158,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5644559045963009,
+        "normalized_rmse": 0.07147340470513813,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9500512666408801,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": false,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.15665786015008548,
+        "normalized_rmse": 0.17730510635453592,
+        "shape_check_failures": {},
+        "shape_correlation": 0.6329217197543521,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5526270540307612,
+        "normalized_rmse": 0.06990226517256398,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9522775754611255,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "provider_metadata": {
+        "facedepth_native_aspect_bgr_fused": {
+          "alignment_anchor_pixels": 1711,
+          "alignment_offset": 0.266104057431221,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            108
+          ],
+          "max_abs_correction": 0.0024379121605306864,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_bgr_raw": {
+          "alignment_anchor_pixels": 1711,
+          "alignment_offset": 0.266104057431221,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            108
+          ],
+          "max_abs_correction": 0.0024379121605306864,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_fused": {
+          "alignment_anchor_pixels": 1671,
+          "alignment_offset": 0.26463960111141205,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            108
+          ],
+          "max_abs_correction": 0.0027711279690265656,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_raw": {
+          "alignment_anchor_pixels": 1671,
+          "alignment_offset": 0.26463960111141205,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            108
+          ],
+          "max_abs_correction": 0.0027711279690265656,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_fused": {
+          "alignment_anchor_pixels": 1698,
+          "alignment_offset": 0.2601672410964966,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            108
+          ],
+          "max_abs_correction": 0.005046965554356575,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_raw": {
+          "alignment_anchor_pixels": 1698,
+          "alignment_offset": 0.2601672410964966,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            108
+          ],
+          "max_abs_correction": 0.005046965554356575,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_fused": {
+          "alignment_anchor_pixels": 1688,
+          "alignment_offset": 0.2674371227622032,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            108
+          ],
+          "max_abs_correction": 0.0060831522569060326,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_raw": {
+          "alignment_anchor_pixels": 1688,
+          "alignment_offset": 0.2674371227622032,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            108
+          ],
+          "max_abs_correction": 0.0060831522569060326,
+          "refined_faces": 1
+        }
+      },
+      "row_id": "c3i_demo_0001"
+    },
+    {
+      "current_metadata": {
+        "refined_faces": 1
+      },
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 8,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5809873650263924,
+        "normalized_rmse": 0.079064494155001,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9518082730150285,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye"
+        ]
+      },
+      "detection": {
+        "errors": [
+          "opencv-haar:RuntimeError:OpenCV face detector cascade is unavailable"
+        ],
+        "roi": {
+          "attempts": [
+            {
+              "component_bbox": [
+                91,
+                79,
+                167,
+                157
+              ],
+              "detected_faces": 1,
+              "effective_minimum_face_pixels": 69,
+              "input_shape": [
+                384,
+                384
+              ],
+              "roi_bbox": [
+                55,
+                44,
+                203,
+                192
+              ]
+            }
+          ],
+          "detected_faces": 1,
+          "eligible_components": 1,
+          "enabled": true,
+          "fallback_errors_clean": true,
+          "selection_detail_fallback_regions": 0,
+          "validated_face_regions": 1
+        },
+        "scope": "selection-roi"
+      },
+      "face_height_pixels": 78,
+      "facedepth_native_aspect_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 9,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5706607150148368,
+        "normalized_rmse": 0.07939156262620184,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9513985331746669,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye"
+        ]
+      },
+      "facedepth_native_aspect_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.603852410266801,
+        "normalized_rmse": 0.13262566801159653,
+        "shape_check_failures": {},
+        "shape_correlation": 0.8575148779731523,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 9,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.564323444847253,
+        "normalized_rmse": 0.07951177963683106,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9512474599092798,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye"
+        ]
+      },
+      "facedepth_native_aspect_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.48366623019828325,
+        "normalized_rmse": 0.1697205005290226,
+        "shape_check_failures": {},
+        "shape_correlation": 0.7527109018681934,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 9,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5695743353764707,
+        "normalized_rmse": 0.0793843496656156,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9514075894639488,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye"
+        ]
+      },
+      "facedepth_official_stretch_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5198835465283318,
+        "normalized_rmse": 0.120982471233418,
+        "shape_check_failures": {},
+        "shape_correlation": 0.8830415366726547,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 9,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5659492860441633,
+        "normalized_rmse": 0.07945285216698339,
+        "shape_check_failures": {},
+        "shape_correlation": 0.951321543928649,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye"
+        ]
+      },
+      "facedepth_official_stretch_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.47022025489706337,
+        "normalized_rmse": 0.1634292863250187,
+        "shape_check_failures": {},
+        "shape_correlation": 0.773376184323029,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5565103643387812,
+        "normalized_rmse": 0.0811711316216771,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9491363368819614,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "provider_metadata": {
+        "facedepth_native_aspect_bgr_fused": {
+          "alignment_anchor_pixels": 1750,
+          "alignment_offset": 0.13832606644707193,
+          "alignment_scale": 0.3996067437109358,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            106
+          ],
+          "max_abs_correction": 0.017565572634339333,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_bgr_raw": {
+          "alignment_anchor_pixels": 1750,
+          "alignment_offset": 0.13832606644707193,
+          "alignment_scale": 0.3996067437109358,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            106
+          ],
+          "max_abs_correction": 0.017565572634339333,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_fused": {
+          "alignment_anchor_pixels": 1730,
+          "alignment_offset": 0.2494848519563675,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            106
+          ],
+          "max_abs_correction": 0.005399597343057394,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_raw": {
+          "alignment_anchor_pixels": 1730,
+          "alignment_offset": 0.2494848519563675,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            106
+          ],
+          "max_abs_correction": 0.005399597343057394,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_fused": {
+          "alignment_anchor_pixels": 1729,
+          "alignment_offset": 0.2532964199781418,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            106
+          ],
+          "max_abs_correction": 0.015563234686851501,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_raw": {
+          "alignment_anchor_pixels": 1729,
+          "alignment_offset": 0.2532964199781418,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            106
+          ],
+          "max_abs_correction": 0.015563234686851501,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_fused": {
+          "alignment_anchor_pixels": 1725,
+          "alignment_offset": 0.2604905217885971,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            106
+          ],
+          "max_abs_correction": 0.011213394813239574,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_raw": {
+          "alignment_anchor_pixels": 1725,
+          "alignment_offset": 0.2604905217885971,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            106
+          ],
+          "max_abs_correction": 0.011213394813239574,
+          "refined_faces": 1
+        }
+      },
+      "row_id": "c3i_demo_0002"
+    },
+    {
+      "current_metadata": {
+        "refined_faces": 1
+      },
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eye",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.7412239966819792,
+        "normalized_rmse": 0.050663819710251155,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9756502652959844,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [
+          "opencv-haar:RuntimeError:OpenCV face detector cascade is unavailable"
+        ],
+        "roi": {
+          "attempts": [
+            {
+              "component_bbox": [
+                90,
+                79,
+                167,
+                157
+              ],
+              "detected_faces": 1,
+              "effective_minimum_face_pixels": 69,
+              "input_shape": [
+                381,
+                384
+              ],
+              "roi_bbox": [
+                54,
+                44,
+                203,
+                192
+              ]
+            }
+          ],
+          "detected_faces": 1,
+          "eligible_components": 1,
+          "enabled": true,
+          "fallback_errors_clean": true,
+          "selection_detail_fallback_regions": 0,
+          "validated_face_regions": 1
+        },
+        "scope": "selection-roi"
+      },
+      "face_height_pixels": 78,
+      "facedepth_native_aspect_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.7388223469770426,
+        "normalized_rmse": 0.050793107257591175,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9755242710468298,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.3616308038273166,
+        "normalized_rmse": 0.1701775869346568,
+        "shape_check_failures": {},
+        "shape_correlation": 0.6761903121325351,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.737828674499194,
+        "normalized_rmse": 0.05080288587262552,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9755147277942039,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": false
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.28411340160730447,
+        "normalized_rmse": 0.20508011056515096,
+        "shape_check_failures": {},
+        "shape_correlation": 0.4601796821954228,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.7381410729084403,
+        "normalized_rmse": 0.05081633691822993,
+        "shape_check_failures": {},
+        "shape_correlation": 0.975501597348971,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.24710807741702595,
+        "normalized_rmse": 0.14703081454765166,
+        "shape_check_failures": {},
+        "shape_correlation": 0.7712595546575969,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.7372077223753593,
+        "normalized_rmse": 0.05085456937496811,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9754642562002304,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": false,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": false
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.0765050464360223,
+        "normalized_rmse": 0.19149418810718252,
+        "shape_check_failures": {},
+        "shape_correlation": 0.5592336400927955,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "mouth",
+          "nose",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.7440549831033344,
+        "normalized_rmse": 0.05360723179439251,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9726979911975828,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "provider_metadata": {
+        "facedepth_native_aspect_bgr_fused": {
+          "alignment_anchor_pixels": 1561,
+          "alignment_offset": 0.28610430657863617,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.001990316202864051,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_bgr_raw": {
+          "alignment_anchor_pixels": 1561,
+          "alignment_offset": 0.28610430657863617,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.001990316202864051,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_fused": {
+          "alignment_anchor_pixels": 1592,
+          "alignment_offset": 0.2850881367921829,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.003446731483563781,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_raw": {
+          "alignment_anchor_pixels": 1592,
+          "alignment_offset": 0.2850881367921829,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.003446731483563781,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_fused": {
+          "alignment_anchor_pixels": 1563,
+          "alignment_offset": 0.2832614630460739,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.002336307195946574,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_raw": {
+          "alignment_anchor_pixels": 1563,
+          "alignment_offset": 0.2832614630460739,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.002336307195946574,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_fused": {
+          "alignment_anchor_pixels": 1594,
+          "alignment_offset": 0.28333932906389236,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.012297168374061584,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_raw": {
+          "alignment_anchor_pixels": 1594,
+          "alignment_offset": 0.28333932906389236,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.012297168374061584,
+          "refined_faces": 1
+        }
+      },
+      "row_id": "c3i_demo_0003"
+    },
+    {
+      "current_metadata": {
+        "refined_faces": 1
+      },
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5416238833973052,
+        "normalized_rmse": 0.08030276999995357,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9594339035129367,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [
+          "opencv-haar:RuntimeError:OpenCV face detector cascade is unavailable"
+        ],
+        "roi": {
+          "attempts": [
+            {
+              "component_bbox": [
+                90,
+                79,
+                168,
+                157
+              ],
+              "detected_faces": 1,
+              "effective_minimum_face_pixels": 71,
+              "input_shape": [
+                384,
+                384
+              ],
+              "roi_bbox": [
+                55,
+                44,
+                203,
+                192
+              ]
+            }
+          ],
+          "detected_faces": 1,
+          "eligible_components": 1,
+          "enabled": true,
+          "fallback_errors_clean": true,
+          "selection_detail_fallback_regions": 0,
+          "validated_face_regions": 1
+        },
+        "scope": "selection-roi"
+      },
+      "face_height_pixels": 78,
+      "facedepth_native_aspect_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5374027964483554,
+        "normalized_rmse": 0.08059401453642337,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9591328379893085,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.4436854771720979,
+        "normalized_rmse": 0.16738296000307504,
+        "shape_check_failures": {},
+        "shape_correlation": 0.8091065012159661,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5338729808881619,
+        "normalized_rmse": 0.08062577779501254,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9590999320049696,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.4101698881915378,
+        "normalized_rmse": 0.190732837535009,
+        "shape_check_failures": {},
+        "shape_correlation": 0.7426851892673457,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5375674735212955,
+        "normalized_rmse": 0.08058557424445088,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9591415795618058,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.3623031296098348,
+        "normalized_rmse": 0.14509763656974656,
+        "shape_check_failures": {},
+        "shape_correlation": 0.8605175070282335,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5333750676794303,
+        "normalized_rmse": 0.08062818419388776,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9590974384582853,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.3388574740470205,
+        "normalized_rmse": 0.17262735143482252,
+        "shape_check_failures": {},
+        "shape_correlation": 0.7954078958721302,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eye"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5252390627490834,
+        "normalized_rmse": 0.08234279828543035,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9573001249129701,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "provider_metadata": {
+        "facedepth_native_aspect_bgr_fused": {
+          "alignment_anchor_pixels": 1664,
+          "alignment_offset": 0.1810722243270016,
+          "alignment_scale": 0.2720748863080672,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            107
+          ],
+          "max_abs_correction": 0.005264433566480875,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_bgr_raw": {
+          "alignment_anchor_pixels": 1664,
+          "alignment_offset": 0.1810722243270016,
+          "alignment_scale": 0.2720748863080672,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            107
+          ],
+          "max_abs_correction": 0.005264433566480875,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_fused": {
+          "alignment_anchor_pixels": 1653,
+          "alignment_offset": 0.2006474882364273,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            107
+          ],
+          "max_abs_correction": 0.0033474285155534744,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_raw": {
+          "alignment_anchor_pixels": 1653,
+          "alignment_offset": 0.2006474882364273,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            107
+          ],
+          "max_abs_correction": 0.0033474285155534744,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_fused": {
+          "alignment_anchor_pixels": 1650,
+          "alignment_offset": 0.1993013322353363,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            107
+          ],
+          "max_abs_correction": 0.007322387304157019,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_raw": {
+          "alignment_anchor_pixels": 1650,
+          "alignment_offset": 0.1993013322353363,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            107
+          ],
+          "max_abs_correction": 0.007322387304157019,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_fused": {
+          "alignment_anchor_pixels": 1653,
+          "alignment_offset": 0.1986180543899536,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            107
+          ],
+          "max_abs_correction": 0.007322387304157019,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_raw": {
+          "alignment_anchor_pixels": 1653,
+          "alignment_offset": 0.1986180543899536,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            107
+          ],
+          "max_abs_correction": 0.007322387304157019,
+          "refined_faces": 1
+        }
+      },
+      "row_id": "c3i_demo_0015"
+    },
+    {
+      "current_metadata": {
+        "refined_faces": 1
+      },
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.6151445463687754,
+        "normalized_rmse": 0.08088838766113388,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9449849345292372,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [],
+        "roi": {
+          "enabled": false,
+          "reason": "full_image_face_detected"
+        },
+        "scope": "full-image"
+      },
+      "face_height_pixels": 78,
+      "facedepth_native_aspect_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.6094361889481831,
+        "normalized_rmse": 0.08098495121481507,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9448496680187404,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": false
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.4653545044511853,
+        "normalized_rmse": 0.20365700492012345,
+        "shape_check_failures": {},
+        "shape_correlation": 0.5671827233770077,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.607921840244324,
+        "normalized_rmse": 0.08099892582480049,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9448300773709929,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": false
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.3506184159119192,
+        "normalized_rmse": 0.21941491368950802,
+        "shape_check_failures": {},
+        "shape_correlation": 0.4611596011968561,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.6086184882526388,
+        "normalized_rmse": 0.08096744960450282,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9448741977375935,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.38959874312764287,
+        "normalized_rmse": 0.19453975470918913,
+        "shape_check_failures": {},
+        "shape_correlation": 0.6173078524361612,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.6067381882844094,
+        "normalized_rmse": 0.08097962586362877,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9448571324957842,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": false
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.26486319551788456,
+        "normalized_rmse": 0.22078119199594914,
+        "shape_check_failures": {},
+        "shape_correlation": 0.45036912710117505,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.613045850645036,
+        "normalized_rmse": 0.0802420819402457,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9458856329255079,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "provider_metadata": {
+        "facedepth_native_aspect_bgr_fused": {
+          "alignment_anchor_pixels": 1677,
+          "alignment_offset": 0.2251528948545456,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            130,
+            112
+          ],
+          "max_abs_correction": 0.003687184536829591,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_bgr_raw": {
+          "alignment_anchor_pixels": 1677,
+          "alignment_offset": 0.2251528948545456,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            130,
+            112
+          ],
+          "max_abs_correction": 0.003687184536829591,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_fused": {
+          "alignment_anchor_pixels": 1690,
+          "alignment_offset": 0.22574609518051147,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            130,
+            112
+          ],
+          "max_abs_correction": 0.0037207845598459244,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_raw": {
+          "alignment_anchor_pixels": 1690,
+          "alignment_offset": 0.22574609518051147,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            130,
+            112
+          ],
+          "max_abs_correction": 0.0037207845598459244,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_fused": {
+          "alignment_anchor_pixels": 1668,
+          "alignment_offset": 0.23378003388643265,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            130,
+            112
+          ],
+          "max_abs_correction": 0.0030859813559800386,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_raw": {
+          "alignment_anchor_pixels": 1668,
+          "alignment_offset": 0.23378003388643265,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            130,
+            112
+          ],
+          "max_abs_correction": 0.0030859813559800386,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_fused": {
+          "alignment_anchor_pixels": 1668,
+          "alignment_offset": 0.23785530775785446,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            130,
+            112
+          ],
+          "max_abs_correction": 0.005306470673531294,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_raw": {
+          "alignment_anchor_pixels": 1668,
+          "alignment_offset": 0.23785530775785446,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            130,
+            112
+          ],
+          "max_abs_correction": 0.005306470673531294,
+          "refined_faces": 1
+        }
+      },
+      "row_id": "c3i_demo_0036"
+    },
+    {
+      "current_metadata": {
+        "refined_faces": 1
+      },
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 8,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.4391294314312992,
+        "normalized_rmse": 0.08917297352370658,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9389247752326155,
+        "shape_failed_parts": [
+          "left_eye",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [],
+        "roi": {
+          "enabled": false,
+          "reason": "full_image_face_detected"
+        },
+        "scope": "full-image"
+      },
+      "face_height_pixels": 78,
+      "facedepth_native_aspect_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 9,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.4328833634833019,
+        "normalized_rmse": 0.08917295743155221,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9389247979928185,
+        "shape_failed_parts": [
+          "left_eye",
+          "mouth",
+          "nose",
+          "right_eye"
+        ]
+      },
+      "facedepth_native_aspect_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.2016786584623199,
+        "normalized_rmse": 0.14141236400776452,
+        "shape_check_failures": {},
+        "shape_correlation": 0.8379698154080587,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.43394366091895537,
+        "normalized_rmse": 0.08910221328583849,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9390248111113747,
+        "shape_failed_parts": [
+          "left_eye",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": false,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.15784516726350872,
+        "normalized_rmse": 0.14830919612665103,
+        "shape_check_failures": {},
+        "shape_correlation": 0.8200221658669495,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.4438377830808812,
+        "normalized_rmse": 0.08892738269383027,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9392715883185994,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.3849686482555109,
+        "normalized_rmse": 0.12811525080010547,
+        "shape_check_failures": {},
+        "shape_correlation": 0.8692331299057963,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.4329625073207728,
+        "normalized_rmse": 0.08918795436033854,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9389035848189968,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.3078884305157361,
+        "normalized_rmse": 0.1435445307283965,
+        "shape_check_failures": {},
+        "shape_correlation": 0.8325534577280822,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.43639753930095276,
+        "normalized_rmse": 0.08858624465668447,
+        "shape_check_failures": {},
+        "shape_correlation": 0.939751530872062,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "provider_metadata": {
+        "facedepth_native_aspect_bgr_fused": {
+          "alignment_anchor_pixels": 1915,
+          "alignment_offset": 0.10316424625032428,
+          "alignment_scale": 0.5748399730260237,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            130,
+            126
+          ],
+          "max_abs_correction": 0.0102387685328722,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_bgr_raw": {
+          "alignment_anchor_pixels": 1915,
+          "alignment_offset": 0.10316424625032428,
+          "alignment_scale": 0.5748399730260237,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            130,
+            126
+          ],
+          "max_abs_correction": 0.0102387685328722,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_fused": {
+          "alignment_anchor_pixels": 1886,
+          "alignment_offset": 0.1552583959005694,
+          "alignment_scale": 0.5655138892752205,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            130,
+            126
+          ],
+          "max_abs_correction": 0.011260022409260273,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_raw": {
+          "alignment_anchor_pixels": 1886,
+          "alignment_offset": 0.1552583959005694,
+          "alignment_scale": 0.5655138892752205,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            130,
+            126
+          ],
+          "max_abs_correction": 0.011260022409260273,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_fused": {
+          "alignment_anchor_pixels": 1891,
+          "alignment_offset": 0.15672990729707414,
+          "alignment_scale": 0.5617698911965098,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            130,
+            126
+          ],
+          "max_abs_correction": 0.016827652230858803,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_raw": {
+          "alignment_anchor_pixels": 1891,
+          "alignment_offset": 0.15672990729707414,
+          "alignment_scale": 0.5617698911965098,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            130,
+            126
+          ],
+          "max_abs_correction": 0.016827652230858803,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_fused": {
+          "alignment_anchor_pixels": 1903,
+          "alignment_offset": 0.4396495372056961,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            130,
+            126
+          ],
+          "max_abs_correction": 0.009577900171279907,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_raw": {
+          "alignment_anchor_pixels": 1903,
+          "alignment_offset": 0.4396495372056961,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            130,
+            126
+          ],
+          "max_abs_correction": 0.009577900171279907,
+          "refined_faces": 1
+        }
+      },
+      "row_id": "c3i_demo_0037"
+    },
+    {
+      "current_metadata": {
+        "refined_faces": 1
+      },
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5484982823604948,
+        "normalized_rmse": 0.07159757280311098,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9574620881131668,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [
+          "opencv-haar:RuntimeError:OpenCV face detector cascade is unavailable"
+        ],
+        "roi": {
+          "attempts": [
+            {
+              "component_bbox": [
+                89,
+                79,
+                168,
+                158
+              ],
+              "detected_faces": 1,
+              "effective_minimum_face_pixels": 70,
+              "input_shape": [
+                384,
+                384
+              ],
+              "roi_bbox": [
+                53,
+                43,
+                204,
+                194
+              ]
+            }
+          ],
+          "detected_faces": 1,
+          "eligible_components": 1,
+          "enabled": true,
+          "fallback_errors_clean": true,
+          "selection_detail_fallback_regions": 0,
+          "validated_face_regions": 1
+        },
+        "scope": "selection-roi"
+      },
+      "face_height_pixels": 78,
+      "facedepth_native_aspect_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5450418056994369,
+        "normalized_rmse": 0.07160324273810702,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9574552008531665,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.2953849379554016,
+        "normalized_rmse": 0.1494406764857005,
+        "shape_check_failures": {},
+        "shape_correlation": 0.7982777486575677,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5448946402594756,
+        "normalized_rmse": 0.0716193601380622,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9574356198266617,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.24920391335795591,
+        "normalized_rmse": 0.16447966647397808,
+        "shape_check_failures": {},
+        "shape_correlation": 0.7487070533539454,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5424515641299662,
+        "normalized_rmse": 0.07159841239052978,
+        "shape_check_failures": {},
+        "shape_correlation": 0.957461068305341,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": false,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.17909946671139534,
+        "normalized_rmse": 0.14192503445377744,
+        "shape_check_failures": {},
+        "shape_correlation": 0.8202541307300362,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.540375587807641,
+        "normalized_rmse": 0.07165338915256934,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9573942621915034,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": false,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.15056425065058485,
+        "normalized_rmse": 0.1643645118661581,
+        "shape_check_failures": {},
+        "shape_correlation": 0.7491177142949449,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.5455986345416621,
+        "normalized_rmse": 0.07162581879804367,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9574277718524601,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "provider_metadata": {
+        "facedepth_native_aspect_bgr_fused": {
+          "alignment_anchor_pixels": 1559,
+          "alignment_offset": 0.14073942896744623,
+          "alignment_scale": 0.35916884747591976,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.002587971743196249,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_bgr_raw": {
+          "alignment_anchor_pixels": 1559,
+          "alignment_offset": 0.14073942896744623,
+          "alignment_scale": 0.35916884747591976,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.002587971743196249,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_fused": {
+          "alignment_anchor_pixels": 1533,
+          "alignment_offset": 0.24112378060817719,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.0024538934230804443,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_raw": {
+          "alignment_anchor_pixels": 1533,
+          "alignment_offset": 0.24112378060817719,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.0024538934230804443,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_fused": {
+          "alignment_anchor_pixels": 1509,
+          "alignment_offset": 0.23965972661972046,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.007679026108235121,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_raw": {
+          "alignment_anchor_pixels": 1509,
+          "alignment_offset": 0.23965972661972046,
+          "alignment_scale": 0.25,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.007679026108235121,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_fused": {
+          "alignment_anchor_pixels": 1484,
+          "alignment_offset": 0.2378365620970726,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.008766697719693184,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_raw": {
+          "alignment_anchor_pixels": 1484,
+          "alignment_offset": 0.2378365620970726,
+          "alignment_scale": 0.25,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            127,
+            103
+          ],
+          "max_abs_correction": 0.008766697719693184,
+          "refined_faces": 1
+        }
+      },
+      "row_id": "c3i_demo_0039"
+    },
+    {
+      "current_metadata": {
+        "refined_faces": 1
+      },
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.2766067000699564,
+        "normalized_rmse": 0.13329539597248213,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9287869682483118,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [],
+        "roi": {
+          "enabled": false,
+          "reason": "full_image_face_detected"
+        },
+        "scope": "full-image"
+      },
+      "face_height_pixels": 78,
+      "facedepth_native_aspect_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.2698771201356946,
+        "normalized_rmse": 0.13353384323345366,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9285221456719184,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": false,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.11878917602473764,
+        "normalized_rmse": 0.27646850373675097,
+        "shape_check_failures": {},
+        "shape_correlation": 0.639619067986342,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.2715474659090348,
+        "normalized_rmse": 0.1333965370494866,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9286747066989863,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": false,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": false
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.10470330318426713,
+        "normalized_rmse": 0.3031809497303759,
+        "shape_check_failures": {},
+        "shape_correlation": 0.537971188150448,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.27093235794537596,
+        "normalized_rmse": 0.13341528121396726,
+        "shape_check_failures": {},
+        "shape_correlation": 0.928653890767797,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": false,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": false
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.10185783310836335,
+        "normalized_rmse": 0.32870941912117013,
+        "shape_check_failures": {},
+        "shape_correlation": 0.4058437176115565,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.2715550685043175,
+        "normalized_rmse": 0.1334160321844725,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9286530567228968,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": false,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": false
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.06764657421152438,
+        "normalized_rmse": 0.3269526395244977,
+        "shape_check_failures": {},
+        "shape_correlation": 0.4166697114289062,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.27777783159803887,
+        "normalized_rmse": 0.13551279102039823,
+        "shape_check_failures": {},
+        "shape_correlation": 0.926303068793056,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "provider_metadata": {
+        "facedepth_native_aspect_bgr_fused": {
+          "alignment_anchor_pixels": 1860,
+          "alignment_offset": -0.49663653719442247,
+          "alignment_scale": 1.0998514991463033,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            121,
+            126
+          ],
+          "max_abs_correction": 0.030689191073179245,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_bgr_raw": {
+          "alignment_anchor_pixels": 1860,
+          "alignment_offset": -0.49663653719442247,
+          "alignment_scale": 1.0998514991463033,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            121,
+            126
+          ],
+          "max_abs_correction": 0.030689191073179245,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_fused": {
+          "alignment_anchor_pixels": 1853,
+          "alignment_offset": -0.12568085436493093,
+          "alignment_scale": 0.7395639057660335,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            121,
+            126
+          ],
+          "max_abs_correction": 0.026779955253005028,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_raw": {
+          "alignment_anchor_pixels": 1853,
+          "alignment_offset": -0.12568085436493093,
+          "alignment_scale": 0.7395639057660335,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            121,
+            126
+          ],
+          "max_abs_correction": 0.026779955253005028,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_fused": {
+          "alignment_anchor_pixels": 1852,
+          "alignment_offset": -0.24310089844361815,
+          "alignment_scale": 0.8532355323882718,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            121,
+            126
+          ],
+          "max_abs_correction": 0.018704084679484367,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_raw": {
+          "alignment_anchor_pixels": 1852,
+          "alignment_offset": -0.24310089844361815,
+          "alignment_scale": 0.8532355323882718,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            121,
+            126
+          ],
+          "max_abs_correction": 0.018704084679484367,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_fused": {
+          "alignment_anchor_pixels": 1853,
+          "alignment_offset": -0.02176321089576949,
+          "alignment_scale": 0.6234102384702593,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            121,
+            126
+          ],
+          "max_abs_correction": 0.016634507104754448,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_raw": {
+          "alignment_anchor_pixels": 1853,
+          "alignment_offset": -0.02176321089576949,
+          "alignment_scale": 0.6234102384702593,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            121,
+            126
+          ],
+          "max_abs_correction": 0.016634507104754448,
+          "refined_faces": 1
+        }
+      },
+      "row_id": "c3i_demo_0052"
+    },
+    {
+      "current_metadata": {
+        "refined_faces": 1
+      },
+      "current_refined": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 10,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.44103650366938607,
+        "normalized_rmse": 0.08131413531226633,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9484728785358199,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "detection": {
+        "errors": [],
+        "roi": {
+          "enabled": false,
+          "reason": "full_image_face_detected"
+        },
+        "scope": "full-image"
+      },
+      "face_height_pixels": 78,
+      "facedepth_native_aspect_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.43264428744749056,
+        "normalized_rmse": 0.08126428561655147,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9485377500147434,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.20955983858148605,
+        "normalized_rmse": 0.16068404533338312,
+        "shape_check_failures": {},
+        "shape_correlation": 0.7797102081332838,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.42548171582693334,
+        "normalized_rmse": 0.081334545674733,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9484463049241079,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_native_aspect_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": false,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.189275998353388,
+        "normalized_rmse": 0.1703560268439812,
+        "shape_check_failures": {},
+        "shape_correlation": 0.7478839046266004,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.4308030996794921,
+        "normalized_rmse": 0.08096530970518234,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9489258923107847,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_bgr_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.2799621032501258,
+        "normalized_rmse": 0.15197337626943955,
+        "shape_check_failures": {},
+        "shape_correlation": 0.8057928349016762,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_fused": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.434001317325107,
+        "normalized_rmse": 0.08121058392317243,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9486075847877163,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "facedepth_official_stretch_rgb_raw": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 12,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.24783267439547435,
+        "normalized_rmse": 0.16858175379608917,
+        "shape_check_failures": {},
+        "shape_correlation": 0.753964031268074,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "global_depth": {
+        "affine_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "right_eye",
+          "right_eyebrow"
+        ],
+        "available": true,
+        "checks": {
+          "coverage": true,
+          "depth_semantics_orientation": true,
+          "gradient_correlation": true,
+          "named_part_affine_mm": false,
+          "named_part_shape": false,
+          "normalized_rmse": true,
+          "passed": false,
+          "shape_correlation": true
+        },
+        "combined_part_failures": 11,
+        "coverage_ratio": 1.0,
+        "gradient_correlation": 0.44378927820102726,
+        "normalized_rmse": 0.08401550555794711,
+        "shape_check_failures": {},
+        "shape_correlation": 0.9448910988034889,
+        "shape_failed_parts": [
+          "left_eye",
+          "left_eyebrow",
+          "mouth",
+          "nose",
+          "right_eye",
+          "right_eyebrow"
+        ]
+      },
+      "provider_metadata": {
+        "facedepth_native_aspect_bgr_fused": {
+          "alignment_anchor_pixels": 1846,
+          "alignment_offset": 0.05222719862660208,
+          "alignment_scale": 0.4394769236023158,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            126,
+            113
+          ],
+          "max_abs_correction": 0.019365832209587097,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_bgr_raw": {
+          "alignment_anchor_pixels": 1846,
+          "alignment_offset": 0.05222719862660208,
+          "alignment_scale": 0.4394769236023158,
+          "color_order": "bgr",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            126,
+            113
+          ],
+          "max_abs_correction": 0.019365832209587097,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_fused": {
+          "alignment_anchor_pixels": 1834,
+          "alignment_offset": 0.01344865786101529,
+          "alignment_scale": 0.48716380070882725,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            126,
+            113
+          ],
+          "max_abs_correction": 0.02613789029419422,
+          "refined_faces": 1
+        },
+        "facedepth_native_aspect_rgb_raw": {
+          "alignment_anchor_pixels": 1834,
+          "alignment_offset": 0.01344865786101529,
+          "alignment_scale": 0.48716380070882725,
+          "color_order": "rgb",
+          "input_mode": "native-aspect",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            126,
+            113
+          ],
+          "max_abs_correction": 0.02613789029419422,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_fused": {
+          "alignment_anchor_pixels": 1846,
+          "alignment_offset": -0.026893208014476644,
+          "alignment_scale": 0.5185185880039797,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            126,
+            113
+          ],
+          "max_abs_correction": 0.024047408252954483,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_bgr_raw": {
+          "alignment_anchor_pixels": 1846,
+          "alignment_offset": -0.026893208014476644,
+          "alignment_scale": 0.5185185880039797,
+          "color_order": "bgr",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            126,
+            113
+          ],
+          "max_abs_correction": 0.024047408252954483,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_fused": {
+          "alignment_anchor_pixels": 1843,
+          "alignment_offset": 0.0861165992219734,
+          "alignment_scale": 0.4098936843034229,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "production-native-fusion",
+          "local_shape": [
+            126,
+            113
+          ],
+          "max_abs_correction": 0.01565837487578392,
+          "refined_faces": 1
+        },
+        "facedepth_official_stretch_rgb_raw": {
+          "alignment_anchor_pixels": 1843,
+          "alignment_offset": 0.0861165992219734,
+          "alignment_scale": 0.4098936843034229,
+          "color_order": "rgb",
+          "input_mode": "official-stretch",
+          "integration": "raw-crop-diagnostic",
+          "local_shape": [
+            126,
+            113
+          ],
+          "max_abs_correction": 0.01565837487578392,
+          "refined_faces": 1
+        }
+      },
+      "row_id": "c3i_demo_0097"
+    }
+  ],
+  "runtime": {
+    "device": "cuda",
+    "peak_torch_allocated_inference_gib": 0.9180293083190918,
+    "seconds": 25.873057699995115
+  },
+  "schema_version": 1,
+  "source_geometry_training_and_evaluation_only": true,
+  "status": "hold"
+}

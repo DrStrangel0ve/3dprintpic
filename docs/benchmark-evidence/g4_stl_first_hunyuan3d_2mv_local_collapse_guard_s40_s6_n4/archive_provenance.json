@@ -1,0 +1,26 @@
+{
+  "compact_archive": {
+    "bytes": 1297705,
+    "entries": 207,
+    "sha256": "ed34c41d81d392b0673acc7e8e529ef94b6eb1b584e1809c8b50204dfec4ab6e"
+  },
+  "duration_seconds": 597.744,
+  "eval_rows": 36,
+  "gpu": {
+    "compute_capability": [
+      12,
+      0
+    ],
+    "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "vram_total_gb": 94.971
+  },
+  "input_payload": {
+    "bytes": 806446,
+    "payload_branch_commit": "f3e1f26",
+    "sha256": "9b5e9fab0be0c3524a5fa32453cf3089f9c788e825512a904794444f19d90393"
+  },
+  "manifest_sha256": "9f0aaec46541735ef6ed95110e151ee205565b51c5be7af6d4b015125d99c89a",
+  "notebook_url": "https://colab.research.google.com/drive/1SuilhFuF5L3ELkEy2rnEsTmKAL19ob60",
+  "run_name": "g4_stl_first_hunyuan3d_2mv_local_collapse_guard_s40_s6_n4",
+  "runtime_commit": "3da31816575fa26b370c7601c02c2d8ebb2fe8eb"
+}

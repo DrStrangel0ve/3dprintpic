@@ -1,0 +1,71 @@
+[
+  {
+    "name": "masked",
+    "method": "masked",
+    "stl_mode": "depth-relief"
+  },
+  {
+    "name": "mirror",
+    "method": "mirror",
+    "stl_mode": "depth-relief"
+  },
+  {
+    "name": "biharmonic",
+    "method": "biharmonic",
+    "stl_mode": "depth-relief"
+  },
+  {
+    "name": "source_mesh_oracle",
+    "method": "source-mesh-oracle",
+    "stl_mode": "source-mesh-oracle",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "full",
+    "direct_mesh_output_ext": "ply",
+    "source_mesh_repair": "printable"
+  },
+  {
+    "name": "triposr_api_masked_repaired_direct_mesh",
+    "method": "external-image-to-mesh",
+    "stl_mode": "single-image-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "masked",
+    "direct_mesh_output_ext": "obj",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/triposr-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider triposr-api --provider-dir /content/TripoSR --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.obj\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --chunk-size 8192 --mc-resolution 256 --mesh-repair printable"
+  },
+  {
+    "name": "triposr_api_masked_repaired_stl_scaled_compact_direct_mesh",
+    "method": "external-image-to-mesh",
+    "stl_mode": "single-image-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "masked",
+    "direct_mesh_output_ext": "obj",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/triposr-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider triposr-api --provider-dir /content/TripoSR --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.obj\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --chunk-size 8192 --mc-resolution 256 --mesh-repair printable --mesh-target-max-dimension 96 --mesh-min-bbox-dimension 12"
+  },
+  {
+    "name": "triposr_api_masked_repaired_stl_aspect_clamped2p25_direct_mesh",
+    "method": "external-image-to-mesh",
+    "stl_mode": "single-image-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "masked",
+    "direct_mesh_output_ext": "obj",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/triposr-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider triposr-api --provider-dir /content/TripoSR --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.obj\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --chunk-size 8192 --mc-resolution 256 --mesh-repair printable --mesh-target-max-dimension 96 --mesh-min-bbox-dimension 12 --mesh-max-bbox-aspect-ratio 2.25"
+  },
+  {
+    "name": "hunyuan3d_shape_masked_repaired_direct_mesh",
+    "method": "external-image-to-mesh",
+    "stl_mode": "single-image-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "masked",
+    "direct_mesh_output_ext": "glb",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/hunyuan3d-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider hunyuan3d-shape --provider-dir /content/Hunyuan3D-2.1 --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --mesh-repair printable --num-inference-steps 30 --guidance-scale 5.0 --octree-resolution 256 --num-chunks 8000 --disable-progress --low-vram"
+  }
+]

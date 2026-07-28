@@ -1,0 +1,66 @@
+[
+  {
+    "name": "masked",
+    "method": "masked",
+    "stl_mode": "depth-relief"
+  },
+  {
+    "name": "mirror",
+    "method": "mirror",
+    "stl_mode": "depth-relief"
+  },
+  {
+    "name": "biharmonic",
+    "method": "biharmonic",
+    "stl_mode": "depth-relief"
+  },
+  {
+    "name": "source_mesh_oracle",
+    "method": "source-mesh-oracle",
+    "stl_mode": "source-mesh-oracle",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "full",
+    "direct_mesh_output_ext": "ply",
+    "source_mesh_repair": "printable"
+  },
+  {
+    "name": "triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+    "method": "external-image-to-mesh",
+    "stl_mode": "single-image-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "biharmonic",
+    "direct_mesh_output_ext": "glb",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/triposg-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider triposg --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --output-stl \"{output_stl}\" --timeout 3600 --provider-device cuda --provider-dir /content/TripoSG --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --mesh-repair printable --mesh-target-bbox-extents \"{inferred_bbox_extents}\" --mesh-target-faces 40000 --mesh-max-normalized-face-density-log1p 9.95 --triposg-model-revision 2c1c516d22d58db486a058d98d31bb6177344e06 --triposg-rembg-revision 2ceba5a5efaec153162aedea169f76caf9b46cf8 --num-inference-steps 50 --guidance-scale 7.0 --seed 42 --provider-mesh-cache-dir /content/triposg-provider-cache",
+    "direct_mesh_bbox_source": "inferred",
+    "direct_mesh_reference_method": "mirror",
+    "oracle_diagnostic": false
+  },
+  {
+    "name": "trellis2_biharmonic_prefill_raw_direct_mesh",
+    "method": "external-image-to-mesh",
+    "stl_mode": "single-image-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "biharmonic",
+    "direct_mesh_output_ext": "glb",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/trellis2-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider trellis2 --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --output-stl \"{output_stl}\" --timeout 3600 --provider-dir /content/TRELLIS.2 --trellis2-model-path microsoft/TRELLIS.2-4B --trellis2-model-revision af44b45f2e35a493886929c6d786e563ec68364d --trellis2-resolution 512 --seed 42 --provider-mesh-cache-dir /content/trellis2-provider-cache"
+  },
+  {
+    "name": "trellis2_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+    "method": "external-image-to-mesh",
+    "stl_mode": "single-image-mesh",
+    "skip_depth": true,
+    "emit_stl": true,
+    "direct_mesh_input": "biharmonic",
+    "direct_mesh_output_ext": "glb",
+    "direct_mesh_timeout": 3600,
+    "direct_mesh_command": "/content/trellis2-venv/bin/python -m backend.benchmark.run_image_to_mesh_provider --provider trellis2 --input-image \"{input_image}\" --output-mesh \"{output_mesh}\" --output-stl \"{output_stl}\" --timeout 3600 --provider-dir /content/TRELLIS.2 --raw-output-mesh \"{output_dir}/output_mesh_raw.glb\" --mesh-repair printable --mesh-target-bbox-extents \"{inferred_bbox_extents}\" --mesh-target-faces 40000 --mesh-max-normalized-face-density-log1p 9.95 --trellis2-model-path microsoft/TRELLIS.2-4B --trellis2-model-revision af44b45f2e35a493886929c6d786e563ec68364d --trellis2-resolution 512 --seed 42 --provider-mesh-cache-dir /content/trellis2-provider-cache",
+    "direct_mesh_bbox_source": "inferred",
+    "direct_mesh_reference_method": "mirror",
+    "oracle_diagnostic": false
+  }
+]

@@ -1,0 +1,104 @@
+{
+  "closed": {
+    "reliability_reason": "closed-single-component-consistent-winding:positive",
+    "reliability_status": "reliable",
+    "signed_volume_fill_ratio": 1.0,
+    "surface_fill_proxy": null,
+    "surface_fill_proxy_supported": false,
+    "topology_assessed": true
+  },
+  "fragmented": {
+    "reliability_reason": "component-count:2",
+    "reliability_status": "unreliable",
+    "signed_volume_fill_ratio": 0.5714285714285714,
+    "surface_fill_proxy": 0.5714285714285714,
+    "surface_fill_proxy_comparison": 0.5714285714285714,
+    "surface_fill_proxy_method": "component-centered-unsigned-tetrahedra",
+    "surface_fill_proxy_supported": true,
+    "topology_assessed": true
+  },
+  "fragmented_mixed_winding": {
+    "reliability_reason": "non-finite-or-zero-signed-volume",
+    "reliability_status": "unreliable",
+    "signed_volume_fill_ratio": 0.0,
+    "surface_fill_proxy": 0.5714285714285714,
+    "surface_fill_proxy_comparison": 0.5714285714285714,
+    "surface_fill_proxy_method": "component-centered-unsigned-tetrahedra",
+    "surface_fill_proxy_supported": true,
+    "topology_assessed": true
+  },
+  "open_missing_quad": {
+    "reliability_reason": "not-watertight",
+    "reliability_status": "unreliable",
+    "signed_volume_fill_ratio": 0.5,
+    "surface_fill_proxy": 0.8333333333333334,
+    "surface_fill_proxy_comparison": 0.8333333333333334,
+    "surface_fill_proxy_method": "component-centered-unsigned-tetrahedra",
+    "surface_fill_proxy_supported": true,
+    "topology_assessed": true
+  },
+  "open_to_closed_repair": {
+    "raw_proxy": 0.8333333333333334,
+    "relative_change_abs": 0.19999999999999996,
+    "repaired_proxy": 1.0
+  },
+  "overlapping": {
+    "reliability_reason": "component-count:2",
+    "reliability_status": "unreliable",
+    "signed_volume_fill_ratio": 1.818181805866809,
+    "surface_fill_proxy": 1.0,
+    "surface_fill_proxy_clipped": true,
+    "surface_fill_proxy_comparison": 1.818181805866809,
+    "surface_fill_proxy_method": "component-centered-unsigned-tetrahedra",
+    "surface_fill_proxy_supported": true,
+    "topology_assessed": true
+  },
+  "point_touching": {
+    "reliability_reason": "component-count:2",
+    "reliability_status": "unreliable",
+    "signed_volume_fill_ratio": 0.25,
+    "surface_fill_proxy": 0.25,
+    "surface_fill_proxy_comparison": 0.25,
+    "surface_fill_proxy_method": "component-centered-unsigned-tetrahedra",
+    "surface_fill_proxy_supported": true,
+    "topology_assessed": true
+  },
+  "proxy_limited": {
+    "surface_fill_proxy_error": "ValueError: surface fill proxy exceeds bounded face limit: faces=10, limit=1",
+    "surface_fill_proxy_supported": false
+  },
+  "reversed": {
+    "reliability_reason": "closed-single-component-consistent-winding:reversed",
+    "reliability_status": "reliable",
+    "signed_volume_fill_ratio": 1.0,
+    "surface_fill_proxy": null,
+    "surface_fill_proxy_supported": false,
+    "topology_assessed": true
+  },
+  "thin": {
+    "reliability_reason": "closed-single-component-consistent-winding:positive",
+    "reliability_status": "reliable",
+    "signed_volume_fill_ratio": 1.0,
+    "surface_fill_proxy": null,
+    "surface_fill_proxy_supported": false,
+    "topology_assessed": true
+  },
+  "tiny": {
+    "reliability_reason": "closed-single-component-consistent-winding:positive",
+    "reliability_status": "reliable",
+    "signed_volume_fill_ratio": 1.0,
+    "surface_fill_proxy": null,
+    "surface_fill_proxy_supported": false,
+    "topology_assessed": true
+  },
+  "unknown_topology": {
+    "reliability_reason": "topology-not-assessed-face-limit",
+    "reliability_status": "unknown",
+    "signed_volume_fill_ratio": 1.0,
+    "surface_fill_proxy": 1.0,
+    "surface_fill_proxy_comparison": 1.0,
+    "surface_fill_proxy_method": "component-centered-unsigned-tetrahedra",
+    "surface_fill_proxy_supported": true,
+    "topology_assessed": false
+  }
+}

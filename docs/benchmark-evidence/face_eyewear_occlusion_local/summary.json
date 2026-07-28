@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "run_kind": "privacy-held-local-replay",
+  "source_committed": false,
+  "requested_relief_height_mm": 30.0,
+  "eyewear_regions": [
+    {
+      "face_index": 0,
+      "dark_coverage_ratio": 0.6974486819073887,
+      "component_coverage_ratio": 0.7504906380947329,
+      "component_width_ratio": 0.8778768242757825,
+      "input_residual_p95_ratio": 0.10876145441413283,
+      "output_residual_p95_ratio": 0.03821427718106224,
+      "residual_reduction_ratio": 0.6486413556446837,
+      "maximum_correction_observed_ratio": 0.09736178815364838,
+      "saturated_core_ratio": 0.0,
+      "quality_gates_passed": true
+    },
+    {
+      "face_index": 1,
+      "dark_coverage_ratio": 0.7822011468901632,
+      "component_coverage_ratio": 0.8486987207763564,
+      "component_width_ratio": 0.9109722153444534,
+      "input_residual_p95_ratio": 0.07126712701582204,
+      "output_residual_p95_ratio": 0.028143242624087912,
+      "residual_reduction_ratio": 0.6051020463075518,
+      "maximum_correction_observed_ratio": 0.14999999105930328,
+      "saturated_core_ratio": 0.004125412541254125,
+      "quality_gates_passed": true
+    }
+  ],
+  "baseline_stl": {
+    "vertices": 129434,
+    "faces": 258864,
+    "watertight": true,
+    "winding_consistent": true,
+    "volume_mesh": true,
+    "body_count": 1,
+    "degenerate_faces": 0,
+    "bbox_mm": [128.0, 96.0, 26.119054794311523],
+    "volume_mm3": 117762.20902284111,
+    "surface_area_mm2": 26421.632589856985
+  },
+  "candidate_stl": {
+    "vertices": 129434,
+    "faces": 258864,
+    "watertight": true,
+    "winding_consistent": true,
+    "volume_mesh": true,
+    "body_count": 1,
+    "degenerate_faces": 0,
+    "bbox_mm": [128.0, 96.0, 26.119054794311523],
+    "volume_mm3": 117781.81713558403,
+    "surface_area_mm2": 26405.18712191949
+  }
+}

@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "status": "hold",
+  "production_changed": false,
+  "base_revision": "3d74078eee6b4e861d3de15d09d341eb58b984a1",
+  "privacy": {
+    "training_and_evaluation": "MakeHuman CC0 geometry and deterministic procedural scenes only",
+    "private_artifacts_published": false,
+    "source_geometry_runtime_eligible": false
+  },
+  "subject_support": {
+    "mode": "selection-subject",
+    "rows": 320,
+    "selection_subject_rows": 320,
+    "minimum_expansion_ratio": 1.685774261262716,
+    "median_expansion_ratio": 2.0003768465480856,
+    "maximum_expansion_ratio": 2.6246376811594203,
+    "zero_residual_max_abs_change": 0.0,
+    "outer_boundary_max_abs_correction": 0.0,
+    "legacy_checkpoint_mode": "detector-face"
+  },
+  "expressivity_oracle": {
+    "evidence_sha256": "420af8f04631141a5acb40de60cabcf5240764c7b7a53b8b04ede84d80a859b0",
+    "current_exact_aggregate_failures": 19,
+    "current_exact_hard_face_failures": 10,
+    "rows": [
+      {
+        "alpha": 0.04,
+        "aggregate_failures": 17,
+        "hard_face_failures": 8,
+        "hard_face_mean_abs_correction": 0.010552721098065376,
+        "hard_face_max_abs_correction": 0.022032033652067184
+      },
+      {
+        "alpha": 0.08,
+        "aggregate_failures": 16,
+        "hard_face_failures": 8,
+        "hard_face_mean_abs_correction": 0.01613507606089115,
+        "hard_face_max_abs_correction": 0.04406406730413437
+      },
+      {
+        "alpha": 0.16,
+        "aggregate_failures": 20,
+        "hard_face_failures": 8,
+        "hard_face_mean_abs_correction": 0.021788431331515312,
+        "hard_face_max_abs_correction": 0.08812813460826874
+      },
+      {
+        "alpha": 0.32,
+        "aggregate_failures": 20,
+        "hard_face_failures": 8,
+        "hard_face_mean_abs_correction": 0.02284332737326622,
+        "hard_face_max_abs_correction": 0.11017266660928726
+      },
+      {
+        "alpha": 1.0,
+        "aggregate_failures": 20,
+        "hard_face_failures": 8,
+        "hard_face_mean_abs_correction": 0.02284332737326622,
+        "hard_face_max_abs_correction": 0.11017266660928726
+      }
+    ],
+    "outer_boundary_max_abs_correction": 0.0
+  },
+  "residual_runs": [
+    {
+      "id": "r5",
+      "objective": "subject support only",
+      "best_epoch": 21,
+      "runtime_seconds": 69.38746309999988,
+      "peak_vram_gib": 1.6160144805908203,
+      "checkpoint_sha256": "947c1ad45e6562cdcc3eb52dcff799a01873028501f84f7cef1f1ea7897677ca",
+      "evidence_sha256": "0d569f748ed73e2e0f89a9b1a2a8a715a7d60290e633457491521bc88a225294",
+      "selected_alpha": 0.05,
+      "validation_failures": {
+        "baseline": 265,
+        "candidate": 262,
+        "per_row_non_regression_ratio": 1.0
+      },
+      "sealed_failures": {
+        "baseline": 298,
+        "candidate": 287,
+        "per_row_non_regression_ratio": 1.0
+      },
+      "exact_replay_eligible": true
+    },
+    {
+      "id": "r6",
+      "objective": "global physical value 0.50 and gradient 0.25",
+      "best_epoch": 23,
+      "runtime_seconds": 70.77514160000283,
+      "peak_vram_gib": 1.6160144805908203,
+      "checkpoint_sha256": "33b153052647dae8ffbf84c4f7875f1663a922da05abf3ddca1c3a161e8c8f7f",
+      "evidence_sha256": "c998ed284e27b752333e7f29d5fdaeeafa4500698586e58e0c219c89f3f34f0a",
+      "selected_alpha": 0.1,
+      "validation_failures": {
+        "baseline": 265,
+        "candidate": 258,
+        "per_row_non_regression_ratio": 1.0
+      },
+      "sealed_failures": {
+        "baseline": 298,
+        "candidate": 283,
+        "per_row_non_regression_ratio": 0.925
+      },
+      "exact_replay_eligible": false
+    },
+    {
+      "id": "r7",
+      "objective": "global physical value 0.20 and gradient 0.10",
+      "best_epoch": 22,
+      "runtime_seconds": 70.56242810000549,
+      "peak_vram_gib": 1.6160144805908203,
+      "checkpoint_sha256": "e4641bd04b7b1de0c1082d110d19c421b935a372e463bf007025cb92255f6b3e",
+      "evidence_sha256": "d63fa0c41fa45528e08db965233807f6e2d1baefc53c7986af33dd5d0c43e6d2",
+      "selected_alpha": 0.05,
+      "validation_failures": {
+        "baseline": 265,
+        "candidate": 262,
+        "per_row_non_regression_ratio": 1.0
+      },
+      "sealed_failures": {
+        "baseline": 298,
+        "candidate": 289,
+        "per_row_non_regression_ratio": 0.975
+      },
+      "exact_replay_eligible": false
+    },
+    {
+      "id": "r8",
+      "objective": "equal-part physical value 0.50, gradient 0.25, and non-regression 1.50",
+      "best_epoch": 22,
+      "runtime_seconds": 78.32694730000367,
+      "peak_vram_gib": 1.6461963653564453,
+      "checkpoint_sha256": "b56a666d485b18484de2730002bb7ddb3810c464ee97583b6ee2a9276283e21e",
+      "evidence_sha256": "1d7032085727fe01bf1b7f294985f9e9b8497a8ff74630b9a0490a36f6d661f6",
+      "selected_alpha": 0.1,
+      "validation_failures": {
+        "baseline": 265,
+        "candidate": 260,
+        "per_row_non_regression_ratio": 1.0
+      },
+      "sealed_failures": {
+        "baseline": 298,
+        "candidate": 289,
+        "per_row_non_regression_ratio": 0.95
+      },
+      "posthoc_alpha_0_05": {
+        "candidate_failures": 290,
+        "per_row_non_regression_ratio": 0.975,
+        "regressed_row": "mh_mixed_male__mouth_open_09",
+        "added_failure": "nose affine",
+        "summary_sha256": "dc43809caaf66e9bf271a3a0ee7316a95da0ce7a639bc701db6e77a8ace2e46b"
+      },
+      "exact_replay_eligible": false
+    }
+  ],
+  "exact_r5_replay": {
+    "evidence_sha256": "05228d78d708824e06e1d4dcd016cbb9aac8a7a6dede7f1a4b09e88c002116ca",
+    "historical_failures": 19,
+    "reproduced_current_failures": 19,
+    "candidate_failures": 18,
+    "hard_face_baseline_failures": 10,
+    "hard_face_candidate_failures": 10,
+    "surface_residual_contract_passed": true,
+    "full_stl_replay_eligible": false
+  },
+  "facelift": {
+    "source": {
+      "url": "https://github.com/weijielyu/FaceLift.git",
+      "revision": "0a9420c1480db1e22daa6dee192b76a013295992",
+      "license": "Apache-2.0",
+      "license_sha256": "1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6",
+      "clean": true,
+      "required_files_complete": true
+    },
+    "model": {
+      "id": "wlyu/OpenFaceLift",
+      "revision": "3ebac9f8e2d791f02507b8aa61520e1ba379a115",
+      "large_weight_count": 6,
+      "large_weight_bytes": 9316311496,
+      "large_weight_gib": 8.6764912083745,
+      "expected_weight_sha256_pinned": true,
+      "weights_present_locally": false,
+      "license": "Adobe Research License v1.2; noncommercial research only",
+      "license_sha256": "340b4a0d7a866b43e52128cfebb788925b20e451428eb118035d930e05eff806",
+      "production_eligible": false,
+      "research_only": true
+    },
+    "preflight": {
+      "evidence_sha256": "74e79274b83ec974cc67da9525b21c56bf1a63bf058b6cc8bcd441202f8ca5b1",
+      "source_revision_pinned": true,
+      "source_clean": true,
+      "source_files_complete": true,
+      "model_root_supplied": false,
+      "model_files_complete": false,
+      "runnable": false
+    },
+    "front_camera_index": 2,
+    "depth_normalizer": {
+      "input": "native Gaussian PLY",
+      "composition": "front-to-back projected-center alpha",
+      "normalization": "finite p01-p99",
+      "near_is_smaller": true,
+      "ellipsoid_rotation_used": false,
+      "purpose": "diagnostic camera-depth comparison"
+    },
+    "inference_run_completed": true,
+    "official_space_smoke": {
+      "space_revision": "268d06a78f9f23decf831e42ec33482c9ac3dd64",
+      "runtime_seconds": 54.229020833969116,
+      "random_seed": 4,
+      "num_steps": 50,
+      "guidance_scale": 3.0,
+      "gaussian_count": 140410,
+      "camera_intrinsics_scaled_from_512_to_256": true,
+      "baseline_named_part_failures": 10,
+      "direct_depth_named_part_failures_by_camera": {
+        "1": 11,
+        "2": 12,
+        "3": 12
+      },
+      "bounded_fusion_named_part_failures": 10,
+      "bounded_fusion_supports": [
+        "detector-face",
+        "selection-subject"
+      ],
+      "bounded_fusion_alphas": [
+        0.02,
+        0.05,
+        0.1,
+        0.2
+      ],
+      "decision": "hold"
+    }
+  },
+  "decision": {
+    "subject_support_retained": true,
+    "learned_residual_selected": false,
+    "residual_family_closed": true,
+    "facelift_provider_selected_for_one_row_smoke": false,
+    "facelift_provider_hold": true,
+    "next_gate": "bounded VGGHeads small-face exact and 30 mm STL replay",
+    "production_30mm_background_path_must_remain_green": true
+  }
+}

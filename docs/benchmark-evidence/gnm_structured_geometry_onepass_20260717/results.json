@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "run_id": "gnm_structured_geometry_onepass_20260717",
+  "status": "hold",
+  "production_incumbent": "gnm_mean_face_foundation_central_parts_s05",
+  "privacy": "public CC0 controls and deterministic scan-derived parametric samples only",
+  "source_geometry_policy": "training and evaluation only",
+  "supervision_contract": {
+    "version": 1,
+    "split": "train-only",
+    "rows": 20,
+    "summary_sha256": "a7e3f1fe6a38acf240be9fe18737252f39e20c78492f8f18c22afcb46f56801c",
+    "training_supervision_sha256": "e3f2c935b2d184c303a69f04f080310bdcd8f87f12c21598cd948e2045d366e9",
+    "finite_hash_valid_targets": 40,
+    "forbidden_public_path_keys": 0
+  },
+  "expanded_training_corpus": {
+    "new_rows": 160,
+    "available_train_rows": 960,
+    "selection": "identity-stratified",
+    "runtime_seconds": 709.662,
+    "summary_sha256": "92f46a5d92f1690205c6b1920ffe2248ed47362ea364f19521fd46d16e65889a"
+  },
+  "same_pass_features": {
+    "mediapipe_version": "0.10.35",
+    "face_landmarker_sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+    "license": "Apache-2.0",
+    "landmarks": 478,
+    "blendshapes": 52,
+    "feature_kind": "mediapipe-to-dlib68-plus-blendshapes52-v1",
+    "feature_dimension": 1024,
+    "same_face_index": true,
+    "opt_in_default": false,
+    "bbox_equal_to_default_detection": true,
+    "maximum_landmark_delta": 0.0
+  },
+  "selected_model": {
+    "prepared_rows": {
+      "train": 228,
+      "validation": 46,
+      "sealed": 48
+    },
+    "detector_coverage": {
+      "train": 1.0,
+      "validation": 1.0,
+      "sealed": 1.0
+    },
+    "identity_rank": 16,
+    "expression_rank": 16,
+    "ridge_alpha": 1000.0,
+    "runtime_seconds": 148.18220660000225,
+    "checkpoint_sha256": "bb11c3a1e5a55ee06b09ed4bcc739388e22d4e9a249c4a6dd1e5c91dc4c2a8fc",
+    "validation_small": {
+      "rows": 34,
+      "control_rmse": 0.01095258467644385,
+      "candidate_rmse": 0.008094755029213804,
+      "control_z_correlation": 0.999517886804101,
+      "candidate_z_correlation": 0.9997221363865172,
+      "paired_win_rate": 0.9705882352941176,
+      "named_part_regressions": 0
+    },
+    "sealed_small": {
+      "rows": 20,
+      "control_rmse": 0.008483810539908251,
+      "candidate_rmse": 0.0070092910069556105,
+      "control_z_correlation": 0.9996121007748576,
+      "candidate_z_correlation": 0.9997060010699245,
+      "paired_win_rate": 0.8,
+      "named_part_regressions": 0
+    }
+  },
+  "exact_hard_face_strength_sweep": {
+    "production_incumbent": {
+      "shape_correlation": 0.8066024259968169,
+      "gradient_correlation": 0.626152053674374,
+      "normalized_rmse": 0.175269513152677,
+      "combined_part_failures": 8
+    },
+    "candidates": [
+      {
+        "expression_strength": 0.125,
+        "shape_correlation": 0.8066325026647415,
+        "gradient_correlation": 0.626162723091168,
+        "normalized_rmse": 0.17525734274322635,
+        "combined_part_failures": 8,
+        "exact_gate_passed": true
+      },
+      {
+        "expression_strength": 0.25,
+        "shape_correlation": 0.806650709819627,
+        "gradient_correlation": 0.6261147744758141,
+        "normalized_rmse": 0.17524997465594253,
+        "combined_part_failures": 8,
+        "exact_gate_passed": true
+      },
+      {
+        "expression_strength": 0.5,
+        "shape_correlation": 0.8065289674989249,
+        "gradient_correlation": 0.6261420053101061,
+        "normalized_rmse": 0.17529923239558562,
+        "combined_part_failures": 8,
+        "exact_gate_passed": true
+      },
+      {
+        "expression_strength": 1.0,
+        "shape_correlation": 0.8063925397680505,
+        "gradient_correlation": 0.6260575211946239,
+        "normalized_rmse": 0.17535440667730462,
+        "combined_part_failures": 10,
+        "exact_gate_passed": false
+      }
+    ],
+    "selected_strength": 0.125
+  },
+  "broader_gates": {
+    "varied_n15": {
+      "passed": true,
+      "control_failures": 84,
+      "candidate_failures": 82,
+      "conditioned_rows": 1,
+      "changed_rows_vs_incumbent": 1,
+      "failure_delta_vs_incumbent": 0,
+      "maximum_absolute_shape_delta_vs_incumbent": 0.0000050983760012,
+      "maximum_absolute_gradient_delta_vs_incumbent": 0.0000015857021533,
+      "maximum_absolute_rmse_delta_vs_incumbent": 0.00000163833871022
+    },
+    "all_small_n20": {
+      "passed": false,
+      "hold_reason": "absolute_part_failure_rate_exceeds_limit",
+      "control_failures": 232,
+      "candidate_failures": 229,
+      "candidate_part_failure_rate": 0.9541666666666667,
+      "conditioned_rows": 8,
+      "changed_rows_vs_incumbent": 7,
+      "failure_delta_vs_incumbent": 0,
+      "median_shape_correlation": 0.8090491489009013,
+      "median_gradient_correlation": 0.3771928728491969,
+      "median_normalized_rmse": 0.18852664158155163
+    }
+  },
+  "relief_30mm": {
+    "passed": true,
+    "baseline_named_part_failures": 9,
+    "candidate_named_part_failures": 8,
+    "production_incumbent_named_part_failures": 8,
+    "surface_span_mm": 29.980491867288947,
+    "surface_max_mm": 29.99049186706543,
+    "background_correlation_vs_baseline": 0.9999963440900217,
+    "background_rms_retention_vs_baseline": 1.0000058207919302,
+    "watertight": true,
+    "winding_consistent": true,
+    "components": 1,
+    "degenerate_faces": 0,
+    "complete_shell": true,
+    "appearance_gate": true,
+    "absolute_named_part_shape_gate": false,
+    "absolute_named_part_affine_mm_gate": false
+  },
+  "decision": {
+    "production_promoted": false,
+    "reason": "Synthetic geometry improved strongly, but the live-depth selector limited real-photo changes and neither the varied nor 30 mm named-part count improved over the incumbent. The added DAv2 inference cost is not justified by the measured real gain.",
+    "production_default_unchanged": true,
+    "closed": [
+      "second-pass crop redetection for blendshapes",
+      "full-strength structured expression coefficients",
+      "production wiring of this checkpoint"
+    ]
+  },
+  "raw_evidence": {
+    "training": {
+      "sha256": "a9e0006332b30a80c0fd8771a4a73296b8d9f2dc30140d36f0fd23c86ff55d12",
+      "size_bytes": 634118
+    },
+    "exact_n3": {
+      "sha256": "fcb70899bea4d3b36c1facbb9df3a4f78f7bd3cde5cd07b4789b98e5c677b56b",
+      "size_bytes": 16676
+    },
+    "varied_n15": {
+      "sha256": "8542f356f46c1acd8a29fc15c8ef18cf3a749e35e4b91dfb40a63a52f5046d57",
+      "size_bytes": 63553
+    },
+    "all_small_n20": {
+      "sha256": "171595dc13617236d461ea004b4d475ec924b36d13f8b8bc32d3fd6bc85f7032",
+      "size_bytes": 157676
+    },
+    "relief_30mm_n1": {
+      "sha256": "15a02b3406127ff471d44caa0df665de37f3fef9fb947ec0029b742352c36a30",
+      "size_bytes": 451292
+    }
+  }
+}

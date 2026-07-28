@@ -1,0 +1,93 @@
+{
+  "generated_at": "2026-07-11T00:42:33+00:00",
+  "require_runnable": true,
+  "rows": [
+    {
+      "provider": "triposg",
+      "readiness": "ready",
+      "runnable": true,
+      "experiment_names": [
+        "triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh"
+      ],
+      "wrapper_python": "/content/triposg-venv/bin/python",
+      "provider_python": "/content/triposg-venv/bin/python",
+      "provider_dir_configured": true,
+      "provider_dir_env_names": [
+        "TRIPOSG_DIR"
+      ],
+      "provider_models": {
+        "rembg": {
+          "repo_id": "briaai/RMBG-1.4",
+          "revision": "2ceba5a5efaec153162aedea169f76caf9b46cf8"
+        },
+        "triposg": {
+          "repo_id": "VAST-AI/TripoSG",
+          "revision": "2c1c516d22d58db486a058d98d31bb6177344e06"
+        }
+      },
+      "setup_errors": [],
+      "checks": {
+        "wrapper_python_found": true,
+        "provider_python_found": true,
+        "model_revisions_complete": true,
+        "model_revisions_pinned": true,
+        "entrypoint": "scripts/inference_triposg.py",
+        "entrypoint_found": true,
+        "provider_dir_resolved": true
+      }
+    },
+    {
+      "provider": "hunyuan3d-2mv",
+      "readiness": "ready",
+      "runnable": true,
+      "experiment_names": [
+        "hunyuan3d_2mv_cardinal4_raw_direct_mesh",
+        "hunyuan3d_2mv_cardinal4_legacy_repaired_stl_inferred_bbox_direct_mesh",
+        "hunyuan3d_2mv_voxel_r192_all_repaired_stl_inferred_bbox_direct_mesh",
+        "hunyuan3d_2mv_voxel_r256_all_repaired_stl_inferred_bbox_direct_mesh",
+        "hunyuan3d_2mv_voxel_r192_a001_repaired_stl_inferred_bbox_direct_mesh",
+        "hunyuan3d_2mv_voxel_r256_a001_repaired_stl_inferred_bbox_direct_mesh"
+      ],
+      "wrapper_python": "/content/hunyuan3d-2mv-venv/bin/python",
+      "provider_python": "/content/hunyuan3d-2mv-venv/bin/python",
+      "provider_dir_configured": true,
+      "provider_dir_env_names": [
+        "HUNYUAN3D_2MV_DIR"
+      ],
+      "provider_models": {
+        "hunyuan3d_2mv": {
+          "repo_id": "tencent/Hunyuan3D-2mv",
+          "revision": "3a761b539b29fe4ff64714813aa9560fd66f5de0",
+          "subfolder": "hunyuan3d-dit-v2-mv"
+        }
+      },
+      "setup_errors": [],
+      "checks": {
+        "wrapper_python_found": true,
+        "provider_python_found": true,
+        "model_revision_pinned": true,
+        "model_revisions_complete": true,
+        "model_revisions_pinned": true,
+        "input_bundle_configured": true,
+        "entrypoint": "hy3dgen/shapegen/pipelines.py",
+        "entrypoint_found": true,
+        "provider_source_revision": "f8db63096c8282cb27354314d896feba5ba6ff8a",
+        "provider_source_revision_expected": "f8db63096c8282cb27354314d896feba5ba6ff8a",
+        "provider_source_revision_pinned": true,
+        "hunyuan3d_2mv_package_source_found": true,
+        "hunyuan3d_2mv_python_probe": {
+          "backend_ready": true,
+          "error": "",
+          "pipeline_class_importable": true,
+          "python_executable": "/content/hunyuan3d-2mv-venv/bin/python",
+          "shapegen_importable": true,
+          "returncode": 0
+        },
+        "hunyuan3d_2mv_shapegen_importable": true,
+        "hunyuan3d_2mv_pipeline_class_importable": true,
+        "hunyuan3d_2mv_backend_ready": true,
+        "provider_dir_resolved": true
+      }
+    }
+  ]
+}

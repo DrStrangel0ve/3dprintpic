@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "captured_date": "2026-07-18",
+  "row_id": "fusion_caucasian_small_left_256",
+  "face_height_pixels": 74,
+  "yaw_degrees": -32.0,
+  "research_only": true,
+  "production_changed": false,
+  "decision": "hold",
+  "methods": {
+    "pixel3dmm_no_mica": {
+      "coverage": 0.8297132927888793,
+      "shape_correlation": 0.963536904256937,
+      "gradient_correlation": 0.721012423080685,
+      "normalized_rmse": 0.09460800888082462,
+      "shape_failed_parts": [
+        "right_eyebrow"
+      ],
+      "affine_mm_failed_parts": [],
+      "right_eyebrow": {
+        "shape_correlation": 0.9185164012432677,
+        "raw_gradient_correlation": 0.7206247978352875,
+        "gradient_correlation_at_0_8_mm": 0.5923961492393819
+      },
+      "depth_sha256": "953910d8108c8d2e6f5397e57c6571ac367ab6bd9a5e008155a29e1eb5f8e2c1"
+    },
+    "pixel3dmm_mica_identity_prior": {
+      "coverage": 0.8279756733275413,
+      "shape_correlation": 0.9620433722960601,
+      "gradient_correlation": 0.7266173344294582,
+      "normalized_rmse": 0.09633232402158877,
+      "shape_failed_parts": [
+        "right_eyebrow"
+      ],
+      "affine_mm_failed_parts": [],
+      "right_eyebrow": {
+        "shape_correlation": 0.9360591053676037,
+        "raw_gradient_correlation": 0.8009541374024491,
+        "gradient_correlation_at_0_8_mm": 0.5701439038813152
+      },
+      "depth_sha256": "34e584caa0c82f85a93aeda9bc01a8d5c27ed2bc21522745136279d4a570d5ca"
+    }
+  },
+  "paired_deltas_mica_minus_no_mica": {
+    "coverage": -0.0017376194613379914,
+    "shape_correlation": -0.0014935319608769815,
+    "gradient_correlation": 0.005604911348773167,
+    "normalized_rmse": 0.0017243151407641544
+  },
+  "promotion_gate": {
+    "exact_six_part_shape_passed": false,
+    "all_part_affine_mm_rows_passed": true,
+    "raw_camera_mesh_coverage_passed": false,
+    "physical_replay_warranted": false
+  }
+}

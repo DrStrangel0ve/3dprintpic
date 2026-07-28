@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "run_id": "cc0_face_fusion_train_aa77abc_n15",
+  "source_revision": "aa77abcc4d73b2a617875b3510d6385cac765aaf",
+  "rows": 15,
+  "baseline": {
+    "combined_part_failures": 77,
+    "median_shape_correlation": 0.944540390772548,
+    "median_gradient_correlation": 0.7045623674605334,
+    "median_normalized_rmse": 0.10716279991904523,
+    "small_face_rows": [
+      {
+        "row_id": "fusion_asian_small_left_256",
+        "face_bbox_height_pixels": 75,
+        "shape_correlation": 0.8846106075770467,
+        "combined_part_failures": 9
+      },
+      {
+        "row_id": "fusion_african_small_right_256",
+        "face_bbox_height_pixels": 74,
+        "shape_correlation": 0.7498142584731776,
+        "combined_part_failures": 9
+      },
+      {
+        "row_id": "fusion_caucasian_small_left_256",
+        "face_bbox_height_pixels": 74,
+        "shape_correlation": 0.7340254820037522,
+        "combined_part_failures": 11
+      }
+    ],
+    "best_row": {
+      "row_id": "fusion_caucasian_close_front_384",
+      "face_bbox_height_pixels": 264,
+      "shape_correlation": 0.9849843055457164,
+      "combined_part_failures": 0
+    }
+  },
+  "pixel3dmm": {
+    "revision": "fcd1fa973c7715b02a8948dfc679dff53cf85924",
+    "checkpoint_sha256": "e856799d55db54c7537c8ee3c5a4938c13cc0b24082ce7e4e7f35f0d0f0e28da",
+    "inference_seconds": 4.802862099997583,
+    "peak_allocated_gib": 3.585117816925049
+  },
+  "decisions": {
+    "pose_normal_fusion": {
+      "status": "hold",
+      "candidate_count": 320,
+      "baseline_failures": 77,
+      "best_failures": 78
+    },
+    "compact_residual_unet": {
+      "status": "hold",
+      "internal_baseline_failures": 11,
+      "best_validation_failures": 35,
+      "held_out_baseline_failures": 19,
+      "held_out_candidate_failures": 34
+    },
+    "residual_blend": {
+      "status": "hold",
+      "candidate_count": 72,
+      "selected_blend": 0.0
+    },
+    "native_face_fusion": {
+      "status": "hold",
+      "candidate_count": 36,
+      "selected_detail_strength": 2.0,
+      "selected_max_correction_ratio": 0.04,
+      "held_out_baseline_failures": 19,
+      "held_out_candidate_failures": 21
+    }
+  },
+  "raw_evidence": {
+    "live_summary": {
+      "sha256": "846170cc67c18692d0e618e5f1a14e71b9ec43ef450da704151b10061b579310",
+      "size_bytes": 5336894
+    },
+    "pixel3dmm_probe": {
+      "sha256": "3ebd3344a4f8a6bac91819246fc0a69c73bb1561b50a6a4d907f8aa8a831e648",
+      "size_bytes": 7693
+    },
+    "pose_normal_fusion": {
+      "sha256": "5c29fe64617d48605ed9f85944e97b9383fe13b93420055c73307de66a577fe6",
+      "size_bytes": 106660
+    },
+    "compact_residual_unet": {
+      "sha256": "ca9885e198e3983a12763c7c6ae280886dd0f1dd7a5e077c7cf4e4b6bc0af569",
+      "size_bytes": 9852
+    },
+    "residual_blend": {
+      "sha256": "3e85dd34230e7ffd8b53eff2e47453a5e035c25e6b6552ccfc02e08e5a38cb88",
+      "size_bytes": 17966
+    },
+    "native_face_fusion": {
+      "sha256": "71c658a0935c1d272b3d6948dfcb8bc2271aa0f9785db7f60848a724a3fa5773",
+      "size_bytes": 43632
+    }
+  }
+}

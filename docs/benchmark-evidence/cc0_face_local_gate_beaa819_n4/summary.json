@@ -1,0 +1,108 @@
+{
+  "checks": {
+    "all_background_appearance_passed": true,
+    "all_background_depth_passed": true,
+    "all_complete_shells_passed": true,
+    "all_emitted_face_part_retention_passed": true,
+    "all_physical_caps_passed": true,
+    "all_topology_passed": true,
+    "exact_named_part_reconstruction_passed": false,
+    "passed": false
+  },
+  "implementation_revision": "beaa8192a13af4e6b8940546e12a06764244eb79",
+  "matrix": {
+    "face_rows": 3,
+    "object_rows": 1,
+    "relief_height_mm": 30.0,
+    "rows": 4
+  },
+  "physical_path": {
+    "background_p02_p98_span_mm": {
+      "maximum": 19.49827401114628,
+      "minimum": 7.959850490465758
+    },
+    "maximum_far_background_cap_violation_mm": 0.0,
+    "maximum_feasible_attachment_jump_mm": 0.8000001907348633,
+    "minimum_background_depth_correlation": 0.9999876497732211,
+    "minimum_background_gradient_correlation": 0.9985981573077637
+  },
+  "provider_ablation": {
+    "3ddfa_v3": {
+      "aligned_rows_passing_all_parts": 0,
+      "face_model_sha256": "f07ada9b4748ecdfeae3fa67aae88bb4b824ea7adc26853778c55d8dc0efa832",
+      "model_sha256": "f150fda06905fa1ee0b525913f175fd95404bf19f138974e8f1ed3e67c456ebd",
+      "peak_vram_gb": 0.17978368,
+      "rows": 3,
+      "source_revision": "e15385837dc1e051a6cf376b3827f2e279537b29",
+      "status": "hold"
+    }
+  },
+  "rows": [
+    {
+      "affine_failed_parts": [
+        "left_eye",
+        "left_eyebrow",
+        "mouth",
+        "nose",
+        "right_eye"
+      ],
+      "exact_face_gradient_correlation": 0.625533466645662,
+      "exact_face_normalized_rmse": 0.17600701052848092,
+      "exact_face_shape_correlation": 0.8047738479934161,
+      "row_id": "small_side_lit_shelves_256",
+      "shape_failed_parts": [
+        "left_eye",
+        "left_eyebrow",
+        "mouth",
+        "nose",
+        "right_eye"
+      ]
+    },
+    {
+      "affine_failed_parts": [],
+      "exact_face_gradient_correlation": 0.6727616445291246,
+      "exact_face_normalized_rmse": 0.10217437383774328,
+      "exact_face_shape_correlation": 0.9447480032524102,
+      "eyewear": {
+        "accepted_correction": false,
+        "left_eye_detail_retention": 0.37387200971850276,
+        "right_eye_detail_retention": 0.28310695766736366,
+        "safe_fallback": true
+      },
+      "row_id": "eyewear_overhead_panel_384",
+      "shape_failed_parts": [
+        "mouth",
+        "nose",
+        "right_eye"
+      ]
+    },
+    {
+      "affine_failed_parts": [
+        "mouth",
+        "right_eye"
+      ],
+      "exact_face_gradient_correlation": 0.5045383272885512,
+      "exact_face_normalized_rmse": 0.134910427930419,
+      "exact_face_shape_correlation": 0.8956416777756697,
+      "row_id": "strong_turn_layered_384",
+      "shape_failed_parts": [
+        "left_eye",
+        "left_eyebrow",
+        "right_eye",
+        "right_eyebrow"
+      ]
+    },
+    {
+      "row_id": "multilobe_object_shelves_384",
+      "passed": true,
+      "scene_kind": "object"
+    }
+  ],
+  "schema_version": 1,
+  "validation": {
+    "backend_subtests_passed": 72,
+    "backend_tests_passed": 629,
+    "ruff_passed": true,
+    "warnings": 2
+  }
+}

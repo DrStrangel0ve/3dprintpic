@@ -1,0 +1,1011 @@
+{
+  "asset_manifest_sha256": "dc8b495d5fd5a14a529e298406d30ccbf90b5cabd1adafbfec252711f1b1ec88",
+  "demo_asset_license": "not stated in source repository",
+  "privacy": "synthetic identities only; no real-person source artifacts",
+  "provider": "c3i-synface-official-demo-depth",
+  "raw_dataset_reference": {
+    "doi": "10.17632/z4454fyd8b.1",
+    "license": "CC BY 4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "title": "C3I-SynFace female data part 1"
+  },
+  "row_count": 10,
+  "rows": [
+    {
+      "detector": {
+        "errors": [],
+        "landmark_count": 478,
+        "name": "mediapipe-face-landmarker"
+      },
+      "exact_depth": {
+        "path": "rows/c3i_demo_0000/exact_depth.npy",
+        "sha256": "de7f85cd06332f005b7f557d56350f27dd0ff28ab0e85efe5a29f5a13cd9c8d8"
+      },
+      "exact_face_parts": {
+        "left_eye": {
+          "path": "rows/c3i_demo_0000/exact_face_parts/left_eye.png",
+          "sha256": "a7e2820c10d03288b773f0ab2c8228354444e1207ad7f27d1326fb7698939dc4"
+        },
+        "left_eyebrow": {
+          "path": "rows/c3i_demo_0000/exact_face_parts/left_eyebrow.png",
+          "sha256": "f32d2eb161d09dc0ae5f5e23b72337b6893e48c9cde2570e30355bd2c0eb6640"
+        },
+        "mouth": {
+          "path": "rows/c3i_demo_0000/exact_face_parts/mouth.png",
+          "sha256": "da7559d2ea6aa6434547198782db5ca39830039d6424f72350ff548e03c9a283"
+        },
+        "nose": {
+          "path": "rows/c3i_demo_0000/exact_face_parts/nose.png",
+          "sha256": "21abfbccab70dad30269038c800e259c77788254ebec7cddd2a42994260f4f6a"
+        },
+        "right_eye": {
+          "path": "rows/c3i_demo_0000/exact_face_parts/right_eye.png",
+          "sha256": "90e3dfbc58895235c7570180fc9f7b3d0f3534a52724e059ff7474d334214a57"
+        },
+        "right_eyebrow": {
+          "path": "rows/c3i_demo_0000/exact_face_parts/right_eyebrow.png",
+          "sha256": "bccf3413ac89f73099e98826be4c9df2940f6025e696083b0e1cd064adfdbfe2"
+        }
+      },
+      "expression": "source-unknown",
+      "identity_group": "c3i_demo_identity_unknown",
+      "identity_provenance": "identity is not published in the demo filename",
+      "render": {
+        "depth_semantics": "nonmetric normalized 8-bit preview intensity; lower is nearer in the observed convention",
+        "face_bbox_height_pixels": 78,
+        "face_bbox_xyxy": [
+          97,
+          78,
+          159,
+          156
+        ],
+        "metric_scale_available": false,
+        "source_depth_representation": "official grayscale 8-bit demo preview",
+        "transform": {
+          "canvas_copy_xyxy": [
+            0,
+            0,
+            256,
+            199
+          ],
+          "canvas_shape": [
+            256,
+            256
+          ],
+          "origin_xy": [
+            -9,
+            -6
+          ],
+          "resized_shape": [
+            205,
+            273
+          ],
+          "scale": 0.4262295081967213,
+          "source_copy_xyxy": [
+            9,
+            6,
+            265,
+            205
+          ],
+          "source_shape": [
+            480,
+            640
+          ]
+        }
+      },
+      "row_id": "c3i_demo_0000",
+      "selection_mask": {
+        "path": "rows/c3i_demo_0000/selection_mask.png",
+        "sha256": "0893f94bd1e22a1ab7a5ab930c7df94ce588ff638b81f8965519e2d725291083"
+      },
+      "source": {
+        "path": "rows/c3i_demo_0000/source.png",
+        "sha256": "1aa76cb0d65b2fe9c30cf0509d8914edfc201955dbd5055bd132ce564f82d355"
+      },
+      "source_asset": {
+        "depth_path": "FaceDepth/gt_syn_test/depth_0000.png",
+        "depth_sha256": "f835ff6b436847821d85f18895a3d5d9d6063aea701f0f75817fc07124983cbc",
+        "rgb_path": "FaceDepth/rgb_syn_test/image0000.jpg",
+        "rgb_sha256": "b54c8b50fa6268b58e78d44c0436a25f74db45c932f38f52606cd7cc623cb7a2"
+      },
+      "split": "research-smoke"
+    },
+    {
+      "detector": {
+        "errors": [],
+        "landmark_count": 478,
+        "name": "mediapipe-face-landmarker"
+      },
+      "exact_depth": {
+        "path": "rows/c3i_demo_0001/exact_depth.npy",
+        "sha256": "c6d75d035d5661faed3e6b12b48134e7e955cb6e0c91203207b5d47b3676a468"
+      },
+      "exact_face_parts": {
+        "left_eye": {
+          "path": "rows/c3i_demo_0001/exact_face_parts/left_eye.png",
+          "sha256": "cb15f0c27f9d2c5447529b0da2752ccf3580bcd3ceaee3ad89d1f2654bf24022"
+        },
+        "left_eyebrow": {
+          "path": "rows/c3i_demo_0001/exact_face_parts/left_eyebrow.png",
+          "sha256": "4c0410fd371df0ad20e554e5a79a79f8297bd8821b2e06990bf5098591dbd965"
+        },
+        "mouth": {
+          "path": "rows/c3i_demo_0001/exact_face_parts/mouth.png",
+          "sha256": "3539d710b10883f2d3e04d2470990a8adc27db64fca666332809f51d05c34265"
+        },
+        "nose": {
+          "path": "rows/c3i_demo_0001/exact_face_parts/nose.png",
+          "sha256": "70220a8f236e47e12cc03dca9fac43d2b62412242025aed820ea0b014d048a18"
+        },
+        "right_eye": {
+          "path": "rows/c3i_demo_0001/exact_face_parts/right_eye.png",
+          "sha256": "7f3a8774460df1ef035ca395958a694ee4e57023abf599074e70a84799996b63"
+        },
+        "right_eyebrow": {
+          "path": "rows/c3i_demo_0001/exact_face_parts/right_eyebrow.png",
+          "sha256": "8cd3f0079ea738c98ae77daab3d6179e3182eae3dd7b61ad2a0fdfbea7cee55f"
+        }
+      },
+      "expression": "source-unknown",
+      "identity_group": "c3i_demo_identity_unknown",
+      "identity_provenance": "identity is not published in the demo filename",
+      "render": {
+        "depth_semantics": "nonmetric normalized 8-bit preview intensity; lower is nearer in the observed convention",
+        "face_bbox_height_pixels": 78,
+        "face_bbox_xyxy": [
+          97,
+          78,
+          159,
+          156
+        ],
+        "metric_scale_available": false,
+        "source_depth_representation": "official grayscale 8-bit demo preview",
+        "transform": {
+          "canvas_copy_xyxy": [
+            0,
+            0,
+            256,
+            208
+          ],
+          "canvas_shape": [
+            256,
+            256
+          ],
+          "origin_xy": [
+            -23,
+            -18
+          ],
+          "resized_shape": [
+            226,
+            301
+          ],
+          "scale": 0.46987951807228917,
+          "source_copy_xyxy": [
+            23,
+            18,
+            279,
+            226
+          ],
+          "source_shape": [
+            480,
+            640
+          ]
+        }
+      },
+      "row_id": "c3i_demo_0001",
+      "selection_mask": {
+        "path": "rows/c3i_demo_0001/selection_mask.png",
+        "sha256": "75819fb995ae8a35bcb92679fea255d24da12491cf4b01dedcd8b23231579ecf"
+      },
+      "source": {
+        "path": "rows/c3i_demo_0001/source.png",
+        "sha256": "304be825bb6bd239b17233ff3b47c7249c1c34a216091c3789ed735aa79d3b56"
+      },
+      "source_asset": {
+        "depth_path": "FaceDepth/gt_syn_test/depth_0001.png",
+        "depth_sha256": "016beb50c4688a9244809329fc320cac483412de1ce6e5e84fd5f896ce131831",
+        "rgb_path": "FaceDepth/rgb_syn_test/Image0001.jpg",
+        "rgb_sha256": "370c5085c8edec795104e1a5f95bc97911a9da38f78d57452b1f49a096e0d2b4"
+      },
+      "split": "research-smoke"
+    },
+    {
+      "detector": {
+        "errors": [],
+        "landmark_count": 478,
+        "name": "mediapipe-face-landmarker"
+      },
+      "exact_depth": {
+        "path": "rows/c3i_demo_0002/exact_depth.npy",
+        "sha256": "af9aff3b0b58d1a189c1feccd06822074ab662d56f7b9c6574a779f4c2115edd"
+      },
+      "exact_face_parts": {
+        "left_eye": {
+          "path": "rows/c3i_demo_0002/exact_face_parts/left_eye.png",
+          "sha256": "eaef44b2cd68033b9b7d25b7501f04388aebf0755568e60e40ea3cf7d6df16cb"
+        },
+        "left_eyebrow": {
+          "path": "rows/c3i_demo_0002/exact_face_parts/left_eyebrow.png",
+          "sha256": "b1e9a51c30738ef7b67598683c11a439bd006c14b082967ba23f2b8cccd1cdd6"
+        },
+        "mouth": {
+          "path": "rows/c3i_demo_0002/exact_face_parts/mouth.png",
+          "sha256": "ce3ea7ddcfb697025496e2a297c5f11893796c2dc84e60e28ec13bf86608b355"
+        },
+        "nose": {
+          "path": "rows/c3i_demo_0002/exact_face_parts/nose.png",
+          "sha256": "3e2b65e288d1a4882b9e9a26aa7e0eed31b92baf7c8194527b7553364aa856aa"
+        },
+        "right_eye": {
+          "path": "rows/c3i_demo_0002/exact_face_parts/right_eye.png",
+          "sha256": "d5958acb9deda9138f1968a589f5c48a0ee98781382f310a8126cea17bbf6cd8"
+        },
+        "right_eyebrow": {
+          "path": "rows/c3i_demo_0002/exact_face_parts/right_eyebrow.png",
+          "sha256": "ce780b6afaaa63edf6b00b26453cb21281bd3399e6cfeabcb12658fdde2c93fe"
+        }
+      },
+      "expression": "source-unknown",
+      "identity_group": "c3i_demo_identity_unknown",
+      "identity_provenance": "identity is not published in the demo filename",
+      "render": {
+        "depth_semantics": "nonmetric normalized 8-bit preview intensity; lower is nearer in the observed convention",
+        "face_bbox_height_pixels": 78,
+        "face_bbox_xyxy": [
+          97,
+          78,
+          159,
+          156
+        ],
+        "metric_scale_available": false,
+        "source_depth_representation": "official grayscale 8-bit demo preview",
+        "transform": {
+          "canvas_copy_xyxy": [
+            7,
+            0,
+            256,
+            196
+          ],
+          "canvas_shape": [
+            256,
+            256
+          ],
+          "origin_xy": [
+            7,
+            -9
+          ],
+          "resized_shape": [
+            205,
+            273
+          ],
+          "scale": 0.4262295081967213,
+          "source_copy_xyxy": [
+            0,
+            9,
+            249,
+            205
+          ],
+          "source_shape": [
+            480,
+            640
+          ]
+        }
+      },
+      "row_id": "c3i_demo_0002",
+      "selection_mask": {
+        "path": "rows/c3i_demo_0002/selection_mask.png",
+        "sha256": "3ea29453d02fbab080bf67a90698b3e069151c41e5ae2f8206862f45dfe342ee"
+      },
+      "source": {
+        "path": "rows/c3i_demo_0002/source.png",
+        "sha256": "9922d00d7ed0cf9829da82e67edfa77c98f9ea90bde48c80953b0925c751fa87"
+      },
+      "source_asset": {
+        "depth_path": "FaceDepth/gt_syn_test/depth_0002.png",
+        "depth_sha256": "99ad25ad1ff8e8dfe315ab4d4b3e140ea61a4ef40ed31dd7445b7a01948db51c",
+        "rgb_path": "FaceDepth/rgb_syn_test/image0002.jpg",
+        "rgb_sha256": "0f3ff1847dfd201a6f31bc6f08d63b1280b9937c0584299573ff5f334c3d64b4"
+      },
+      "split": "research-smoke"
+    },
+    {
+      "detector": {
+        "errors": [],
+        "landmark_count": 478,
+        "name": "mediapipe-face-landmarker"
+      },
+      "exact_depth": {
+        "path": "rows/c3i_demo_0003/exact_depth.npy",
+        "sha256": "0f38b764d392be60d9ac580a3da131114722ab666ad758029c5de9dd1d6d1aed"
+      },
+      "exact_face_parts": {
+        "left_eye": {
+          "path": "rows/c3i_demo_0003/exact_face_parts/left_eye.png",
+          "sha256": "7ea634a2104bfff339679c5d831d8fb64f98429bb384ae220ca8f62f321cf4dd"
+        },
+        "left_eyebrow": {
+          "path": "rows/c3i_demo_0003/exact_face_parts/left_eyebrow.png",
+          "sha256": "1fc61d9eb0c6142fcfceb277719922bf1ee9023a0fe8f0fd638e6ec12d574179"
+        },
+        "mouth": {
+          "path": "rows/c3i_demo_0003/exact_face_parts/mouth.png",
+          "sha256": "7d7087e48bdd5841065e39a331047bc2fe2b0344f3bf08a7fe3bff58a424b944"
+        },
+        "nose": {
+          "path": "rows/c3i_demo_0003/exact_face_parts/nose.png",
+          "sha256": "6c172a791e2428354715b3f8f73c2936ba3794e1f8f3a6a76a50654fb4f5423e"
+        },
+        "right_eye": {
+          "path": "rows/c3i_demo_0003/exact_face_parts/right_eye.png",
+          "sha256": "9dc671c90c7aff3bd9cbab6b004f00c80d14f49b27638b334dfa9ae61719141b"
+        },
+        "right_eyebrow": {
+          "path": "rows/c3i_demo_0003/exact_face_parts/right_eyebrow.png",
+          "sha256": "e176bed8df811742ce0a58a40a92d1c0695d3f6bddbae7282a8328c510d93fff"
+        }
+      },
+      "expression": "source-unknown",
+      "identity_group": "c3i_demo_identity_unknown",
+      "identity_provenance": "identity is not published in the demo filename",
+      "render": {
+        "depth_semantics": "nonmetric normalized 8-bit preview intensity; lower is nearer in the observed convention",
+        "face_bbox_height_pixels": 78,
+        "face_bbox_xyxy": [
+          96,
+          79,
+          159,
+          157
+        ],
+        "metric_scale_available": false,
+        "source_depth_representation": "official grayscale 8-bit demo preview",
+        "transform": {
+          "canvas_copy_xyxy": [
+            23,
+            0,
+            256,
+            196
+          ],
+          "canvas_shape": [
+            256,
+            256
+          ],
+          "origin_xy": [
+            23,
+            -1
+          ],
+          "resized_shape": [
+            197,
+            263
+          ],
+          "scale": 0.4105263157894737,
+          "source_copy_xyxy": [
+            0,
+            1,
+            233,
+            197
+          ],
+          "source_shape": [
+            480,
+            640
+          ]
+        }
+      },
+      "row_id": "c3i_demo_0003",
+      "selection_mask": {
+        "path": "rows/c3i_demo_0003/selection_mask.png",
+        "sha256": "5f730f8ed06bd49f6f4390e7d3955c4fe17d63b45e5fa083a9b3e92ee9ae29ac"
+      },
+      "source": {
+        "path": "rows/c3i_demo_0003/source.png",
+        "sha256": "351cf0667aa0f64506ba7c4c1c207b50f8733f77e9b57e1cf47a2093519af5d5"
+      },
+      "source_asset": {
+        "depth_path": "FaceDepth/gt_syn_test/depth_0003.png",
+        "depth_sha256": "ae655bfd3a3a427a0d38e3b9ab2febd29bc13587fd8411c44579182d21b9e9cc",
+        "rgb_path": "FaceDepth/rgb_syn_test/image0003.jpg",
+        "rgb_sha256": "415c17633c1ac787cba16eba4bf4c670653475680e971b68804b1add59a041e8"
+      },
+      "split": "research-smoke"
+    },
+    {
+      "detector": {
+        "errors": [],
+        "landmark_count": 478,
+        "name": "mediapipe-face-landmarker"
+      },
+      "exact_depth": {
+        "path": "rows/c3i_demo_0015/exact_depth.npy",
+        "sha256": "172d3d03c3baf6cb50c36b130d85edee8a5ca0db96326e4af70c40b1505a8453"
+      },
+      "exact_face_parts": {
+        "left_eye": {
+          "path": "rows/c3i_demo_0015/exact_face_parts/left_eye.png",
+          "sha256": "1b9148df74aa17d5081c3c3c385054b6f18f30ab3ab9fbd301b4e53d459a7cc7"
+        },
+        "left_eyebrow": {
+          "path": "rows/c3i_demo_0015/exact_face_parts/left_eyebrow.png",
+          "sha256": "8b3855b10058e8b1db354c2f2a8355d9819fa13cf216ce35a09d94094c302c13"
+        },
+        "mouth": {
+          "path": "rows/c3i_demo_0015/exact_face_parts/mouth.png",
+          "sha256": "99df9a2418141f02dab78643ad8333f8371269d0da9672e010d2f5afaec4e03b"
+        },
+        "nose": {
+          "path": "rows/c3i_demo_0015/exact_face_parts/nose.png",
+          "sha256": "e8c397d485b2beb78f23ea2c90a0f7f03479c045e003a9a4222423dd229ca485"
+        },
+        "right_eye": {
+          "path": "rows/c3i_demo_0015/exact_face_parts/right_eye.png",
+          "sha256": "501068e7a9bebec17ba3cbb01de0ca7f462891936851a2b3d1f3fe4b98800f96"
+        },
+        "right_eyebrow": {
+          "path": "rows/c3i_demo_0015/exact_face_parts/right_eyebrow.png",
+          "sha256": "2a3ac9528b7cdf237919eb5128b691263636b416e7bedf95d38c623f6bcecff7"
+        }
+      },
+      "expression": "source-unknown",
+      "identity_group": "c3i_demo_identity_unknown",
+      "identity_provenance": "identity is not published in the demo filename",
+      "render": {
+        "depth_semantics": "nonmetric normalized 8-bit preview intensity; lower is nearer in the observed convention",
+        "face_bbox_height_pixels": 78,
+        "face_bbox_xyxy": [
+          96,
+          78,
+          161,
+          156
+        ],
+        "metric_scale_available": false,
+        "source_depth_representation": "official grayscale 8-bit demo preview",
+        "transform": {
+          "canvas_copy_xyxy": [
+            0,
+            0,
+            256,
+            201
+          ],
+          "canvas_shape": [
+            256,
+            256
+          ],
+          "origin_xy": [
+            -3,
+            0
+          ],
+          "resized_shape": [
+            201,
+            268
+          ],
+          "scale": 0.41935483870967744,
+          "source_copy_xyxy": [
+            3,
+            0,
+            259,
+            201
+          ],
+          "source_shape": [
+            480,
+            640
+          ]
+        }
+      },
+      "row_id": "c3i_demo_0015",
+      "selection_mask": {
+        "path": "rows/c3i_demo_0015/selection_mask.png",
+        "sha256": "3de97e40216f034dbf72448a53adca47a838d3d58d319644e0f2b49d35bc98b4"
+      },
+      "source": {
+        "path": "rows/c3i_demo_0015/source.png",
+        "sha256": "a26d1b878eb6392d8132abb4684eb82003aad29bb7c6a2b05d8d62d4c8a1bd94"
+      },
+      "source_asset": {
+        "depth_path": "FaceDepth/gt_syn_test/depth_0015.png",
+        "depth_sha256": "338eab156f06b6cc5718aa06d789c02d1a5d3e23963ac92d66c09845545505bb",
+        "rgb_path": "FaceDepth/rgb_syn_test/Image0015.jpg",
+        "rgb_sha256": "efa4f779ad23a87c1b0f9479e8fdace585d0e32e6b2825810af92c8d1800ea25"
+      },
+      "split": "research-smoke"
+    },
+    {
+      "detector": {
+        "errors": [],
+        "landmark_count": 478,
+        "name": "mediapipe-face-landmarker"
+      },
+      "exact_depth": {
+        "path": "rows/c3i_demo_0036/exact_depth.npy",
+        "sha256": "f530e7a5359956471249a916574e9bde735e6955cfd2024532e89b2cd7de3a11"
+      },
+      "exact_face_parts": {
+        "left_eye": {
+          "path": "rows/c3i_demo_0036/exact_face_parts/left_eye.png",
+          "sha256": "06dd2ef0093bca936be46d7c92b8562ef29addb45726d0898cb9e5a0866e17b7"
+        },
+        "left_eyebrow": {
+          "path": "rows/c3i_demo_0036/exact_face_parts/left_eyebrow.png",
+          "sha256": "b6dcd0821ac212960cc19ea57d0d61f27381e9d507c0be59f3674cc096081a96"
+        },
+        "mouth": {
+          "path": "rows/c3i_demo_0036/exact_face_parts/mouth.png",
+          "sha256": "455097bd59b15ea804122301668de783b789dd6726ff415a9daaa59b97782b89"
+        },
+        "nose": {
+          "path": "rows/c3i_demo_0036/exact_face_parts/nose.png",
+          "sha256": "3a82b05c21a257fbeffab7cc667b0b248806bf4278746e14c7bec5cda4e7509e"
+        },
+        "right_eye": {
+          "path": "rows/c3i_demo_0036/exact_face_parts/right_eye.png",
+          "sha256": "1ffbbe698a93a9c073f95904f519d2f0fe955ba08800b9515693e02fc8454548"
+        },
+        "right_eyebrow": {
+          "path": "rows/c3i_demo_0036/exact_face_parts/right_eyebrow.png",
+          "sha256": "b36fdcc041871d5912d30a90ee48b2abd8b5f270fff43898e1aebd704dc59453"
+        }
+      },
+      "expression": "source-unknown",
+      "identity_group": "c3i_demo_identity_unknown",
+      "identity_provenance": "identity is not published in the demo filename",
+      "render": {
+        "depth_semantics": "nonmetric normalized 8-bit preview intensity; lower is nearer in the observed convention",
+        "face_bbox_height_pixels": 78,
+        "face_bbox_xyxy": [
+          94,
+          79,
+          162,
+          157
+        ],
+        "metric_scale_available": false,
+        "source_depth_representation": "official grayscale 8-bit demo preview",
+        "transform": {
+          "canvas_copy_xyxy": [
+            0,
+            0,
+            256,
+            179
+          ],
+          "canvas_shape": [
+            256,
+            256
+          ],
+          "origin_xy": [
+            -14,
+            -35
+          ],
+          "resized_shape": [
+            214,
+            285
+          ],
+          "scale": 0.44571428571428573,
+          "source_copy_xyxy": [
+            14,
+            35,
+            270,
+            214
+          ],
+          "source_shape": [
+            480,
+            640
+          ]
+        }
+      },
+      "row_id": "c3i_demo_0036",
+      "selection_mask": {
+        "path": "rows/c3i_demo_0036/selection_mask.png",
+        "sha256": "49e35c773ae4cdb865a2bbd999001d2c4ff6023d86a9d7dfec7006e8fe0abfde"
+      },
+      "source": {
+        "path": "rows/c3i_demo_0036/source.png",
+        "sha256": "ace3740d1476b9f23380e564f1457bb6f0c94e06230da7df53321c7406a76339"
+      },
+      "source_asset": {
+        "depth_path": "FaceDepth/gt_syn_test/depth_0036.png",
+        "depth_sha256": "e12c50def49259c5d0b74f05d44a432ec3a81ec0b5253840d6143a79407a5e0d",
+        "rgb_path": "FaceDepth/rgb_syn_test/image0036.jpg",
+        "rgb_sha256": "60b9f92268bc60be3b1a1eb3bf88b4536f506c48d87ea11a37e394d9fc4d4911"
+      },
+      "split": "research-smoke"
+    },
+    {
+      "detector": {
+        "errors": [],
+        "landmark_count": 478,
+        "name": "mediapipe-face-landmarker"
+      },
+      "exact_depth": {
+        "path": "rows/c3i_demo_0037/exact_depth.npy",
+        "sha256": "0a30ffba9ad6082408be0d16cb1f427a95aaf64b75842229b27d2158094f4a66"
+      },
+      "exact_face_parts": {
+        "left_eye": {
+          "path": "rows/c3i_demo_0037/exact_face_parts/left_eye.png",
+          "sha256": "ef6abeda508a8dfc21cb09a309aeb9c0373d77e53bf1c35c40f5131c393b947b"
+        },
+        "left_eyebrow": {
+          "path": "rows/c3i_demo_0037/exact_face_parts/left_eyebrow.png",
+          "sha256": "5ff12f075eb7440204d43ea00bc5540633beb77d9d5ede06e1e7a11bdfd9017a"
+        },
+        "mouth": {
+          "path": "rows/c3i_demo_0037/exact_face_parts/mouth.png",
+          "sha256": "13d4bf7b77231fd7aad8d1fb66703d5032c923e0bfbe46ef09cc5f9cd55dcde6"
+        },
+        "nose": {
+          "path": "rows/c3i_demo_0037/exact_face_parts/nose.png",
+          "sha256": "166421b5894b5625351816f699d50620b39b63b5dedcbdcf2ad494f0d97d22ed"
+        },
+        "right_eye": {
+          "path": "rows/c3i_demo_0037/exact_face_parts/right_eye.png",
+          "sha256": "b35f46fbb642bfa31e561c1fb03e28bfebcda6b7e270b77e391d7009a2b6fc5b"
+        },
+        "right_eyebrow": {
+          "path": "rows/c3i_demo_0037/exact_face_parts/right_eyebrow.png",
+          "sha256": "0c52a9aa9ca20185e68783e3247cea7a2613b798680299e0c761a163c2d1a7b1"
+        }
+      },
+      "expression": "source-unknown",
+      "identity_group": "c3i_demo_identity_unknown",
+      "identity_provenance": "identity is not published in the demo filename",
+      "render": {
+        "depth_semantics": "nonmetric normalized 8-bit preview intensity; lower is nearer in the observed convention",
+        "face_bbox_height_pixels": 78,
+        "face_bbox_xyxy": [
+          90,
+          79,
+          165,
+          157
+        ],
+        "metric_scale_available": false,
+        "source_depth_representation": "official grayscale 8-bit demo preview",
+        "transform": {
+          "canvas_copy_xyxy": [
+            0,
+            0,
+            256,
+            185
+          ],
+          "canvas_shape": [
+            256,
+            256
+          ],
+          "origin_xy": [
+            -34,
+            -37
+          ],
+          "resized_shape": [
+            222,
+            295
+          ],
+          "scale": 0.46153846153846156,
+          "source_copy_xyxy": [
+            34,
+            37,
+            290,
+            222
+          ],
+          "source_shape": [
+            480,
+            640
+          ]
+        }
+      },
+      "row_id": "c3i_demo_0037",
+      "selection_mask": {
+        "path": "rows/c3i_demo_0037/selection_mask.png",
+        "sha256": "9e39e82b7a9421f8a9f2cc79ae55a1331f3e337acc960eb9d648e59bdb9a58ce"
+      },
+      "source": {
+        "path": "rows/c3i_demo_0037/source.png",
+        "sha256": "5a139dcabe1feef343a1709f8ac177166711351edfd4551e258495d325413728"
+      },
+      "source_asset": {
+        "depth_path": "FaceDepth/gt_syn_test/depth_0037.png",
+        "depth_sha256": "28a7ab62d52a54522f1660554f2b94b6b89e47c50fc88eeecffd9ebb95cb1fc5",
+        "rgb_path": "FaceDepth/rgb_syn_test/image0037.jpg",
+        "rgb_sha256": "8acbf0a98e7736d35b0111382b15bdb4c902b55f286e73ad0256f24b4fe8a878"
+      },
+      "split": "research-smoke"
+    },
+    {
+      "detector": {
+        "errors": [],
+        "landmark_count": 478,
+        "name": "mediapipe-face-landmarker"
+      },
+      "exact_depth": {
+        "path": "rows/c3i_demo_0039/exact_depth.npy",
+        "sha256": "97790f03703d2a98ef2daaed989a3e8165bbac025ddf109fe382b68325d2d55e"
+      },
+      "exact_face_parts": {
+        "left_eye": {
+          "path": "rows/c3i_demo_0039/exact_face_parts/left_eye.png",
+          "sha256": "fc22923141f8fdd28649e7a8090f131e526f93b425b9b0a23995c2e0edbf7edb"
+        },
+        "left_eyebrow": {
+          "path": "rows/c3i_demo_0039/exact_face_parts/left_eyebrow.png",
+          "sha256": "c891391922633e865ff3ec80350eeddc31ea28ae1cb3a2eb3279e3cbafab8fe2"
+        },
+        "mouth": {
+          "path": "rows/c3i_demo_0039/exact_face_parts/mouth.png",
+          "sha256": "2d601f10ed4506502ce09c21e1bcb3bada20e3868ec187a5e654dc45b466edcf"
+        },
+        "nose": {
+          "path": "rows/c3i_demo_0039/exact_face_parts/nose.png",
+          "sha256": "411a076893e91207513071e164c32d1c3c895900c17058e93d4ebcde2f5b3267"
+        },
+        "right_eye": {
+          "path": "rows/c3i_demo_0039/exact_face_parts/right_eye.png",
+          "sha256": "5bcc602af6b17df668f334fed8d5eb7fa98393116e86e1a2b3698e4001d9761a"
+        },
+        "right_eyebrow": {
+          "path": "rows/c3i_demo_0039/exact_face_parts/right_eyebrow.png",
+          "sha256": "99d6526cf49d25380319f97a7d0c2587c36a92a3d4b4ab46aeab66be1426f8d4"
+        }
+      },
+      "expression": "source-unknown",
+      "identity_group": "c3i_demo_identity_unknown",
+      "identity_provenance": "identity is not published in the demo filename",
+      "render": {
+        "depth_semantics": "nonmetric normalized 8-bit preview intensity; lower is nearer in the observed convention",
+        "face_bbox_height_pixels": 78,
+        "face_bbox_xyxy": [
+          96,
+          79,
+          160,
+          157
+        ],
+        "metric_scale_available": false,
+        "source_depth_representation": "official grayscale 8-bit demo preview",
+        "transform": {
+          "canvas_copy_xyxy": [
+            3,
+            0,
+            224,
+            165
+          ],
+          "canvas_shape": [
+            256,
+            256
+          ],
+          "origin_xy": [
+            3,
+            -1
+          ],
+          "resized_shape": [
+            166,
+            221
+          ],
+          "scale": 0.34513274336283184,
+          "source_copy_xyxy": [
+            0,
+            1,
+            221,
+            166
+          ],
+          "source_shape": [
+            480,
+            640
+          ]
+        }
+      },
+      "row_id": "c3i_demo_0039",
+      "selection_mask": {
+        "path": "rows/c3i_demo_0039/selection_mask.png",
+        "sha256": "369ba76d27f80c0ac123a866263bc9fde61ad52ed7c06d34a8eba569c0eb75e3"
+      },
+      "source": {
+        "path": "rows/c3i_demo_0039/source.png",
+        "sha256": "b8607f6015dac5f0cd89bd8b26c79ee3791dca3377d3ce31380de26b02edb345"
+      },
+      "source_asset": {
+        "depth_path": "FaceDepth/gt_syn_test/depth_0039.png",
+        "depth_sha256": "ad01f670c94aab441d77e39458efb6b014b74bfed9cec2ff3c5573877ca9c7a5",
+        "rgb_path": "FaceDepth/rgb_syn_test/image0039.jpg",
+        "rgb_sha256": "46115373ff65f6210b0102e398a5f7a495707d737aa8b5a7a797c8fd7420614f"
+      },
+      "split": "research-smoke"
+    },
+    {
+      "detector": {
+        "errors": [],
+        "landmark_count": 478,
+        "name": "mediapipe-face-landmarker"
+      },
+      "exact_depth": {
+        "path": "rows/c3i_demo_0052/exact_depth.npy",
+        "sha256": "2bf215d8c90697ffdc455650b31a32f42ce2ea55fc930cb697ef4b8ea7c86395"
+      },
+      "exact_face_parts": {
+        "left_eye": {
+          "path": "rows/c3i_demo_0052/exact_face_parts/left_eye.png",
+          "sha256": "02e77d05fe524a65b0b2f9d2f714e7353dbf43caf2e3823bfa7645f40bc0d94e"
+        },
+        "left_eyebrow": {
+          "path": "rows/c3i_demo_0052/exact_face_parts/left_eyebrow.png",
+          "sha256": "86e23490ce44ef3aeefb62470b01a121e1ba2780fb6d47009cb3d79c846b28bd"
+        },
+        "mouth": {
+          "path": "rows/c3i_demo_0052/exact_face_parts/mouth.png",
+          "sha256": "98fed9d8eaaf169bd02089f23cf5ee30c15a9c75905d630315bc392628d5089a"
+        },
+        "nose": {
+          "path": "rows/c3i_demo_0052/exact_face_parts/nose.png",
+          "sha256": "44b02f793503076221c8f28f260ea5014de63d4d22a6de42931da7764f9e5312"
+        },
+        "right_eye": {
+          "path": "rows/c3i_demo_0052/exact_face_parts/right_eye.png",
+          "sha256": "891466feafdb5309a8aad4e8d26698c4363022ddd1aaa76f8fe0dcd0be640d4e"
+        },
+        "right_eyebrow": {
+          "path": "rows/c3i_demo_0052/exact_face_parts/right_eyebrow.png",
+          "sha256": "193957f4fbe1edb029ab45a6d184c5e4bf65cddb6b08cb36767a1b32db3556aa"
+        }
+      },
+      "expression": "source-unknown",
+      "identity_group": "c3i_demo_identity_unknown",
+      "identity_provenance": "identity is not published in the demo filename",
+      "render": {
+        "depth_semantics": "nonmetric normalized 8-bit preview intensity; lower is nearer in the observed convention",
+        "face_bbox_height_pixels": 78,
+        "face_bbox_xyxy": [
+          89,
+          78,
+          167,
+          156
+        ],
+        "metric_scale_available": false,
+        "source_depth_representation": "official grayscale 8-bit demo preview",
+        "transform": {
+          "canvas_copy_xyxy": [
+            0,
+            0,
+            256,
+            235
+          ],
+          "canvas_shape": [
+            256,
+            256
+          ],
+          "origin_xy": [
+            -27,
+            -57
+          ],
+          "resized_shape": [
+            292,
+            390
+          ],
+          "scale": 0.609375,
+          "source_copy_xyxy": [
+            27,
+            57,
+            283,
+            292
+          ],
+          "source_shape": [
+            480,
+            640
+          ]
+        }
+      },
+      "row_id": "c3i_demo_0052",
+      "selection_mask": {
+        "path": "rows/c3i_demo_0052/selection_mask.png",
+        "sha256": "ce12a9d407d856aa2d0e0d306b3b39f7ae660da12a3db19eef337c3d752f821f"
+      },
+      "source": {
+        "path": "rows/c3i_demo_0052/source.png",
+        "sha256": "e2b733e1d1d73faf5c3df589cef8c329ad3430d8cbc9427be6fc0adca9c7fc08"
+      },
+      "source_asset": {
+        "depth_path": "FaceDepth/gt_syn_test/depth_0052.png",
+        "depth_sha256": "59786a6b9e92aa096dfbe426d4951e1e062bdfe40841218b0e8dddd36872bb30",
+        "rgb_path": "FaceDepth/rgb_syn_test/image0052.jpg",
+        "rgb_sha256": "ad4c99f266f7c30e2091f1aedca03f04b1b8faaa6e2208c1a45d58bb167beabb"
+      },
+      "split": "research-smoke"
+    },
+    {
+      "detector": {
+        "errors": [],
+        "landmark_count": 478,
+        "name": "mediapipe-face-landmarker"
+      },
+      "exact_depth": {
+        "path": "rows/c3i_demo_0097/exact_depth.npy",
+        "sha256": "38fbcfb4cf2fd120306da57f112ac7743ea4162953b240ea920aff3da9281a49"
+      },
+      "exact_face_parts": {
+        "left_eye": {
+          "path": "rows/c3i_demo_0097/exact_face_parts/left_eye.png",
+          "sha256": "bb3f7151e86c523d4075715b5b8d3ef5dd65e0095802e7f5508a0e0610c43d18"
+        },
+        "left_eyebrow": {
+          "path": "rows/c3i_demo_0097/exact_face_parts/left_eyebrow.png",
+          "sha256": "093ff38a078b3fad7df9ade1ae6c06747179dec2f74d18d249504a44392051c9"
+        },
+        "mouth": {
+          "path": "rows/c3i_demo_0097/exact_face_parts/mouth.png",
+          "sha256": "97ca9ae04a9ae320485404589ebc967b98e92bcf13415648b6c9558b1912df25"
+        },
+        "nose": {
+          "path": "rows/c3i_demo_0097/exact_face_parts/nose.png",
+          "sha256": "4859b4b8c5d7ab27ce70dca692ec419b1e12f45301ec410f9b6f5e1c2928d789"
+        },
+        "right_eye": {
+          "path": "rows/c3i_demo_0097/exact_face_parts/right_eye.png",
+          "sha256": "2afa7d45ea574abfc0c10bc62cb7dfd07cb7cc6c7e0d9429e1fd216b9fe65e40"
+        },
+        "right_eyebrow": {
+          "path": "rows/c3i_demo_0097/exact_face_parts/right_eyebrow.png",
+          "sha256": "264b0711275c3f7e57eddb89269e0d8aab39536396445ca2cf588926ff21e089"
+        }
+      },
+      "expression": "source-unknown",
+      "identity_group": "c3i_demo_identity_unknown",
+      "identity_provenance": "identity is not published in the demo filename",
+      "render": {
+        "depth_semantics": "nonmetric normalized 8-bit preview intensity; lower is nearer in the observed convention",
+        "face_bbox_height_pixels": 78,
+        "face_bbox_xyxy": [
+          95,
+          79,
+          161,
+          157
+        ],
+        "metric_scale_available": false,
+        "source_depth_representation": "official grayscale 8-bit demo preview",
+        "transform": {
+          "canvas_copy_xyxy": [
+            0,
+            0,
+            234,
+            188
+          ],
+          "canvas_shape": [
+            256,
+            256
+          ],
+          "origin_xy": [
+            -29,
+            -9
+          ],
+          "resized_shape": [
+            197,
+            263
+          ],
+          "scale": 0.4105263157894737,
+          "source_copy_xyxy": [
+            29,
+            9,
+            263,
+            197
+          ],
+          "source_shape": [
+            480,
+            640
+          ]
+        }
+      },
+      "row_id": "c3i_demo_0097",
+      "selection_mask": {
+        "path": "rows/c3i_demo_0097/selection_mask.png",
+        "sha256": "7e421fab25ba3263041f04992b8dc112cdc3bf8b380b3339ae8cd98170bceb98"
+      },
+      "source": {
+        "path": "rows/c3i_demo_0097/source.png",
+        "sha256": "2c01da466cde35682d52be29dbce92dde363bf2f994337d50b3a5cadbab566a2"
+      },
+      "source_asset": {
+        "depth_path": "FaceDepth/gt_syn_test/depth_0097.png",
+        "depth_sha256": "6eaf18b29385dad916099ba6c11182de2a293a7ecfcd5ae60dfe4f77a09e4e6f",
+        "rgb_path": "FaceDepth/rgb_syn_test/image0097.jpg",
+        "rgb_sha256": "20ccd8c7a6c77a855df7feffbdf9914b27f55659ab3606e4f1b45b44e33e71bb"
+      },
+      "split": "research-smoke"
+    }
+  ],
+  "schema_version": 1,
+  "source_geometry_training_and_evaluation_only": true,
+  "source_repository": "https://github.com/khan9048/Facial_depth_estimation",
+  "source_revision": "dc8adfffbfd38818b72d0ad3776eb66724fafe95",
+  "target_dimension": 256,
+  "target_face_height": 78
+}

@@ -1,0 +1,137 @@
+{
+  "run": "relief_30mm_background_context_v2",
+  "date": "2026-07-14",
+  "device": "NVIDIA GeForce RTX 3080 Ti",
+  "privacy": "aggregate metrics only; private images, masks, depth arrays, renders, and meshes are excluded",
+  "configuration": {
+    "relief_height_mm": 30.0,
+    "footprint_max_dimension_mm": 128.0,
+    "selection_background_depth_ratio": 0.45,
+    "selection_background_feather_mm": 1.5,
+    "selection_background_smoothing_mm": 0.6,
+    "maximum_relief_slope_mm_per_mm": 2.0
+  },
+  "portrait": {
+    "http_status": 200,
+    "runtime_seconds": 17.466,
+    "background_composition": {
+      "context_pixels": 325370,
+      "context_coverage_ratio": 0.16946354166666666,
+      "source_depth_correlation": 0.9707434881769317,
+      "output_span_to_selected_span_ratio": 0.4500000141326027
+    },
+    "final_background": {
+      "passed": true,
+      "enforced": true,
+      "correlation": 0.9599126400333391,
+      "rms_retention": 0.8778536812842721,
+      "span_retention": 0.988481432190756,
+      "gradient_correlation": 0.7512021311729868,
+      "gradient_rms_retention": 0.6667334409426732,
+      "mean_shift_mm": -0.3437104508981123,
+      "candidate_coverage_ratio": 1.0,
+      "boundary_jump_p99_mm": 1.2437361145019532,
+      "boundary_jump_max_mm": 2.395796775817871,
+      "old_p05_p95_span_mm": 4.35706956079228,
+      "new_p05_p95_span_mm": 12.6902238833718,
+      "span_gain": 2.91255939486636,
+      "old_centered_rms_mm": 1.811256280018332,
+      "new_centered_rms_mm": 4.652801408133653,
+      "centered_rms_gain": 2.568825549130221
+    },
+    "physical_background_cap": {
+      "strict_passed": false,
+      "emission_passed": true,
+      "far_background_passed": true,
+      "feasible_attachment_constraints_passed": true,
+      "attachment_constraints_passed": false,
+      "depth_ratio": 0.45,
+      "far_ceiling_mm": 13.509999999776483,
+      "far_max_mm": 13.510000228881836,
+      "violation_mm": 0.0,
+      "affected_pixels": 2167,
+      "attachment_constraint_conflicts": 26,
+      "attachment_jump_max_mm": 2.395796775817871,
+      "feasible_attachment_jump_max_mm": 0.8000001907348633,
+      "attachment_step_limit_mm": 0.8
+    },
+    "face_components": [
+      {
+        "correlation": 0.943389575329939,
+        "rms_retention": 0.9314959889492025
+      },
+      {
+        "correlation": 0.94829055717559,
+        "rms_retention": 0.9684205448170183
+      }
+    ],
+    "topology": {
+      "component_count": 1,
+      "watertight": true,
+      "manifold": true,
+      "winding_consistent": true,
+      "positive_volume": true,
+      "degenerate_faces": 0
+    }
+  },
+  "llama_group": {
+    "http_status": 200,
+    "runtime_seconds": 12.726,
+    "final_background": {
+      "passed": true,
+      "enforced": true,
+      "correlation": 0.978803608676673,
+      "rms_retention": 0.9102803015405471,
+      "span_retention": 0.9367622401365296,
+      "gradient_correlation": 0.7789917684473181,
+      "gradient_rms_retention": 0.6486296521465605,
+      "mean_shift_mm": -0.4770630596526719,
+      "candidate_coverage_ratio": 1.0,
+      "boundary_jump_p99_mm": 2.1444656276702876,
+      "boundary_jump_max_mm": 3.0794458389282227,
+      "p05_p95_span_mm": 17.16944525600411,
+      "centered_rms_mm": 6.330445798829591
+    },
+    "physical_background_cap": {
+      "strict_passed": false,
+      "emission_passed": true,
+      "far_background_passed": true,
+      "feasible_attachment_constraints_passed": true,
+      "attachment_constraints_passed": false,
+      "depth_ratio": 0.45,
+      "far_ceiling_mm": 13.509999999776483,
+      "far_max_mm": 13.510000228881836,
+      "violation_mm": 0.0,
+      "affected_pixels": 15808,
+      "attachment_constraint_conflicts": 100,
+      "attachment_jump_max_mm": 3.0794458389282227,
+      "feasible_attachment_jump_max_mm": 0.8000001907348633,
+      "attachment_step_limit_mm": 0.8
+    },
+    "selected_component_correlations": [
+      0.7527050865957085,
+      0.9288561608890905,
+      0.8176869377040762,
+      0.9382395437802916
+    ],
+    "selected_component_rms_retentions": [
+      0.4425830700962309,
+      0.4164330279715639,
+      0.6214320655595248,
+      0.23783583479280598
+    ],
+    "topology": {
+      "component_count": 1,
+      "watertight": true,
+      "manifold": true,
+      "winding_consistent": true,
+      "positive_volume": true,
+      "degenerate_faces": 0
+    }
+  },
+  "validation": {
+    "focused_tests": "96 passed, 2 subtests passed",
+    "backend_tests": "423 passed, 8 subtests passed",
+    "existing_warnings": 2
+  }
+}

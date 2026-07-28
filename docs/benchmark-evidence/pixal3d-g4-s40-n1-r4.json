@@ -1,0 +1,221 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-10T13:57:04Z",
+  "run": {
+    "name": "g4_stl_first_pixal3d_vs_triposg_s40_n1_r4",
+    "repo_commit": "c18fbde945c28a548dacea9856e90530bbb161e5",
+    "package_sha256": "565265149b69747e7702a24de5f4adfd25348d0f8b3e1ea08db33caecb4ad155",
+    "result_archive": "/content/g4_stl_first_pixal3d_vs_triposg_s40_n1_r4_results.tar.gz",
+    "result_archive_bytes": 121229396,
+    "result_archive_sha256": "2116aeace7c7ce8597d4c1193f2bd6be320dafda8b2506c7516d92a5f59dbc30",
+    "run_status": 0
+  },
+  "input": {
+    "manifest": "backend/output/completion-benchmark/modelnet10_60_balanced_s256_seed4040/manifest.jsonl",
+    "manifest_sha256": "c3b80165e372d06c33bf755dcaa5024f7ba57f21aa3b12a33986887c673e6726",
+    "source_start_index": 40,
+    "packaged_eval_start": 0,
+    "sample_count": 1,
+    "sample_id": "mesh_dir_757e06b221_v00",
+    "score_profile": "stl-quality",
+    "stl_target_dimension": 96
+  },
+  "compute": {
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "gpu_memory_gb": 95.5927734375,
+    "torch": "2.11.0+cu128",
+    "python": "3.12.13",
+    "cuda_capability": "12.0"
+  },
+  "providers": {
+    "pixal3d_repo_commit": "cdbb2bbffbf4e6f298b5f2af3d1d76a8d823d2af",
+    "triposg_repo_commit": "fc5c40990181e2a756c4e0b1c2f4d6b5202faf8c",
+    "pixal3d_rembg_override": "ZhengPeng7/BiRefNet",
+    "pixal3d_raw_mesh_cache_key": "1a1d35d904ab84de68accab8e72f751c7393739cdb6a965112b2bdf6c965f78f",
+    "observed_huggingface_revisions": {
+      "TencentARC/Pixal3D": "0b31f9160aa400719af409098bff7936a932f726",
+      "Ruicheng/moge-2-vitl": "39c4d5e957afe587e04eec59dc2bcc3be5ecd968",
+      "camenduru/dinov3-vitl16-pretrain-lvd1689m": "3c276edd87d6f6e569ff0c4400e086807d0f3881",
+      "ZhengPeng7/BiRefNet": "e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4"
+    }
+  },
+  "iterations": [
+    {
+      "run": "r1",
+      "repo_commit": "be9594b059db7d2d4617f35d4a9171c8f53fa388",
+      "outcome": "Pixal3D blocked by gated briaai/RMBG-2.0",
+      "result_archive_sha256": "f465013e38e213b89dc9dd31b9303f2a86c3365fc0c3fb73a20ce6269d5b11fb"
+    },
+    {
+      "run": "r2",
+      "repo_commit": "4b6d3dcdcb0e64fecf8d2139d4f8b29c7773c61a",
+      "outcome": "Public BiRefNet override generated a raw mesh; printable repair was killed with exit 137 on 993925 faces and 437 components",
+      "result_archive_sha256": "0bf45ff7973e78bb336c64f14d7845ee4fc48fe36474d9f07f1c951eeed2dec8"
+    },
+    {
+      "run": "r3",
+      "repo_commit": "790ed46e8767a81bfc7bad7b080ecbe879b3aeba",
+      "outcome": "Cache hit; preconditioning reduced 993925 faces to 40478 and failed safely because the first guard required the final 10923-face budget",
+      "result_archive_sha256": "8142fd23ab0fa81aec3f1a7ae396d13975e6bb88ad65be361c8c56e26162dd7b"
+    },
+    {
+      "run": "r4",
+      "repo_commit": "c18fbde945c28a548dacea9856e90530bbb161e5",
+      "outcome": "Cache hit; bounded residual topology repair succeeded and emitted a printable STL",
+      "result_archive_sha256": "2116aeace7c7ce8597d4c1193f2bd6be320dafda8b2506c7516d92a5f59dbc30"
+    }
+  ],
+  "methods": [
+    {
+      "method": "pixal3d_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+      "n": 1,
+      "rank_score": 1.4020955042679368,
+      "mesh_surface_chamfer_l1": 0.18219700896369356,
+      "mesh_surface_hausdorff95": 0.42406373017397136,
+      "stl_bbox_aspect_ratio": 1.9180144567653314,
+      "stl_faces_per_normalized_bbox_volume_log1p": 5.200116486841369,
+      "stl_is_watertight": true,
+      "stl_is_volume": true,
+      "stl_is_manifold": true,
+      "stl_single_component": true,
+      "success_rate": 1.0
+    },
+    {
+      "method": "source_mesh_oracle",
+      "n": 1,
+      "rank_score": 1.0042613732820524,
+      "mesh_surface_chamfer_l1": 0.24641214060129843,
+      "mesh_surface_hausdorff95": 0.41855442241831026,
+      "stl_faces_per_normalized_bbox_volume_log1p": 5.685691126647166,
+      "stl_is_watertight": true,
+      "stl_is_volume": true,
+      "stl_is_manifold": true,
+      "stl_single_component": true,
+      "success_rate": 1.0
+    },
+    {
+      "method": "triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+      "n": 1,
+      "rank_score": 0.8419967348182223,
+      "mesh_surface_chamfer_l1": 0.12636845283451084,
+      "mesh_surface_hausdorff95": 0.3144730785443258,
+      "stl_bbox_aspect_ratio": 1.9180144567653314,
+      "stl_faces_per_normalized_bbox_volume_log1p": 9.949872631414307,
+      "stl_is_watertight": true,
+      "stl_is_volume": true,
+      "stl_is_manifold": true,
+      "stl_single_component": true,
+      "success_rate": 1.0
+    },
+    {
+      "method": "biharmonic",
+      "n": 1,
+      "rank_score": 0.09641288145274979,
+      "mesh_surface_chamfer_l1": 0.16037612410958296,
+      "mesh_surface_hausdorff95": 0.40168340726849316,
+      "stl_faces_per_normalized_bbox_volume_log1p": 11.177938805329289,
+      "stl_is_watertight": true,
+      "stl_is_volume": true,
+      "stl_is_manifold": true,
+      "stl_single_component": true,
+      "success_rate": 1.0
+    },
+    {
+      "method": "mirror",
+      "n": 1,
+      "rank_score": 0.08339777282381272,
+      "mesh_surface_chamfer_l1": 0.16167977168567077,
+      "mesh_surface_hausdorff95": 0.40656145712992964,
+      "stl_faces_per_normalized_bbox_volume_log1p": 11.166186889642498,
+      "stl_is_watertight": true,
+      "stl_is_volume": true,
+      "stl_is_manifold": true,
+      "stl_single_component": true,
+      "success_rate": 1.0
+    },
+    {
+      "method": "masked",
+      "n": 1,
+      "rank_score": 0.0,
+      "mesh_surface_chamfer_l1": 0.16768566444964966,
+      "mesh_surface_hausdorff95": 0.41531970414789027,
+      "stl_faces_per_normalized_bbox_volume_log1p": 11.188511800178459,
+      "stl_is_watertight": true,
+      "stl_is_volume": true,
+      "stl_is_manifold": true,
+      "stl_single_component": true,
+      "success_rate": 1.0
+    },
+    {
+      "method": "pixal3d_biharmonic_prefill_raw_direct_mesh",
+      "n": 1,
+      "rank_score": -18.51903588802598,
+      "mesh_surface_chamfer_l1": 0.15210668976493102,
+      "mesh_surface_hausdorff95": 0.36546359138956436,
+      "stl_faces": 993925,
+      "stl_nonmanifold_edge_count": 1404,
+      "stl_component_count": 437,
+      "stl_faces_per_normalized_bbox_volume_log1p": 14.731729156314268,
+      "stl_is_watertight": false,
+      "stl_is_volume": false,
+      "stl_is_manifold": false,
+      "stl_single_component": false,
+      "success_rate": 1.0
+    }
+  ],
+  "selection": {
+    "reported_decision": "promote",
+    "candidate": "pixal3d_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+    "current": "triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+    "failed_checks": [],
+    "interpretation": "provisional_only",
+    "reason": "n=1 and Pixal3D regressed surface Chamfer and Hausdorff95 versus TripoSG despite winning the composite score; add explicit geometry-regression gates before a model-level promotion"
+  },
+  "post_run_selector_replay": {
+    "selector_commit": "816b0e6d7b7655dfc6f27ab65977dc568aa804a7",
+    "decision": "hold",
+    "max_ratio_vs_current": 1.1,
+    "mesh_surface_chamfer_ratio_vs_current": 1.4417918782490318,
+    "mesh_surface_hausdorff95_ratio_vs_current": 1.3484897725965386,
+    "failed_checks": [
+      "paired_mesh_surface_chamfer_ratio_vs_current",
+      "paired_mesh_surface_hausdorff95_ratio_vs_current"
+    ]
+  },
+  "followup_model_pinning": {
+    "status": "implemented",
+    "snapshot_layouts_verified_against_hugging_face_api": true,
+    "cache_identity_includes_all_four_repo_ids_and_revisions": true,
+    "runtime_uses_local_snapshot_paths": true,
+    "mo_ge_runtime_path": "<snapshot>/model.pt",
+    "hugging_face_runtime_offline_after_resolution": true,
+    "triposg_control_snapshots": {
+      "VAST-AI/TripoSG": "2c1c516d22d58db486a058d98d31bb6177344e06",
+      "briaai/RMBG-1.4": "2ceba5a5efaec153162aedea169f76caf9b46cf8"
+    }
+  },
+  "validation": {
+    "backend_tests": 220,
+    "backend_tests_passed": 220,
+    "generated_runner_bash_syntax": "passed"
+  },
+  "followup_validation": {
+    "backend_tests": 230,
+    "backend_tests_passed": 230,
+    "generated_runner_bash_syntax": "passed",
+    "snapshot_required_files_verified": 4,
+    "snapshot_revision_matches_verified": 4
+  },
+  "artifact_retention": {
+    "notebook_output_retained": true,
+    "runtime_archive_retained": false,
+    "reason": "The idle-cost automation disconnected the runtime after completion and before local transfer; the exact archive path, size, SHA256, metric summary, and notebook output remain recorded."
+  },
+  "next_experiment": {
+    "sample_count": "5-10",
+    "required_changes": [
+      "run the pinned Pixal3D and TripoSG methods on the same held-out rows",
+      "capture compact result evidence before disconnecting the runtime"
+    ]
+  }
+}

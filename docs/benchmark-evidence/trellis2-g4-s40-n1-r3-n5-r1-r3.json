@@ -1,0 +1,317 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-10T20:33:57Z",
+  "objective": "Compare a pinned, compatibility-adapted TRELLIS.2 image-to-mesh lane against the promoted pinned TripoSG incumbent and depth-relief baselines, ranking final STL quality rather than preview quality.",
+  "input": {
+    "manifest": "backend/output/completion-benchmark/modelnet10_60_balanced_s256_seed4040/manifest.jsonl",
+    "manifest_sha256": "c3b80165e372d06c33bf755dcaa5024f7ba57f21aa3b12a33986887c673e6726",
+    "source_start_index": 40,
+    "packaged_eval_start": 0,
+    "sample_count": 5,
+    "views_per_asset": 1,
+    "score_profile": "stl-quality",
+    "stl_target_dimension": 96,
+    "assets": [
+      {
+        "sample_id": "mesh_dir_757e06b221_v00",
+        "asset_id": "table_0247",
+        "asset_key": "table/train/table_0247.off"
+      },
+      {
+        "sample_id": "mesh_dir_9f32f114c4_v00",
+        "asset_id": "night_stand_0103",
+        "asset_key": "night_stand/train/night_stand_0103.off"
+      },
+      {
+        "sample_id": "mesh_dir_1a200d8288_v00",
+        "asset_id": "toilet_0356",
+        "asset_key": "toilet/test/toilet_0356.off"
+      },
+      {
+        "sample_id": "mesh_dir_92752051d0_v00",
+        "asset_id": "dresser_0155",
+        "asset_key": "dresser/train/dresser_0155.off"
+      },
+      {
+        "sample_id": "mesh_dir_49534574e1_v00",
+        "asset_id": "desk_0178",
+        "asset_key": "desk/train/desk_0178.off"
+      }
+    ]
+  },
+  "compute": {
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "gpu_memory_gb": 95.5927734375,
+    "torch": "2.11.0+cu128",
+    "python": "3.12.13",
+    "cuda_capability": "12.0"
+  },
+  "reproducibility": {
+    "trellis2_source_commit": "75fbf0183001ed9876c8dbb35de6b68552ee08bd",
+    "trellis2_resolution": 512,
+    "trellis2_seed": 42,
+    "trellis2_empty_structure_retry_count": 1,
+    "trellis2_attention_backend": "xformers",
+    "provider_mesh_caches": {
+      "trellis2": "/content/trellis2-provider-cache",
+      "triposg": "/content/triposg-provider-cache"
+    },
+    "model_snapshots": {
+      "microsoft/TRELLIS.2-4B": "af44b45f2e35a493886929c6d786e563ec68364d",
+      "microsoft/TRELLIS-image-large": "25e0d31ffbebe4b5a97464dd851910efc3002d96",
+      "camenduru/dinov3-vitl16-pretrain-lvd1689m": "3c276edd87d6f6e569ff0c4400e086807d0f3881",
+      "ZhengPeng7/BiRefNet": "e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4",
+      "VAST-AI/TripoSG": "2c1c516d22d58db486a058d98d31bb6177344e06",
+      "briaai/RMBG-1.4": "2ceba5a5efaec153162aedea169f76caf9b46cf8"
+    },
+    "compatibility_note": "The run pins official TRELLIS.2 source and primary weights but replaces gated DINOv3 and background-removal references with public exact-revision snapshots and applies documented Blackwell/runtime compatibility adaptations. It must not be described as an unmodified official pipeline."
+  },
+  "iterations": [
+    {
+      "run": "g4_stl_first_trellis2_vs_triposg_s40_n1_r3",
+      "repo_commit": "904dd135129151be3b33e12e84db903c74b4c2df",
+      "package_bytes": 138965,
+      "package_sha256": "73c87f66f5780869c1a24cd3761bbddba4bbbee48ff40b7a37ad68c7d0f542bb",
+      "launcher_sha256": "ba140b8cde5c46d21f5fde7506f5542dd8b93892fd2a2e9ac5ee1804a646809e",
+      "result_archive_bytes": 35407902,
+      "result_archive_sha256": "d3de19270a7f19002ffe02cacbb5c49c4576b307ef019a0db76887320ea03d11",
+      "compact_evidence_bytes": 411637,
+      "compact_evidence_members": 72,
+      "compact_evidence_sha256": "105784ec2c9e4ae46e5f877570c0597e6a6e055ad1ceeb23ec9dc40006f0a56e",
+      "outcome": "First successful end-to-end TRELLIS.2 row. Repaired TRELLIS scored 1.5039 and passed printability, while the raw 657672-face, 638-component mesh was unprintable. The one-row selector remained hold because this was calibration evidence and surface ratios exceeded the incumbent ceiling."
+    },
+    {
+      "run": "g4_stl_first_trellis2_vs_triposg_s40_n5_r1",
+      "repo_commit": "904dd135129151be3b33e12e84db903c74b4c2df",
+      "package_bytes": 649540,
+      "package_sha256": "9e99ac798a678afdd000c06225f79144f2135e06113749618404bb73b741c3a3",
+      "result_archive_bytes": 281999959,
+      "result_archive_sha256": "e6c4f0a1c83bc07d58e951f8205c17cac694ae87f2ae751d71dac15127ff9aec",
+      "compact_evidence_bytes": 1776397,
+      "compact_evidence_members": 120,
+      "compact_evidence_sha256": "d17acf04a6d4f3955e3470851a95f97aad9085c1ea643a5603ea4a099b85c8df",
+      "outcome": "TRELLIS raw geometry completed 4/5 rows and printable repair completed 3/5. One sample produced an empty sparse structure; the dense desk mesh had 2768786 faces and 133533 components and remained above the 131072-face safe repair limit after simplification."
+    },
+    {
+      "run": "g4_stl_first_trellis2_vs_triposg_s40_n5_r2",
+      "repo_commit": "378bb97d37b056d57d7ba00ae8b1d5bc03e6006f",
+      "package_bytes": 649637,
+      "package_sha256": "c8b82b6ed9e4324377b50e0b014c4116741e1b1b9064bddb99d91c6dbce869ee",
+      "launcher_sha256": "6a8ab5ef053923c5d756d9fc879bcccbaead298246c5834134efb0b3d0093c4d",
+      "result_archive_bytes": 290372112,
+      "result_archive_sha256": "4e223572a9a4a5b0e452e7aaaf2ad59f55fe8f363455ea2e1046e5766f426bd4",
+      "compact_evidence_bytes": 1923174,
+      "compact_evidence_members": 150,
+      "compact_evidence_sha256": "0c55e867401b150106691e03a6aef4cbfd8cfa609caf5732bd4fc7ec12708f59",
+      "outcome": "A deterministic retry with seed 43 recovered the empty sparse-structure sample, and bounded fast component filtering recovered the dense desk. Repaired TRELLIS completed 5/5 and passed all hard STL gates. Review then found that the fast filter ranked by area instead of the established volume-first policy, so a corrected repair-only rerun was required."
+    },
+    {
+      "run": "g4_stl_first_trellis2_vs_triposg_s40_n5_r3",
+      "repo_commit": "6acebcd3b9b6fe697be2f81343391c79f9f0b1b3",
+      "package_bytes": 649643,
+      "package_sha256": "f541a97f0fddab2b70cdf26b1321e8698cf9e089a6fa01718bd741f2b252575d",
+      "launcher_sha256": "8b6c2b9868446cdbd27cf454c3c210beb69adc807dee60c4f477ecb9653eee68",
+      "result_archive_bytes": 290340713,
+      "result_archive_sha256": "61ba9e27746543e7cd0d2b7d182746b2980cd02de9ecef359f8889f470cb70ef",
+      "compact_evidence_bytes": 1905521,
+      "compact_evidence_members": 150,
+      "compact_evidence_sha256": "a87d95b0408ea140154493c819c40100eb0f079ec067fcfc1fdc6af2708129a6",
+      "run_status": 0,
+      "decision": "hold",
+      "outcome": "Volume-first fast component ranking, stale-sidecar cleanup, raw-artifact tracking, and null legacy-cache timing were active. Cached raw geometries isolated the repair-policy change. All five repaired TRELLIS STLs passed hard gates, but the paired worst-sample surface checks still held promotion."
+    }
+  ],
+  "final_methods": [
+    {
+      "method": "source_mesh_oracle",
+      "n": 5,
+      "rank_score": 2.8629242982570977,
+      "mesh_surface_chamfer_l1_median": 0.050999086330851,
+      "mesh_surface_hausdorff95_median": 0.2686875719110348,
+      "stl_faces_per_normalized_bbox_volume_log1p_median": 5.685691126647166,
+      "success_rate": 1.0,
+      "printability_medians_pass": true,
+      "deployable": false
+    },
+    {
+      "method": "trellis2_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+      "n": 5,
+      "rank_score": 1.3778719845498362,
+      "mesh_surface_chamfer_l1_median": 0.1676363519768403,
+      "mesh_surface_hausdorff95_median": 0.3594724946113757,
+      "stl_bbox_aspect_ratio_median": 2.000553967130855,
+      "stl_faces_per_normalized_bbox_volume_log1p_median": 6.590941393464432,
+      "success_rate": 1.0,
+      "printability_medians_pass": true,
+      "deployable": true
+    },
+    {
+      "method": "triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+      "n": 5,
+      "rank_score": 0.9521169583546369,
+      "mesh_surface_chamfer_l1_median": 0.12636845283451084,
+      "mesh_surface_hausdorff95_median": 0.3491625628123909,
+      "stl_bbox_aspect_ratio_median": 2.000553967130855,
+      "stl_faces_per_normalized_bbox_volume_log1p_median": 9.526572240167383,
+      "success_rate": 1.0,
+      "printability_medians_pass": true,
+      "deployable": true
+    },
+    {
+      "method": "trellis2_biharmonic_prefill_raw_direct_mesh",
+      "n": 5,
+      "rank_score": -26.438708986106498,
+      "mesh_surface_chamfer_l1_median": 0.2097236433332302,
+      "mesh_surface_hausdorff95_median": 0.4542982017058412,
+      "stl_faces_per_normalized_bbox_volume_log1p_median": 16.408130782931234,
+      "success_rate": 1.0,
+      "printability_medians_pass": false,
+      "deployable": false
+    }
+  ],
+  "trellis_repaired_per_sample": [
+    {
+      "sample_id": "mesh_dir_757e06b221_v00",
+      "asset_id": "table_0247",
+      "stl_faces": 126,
+      "mesh_surface_chamfer_l1": 0.16992211176779098,
+      "mesh_surface_hausdorff95": 0.39181413059594905,
+      "stl_faces_per_normalized_bbox_volume_log1p": 5.491701760346944
+    },
+    {
+      "sample_id": "mesh_dir_9f32f114c4_v00",
+      "asset_id": "night_stand_0103",
+      "stl_faces": 548,
+      "mesh_surface_chamfer_l1": 0.13823180940164143,
+      "mesh_surface_hausdorff95": 0.32222450917335743,
+      "stl_faces_per_normalized_bbox_volume_log1p": 7.099300387402776
+    },
+    {
+      "sample_id": "mesh_dir_1a200d8288_v00",
+      "asset_id": "toilet_0356",
+      "stl_faces": 380,
+      "mesh_surface_chamfer_l1": 0.09700250310757354,
+      "mesh_surface_hausdorff95": 0.24717315848480026,
+      "stl_faces_per_normalized_bbox_volume_log1p": 6.590941393464432
+    },
+    {
+      "sample_id": "mesh_dir_92752051d0_v00",
+      "asset_id": "dresser_0155",
+      "stl_faces": 502,
+      "mesh_surface_chamfer_l1": 0.1709666721045546,
+      "mesh_surface_hausdorff95": 0.3594724946113757,
+      "stl_faces_per_normalized_bbox_volume_log1p": 6.950699259917788
+    },
+    {
+      "sample_id": "mesh_dir_49534574e1_v00",
+      "asset_id": "desk_0178",
+      "stl_faces": 48,
+      "mesh_surface_chamfer_l1": 0.1676363519768403,
+      "mesh_surface_hausdorff95": 0.5486999848756963,
+      "stl_faces_per_normalized_bbox_volume_log1p": 4.574985069001903
+    }
+  ],
+  "selection": {
+    "decision": "hold",
+    "candidate": "trellis2_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+    "current": "triposg_biharmonic_prefill_repaired_stl_inferred_bbox_direct_mesh",
+    "score_margin_vs_current": 0.4257550261951993,
+    "paired_n": 5,
+    "paired_win_count_vs_current": 4,
+    "paired_win_rate_vs_current": 0.8,
+    "paired_ci95_low_vs_current": 0.1693274878627256,
+    "paired_chamfer_median_ratio_vs_current": 1.0583,
+    "paired_chamfer_worst_ratio_vs_current": 1.3446561064597111,
+    "paired_hausdorff95_median_ratio_vs_current": 0.9814,
+    "paired_hausdorff95_worst_ratio_vs_current": 1.2580041717495745,
+    "max_allowed_surface_ratio": 1.1,
+    "failed_checks": [
+      "paired_mesh_surface_chamfer_ratio_vs_current",
+      "paired_mesh_surface_hausdorff95_ratio_vs_current"
+    ]
+  },
+  "runtime": {
+    "trellis2_provider_inference_seconds_median": 55.55449988300097,
+    "trellis2_provider_invocation_seconds_median_final_cache_run": 0.009484250000241445,
+    "trellis2_repair_seconds_median": 3.5902780329997768,
+    "trellis2_direct_command_seconds_median_final_cache_run": 4.069659673998103,
+    "triposg_provider_inference_seconds_median": null,
+    "triposg_provider_invocation_seconds_median_final_cache_run": 0.00241823999749613,
+    "triposg_repair_seconds_median": 0.31566887400185806,
+    "triposg_direct_command_seconds_median_final_cache_run": 0.7654969959985465,
+    "interpretation": "TRELLIS inference duration came from cache metadata written during the cache-producing R2 pass. TripoSG used legacy cache entries without inference duration; its unknown value is null and cache lookup time must not be reported as inference."
+  },
+  "metric_availability": {
+    "peak_child_process_vram": {
+      "supported": false,
+      "value": null
+    },
+    "self_intersection_count": {
+      "supported": false,
+      "value": null
+    },
+    "held_out_view_agreement": {
+      "supported": false,
+      "value": null,
+      "reason": "The packaged manifest contains one rendered view per asset."
+    },
+    "source_geometry": "Used only for diagnostic surface distance and oracle rows; never supplied to deployable image-to-mesh candidates."
+  },
+  "repair_observations": {
+    "raw_face_count_range": [
+      550804,
+      2768786
+    ],
+    "raw_component_count_range": [
+      319,
+      133533
+    ],
+    "final_repaired_face_count_range": [
+      48,
+      548
+    ],
+    "empty_sparse_structure_recovery": {
+      "sample_id": "mesh_dir_92752051d0_v00",
+      "failed_seed": 42,
+      "retry_seed": 43,
+      "retry_count": 1
+    },
+    "dense_mesh_recovery": {
+      "sample_id": "mesh_dir_49534574e1_v00",
+      "raw_faces": 2768786,
+      "raw_components": 133533,
+      "final_faces": 48,
+      "final_components": 1,
+      "final_watertight": true,
+      "final_manifold": true
+    },
+    "interpretation": "The reliability path is bounded and printable, but the very low repaired face counts show that fallback closure can remove hidden-side shape. Surface accuracy, not looser topology gates, is the next optimization target."
+  },
+  "validation": {
+    "focused_new_regressions_passed": 6,
+    "benchmark_and_pixal_test_modules_passed": 183,
+    "full_backend_tests_passed": 271,
+    "full_backend_test_warnings": 2,
+    "full_backend_subtests_passed": 6,
+    "python_compile": "passed",
+    "git_diff_check": "passed",
+    "compact_archives_verified_locally": 4
+  },
+  "artifact_retention": {
+    "final_compact_evidence_local_path": "backend/output/completion-benchmark/colab_payloads/g4_stl_first_trellis2_vs_triposg_s40_n5_r3_compact_evidence.tar.gz",
+    "final_compact_evidence_contains": [
+      "results_summary.json",
+      "selection_decision.json",
+      "per-sample and aggregate metrics",
+      "provider and GPU preflight",
+      "contact sheet and depth previews",
+      "provider retry and failure logs",
+      "runtime and raw/repair sidecars"
+    ]
+  },
+  "conclusion": "TRELLIS.2 is operationally reproducible and 5/5 printable on this slice, but it does not replace TripoSG. Its composite score benefits from low-complexity printable output, while the paired worst-sample surface checks identify regressions that still matter for hidden-side reconstruction.",
+  "next_experiment": {
+    "primary": "Compare shape-preserving component closure against the current printable fallback on these exact five cached TRELLIS and Pixal raw meshes, retaining the same paired Chamfer/H95 ceilings.",
+    "secondary": "Add a pinned Hunyuan3D-2mv lane for selected front/right/back/left or video-frame bundles and score only its normalized final STL."
+  }
+}

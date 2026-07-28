@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "focused": {
+    "command": "python -m pytest -q backend/tests/test_lam_depth_provider.py backend/tests/test_evaluate_lam_small_face_exact_gate.py backend/tests/test_evaluate_vggheads_small_face_exact_gate.py backend/tests/test_face_part_metrics.py backend/tests/test_evaluate_c3i_facedepth_gate.py backend/tests/test_evaluate_c3i_synface_demo_gate.py",
+    "passed": 47,
+    "failed": 0
+  },
+  "full_backend": {
+    "command": "python -m pytest -q backend/tests",
+    "passed": 901,
+    "subtests_passed": 87,
+    "failed": 4,
+    "warnings": 3,
+    "failure_files": [
+      "backend/tests/test_canonical_face_relief_smoke.py",
+      "backend/tests/test_canonical_face_variants.py",
+      "backend/tests/test_makehuman_face_relief_smoke.py"
+    ],
+    "scope": "pre-existing dirty production relief path outside owned LAM files"
+  },
+  "payload_replay": {
+    "archive_sha256": "41a57f2c0d25da6d63ffa443bd2972d3caabb48e237026d69cbfb841e8b2a6a4",
+    "evaluator_exit": 2,
+    "decision": "hold",
+    "selected_variant": "camera_a0.0312500",
+    "passed_part_checks": 15,
+    "total_part_checks": 42
+  }
+}
