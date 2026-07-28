@@ -1,6 +1,8 @@
 {
   "schema_version": 1,
   "run_kind": "privacy-held-exact-two-face-30mm-relief",
+  "implementation_revision": "fc8308f75c43872ab22fff528438ac62c4dbabec",
+  "tracked_sources_clean": true,
   "private_artifacts_committed": false,
   "production_input_policy": {
     "depth_source": "original_source_pixels",
@@ -52,6 +54,6 @@
   },
   "runtime": {
     "gpu": "NVIDIA GeForce RTX 3080 Ti",
-    "total_seconds": 31.723
+    "total_seconds": 35.663
   }
 }
