@@ -549,7 +549,7 @@ def build_triposg_setup_prelude() -> str:
         "PY\n"
         "fi\n"
         "echo \"TripoSG setup checkpoint: Python deps importable\"\n"
-        "(cd \"$TRIPOSG_DIR\" && \"$TRIPOSG_VENV/bin/python\" -m scripts.inference_triposg --help >/tmp/triposg_inference_help.txt)\n"
+        "(cd \"$TRIPOSG_DIR\" && PYTHONPATH=\"$TRIPOSG_DIR${PYTHONPATH:+:$PYTHONPATH}\" \"$TRIPOSG_VENV/bin/python\" \"$TRIPOSG_DIR/scripts/inference_triposg.py\" --help >/tmp/triposg_inference_help.txt)\n"
         "echo \"TripoSG setup checkpoint: CLI imports ok\"\n"
         "if [[ \"${TRIPOSG_PREFETCH:-0}\" == \"1\" ]]; then\n"
         "  \"$TRIPOSG_VENV/bin/python\" - <<'PY'\n"

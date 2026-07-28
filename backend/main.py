@@ -23,9 +23,12 @@ try:
     from .pic_to_3d import (
         MODERN_INPAINT_MODELS,
         complete_image,
+        complete_selection_context_with_modern_inpaint,
         compose_selection_depth_with_context,
         depth_data_to_3d_model,
         process_image_get_depth_data,
+        release_depth_pipelines,
+        release_inpaint_pipelines,
         relief_value_transform_for_model,
     )
     from .face_depth_refinement import (
@@ -40,9 +43,12 @@ except ImportError:  # pragma: no cover - supports running uvicorn from backend/
     from pic_to_3d import (
         MODERN_INPAINT_MODELS,
         complete_image,
+        complete_selection_context_with_modern_inpaint,
         compose_selection_depth_with_context,
         depth_data_to_3d_model,
         process_image_get_depth_data,
+        release_depth_pipelines,
+        release_inpaint_pipelines,
         relief_value_transform_for_model,
     )
     from face_depth_refinement import (
@@ -63,7 +69,14 @@ except ImportError:  # pragma: no cover - supports running uvicorn from backend/
     if __package__:
         raise
     from runtime_provenance import runtime_source_provenance
+try:
+    from .scene_diorama import build_scene_diorama
+except ImportError:  # pragma: no cover - supports running uvicorn from backend/
+    if __package__:
+        raise
+    from scene_diorama import build_scene_diorama
 import numpy as np
+import cv2
 from PIL import Image, ImageFilter, ImageOps
 
 # Load environment variables
@@ -75,6 +88,9 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 DEFAULT_LOCAL_ORIGINS = ["http://localhost:3000", "http://localhost:3001"]
+DEFAULT_LOCAL_ORIGIN_REGEX = (
+    r"^https?://(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$"
+)
 CORS_ORIGINS = list(
     dict.fromkeys(
         origin.strip()
@@ -82,11 +98,15 @@ CORS_ORIGINS = list(
         if origin.strip()
     )
 )
+CORS_ORIGIN_REGEX = (
+    os.getenv("CORS_ORIGIN_REGEX", "").strip() or DEFAULT_LOCAL_ORIGIN_REGEX
+)
 
 # Updated CORS middleware configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
+    allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
@@ -131,6 +151,14 @@ DEFAULT_NOZZLE_DIAMETER_MM = float(os.getenv("DEFAULT_NOZZLE_DIAMETER_MM", "0.4"
 DEFAULT_MAX_RELIEF_SLOPE = float(os.getenv("DEFAULT_MAX_RELIEF_SLOPE", "2.0"))
 
 DEPTH_MODELS = [
+    {
+        "id": "depth-anything/DA3-LARGE-1.1",
+        "label": "Depth Anything V3 Large 1.1",
+        "provider": "transformers",
+        "recommended": False,
+        "depth_value_semantics": "relative_distance_far_high",
+        "notes": "Modern any-view depth with direct distance output; 1.64 GB first download.",
+    },
     {
         "id": "apple/DepthPro-hf",
         "label": "Apple Depth Pro",
@@ -428,6 +456,7 @@ def resolve_selection_compose_job(job_id: str) -> dict:
 
     source_path = job_dir / "source.png"
     selected_path = job_dir / "selected_image.png"
+    face_detection_path = job_dir / "selection_face_detection.png"
     mask_path = job_dir / "selection_mask.png"
     metadata_path = job_dir / "selection.json"
     if not all(path.is_file() for path in (source_path, selected_path, mask_path, metadata_path)):
@@ -449,12 +478,21 @@ def resolve_selection_compose_job(job_id: str) -> dict:
             source_fingerprint = selection_source_fingerprint(source_image)
         with Image.open(selected_path) as selected_image:
             selected_size = selected_image.size
+        face_detection_size = None
+        if face_detection_path.is_file():
+            with Image.open(face_detection_path) as face_detection_image:
+                face_detection_size = face_detection_image.size
         with Image.open(mask_path) as mask_image:
             mask_size = mask_image.size
             mask_pixels = int(np.count_nonzero(np.asarray(mask_image.convert("L")) > 0))
     except Exception as exc:
         raise HTTPException(status_code=409, detail="Selection compose artifacts are invalid") from exc
-    if source_size != selected_size or source_size != mask_size or mask_pixels < 4:
+    if (
+        source_size != selected_size
+        or source_size != mask_size
+        or (face_detection_size is not None and source_size != face_detection_size)
+        or mask_pixels < 4
+    ):
         raise HTTPException(status_code=409, detail="Selection compose artifacts do not align")
     if metadata.get("source_fingerprint") != source_fingerprint:
         raise HTTPException(status_code=409, detail="Selection compose source provenance does not match")
@@ -464,6 +502,9 @@ def resolve_selection_compose_job(job_id: str) -> dict:
         "job_dir": job_dir,
         "source_path": source_path,
         "selected_path": selected_path,
+        "face_detection_path": (
+            face_detection_path if face_detection_path.is_file() else selected_path
+        ),
         "mask_path": mask_path,
         "metadata": metadata,
     }
@@ -844,6 +885,14 @@ def save_selection_mask_artifacts(
     }
 
 
+SELECTION_INFILL_MODES = {
+    "none",
+    "structural-context",
+    "clean-context",
+    "generative-context",
+}
+
+
 def selected_image_from_mask(image: Image.Image, mask: Image.Image, background_mode: str) -> Image.Image:
     background_colors = {
         "neutral": (245, 245, 245),
@@ -853,6 +902,321 @@ def selected_image_from_mask(image: Image.Image, mask: Image.Image, background_m
     background = Image.new("RGB", image.size, background_colors.get(background_mode, background_colors["neutral"]))
     soft_mask = mask.convert("L").filter(ImageFilter.GaussianBlur(radius=1.5))
     return Image.composite(image.convert("RGB"), background, soft_mask)
+
+
+def _fill_small_selection_holes(
+    selected: np.ndarray,
+    *,
+    max_hole_area_ratio: float,
+) -> tuple[np.ndarray, int, int]:
+    height, width = selected.shape
+    pixel_count = max(1, width * height)
+    max_hole_pixels = max(64, int(math.floor(pixel_count * max_hole_area_ratio)))
+    filled = selected.copy()
+    inverse = (~selected).astype(np.uint8)
+    component_count, labels, stats, _ = cv2.connectedComponentsWithStats(
+        inverse,
+        connectivity=8,
+    )
+    filled_hole_pixels = 0
+    for component_index in range(1, component_count):
+        x = int(stats[component_index, cv2.CC_STAT_LEFT])
+        y = int(stats[component_index, cv2.CC_STAT_TOP])
+        component_width = int(stats[component_index, cv2.CC_STAT_WIDTH])
+        component_height = int(stats[component_index, cv2.CC_STAT_HEIGHT])
+        area = int(stats[component_index, cv2.CC_STAT_AREA])
+        touches_border = (
+            x == 0
+            or y == 0
+            or x + component_width >= width
+            or y + component_height >= height
+        )
+        if not touches_border and area <= max_hole_pixels:
+            filled[labels == component_index] = True
+            filled_hole_pixels += area
+    return filled, filled_hole_pixels, max_hole_pixels
+
+
+def release_selection_models():
+    import gc
+
+    with SELECTION_MODEL_LOCK:
+        SELECTION_MODEL_CACHE.clear()
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+
+
+def structural_context_selection_infill(
+    image: Image.Image,
+    mask: Image.Image,
+    *,
+    context_max_dimension: int = 192,
+    max_hole_area_ratio: float = 0.001,
+    mask_feather_sigma_px: float = 2.5,
+    context_gaussian_sigma_px: float = 3.0,
+    core_erosion_px: int = 4,
+) -> tuple[Image.Image, Image.Image, dict]:
+    source = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    selected = np.asarray(mask.convert("L"), dtype=np.uint8) > 0
+    height, width = selected.shape
+    pixel_count = max(1, width * height)
+    filled, filled_hole_pixels, max_hole_pixels = _fill_small_selection_holes(
+        selected,
+        max_hole_area_ratio=max_hole_area_ratio,
+    )
+
+    maximum_dimension = max(width, height)
+    if maximum_dimension > context_max_dimension:
+        resize_scale = context_max_dimension / float(maximum_dimension)
+        context_width = max(1, int(round(width * resize_scale)))
+        context_height = max(1, int(round(height * resize_scale)))
+        low_resolution = cv2.resize(
+            source,
+            (context_width, context_height),
+            interpolation=cv2.INTER_AREA,
+        )
+        context = cv2.resize(
+            low_resolution,
+            (width, height),
+            interpolation=cv2.INTER_CUBIC,
+        )
+    else:
+        context_width = width
+        context_height = height
+        context = source.copy()
+    context = cv2.GaussianBlur(
+        context,
+        (0, 0),
+        sigmaX=context_gaussian_sigma_px,
+        sigmaY=context_gaussian_sigma_px,
+        borderType=cv2.BORDER_REFLECT101,
+    )
+
+    soft_mask = cv2.GaussianBlur(
+        filled.astype(np.float32),
+        (0, 0),
+        sigmaX=mask_feather_sigma_px,
+        sigmaY=mask_feather_sigma_px,
+        borderType=cv2.BORDER_REFLECT101,
+    )
+    alpha = np.clip(soft_mask, 0.0, 1.0)[..., None]
+    composed = np.rint(
+        source.astype(np.float32) * alpha
+        + context.astype(np.float32) * (1.0 - alpha)
+    ).astype(np.uint8)
+
+    core_kernel_size = max(1, core_erosion_px * 2 + 1)
+    core = cv2.erode(
+        filled.astype(np.uint8),
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (core_kernel_size, core_kernel_size)),
+        iterations=1,
+    ) > 0
+    composed[filled] = source[filled]
+
+    filled_mask = Image.fromarray(filled.astype(np.uint8) * 255, mode="L")
+    metadata = {
+        "mode": "structural-context",
+        "enabled": True,
+        "context_max_dimension": int(context_max_dimension),
+        "context_dimensions": {"width": int(context_width), "height": int(context_height)},
+        "context_gaussian_sigma_px": float(context_gaussian_sigma_px),
+        "mask_feather_sigma_px": float(mask_feather_sigma_px),
+        "core_erosion_px": int(core_erosion_px),
+        "max_hole_pixels": int(max_hole_pixels),
+        "original_mask_pixels": int(np.count_nonzero(selected)),
+        "final_mask_pixels": int(np.count_nonzero(filled)),
+        "filled_hole_pixels": int(filled_hole_pixels),
+        "context_pixels": int(pixel_count - np.count_nonzero(filled)),
+        "selected_core_pixels": int(np.count_nonzero(core)),
+        "selected_core_exact": bool(np.array_equal(composed[core], source[core])),
+        "selected_pixels_exact": bool(np.array_equal(composed[filled], source[filled])),
+    }
+    return Image.fromarray(composed, mode="RGB"), filled_mask, metadata
+
+
+def clean_context_selection_infill(
+    image: Image.Image,
+    mask: Image.Image,
+    *,
+    context_max_dimension: int = 192,
+    max_hole_area_ratio: float = 0.001,
+    canvas_top_rgb: tuple[int, int, int] = (238, 240, 242),
+    canvas_bottom_rgb: tuple[int, int, int] = (214, 218, 222),
+) -> tuple[Image.Image, Image.Image, dict]:
+    """Fill removed pixels without sampling them from the source photograph."""
+    from skimage.restoration import inpaint_biharmonic
+
+    source = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    selected = np.asarray(mask.convert("L"), dtype=np.uint8) > 0
+    height, width = selected.shape
+    pixel_count = max(1, width * height)
+    filled, filled_hole_pixels, max_hole_pixels = _fill_small_selection_holes(
+        selected,
+        max_hole_area_ratio=max_hole_area_ratio,
+    )
+
+    maximum_dimension = max(width, height)
+    resize_scale = min(1.0, context_max_dimension / float(maximum_dimension))
+    context_width = max(8, int(round(width * resize_scale)))
+    context_height = max(8, int(round(height * resize_scale)))
+    selected_weight = cv2.resize(
+        selected.astype(np.float32),
+        (context_width, context_height),
+        interpolation=cv2.INTER_AREA,
+    )
+    weighted_source = cv2.resize(
+        source.astype(np.float32) * selected[..., None],
+        (context_width, context_height),
+        interpolation=cv2.INTER_AREA,
+    )
+    selected_values = weighted_source / np.maximum(selected_weight[..., None], 1e-6)
+    known_selected = selected_weight >= 0.20
+
+    top = np.asarray(canvas_top_rgb, dtype=np.float32) / 255.0
+    bottom = np.asarray(canvas_bottom_rgb, dtype=np.float32) / 255.0
+    row_weight = np.linspace(0.0, 1.0, context_height, dtype=np.float32)[:, None, None]
+    canvas = top[None, None, :] * (1.0 - row_weight) + bottom[None, None, :] * row_weight
+    canvas = np.broadcast_to(canvas, (context_height, context_width, 3)).copy()
+    canvas[known_selected] = np.clip(selected_values[known_selected] / 255.0, 0.0, 1.0)
+
+    pad = 2
+    padded = np.pad(canvas, ((pad, pad), (pad, pad), (0, 0)), mode="edge")
+    unknown = np.zeros(padded.shape[:2], dtype=bool)
+    unknown[pad:-pad, pad:-pad] = ~known_selected
+    if np.any(unknown):
+        generated_small = inpaint_biharmonic(
+            padded,
+            unknown,
+            channel_axis=-1,
+        )[pad:-pad, pad:-pad]
+    else:
+        generated_small = canvas
+    generated = cv2.resize(
+        np.clip(generated_small * 255.0, 0.0, 255.0).astype(np.uint8),
+        (width, height),
+        interpolation=cv2.INTER_CUBIC,
+    )
+
+    composed = generated.copy()
+    composed[selected] = source[selected]
+    core = cv2.erode(
+        selected.astype(np.uint8),
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)),
+        iterations=1,
+    ) > 0
+    filled_mask = Image.fromarray(filled.astype(np.uint8) * 255, mode="L")
+    metadata = {
+        "mode": "clean-context",
+        "enabled": True,
+        "method": "source-free-biharmonic-canvas",
+        "source_free": True,
+        "excluded_source_pixels_used": False,
+        "context_max_dimension": int(context_max_dimension),
+        "context_dimensions": {"width": int(context_width), "height": int(context_height)},
+        "canvas_top_rgb": [int(value) for value in canvas_top_rgb],
+        "canvas_bottom_rgb": [int(value) for value in canvas_bottom_rgb],
+        "max_hole_pixels": int(max_hole_pixels),
+        "original_mask_pixels": int(np.count_nonzero(selected)),
+        "final_mask_pixels": int(np.count_nonzero(filled)),
+        "filled_hole_pixels": int(filled_hole_pixels),
+        "generated_hole_pixels": int(filled_hole_pixels),
+        "filled_hole_source_pixels_preserved": 0,
+        "context_pixels": int(pixel_count - np.count_nonzero(filled)),
+        "selected_core_pixels": int(np.count_nonzero(core)),
+        "selected_core_exact": bool(np.array_equal(composed[core], source[core])),
+        "selected_pixels_exact": bool(np.array_equal(composed[selected], source[selected])),
+    }
+    return Image.fromarray(composed, mode="RGB"), filled_mask, metadata
+
+
+def generative_context_selection_infill(
+    image: Image.Image,
+    mask: Image.Image,
+    *,
+    max_hole_area_ratio: float = 0.001,
+) -> tuple[Image.Image, Image.Image, dict]:
+    source = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    selected = np.asarray(mask.convert("L"), dtype=np.uint8) > 0
+    filled, filled_hole_pixels, max_hole_pixels = _fill_small_selection_holes(
+        selected,
+        max_hole_area_ratio=max_hole_area_ratio,
+    )
+    provider = "flux2-klein-inpaint"
+    release_selection_models()
+    release_depth_pipelines()
+    try:
+        generated, generation = complete_selection_context_with_modern_inpaint(
+            image,
+            Image.fromarray(selected.astype(np.uint8) * 255, mode="L"),
+            provider=provider,
+        )
+    finally:
+        release_inpaint_pipelines(provider=provider)
+    composed = np.asarray(generated.convert("RGB"), dtype=np.uint8).copy()
+    composed[selected] = source[selected]
+    filled_mask = Image.fromarray(filled.astype(np.uint8) * 255, mode="L")
+    metadata = {
+        "mode": "generative-context",
+        "enabled": True,
+        "method": generation["method"],
+        "source_free": bool(generation["source_free_removed_context"]),
+        "excluded_source_pixels_used": bool(
+            generation["removed_source_pixels_conditioned"]
+        ),
+        "provider": generation["provider"],
+        "model": generation["model"],
+        "generation": generation,
+        "max_hole_pixels": int(max_hole_pixels),
+        "original_mask_pixels": int(np.count_nonzero(selected)),
+        "final_mask_pixels": int(np.count_nonzero(filled)),
+        "filled_hole_pixels": int(filled_hole_pixels),
+        "generated_hole_pixels": int(filled_hole_pixels),
+        "filled_hole_source_pixels_preserved": 0,
+        "context_pixels": int(selected.size - np.count_nonzero(filled)),
+        "selected_pixels_exact": bool(np.array_equal(composed[selected], source[selected])),
+    }
+    return Image.fromarray(composed, mode="RGB"), filled_mask, metadata
+
+
+def compose_selected_image(
+    image: Image.Image,
+    mask: Image.Image,
+    *,
+    background_mode: str,
+    selection_infill_mode: str,
+) -> tuple[Image.Image, Image.Image, dict]:
+    normalized_mode = str(selection_infill_mode or "none").strip().lower()
+    if normalized_mode not in SELECTION_INFILL_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported selection infill mode '{selection_infill_mode}'. "
+                f"Choose one of: {', '.join(sorted(SELECTION_INFILL_MODES))}"
+            ),
+        )
+    if normalized_mode == "structural-context":
+        return structural_context_selection_infill(image, mask)
+    if normalized_mode == "clean-context":
+        return clean_context_selection_infill(image, mask)
+    if normalized_mode == "generative-context":
+        return generative_context_selection_infill(image, mask)
+
+    selected = selected_image_from_mask(image, mask, background_mode)
+    unchanged_mask = mask.convert("L")
+    mask_pixels = int(np.count_nonzero(np.asarray(unchanged_mask) > 0))
+    return selected, unchanged_mask, {
+        "mode": "none",
+        "enabled": False,
+        "original_mask_pixels": mask_pixels,
+        "final_mask_pixels": mask_pixels,
+        "filled_hole_pixels": 0,
+    }
 
 
 def selection_overlay(image: Image.Image, mask: Image.Image) -> Image.Image:
@@ -896,6 +1260,63 @@ def union_selection_masks(mask_paths: list[str], image_size: tuple[int, int]) ->
                 loaded_mask = loaded_mask.resize(image_size, Image.Resampling.NEAREST)
             union |= np.asarray(loaded_mask) > 0
     return Image.fromarray((union.astype(np.uint8) * 255), mode="L")
+
+
+def crop_selection_artifacts(
+    source_path: Path,
+    selected_path: Path,
+    mask_path: Path,
+    output_dir: Path,
+    *,
+    padding_ratio: float = 0.06,
+    minimum_padding_px: int = 8,
+) -> dict:
+    with Image.open(mask_path) as mask_image:
+        mask = mask_image.convert("L")
+        mask_values = np.asarray(mask) > 0
+    rows, columns = np.where(mask_values)
+    if rows.size < 4 or columns.size < 4:
+        raise HTTPException(status_code=409, detail="Selection mask is too small to crop")
+
+    with Image.open(source_path) as source_image:
+        source = source_image.convert("RGB")
+    with Image.open(selected_path) as selected_image:
+        selected = selected_image.convert("RGB")
+    if source.size != selected.size or source.size != mask.size:
+        raise HTTPException(status_code=409, detail="Selection crop artifacts do not align")
+
+    width, height = source.size
+    raw_left = int(columns.min())
+    raw_top = int(rows.min())
+    raw_right = int(columns.max()) + 1
+    raw_bottom = int(rows.max()) + 1
+    object_span = max(raw_right - raw_left, raw_bottom - raw_top)
+    padding = max(int(minimum_padding_px), int(round(object_span * float(padding_ratio))))
+    left = max(0, raw_left - padding)
+    top = max(0, raw_top - padding)
+    right = min(width, raw_right + padding)
+    bottom = min(height, raw_bottom + padding)
+    crop_box = (left, top, right, bottom)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    cropped_source_path = output_dir / "selection_source_crop.png"
+    cropped_selected_path = output_dir / "selection_preview_crop.png"
+    cropped_mask_path = output_dir / "selection_mask_crop.png"
+    source.crop(crop_box).save(cropped_source_path)
+    selected.crop(crop_box).save(cropped_selected_path)
+    mask.crop(crop_box).save(cropped_mask_path)
+
+    return {
+        "source_path": cropped_source_path,
+        "selected_path": cropped_selected_path,
+        "mask_path": cropped_mask_path,
+        "source_size": [int(width), int(height)],
+        "raw_bbox_xyxy": [raw_left, raw_top, raw_right, raw_bottom],
+        "crop_bbox_xyxy": [left, top, right, bottom],
+        "crop_size": [right - left, bottom - top],
+        "padding_px": int(padding),
+        "mask_coverage": float(np.mean(mask_values[top:bottom, left:right])),
+    }
 
 
 def get_runtime_info() -> dict:
@@ -1184,6 +1605,7 @@ async def compose_selected_objects(
     file: UploadFile = File(...),
     mask_paths_json: str = Form("[]"),
     background_mode: str = Form("neutral"),
+    selection_infill_mode: str = Form("none"),
 ):
     try:
         mask_paths = json.loads(mask_paths_json or "[]")
@@ -1204,17 +1626,33 @@ async def compose_selected_objects(
         raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
 
     mask = union_selection_masks(mask_paths, image.size)
-    selected = selected_image_from_mask(image, mask, background_mode=background_mode)
+    selected, mask, selection_infill = compose_selected_image(
+        image,
+        mask,
+        background_mode=background_mode,
+        selection_infill_mode=selection_infill_mode,
+    )
     overlay = selection_overlay(image, mask)
 
     source_path = job_dir / "source.png"
     selected_path = job_dir / "selected_image.png"
+    face_detection_path = job_dir / "selection_face_detection.png"
     mask_path = job_dir / "selection_mask.png"
     overlay_path = job_dir / "selection_overlay.png"
     tint_path = job_dir / "selection_tint.png"
     metadata_path = job_dir / "selection.json"
     image.save(source_path)
     selected.save(selected_path)
+    face_detection_source = "selected-image"
+    if selection_infill["mode"] in {
+        "structural-context",
+        "clean-context",
+        "generative-context",
+    }:
+        selected_image_from_mask(image, mask, background_mode="neutral").save(
+            face_detection_path
+        )
+        face_detection_source = "neutral-selection-cutout"
     mask.save(mask_path)
     overlay.save(overlay_path)
     selection_tint(mask).save(tint_path)
@@ -1227,6 +1665,9 @@ async def compose_selected_objects(
         "mask_count": len(mask_paths),
         "model_status": "composed-clicked-masks",
         "background_mode": background_mode,
+        "selection_infill_mode": selection_infill["mode"],
+        "selection_infill": selection_infill,
+        "face_detection_source": face_detection_source,
         "image_size": {"width": image.width, "height": image.height},
         "mask_pixels": mask_pixels,
         "mask_coverage": mask_pixels / float(max(1, image.width * image.height)),
@@ -1260,6 +1701,8 @@ async def compose_selected_objects(
 async def process_image(
     file: UploadFile = File(...),
     selection_job_id: str | None = Form(None),
+    selection_mode: str = Form("context"),
+    selection_subject_lock: bool = Form(False),
     depth_provider: str = Form(DEFAULT_DEPTH_PROVIDER),
     depth_model: str | None = Form(None),
     device: str = Form("auto"),
@@ -1328,6 +1771,17 @@ async def process_image(
             if str(selection_job_id or "").strip()
             else None
         )
+        resolved_selection_mode = str(selection_mode or "context").strip().lower()
+        if resolved_selection_mode not in {"context", "isolate"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Selection mode must be either context or isolate",
+            )
+        if selection_job is None and resolved_selection_mode != "context":
+            raise HTTPException(
+                status_code=400,
+                detail="Selection isolate mode requires a composed selection job",
+            )
         if selection_job and completion_mode not in ("", "none"):
             raise HTTPException(
                 status_code=400,
@@ -1344,11 +1798,21 @@ async def process_image(
                     ImageOps.exif_transpose(uploaded_image).convert("RGB").save(normalized_input_path)
             except Exception as exc:
                 raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
-        image_input_path = (
-            str(selection_job["selected_path"])
-            if selection_job
-            else str(normalized_input_path)
-        )
+        selection_crop = None
+        if selection_job and resolved_selection_mode == "isolate":
+            selection_crop = crop_selection_artifacts(
+                selection_job["source_path"],
+                selection_job["selected_path"],
+                selection_job["mask_path"],
+                job_dir,
+            )
+            image_input_path = str(selection_crop["selected_path"])
+        else:
+            image_input_path = (
+                str(selection_job["selected_path"])
+                if selection_job
+                else str(normalized_input_path)
+            )
 
         # Process the image and get depth data
         selected_model = depth_model or DEFAULT_DEPTH_MODEL
@@ -1376,7 +1840,20 @@ async def process_image(
         )
         record_timing("completion_seconds", stage_started)
         image_for_depth = completed_image_path
-        depth_inference_source = str(selection_job["source_path"]) if selection_job else image_for_depth
+        # The edited artifact drives global and local depth. Selection jobs may
+        # provide a detector-only cutout so background infill cannot suppress a face.
+        depth_inference_source = image_for_depth
+        face_refinement_source = image_for_depth
+        face_detection_source = None
+        if selection_job is not None:
+            face_detection_source = selection_job["face_detection_path"]
+            if selection_crop is not None:
+                face_detection_crop_path = job_dir / "selection_face_detection_crop.png"
+                with Image.open(face_detection_source) as detection_image:
+                    detection_image.crop(
+                        tuple(selection_crop["crop_bbox_xyxy"])
+                    ).save(face_detection_crop_path)
+                face_detection_source = face_detection_crop_path
 
         stage_started = time.perf_counter()
         depth_data_path = process_image_get_depth_data(
@@ -1406,10 +1883,12 @@ async def process_image(
             )
 
         selection_region_mask_path = (
-            selection_job["mask_path"] if selection_job is not None else None
+            selection_crop["mask_path"]
+            if selection_crop
+            else (selection_job["mask_path"] if selection_job is not None else None)
         )
         depth_data_path, face_refinement = refine_depth_for_faces(
-            image_for_depth,
+            face_refinement_source,
             depth_data_path,
             job_dir,
             infer_depth=infer_face_depth,
@@ -1418,61 +1897,120 @@ async def process_image(
             feather_ratio=face_feather_ratio,
             max_correction_ratio=face_max_correction_ratio,
             detection_roi_mask=selection_region_mask_path,
+            detection_image_path=face_detection_source,
         )
         record_timing("face_refinement_seconds", stage_started)
         depth_metadata["face_refinement"] = face_refinement
         selection_depth_context = {"enabled": False, "reason": "not_requested"}
-        if selection_job is not None:
+        effective_selection_background_depth_ratio = selection_background_depth_ratio
+        if selection_job is not None and resolved_selection_mode == "isolate":
             stage_started = time.perf_counter()
             with Image.open(selection_region_mask_path) as selection_mask_image:
                 selection_mask = np.asarray(selection_mask_image.convert("L")) > 0
-            context_depth = np.load(depth_data_path).astype(np.float32)
-            context_sample_pitch_mm = (
-                float(max_xy_size) / max(max(context_depth.shape) - 1, 1)
-                if max_xy_size is not None and float(max_xy_size) > 0
-                else 1.0
+            isolated_depth = np.load(depth_data_path).astype(np.float32)
+            if selection_mask.shape != isolated_depth.shape:
+                selection_mask = np.asarray(
+                    Image.fromarray(selection_mask.astype(np.uint8) * 255, mode="L").resize(
+                        (isolated_depth.shape[1], isolated_depth.shape[0]),
+                        Image.Resampling.NEAREST,
+                    )
+                ) > 0
+            isolated_depth = np.where(selection_mask, isolated_depth, np.nan).astype(
+                np.float32,
+                copy=False,
             )
-            try:
-                context_depth, selection_depth_context = compose_selection_depth_with_context(
-                    context_depth,
-                    selection_mask,
-                    value_transform=depth_metadata.get("relief_value_transform", "linear"),
-                    relief_height_mm=z_scale,
-                    sample_pitch_mm=context_sample_pitch_mm,
-                    max_slope_mm_per_mm=max_relief_slope,
-                    background_depth_ratio=selection_background_depth_ratio,
-                    background_feather_mm=selection_background_feather_mm,
-                    background_smoothing_mm=selection_background_smoothing_mm,
-                )
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            selected_context_depth_path = job_dir / "output_depth_data_selected_context.npy"
-            np.save(selected_context_depth_path, context_depth)
-            depth_data_path = str(selected_context_depth_path)
-
-            preview_values = context_depth.astype(np.float32, copy=True)
-            if depth_metadata.get("relief_value_transform") == "inverse-depth":
-                positive = np.isfinite(preview_values) & (preview_values > 0)
-                preview_values[positive] = 1.0 / preview_values[positive]
-                preview_values[np.isfinite(preview_values) & ~positive] = np.nan
-            finite_preview = preview_values[np.isfinite(preview_values)]
-            preview_low, preview_high = np.percentile(finite_preview, [1.0, 99.0])
-            preview_span = max(float(preview_high - preview_low), 1e-8)
-            preview = np.clip((preview_values - preview_low) / preview_span, 0.0, 1.0)
-            preview = np.where(np.isfinite(preview), preview, 0.0)
-            Image.fromarray((preview * 255.0).astype(np.uint8), mode="L").save(
-                job_dir / "output_depth_selected_context_preview.png"
-            )
-            selection_depth_context.update(
-                {
+            isolated_depth_path = job_dir / "output_depth_data_selected_isolate.npy"
+            np.save(isolated_depth_path, isolated_depth)
+            depth_data_path = str(isolated_depth_path)
+            effective_selection_background_depth_ratio = 0.0
+            selection_depth_context = {
+                "enabled": True,
+                "method": "crop_first_isolated_selection_v1",
+                "selection_job_id": selection_job["job_id"],
+                "selection_mask": output_relative_path(selection_region_mask_path),
+                "depth_file": isolated_depth_path.name,
+                "depth_source": "selection_edited_image",
+                "depth_source_file": output_relative_path(depth_inference_source),
+                "background_depth_ratio": 0.0,
+                "mask_pixels": int(np.count_nonzero(selection_mask)),
+                "mask_coverage_ratio": float(np.mean(selection_mask)),
+                "crop": {
+                    key: value
+                    for key, value in selection_crop.items()
+                    if key not in {"source_path", "selected_path", "mask_path"}
+                },
+            }
+            record_timing("selection_depth_context_seconds", stage_started)
+        elif selection_job is not None:
+            stage_started = time.perf_counter()
+            with Image.open(selection_region_mask_path) as selection_mask_image:
+                selection_mask = np.asarray(selection_mask_image.convert("L")) > 0
+            if selection_subject_lock:
+                selection_depth_context = {
+                    "enabled": True,
+                    "method": "full_scene_subject_locked_background_v1",
                     "selection_job_id": selection_job["job_id"],
                     "source_filename": selection_job["metadata"].get("source_filename"),
                     "source_fingerprint": selection_job["metadata"].get("source_fingerprint"),
                     "selection_mask": output_relative_path(selection_region_mask_path),
-                    "depth_file": selected_context_depth_path.name,
-                    "preview_file": "output_depth_selected_context_preview.png",
+                    "depth_file": Path(depth_data_path).name,
+                    "depth_source": "selection_edited_image",
+                    "depth_source_file": output_relative_path(depth_inference_source),
+                    "background_depth_ratio": float(selection_background_depth_ratio),
+                    "mask_pixels": int(np.count_nonzero(selection_mask)),
+                    "mask_coverage_ratio": float(np.mean(selection_mask)),
+                    "subject_surface_locked": True,
                 }
-            )
+            else:
+                context_depth = np.load(depth_data_path).astype(np.float32)
+                context_sample_pitch_mm = (
+                    float(max_xy_size) / max(max(context_depth.shape) - 1, 1)
+                    if max_xy_size is not None and float(max_xy_size) > 0
+                    else 1.0
+                )
+                try:
+                    context_depth, selection_depth_context = compose_selection_depth_with_context(
+                        context_depth,
+                        selection_mask,
+                        value_transform=depth_metadata.get("relief_value_transform", "linear"),
+                        relief_height_mm=z_scale,
+                        sample_pitch_mm=context_sample_pitch_mm,
+                        max_slope_mm_per_mm=max_relief_slope,
+                        background_depth_ratio=selection_background_depth_ratio,
+                        background_feather_mm=selection_background_feather_mm,
+                        background_smoothing_mm=selection_background_smoothing_mm,
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+                selected_context_depth_path = job_dir / "output_depth_data_selected_context.npy"
+                np.save(selected_context_depth_path, context_depth)
+                depth_data_path = str(selected_context_depth_path)
+
+                preview_values = context_depth.astype(np.float32, copy=True)
+                if depth_metadata.get("relief_value_transform") == "inverse-depth":
+                    positive = np.isfinite(preview_values) & (preview_values > 0)
+                    preview_values[positive] = 1.0 / preview_values[positive]
+                    preview_values[np.isfinite(preview_values) & ~positive] = np.nan
+                finite_preview = preview_values[np.isfinite(preview_values)]
+                preview_low, preview_high = np.percentile(finite_preview, [1.0, 99.0])
+                preview_span = max(float(preview_high - preview_low), 1e-8)
+                preview = np.clip((preview_values - preview_low) / preview_span, 0.0, 1.0)
+                preview = np.where(np.isfinite(preview), preview, 0.0)
+                Image.fromarray((preview * 255.0).astype(np.uint8), mode="L").save(
+                    job_dir / "output_depth_selected_context_preview.png"
+                )
+                selection_depth_context.update(
+                    {
+                        "selection_job_id": selection_job["job_id"],
+                        "source_filename": selection_job["metadata"].get("source_filename"),
+                        "source_fingerprint": selection_job["metadata"].get("source_fingerprint"),
+                        "selection_mask": output_relative_path(selection_region_mask_path),
+                        "depth_file": selected_context_depth_path.name,
+                        "depth_source": "selection_edited_image",
+                        "depth_source_file": output_relative_path(depth_inference_source),
+                        "preview_file": "output_depth_selected_context_preview.png",
+                    }
+                )
             record_timing("selection_depth_context_seconds", stage_started)
         depth_metadata["selection_depth_context"] = selection_depth_context
         if depth_metadata_path.exists():
@@ -1501,8 +2039,9 @@ async def process_image(
         logger.info("Generating 3D model...")
         stl_path = job_dir / "output_model.stl"
         stage_started = time.perf_counter()
-        effective_trim_top_background = bool(trim_top_background) and not bool(
-            selection_depth_context.get("enabled", False)
+        effective_trim_top_background = bool(trim_top_background) and (
+            bool(selection_subject_lock)
+            or not bool(selection_depth_context.get("enabled", False))
         )
         relief_postprocess = depth_data_to_3d_model(
             depth_data_path,
@@ -1543,8 +2082,11 @@ async def process_image(
                 if face_refinement.get("applied") and face_refinement.get("region_file")
                 else None
             ),
-            selection_region_mask=selection_region_mask_path,
-            selection_background_depth_ratio=selection_background_depth_ratio,
+            selection_region_mask=(
+                None if resolved_selection_mode == "isolate" else selection_region_mask_path
+            ),
+            selection_background_depth_ratio=effective_selection_background_depth_ratio,
+            selection_subject_lock=selection_subject_lock,
             surface_output_path=job_dir / "output_surface.npy",
             reference_surface_output_path=job_dir / "output_reference_surface.npy",
         )
@@ -1616,6 +2158,18 @@ async def process_image(
             "background_detail_boost": background_detail_boost,
             "background_photo_detail_mm": background_photo_detail_mm,
             "selection_background_depth_ratio": selection_background_depth_ratio,
+            "effective_selection_background_depth_ratio": effective_selection_background_depth_ratio,
+            "selection_mode": resolved_selection_mode,
+            "selection_subject_lock": bool(selection_subject_lock),
+            "selection_crop": (
+                {
+                    key: value
+                    for key, value in selection_crop.items()
+                    if key not in {"source_path", "selected_path", "mask_path"}
+                }
+                if selection_crop
+                else None
+            ),
             "selection_background_feather_mm": selection_background_feather_mm,
             "selection_background_smoothing_mm": selection_background_smoothing_mm,
             "trim_top_background": trim_top_background,
@@ -1685,6 +2239,176 @@ async def process_image(
             os.unlink(temp_file_path)
         if normalized_input_path and normalized_input_path.exists():
             normalized_input_path.unlink()
+
+
+@app.post("/process_scene_diorama")
+async def process_scene_diorama(
+    file: UploadFile = File(...),
+    mask_paths_json: str = Form("[]"),
+    selection_labels_json: str = Form("[]"),
+    depth_provider: str = Form(DEFAULT_DEPTH_PROVIDER),
+    depth_model: str = Form(DEFAULT_DEPTH_MODEL),
+    device: str = Form("auto"),
+    max_size_mm: float = Form(180.0),
+    scene_depth_mm: float = Form(64.0),
+    base_thickness_mm: float = Form(2.4),
+    facade_detail_mm: float = Form(0.8),
+    subject_depth_mm: float = Form(12.0),
+    depth_compression: float = Form(0.65),
+    nozzle_diameter_mm: float = Form(DEFAULT_NOZZLE_DIAMETER_MM),
+    minimum_feature_mm: float | None = Form(None),
+    max_samples: int = Form(240),
+):
+    try:
+        mask_references = json.loads(mask_paths_json or "[]")
+        label_groups = json.loads(selection_labels_json or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid scene selection JSON: {exc}") from exc
+    if not isinstance(mask_references, list) or not all(isinstance(value, str) for value in mask_references):
+        raise HTTPException(status_code=400, detail="Scene mask paths must be a JSON list of strings")
+    if not isinstance(label_groups, list):
+        raise HTTPException(status_code=400, detail="Scene selection labels must be a JSON list")
+    if label_groups and len(label_groups) != len(mask_references):
+        raise HTTPException(status_code=400, detail="Scene masks and label groups must have the same length")
+    if not label_groups:
+        label_groups = [[] for _ in mask_references]
+
+    selections = []
+    for index, (mask_reference, raw_labels) in enumerate(zip(mask_references, label_groups)):
+        if isinstance(raw_labels, str):
+            labels = [raw_labels]
+        elif isinstance(raw_labels, list) and all(isinstance(label, str) for label in raw_labels):
+            labels = raw_labels
+        else:
+            raise HTTPException(status_code=400, detail=f"Scene label group {index} must contain strings")
+        mask_path = resolve_output_file(
+            normalize_output_reference(mask_reference),
+            (".png", ".webp"),
+        )
+        selections.append({"mask_path": mask_path, "labels": labels})
+
+    job_id = uuid4().hex
+    job_dir = OUTPUT_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    request_started = time.perf_counter()
+    timings: dict[str, float] = {}
+
+    def record_timing(name: str, started: float) -> None:
+        timings[name] = round(time.perf_counter() - started, 3)
+
+    upload_suffix = Path(file.filename or "").suffix or ".jpg"
+    with NamedTemporaryFile(delete=False, suffix=upload_suffix, dir=job_dir) as temp_file:
+        shutil.copyfileobj(file.file, temp_file)
+        temp_file_path = temp_file.name
+
+    try:
+        stage_started = time.perf_counter()
+        depth_data_path = process_image_get_depth_data(
+            temp_file_path,
+            output_dir=str(job_dir),
+            provider=depth_provider,
+            model_name=depth_model,
+            device=device,
+        )
+        record_timing("depth_seconds", stage_started)
+
+        depth_metadata_path = job_dir / "output_depth_metadata.json"
+        depth_metadata = {}
+        if depth_metadata_path.exists():
+            with open(depth_metadata_path, encoding="utf-8") as depth_metadata_file:
+                depth_metadata = json.load(depth_metadata_file)
+        effective_depth_model = depth_metadata.get("effective_model") or depth_model
+        effective_minimum_feature_mm = resolve_minimum_feature_mm(
+            nozzle_diameter_mm,
+            minimum_feature_mm,
+        )
+
+        stl_path = job_dir / "output_scene.stl"
+        glb_path = job_dir / "output_scene.glb"
+        preview_path = job_dir / "output_scene_preview.png"
+        stage_started = time.perf_counter()
+        scene_reconstruction = build_scene_diorama(
+            temp_file_path,
+            depth_data_path,
+            stl_path,
+            glb_path,
+            preview_path,
+            selections=selections,
+            far_is_high=depth_model_far_is_high(effective_depth_model),
+            max_size_mm=max_size_mm,
+            scene_depth_mm=scene_depth_mm,
+            base_thickness_mm=base_thickness_mm,
+            facade_detail_mm=facade_detail_mm,
+            subject_depth_mm=subject_depth_mm,
+            depth_compression=depth_compression,
+            minimum_feature_mm=effective_minimum_feature_mm,
+            max_samples=max_samples,
+        )
+        record_timing("scene_mesh_seconds", stage_started)
+
+        stage_started = time.perf_counter()
+        diagnostics = json_safe_stl_diagnostics(stl_diagnostics(stl_path))
+        diagnostics.update(
+            {
+                "job_id": job_id,
+                "runner": "single-photo-scene-diorama",
+                "artifact_contract": "output_scene.glb + output_scene.stl + diagnostics.json",
+            }
+        )
+        record_timing("diagnostics_seconds", stage_started)
+        timings["total_seconds"] = round(time.perf_counter() - request_started, 3)
+
+        diagnostics_path = job_dir / "diagnostics.json"
+        with open(diagnostics_path, "w", encoding="utf-8") as diagnostics_file:
+            json.dump(diagnostics, diagnostics_file, indent=2, allow_nan=False)
+
+        metadata = {
+            "job_id": job_id,
+            "source_filename": file.filename,
+            "depth_provider": depth_provider,
+            "requested_depth_model": depth_model,
+            "depth_model": effective_depth_model,
+            "depth_metadata": depth_metadata,
+            "device": device,
+            "selection_count": len(selections),
+            "selection_labels": [selection["labels"] for selection in selections],
+            "minimum_feature_mm": effective_minimum_feature_mm,
+            "scene_reconstruction": scene_reconstruction,
+            "runtime": get_runtime_info(),
+            "timings": timings,
+            "created_at": datetime.utcnow().isoformat() + "Z",
+        }
+        with open(job_dir / "metadata.json", "w", encoding="utf-8") as metadata_file:
+            json.dump(metadata, metadata_file, indent=2, allow_nan=False)
+
+        depth_relative_path = output_relative_path(depth_data_path)
+        stl_relative_path = output_relative_path(stl_path)
+        glb_relative_path = output_relative_path(glb_path)
+        preview_relative_path = output_relative_path(preview_path)
+        diagnostics_relative_path = output_relative_path(diagnostics_path)
+        return {
+            **metadata,
+            "depth_data": depth_relative_path,
+            "depth_data_url": f"/depth_data/{depth_relative_path}",
+            "stl_model": stl_relative_path,
+            "stl_url": f"/stl_model/{stl_relative_path}",
+            "scene_model": glb_relative_path,
+            "scene_url": f"/scene_model/{glb_relative_path}",
+            "preview": preview_relative_path,
+            "preview_url": f"/depth_data/{preview_relative_path}",
+            "diagnostics": diagnostics_relative_path,
+            "diagnostics_url": f"/diagnostics/{diagnostics_relative_path}",
+            "stl_diagnostics": diagnostics,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Scene diorama generation failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        if os.path.exists(temp_file_path):
+            os.unlink(temp_file_path)
+
 
 @app.post("/upload_to_masv")
 async def upload_to_masv_endpoint(file_name: str = Form(...)):
@@ -1833,6 +2557,13 @@ async def get_depth_data(file_path: str):
 async def get_stl_model(file_path: str):
     resolved_path = resolve_output_file(file_path, (".stl",))
     return FileResponse(resolved_path)
+
+
+@app.get("/scene_model/{file_path:path}")
+async def get_scene_model(file_path: str):
+    resolved_path = resolve_output_file(file_path, (".glb",))
+    return FileResponse(resolved_path, media_type="model/gltf-binary")
+
 
 @app.get("/diagnostics/{file_path:path}")
 async def get_diagnostics(file_path: str):

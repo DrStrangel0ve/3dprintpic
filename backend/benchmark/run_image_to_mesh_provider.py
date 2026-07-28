@@ -25,6 +25,8 @@ from backend.benchmark.direct_mesh import (
     MESH_REPAIR_MODES,
     MESH_REPAIR_SIMPLIFY_PLACEMENTS,
     MESH_REPAIR_VOXEL_FILL_METHODS,
+    MESH_TARGET_BBOX_MODES,
+    MAX_MESH_REPAIR_SMOOTHING_ITERATIONS,
     convert_mesh_to_stl,
     max_faces_for_normalized_bbox_complexity,
     postprocess_mesh_for_stl,
@@ -941,8 +943,7 @@ def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_outpu
         output_path = raw_output_dir / "output.glb"
         command = [
             args.python,
-            "-m",
-            "scripts.inference_triposg",
+            str(provider_dir / "scripts" / "inference_triposg.py"),
             "--image-input",
             str(args.input_image),
             "--output-path",
@@ -976,6 +977,19 @@ def cli_provider_command(args: argparse.Namespace, provider_dir: Path, raw_outpu
         command.extend(["--device", args.provider_device])
     command.extend(args.provider_arg or [])
     return command
+
+
+def cli_provider_subprocess_env(args: argparse.Namespace, provider_dir: Path) -> dict[str, str] | None:
+    if CLI_PROVIDERS[args.provider].get("runner") != "triposg-module":
+        return None
+
+    env = os.environ.copy()
+    provider_root = str(provider_dir.resolve())
+    inherited_pythonpath = env.get("PYTHONPATH", "").strip()
+    env["PYTHONPATH"] = os.pathsep.join(
+        value for value in (provider_root, inherited_pythonpath) if value
+    )
+    return env
 
 
 def run_cli_provider(args: argparse.Namespace) -> Path:
@@ -1107,8 +1121,16 @@ def run_cli_provider(args: argparse.Namespace) -> Path:
         )
     started_at = time.time()
     command = cli_provider_command(args, provider_dir, raw_output_dir)
+    provider_env = cli_provider_subprocess_env(args, provider_dir)
     inference_started = time.perf_counter()
-    subprocess.run(command, cwd=provider_dir, check=True, timeout=args.timeout)
+    run_kwargs = {
+        "cwd": provider_dir,
+        "check": True,
+        "timeout": args.timeout,
+    }
+    if provider_env is not None:
+        run_kwargs["env"] = provider_env
+    subprocess.run(command, **run_kwargs)
     args._provider_inference_runtime_seconds = time.perf_counter() - inference_started
     native_metrics_path = raw_output_dir / PROVIDER_NATIVE_METRICS_FILENAME
     if native_metrics_path.is_file():
@@ -1590,6 +1612,19 @@ def validate_mesh_repair_options(args: argparse.Namespace) -> None:
         raise ValueError(
             f"Unsupported mesh repair voxel fill method {voxel_fill_method!r}; expected {expected}"
         )
+    try:
+        smoothing_iterations = int(
+            getattr(args, "mesh_repair_smoothing_iterations", 0) or 0
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Mesh repair smoothing iterations must be an integer") from exc
+    if smoothing_iterations < 0 or smoothing_iterations > MAX_MESH_REPAIR_SMOOTHING_ITERATIONS:
+        raise ValueError(
+            "Mesh repair smoothing iterations must be between 0 and "
+            f"{MAX_MESH_REPAIR_SMOOTHING_ITERATIONS}"
+        )
+    if smoothing_iterations and preconditioner not in ("voxel-close", "adaptive-voxel-close"):
+        raise ValueError("Mesh repair smoothing requires a voxel-close preconditioner")
     simplify_placement = str(
         getattr(args, "mesh_repair_simplify_placement", "optimal") or "optimal"
     ).strip().lower()
@@ -1612,6 +1647,7 @@ def validate_mesh_repair_options(args: argparse.Namespace) -> None:
     args.mesh_repair_hole_face_addition_ratio = hole_face_addition_ratio
     args.mesh_repair_voxel_resolution = voxel_resolution
     args.mesh_repair_voxel_fill_method = voxel_fill_method
+    args.mesh_repair_smoothing_iterations = smoothing_iterations
     args.mesh_repair_simplify_placement = simplify_placement
 
 
@@ -1674,8 +1710,17 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
             getattr(args, "mesh_repair_voxel_fill_method", "orthographic")
             or "orthographic"
         ),
+        "provider_mesh_repair_smoothing_iterations": int(
+            getattr(args, "mesh_repair_smoothing_iterations", 0) or 0
+        ),
         "provider_mesh_repair_simplify_placement": str(
             getattr(args, "mesh_repair_simplify_placement", "optimal") or "optimal"
+        ),
+        "provider_mesh_allow_convex_hull_fallback": bool(
+            getattr(args, "mesh_allow_convex_hull_fallback", True)
+        ),
+        "provider_mesh_target_bbox_mode": str(
+            getattr(args, "mesh_target_bbox_mode", "exact") or "exact"
         ),
         "status": "failed",
     }
@@ -1761,6 +1806,11 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
                     "mesh_repair_voxel_fill_method",
                     "orthographic",
                 ),
+                smoothing_iterations=getattr(
+                    args,
+                    "mesh_repair_smoothing_iterations",
+                    0,
+                ),
                 hole_face_addition_ratio=getattr(
                     args,
                     "mesh_repair_hole_face_addition_ratio",
@@ -1770,6 +1820,11 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
                     args,
                     "mesh_repair_simplify_placement",
                     "optimal",
+                ),
+                allow_convex_hull_fallback=getattr(
+                    args,
+                    "mesh_allow_convex_hull_fallback",
+                    True,
                 ),
                 metrics=args._provider_metrics,
             )
@@ -1791,6 +1846,17 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
                 0.0,
             )
 
+    preserve_shape_over_complexity = bool(
+        getattr(args, "mesh_repair_preconditioner", "legacy")
+        == "adaptive-voxel-close"
+        and getattr(args, "mesh_target_bbox_mode", "exact") == "uniform-max"
+    )
+    postprocess_complexity_limit = (
+        0.0 if preserve_shape_over_complexity else max_normalized_face_density_log1p
+    )
+    args._provider_metrics["provider_mesh_postprocess_complexity_enforced"] = bool(
+        postprocess_complexity_limit > 0.0
+    )
     needs_postprocess = (
         args.mesh_target_max_dimension > 0
         or args.mesh_min_bbox_dimension > 0
@@ -1820,8 +1886,9 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
                 min_bbox_dimension=args.mesh_min_bbox_dimension,
                 max_bbox_aspect_ratio=args.mesh_max_bbox_aspect_ratio,
                 target_bbox_extents=args.mesh_target_bbox_extents,
+                target_bbox_mode=getattr(args, "mesh_target_bbox_mode", "exact"),
                 target_faces=args.mesh_target_faces,
-                max_normalized_face_density_log1p=max_normalized_face_density_log1p,
+                max_normalized_face_density_log1p=postprocess_complexity_limit,
                 preserve_printability=(
                     args.mesh_repair == "printable"
                     or getattr(args, "mesh_repair_preconditioner", "legacy")
@@ -1830,7 +1897,7 @@ def run_provider(args: argparse.Namespace) -> tuple[Path, Path | None]:
                 simplify_placement=(
                     getattr(args, "mesh_repair_simplify_placement", "optimal")
                     if getattr(args, "mesh_repair_preconditioner", "legacy")
-                    in ("voxel-close", "component-close")
+                    in ("voxel-close", "adaptive-voxel-close", "component-close")
                     else "optimal"
                 ),
             )
@@ -1987,12 +2054,23 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--mesh-allow-convex-hull-fallback",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Allow printable repair to replace an unrepairable mesh with its convex hull. "
+            "Disable this for shape-fidelity-sensitive providers so repair fails closed."
+        ),
+    )
+    parser.add_argument(
         "--mesh-repair-preconditioner",
         choices=MESH_REPAIR_PRECONDITIONERS,
         default="legacy",
         help=(
             "Optional shape-preserving work before printable repair. 'voxel-close' filters configured "
             "surface fragments, closes the mesh on a voxel grid, and uses topology-preserving decimation. "
+            "'adaptive-voxel-close' lowers voxel resolution until the closed surface naturally fits the "
+            "face budget, avoiding a second decimation pass. "
             "'component-close' filters fragments, uses topology-preserving decimation, and fills only "
             "small boundary loops without voxelization."
         ),
@@ -2019,13 +2097,25 @@ def main() -> None:
         "--mesh-repair-voxel-resolution",
         type=int,
         default=DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION,
-        help="Voxel cells across the longest bbox side for voxel-close repair.",
+        help=(
+            "Maximum voxel cells across the longest bbox side for voxel-close or "
+            "adaptive-voxel-close repair."
+        ),
     )
     parser.add_argument(
         "--mesh-repair-voxel-fill-method",
         choices=MESH_REPAIR_VOXEL_FILL_METHODS,
         default="orthographic",
         help="Trimesh voxel fill used by voxel-close repair.",
+    )
+    parser.add_argument(
+        "--mesh-repair-smoothing-iterations",
+        type=int,
+        default=0,
+        help=(
+            "Optional Taubin smoothing passes after voxel closure. Zero preserves historical output; "
+            "small even values soften voxel terraces while limiting volume drift."
+        ),
     )
     parser.add_argument(
         "--mesh-repair-simplify-placement",
@@ -2070,6 +2160,15 @@ def main() -> None:
         help=(
             "Optional comma- or space-separated X,Y,Z STL-space bbox extents. When set, the normalized "
             "provider mesh is anisotropically scaled to these exact final extents before STL export."
+        ),
+    )
+    parser.add_argument(
+        "--mesh-target-bbox-mode",
+        choices=MESH_TARGET_BBOX_MODES,
+        default="exact",
+        help=(
+            "Use 'exact' for per-axis bbox matching or 'uniform-max' to preserve the "
+            "provider mesh proportions while matching only the target maximum dimension."
         ),
     )
     parser.add_argument(

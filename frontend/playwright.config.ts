@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+process.env.NEXT_DIST_DIR = process.env.NEXT_DIST_DIR || '.next-playwright';
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,

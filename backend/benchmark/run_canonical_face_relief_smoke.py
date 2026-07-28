@@ -71,6 +71,35 @@ PROVENANCE_PATHS = (
     "backend/benchmark/run_canonical_face_relief_smoke.py",
     "backend/benchmark/assets/mediapipe_canonical_face",
 )
+PRODUCTION_PRINTABLE_FEATURE_DEPTH_MM = 0.4
+
+
+def _bounded_feature_emboss_check(postprocess: dict) -> bool:
+    feature_stats = postprocess["printable_feature_depth"]
+    slope_guard = postprocess["post_feature_slope_guard"]
+    detail_guard = postprocess["face_detail_guard"]
+    requested_depth = float(postprocess["printable_feature_depth_mm"])
+    effective_depth = float(postprocess["effective_printable_feature_depth_mm"])
+    try:
+        applied_depth = float(feature_stats["applied_depth_max_mm"])
+        detail_scale = float(detail_guard["applied_scale"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return bool(
+        feature_stats.get("enabled", False)
+        and not feature_stats.get(
+            "suppressed_after_screened_face_reconstruction",
+            False,
+        )
+        and abs(requested_depth - PRODUCTION_PRINTABLE_FEATURE_DEPTH_MM) <= 1e-6
+        and abs(effective_depth - PRODUCTION_PRINTABLE_FEATURE_DEPTH_MM) <= 1e-6
+        and 0.0 < applied_depth <= effective_depth + 1e-6
+        and slope_guard.get("enabled", False)
+        and not slope_guard.get("fell_back_to_baseline", False)
+        and detail_guard.get("enabled", False)
+        and detail_guard.get("final", {}).get("available", False)
+        and detail_scale > 0.0
+    )
 
 
 def _sha256(path: str | Path) -> str:
@@ -351,7 +380,7 @@ def _run_row(
         source_image=row_dir / "source.png",
         background_photo_detail_mm=0.0,
         feature_weight_mask=feature_weight,
-        printable_feature_depth_mm=0.8,
+        printable_feature_depth_mm=PRODUCTION_PRINTABLE_FEATURE_DEPTH_MM,
         feature_bridge_depth_mm=0.8,
         surface_output_path=surface_path,
         reference_surface_output_path=reference_surface_path,
@@ -418,10 +447,7 @@ def _run_row(
             postprocess["face_boundary_alignment"].get("method")
             == "screened_gradient_domain_compression"
         ),
-        "redundant_emboss_suppressed": bool(
-            feature_stats.get("suppressed_after_screened_face_reconstruction", False)
-            and float(postprocess["effective_printable_feature_depth_mm"]) == 0.0
-        ),
+        "bounded_feature_emboss": _bounded_feature_emboss_check(postprocess),
         "feature_bridge_requested": bool(
             float(postprocess["feature_bridge_depth_mm"]) == 0.8
         ),
@@ -599,6 +625,21 @@ def _run_row(
                 feature_stats.get(
                     "suppressed_after_screened_face_reconstruction", False
                 )
+            ),
+            "bounded_feature_emboss": bool(
+                checks["bounded_feature_emboss"]
+            ),
+            "applied_feature_depth_max_mm": _finite(
+                feature_stats.get("applied_depth_max_mm")
+            ),
+            "slope_guard_enabled": bool(
+                postprocess["post_feature_slope_guard"].get("enabled")
+            ),
+            "detail_guard_enabled": bool(
+                postprocess["face_detail_guard"].get("enabled")
+            ),
+            "detail_guard_applied_scale": _finite(
+                postprocess["face_detail_guard"].get("applied_scale")
             ),
             "bridge_enabled": bool(postprocess["feature_bridge"].get("enabled")),
             "bridge_reason": postprocess["feature_bridge"].get("reason"),

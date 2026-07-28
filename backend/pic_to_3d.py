@@ -1,5 +1,7 @@
 import os
 import shutil
+import time
+import cv2
 import numpy as np
 from stl import mesh
 from scipy.ndimage import (
@@ -19,10 +21,22 @@ import argparse
 
 try:
     from .face_relief_geometry import align_face_to_scene_gradient_domain
+    from .da3_depth_provider import (
+        DA3_LARGE_MODEL_ID,
+        infer_da3_depth,
+        is_da3_model,
+        release_da3_models,
+    )
 except ImportError:  # pragma: no cover - supports running from backend/
     if __package__:
         raise
     from face_relief_geometry import align_face_to_scene_gradient_domain
+    from da3_depth_provider import (
+        DA3_LARGE_MODEL_ID,
+        infer_da3_depth,
+        is_da3_model,
+        release_da3_models,
+    )
 
 _DEPTH_PIPELINE_CACHE = {}
 _INPAINT_PIPELINE_CACHE = {}
@@ -46,6 +60,7 @@ NORMALIZATION_REFERENCE_TAPER_PX = 4.0
 METRIC_FAR_HIGH_DEPTH_MODELS = frozenset(
     {
         DEPTHPRO_MODEL_ID,
+        DA3_LARGE_MODEL_ID,
         "depth-anything/Depth-Anything-V2-Metric-Indoor-Large-hf",
         "depth-anything/Depth-Anything-V2-Metric-Outdoor-Large-hf",
     }
@@ -84,6 +99,11 @@ MODERN_INPAINT_MODELS = {
         "label": "FLUX.1 Fill",
         "model": "black-forest-labs/FLUX.1-Fill-dev",
         "pipeline_class": "FluxFillPipeline",
+    },
+    "flux2-klein-inpaint": {
+        "label": "FLUX.2 Klein 4B Inpaint",
+        "model": "black-forest-labs/FLUX.2-klein-4B",
+        "pipeline_class": "Flux2KleinInpaintPipeline",
     },
     "qwen-image-inpaint": {
         "label": "Qwen Image Inpaint",
@@ -364,6 +384,156 @@ def complete_image_with_modern_inpaint(
     return completed_path, f"{provider}:{applied_mode}"
 
 
+def complete_selection_context_with_modern_inpaint(
+    image,
+    keep_mask,
+    *,
+    provider="flux2-klein-inpaint",
+    model_name=None,
+    prompt=None,
+    device="auto",
+    num_inference_steps=4,
+    guidance_scale=1.0,
+    seed=0,
+    inpaint_max_dimension=512,
+    mask_overlap_px=4,
+    boundary_feather_px=0,
+):
+    """Generate removed selection context without conditioning on removed pixels."""
+    import torch
+    from PIL import Image
+
+    if provider != "flux2-klein-inpaint":
+        raise ValueError(f"Unsupported selection-context provider: {provider}")
+
+    source = image.convert("RGB")
+    hard_keep_mask = keep_mask.convert("L").point(lambda value: 255 if value > 127 else 0)
+    working_image = _resize_for_inpaint(
+        source,
+        max_dimension=inpaint_max_dimension,
+        multiple=16,
+    )
+    working_keep_mask = hard_keep_mask.resize(
+        working_image.size,
+        resample=Image.Resampling.NEAREST,
+    )
+    working_keep = np.asarray(working_keep_mask, dtype=np.uint8) > 0
+
+    row_weight = np.linspace(0.0, 1.0, working_image.height, dtype=np.float32)[:, None, None]
+    canvas_top = np.asarray((238, 240, 242), dtype=np.float32)[None, None, :]
+    canvas_bottom = np.asarray((214, 218, 222), dtype=np.float32)[None, None, :]
+    canvas_values = canvas_top * (1.0 - row_weight) + canvas_bottom * row_weight
+    canvas_values = np.broadcast_to(
+        canvas_values,
+        (working_image.height, working_image.width, 3),
+    ).copy()
+    condition_values = canvas_values.astype(np.uint8)
+    working_source_values = np.asarray(working_image, dtype=np.uint8)
+    condition_values[working_keep] = working_source_values[working_keep]
+    condition_image = Image.fromarray(condition_values, mode="RGB")
+    overlap_kernel_size = max(1, int(mask_overlap_px) * 2 + 1)
+    generation_keep = cv2.erode(
+        working_keep.astype(np.uint8),
+        cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE,
+            (overlap_kernel_size, overlap_kernel_size),
+        ),
+        iterations=1,
+    ) > 0
+    if not np.any(generation_keep):
+        generation_keep = working_keep
+    fill_mask = Image.fromarray((~generation_keep).astype(np.uint8) * 255, mode="L")
+
+    model_name = model_name or MODERN_INPAINT_MODELS[provider]["model"]
+    pipeline_device = _resolve_torch_device(device)
+    generator_device = (
+        "cuda"
+        if pipeline_device == "cuda" and torch.cuda.is_available()
+        else "cpu"
+    )
+    generator = torch.Generator(device=generator_device).manual_seed(int(seed))
+    started = time.perf_counter()
+    if pipeline_device == "cuda" and torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+    pipe = _load_inpaint_pipeline(provider, model_name, pipeline_device)
+    prompt = prompt or (
+        "Reconstruct a clean, coherent background around the preserved foreground subjects. "
+        "Continue the scene with natural perspective, lighting, and large readable surfaces. "
+        "Remove all masked people, objects, eyewear, hands, text, and occluders. "
+        "Do not duplicate or alter the preserved subjects and do not place objects over them."
+    )
+    result = pipe(
+        prompt=prompt,
+        image=condition_image,
+        mask_image=fill_mask,
+        height=working_image.height,
+        width=working_image.width,
+        strength=1.0,
+        num_inference_steps=int(num_inference_steps),
+        guidance_scale=float(guidance_scale),
+        generator=generator,
+    )
+    generated = result.images[0].convert("RGB")
+    if generated.size != source.size:
+        generated = generated.resize(source.size, Image.Resampling.LANCZOS)
+    effective_boundary_feather_px = max(0, int(round(float(boundary_feather_px))))
+    preserved = _composite_generated_context_outward(
+        source,
+        generated,
+        hard_keep_mask,
+        feather_px=effective_boundary_feather_px,
+    )
+    peak_vram_gib = None
+    if pipeline_device == "cuda" and torch.cuda.is_available():
+        peak_vram_gib = float(torch.cuda.max_memory_allocated() / (1024**3))
+    return preserved, {
+        "provider": provider,
+        "model": model_name,
+        "method": "mask-native-generative-inpaint",
+        "source_free_removed_context": True,
+        "removed_source_pixels_conditioned": False,
+        "working_dimensions": {
+            "width": int(working_image.width),
+            "height": int(working_image.height),
+        },
+        "num_inference_steps": int(num_inference_steps),
+        "guidance_scale": float(guidance_scale),
+        "seed": int(seed),
+        "mask_overlap_px": int(mask_overlap_px),
+        "boundary_feather_px": int(boundary_feather_px),
+        "effective_output_boundary_feather_px": int(effective_boundary_feather_px),
+        "runtime_seconds": float(time.perf_counter() - started),
+        "peak_vram_gib": peak_vram_gib,
+        "selected_pixels_exact": bool(
+            np.array_equal(
+                np.asarray(preserved)[np.asarray(hard_keep_mask) > 0],
+                np.asarray(source)[np.asarray(hard_keep_mask) > 0],
+            )
+        ),
+    }
+
+
+def _composite_generated_context_outward(source, generated, keep_mask, *, feather_px):
+    from PIL import Image
+
+    source_values = np.asarray(source.convert("RGB"), dtype=np.uint8)
+    generated_values = np.asarray(generated.convert("RGB"), dtype=np.uint8)
+    keep = np.asarray(keep_mask.convert("L"), dtype=np.uint8) > 0
+    composed = generated_values.astype(np.float32)
+    if feather_px > 0 and np.any(keep) and np.any(~keep):
+        distance, nearest = distance_transform_edt(~keep, return_indices=True)
+        ring = (~keep) & (distance <= float(feather_px))
+        nearest_values = source_values[nearest[0], nearest[1]].astype(np.float32)
+        blend = np.clip(distance / float(feather_px), 0.0, 1.0)
+        blend = blend * blend * (3.0 - 2.0 * blend)
+        composed[ring] = (
+            nearest_values[ring] * (1.0 - blend[ring, None])
+            + composed[ring] * blend[ring, None]
+        )
+    composed[keep] = source_values[keep]
+    return Image.fromarray(np.rint(np.clip(composed, 0.0, 255.0)).astype(np.uint8), mode="RGB")
+
+
 def create_half_completion_mask(image, mode="mirror-auto", blur=True):
     from PIL import Image, ImageFilter
 
@@ -507,7 +677,12 @@ def _inpaint_torch_dtype(provider, device):
 
     if device != "cuda":
         return torch.float32
-    if provider in ("flux-fill", "qwen-image-inpaint", "qwen-image-edit"):
+    if provider in (
+        "flux-fill",
+        "flux2-klein-inpaint",
+        "qwen-image-inpaint",
+        "qwen-image-edit",
+    ):
         return torch.bfloat16
     return torch.float16
 
@@ -530,6 +705,13 @@ def _load_inpaint_pipeline(provider, model_name, device, lora_weights=None, lora
         from diffusers import FluxFillPipeline
 
         pipe = FluxFillPipeline.from_pretrained(model_name, torch_dtype=dtype)
+    elif provider == "flux2-klein-inpaint":
+        from diffusers import Flux2KleinInpaintPipeline
+
+        pipe = Flux2KleinInpaintPipeline.from_pretrained(
+            model_name,
+            torch_dtype=dtype,
+        )
     elif provider == "sdxl-inpaint":
         from diffusers import StableDiffusionXLInpaintPipeline
 
@@ -598,6 +780,45 @@ def _load_inpaint_pipeline(provider, model_name, device, lora_weights=None, lora
 
     _INPAINT_PIPELINE_CACHE[cache_key] = pipe
     return pipe
+
+
+def release_inpaint_pipelines(provider=None):
+    import gc
+
+    matching_keys = [
+        key
+        for key in _INPAINT_PIPELINE_CACHE
+        if provider is None or key[0] == provider
+    ]
+    for key in matching_keys:
+        pipe = _INPAINT_PIPELINE_CACHE.pop(key)
+        free_hooks = getattr(pipe, "maybe_free_model_hooks", None)
+        if callable(free_hooks):
+            free_hooks()
+        del pipe
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+
+
+def release_depth_pipelines():
+    import gc
+
+    _DEPTH_PIPELINE_CACHE.clear()
+    release_da3_models()
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
 
 
 def _local_lora_load_kwargs(lora_weights):
@@ -725,6 +946,39 @@ def process_image_get_depth_data_transformers(
     fallback_reason=None,
 ):
     model_name = model_name or "depth-anything/Depth-Anything-V2-Small-hf"
+    if is_da3_model(model_name):
+        try:
+            image = _load_depth_input_image(input_image_path)
+            depth_data, da3_metadata = infer_da3_depth(
+                image,
+                model_id=model_name,
+                device=device,
+            )
+            return _save_depth_outputs(
+                depth_data,
+                output_dir,
+                metadata={
+                    **da3_metadata,
+                    "requested_model": requested_model_name or model_name,
+                    "effective_model": model_name,
+                    "fallback_model": None,
+                    "fallback_reason": fallback_reason,
+                    "relief_value_transform": RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
+                },
+                normalize_depth=False,
+                preview_value_transform=RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH,
+            )
+        except Exception as exc:
+            return _run_depth_fallback(
+                input_image_path,
+                output_dir,
+                requested_model_name or model_name,
+                device,
+                (
+                    "Depth Anything V3 Large failed locally "
+                    f"({type(exc).__name__}: {exc}); used verified local fallback instead."
+                ),
+            )
     if model_name == DEPTHPRO_MODEL_ID:
         return process_image_get_depth_data_depthpro(
             input_image_path,
@@ -5609,6 +5863,7 @@ def depth_data_to_3d_model(
     face_region_mask=None,
     selection_region_mask=None,
     selection_background_depth_ratio=DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
+    selection_subject_lock=False,
     background_detail_boost=1.0,
     source_image=None,
     background_photo_detail_mm=0.0,
@@ -5697,6 +5952,9 @@ def depth_data_to_3d_model(
         region_mask = np.flip(region_mask, axis=1)
     if selected_region is not None:
         selected_region = np.flip(selected_region, axis=1)
+    subject_surface_locked = bool(
+        selection_subject_lock and selected_region is not None
+    )
     if trim_top_background:
         top_silhouette_mask, top_silhouette_stats = _top_silhouette_mask(source_image, data.shape)
     else:
@@ -5704,11 +5962,13 @@ def depth_data_to_3d_model(
         top_silhouette_stats = {"enabled": False, "reason": "disabled"}
 
     detail_protection_mask = None
-    if region_mask is not None or selected_region is not None:
+    if region_mask is not None or (
+        selected_region is not None and not subject_surface_locked
+    ):
         detail_protection_mask = np.zeros(data.shape, dtype=bool)
         if region_mask is not None:
             detail_protection_mask |= region_mask
-        if selected_region is not None:
+        if selected_region is not None and not subject_surface_locked:
             detail_protection_mask |= selected_region
 
     resolved_value_transform = _resolve_relief_value_transform(npy_file, value_transform)
@@ -5728,6 +5988,7 @@ def depth_data_to_3d_model(
             selected_region
             if selected_region is not None
             and float(selection_background_depth_ratio) > 0
+            and not subject_surface_locked
             else None
         ),
         normalization_reference_values=normalization_reference,
@@ -5780,6 +6041,7 @@ def depth_data_to_3d_model(
         border_detail_region
         if selected_region is not None
         and float(selection_background_depth_ratio) > 0
+        and not subject_surface_locked
         else None
     )
     relief = _flatten_border(
@@ -5810,6 +6072,7 @@ def depth_data_to_3d_model(
         border_detail_region
         if selected_region is not None
         and float(selection_background_depth_ratio) > 0
+        and not subject_surface_locked
         else None
     )
     top_silhouette_mask = _resize_binary_mask(top_silhouette_mask, relief.shape)
@@ -6337,12 +6600,7 @@ def depth_data_to_3d_model(
         }
         accepted_face_surface = z.copy()
         effective_printable_feature_depth_mm = float(printable_feature_depth_mm)
-        feature_emboss_suppressed = bool(
-            gradient_reconstruction_selected
-            and effective_printable_feature_depth_mm > 0
-        )
-        if feature_emboss_suppressed:
-            effective_printable_feature_depth_mm = 0.0
+        feature_emboss_suppressed = False
         z, printable_feature_stats = _enhance_weighted_relief_features(
             z,
             feature_weight_mask,
@@ -6355,6 +6613,9 @@ def depth_data_to_3d_model(
                 "effective_max_feature_depth_mm": effective_printable_feature_depth_mm,
                 "suppressed_after_screened_face_reconstruction": (
                     feature_emboss_suppressed
+                ),
+                "screened_face_reconstruction": bool(
+                    gradient_reconstruction_selected
                 ),
             }
         )
@@ -6379,7 +6640,11 @@ def depth_data_to_3d_model(
             minimum_rms_retention=0.6,
             maximum_rms_retention=2.0,
         )
-    elif selected_region is not None:
+    elif (
+        selected_region is not None
+        and region_mask is None
+        and not subject_surface_locked
+    ):
         face_boundary_alignment_stats = {
             "enabled": False,
             "reason": "no_face_region",
@@ -6457,7 +6722,11 @@ def depth_data_to_3d_model(
             structural_region_mask=region_mask,
         )
         face_surface_protection_stats = {"enabled": False, "reason": "height_within_reference"}
-    if selected_region is not None and region_mask is not None:
+    if (
+        selected_region is not None
+        and region_mask is not None
+        and not subject_surface_locked
+    ):
         face_protected_selection_baseline = z.copy()
         protected_selection_region = (
             head_region_mask
@@ -6500,6 +6769,13 @@ def depth_data_to_3d_model(
             z = face_protected_selection_baseline
             selection_gradient_compression_stats["enabled"] = False
             selection_gradient_compression_stats["reason"] = "face_protection_gate"
+    elif subject_surface_locked:
+        selection_gradient_compression_stats = {
+            "enabled": False,
+            "reason": "subject_surface_locked",
+            "selected_pixels": int(np.count_nonzero(selected_region)),
+            "face_protection_passed": True,
+        }
     z = np.where(top_silhouette_mask, z, np.nan)
     if base_border_px:
         z = _flatten_border(
@@ -6842,6 +7118,7 @@ def depth_data_to_3d_model(
                 if normalization_reference is not None
                 and selected_region is not None
                 and float(selection_background_depth_ratio) > 0
+                and not subject_surface_locked
                 else "external-pre-refinement-depth"
                 if normalization_reference is not None
                 else "input-depth"
@@ -6851,6 +7128,7 @@ def depth_data_to_3d_model(
                 if normalization_reference is not None
                 and selected_region is not None
                 and float(selection_background_depth_ratio) > 0
+                and not subject_surface_locked
                 else None
             ),
             "subject_taper_px": (
@@ -6858,9 +7136,11 @@ def depth_data_to_3d_model(
                 if normalization_reference is not None
                 and selected_region is not None
                 and float(selection_background_depth_ratio) > 0
+                and not subject_surface_locked
                 else None
             ),
         },
+        "selection_subject_lock": bool(subject_surface_locked),
         "selection_background_physical_cap": selection_background_cap_stats,
         "background_depth_preservation": background_preservation_stats,
         "surface_appearance_agreement": surface_appearance_stats,

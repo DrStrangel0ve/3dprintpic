@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "provider": "sam2.1-hiera-tiny-video",
+  "model_id": "facebook/sam2.1-hiera-tiny",
+  "model_revision": "de431c4043854a71d8101e17995dfe596bf101a5",
+  "device": "cpu",
+  "environment": {
+    "python": "3.11.8",
+    "torch": "2.7.1+cpu",
+    "transformers": "5.13.0",
+    "huggingface_hub": "1.22.0",
+    "cuda_available": false
+  },
+  "fixture": {
+    "kind": "static high-contrast rectangle turntable smoke",
+    "decoded_frames": 24,
+    "selected_source_indices": [
+      0,
+      8,
+      16
+    ],
+    "decode_warnings": []
+  },
+  "mask_quality": {
+    "status": "pass",
+    "passes_hard_checks": true,
+    "failed_checks": [],
+    "warnings": [],
+    "aggregate": {
+      "frame_count": 3,
+      "coverage_median": 0.1684417724609375,
+      "coverage_min": 0.1684112548828125,
+      "coverage_max": 0.1684417724609375,
+      "coverage_max_min_ratio": 1.000181208661774,
+      "max_centroid_jump": 4.1930540321582676e-05,
+      "minimum_consecutive_iou": 0.9998188241688559,
+      "median_consecutive_iou": 0.999909412084428
+    },
+    "per_frame": [
+      {
+        "mask_pixels": 11037,
+        "coverage": 0.1684112548828125,
+        "border_fraction": 0.0,
+        "component_count": 1,
+        "largest_component_ratio": 1.0,
+        "centroid_x": 0.5000630677205194,
+        "centroid_y": 0.500016166655119,
+        "bbox": {
+          "x": 68,
+          "y": 82,
+          "width": 120,
+          "height": 92
+        },
+        "position": 0,
+        "source_index": 0
+      },
+      {
+        "mask_pixels": 11039,
+        "coverage": 0.1684417724609375,
+        "border_fraction": 0.0,
+        "component_count": 1,
+        "largest_component_ratio": 1.0,
+        "centroid_x": 0.5000211371803002,
+        "centroid_y": 0.5000161637261119,
+        "bbox": {
+          "x": 68,
+          "y": 82,
+          "width": 120,
+          "height": 92
+        },
+        "position": 1,
+        "source_index": 8
+      },
+      {
+        "mask_pixels": 11039,
+        "coverage": 0.1684417724609375,
+        "border_fraction": 0.0,
+        "component_count": 1,
+        "largest_component_ratio": 1.0,
+        "centroid_x": 0.5000211371803002,
+        "centroid_y": 0.5000161637261119,
+        "bbox": {
+          "x": 68,
+          "y": 82,
+          "width": 120,
+          "height": 92
+        },
+        "position": 2,
+        "source_index": 16
+      }
+    ]
+  },
+  "iou_vs_ground_truth": [
+    0.9997282608695652,
+    0.9999094202898551,
+    0.9999094202898551
+  ],
+  "iou_vs_ground_truth_median": 0.9999094202898551,
+  "iou_vs_ground_truth_minimum": 0.9997282608695652,
+  "turntable_grabcut_iou_vs_ground_truth": [
+    0.9996376811594203,
+    0.9996376811594203,
+    0.9996376811594203
+  ],
+  "turntable_grabcut_iou_vs_ground_truth_median": 0.9996376811594203,
+  "turntable_grabcut_iou_vs_ground_truth_minimum": 0.9996376811594203,
+  "iou_vs_turntable_grabcut": [
+    0.9997282116325421,
+    0.9997282362532838,
+    0.9997282362532838
+  ],
+  "runtime_seconds": 23.295
+}

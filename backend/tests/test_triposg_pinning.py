@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -21,6 +22,37 @@ from backend.benchmark.triposg_models import (
 
 
 class TripoSGPinningTest(unittest.TestCase):
+    def test_local_launcher_avoids_installed_scripts_package_shadowing(self):
+        args = SimpleNamespace(
+            provider="triposg",
+            python="provider-python",
+            input_image=Path("input.png"),
+            num_inference_steps=12,
+            guidance_scale=5.5,
+            seed=7,
+            mesh_target_faces=1234,
+            provider_arg=[],
+        )
+        provider_dir = Path("provider-repo")
+        command = provider_module.cli_provider_command(
+            args,
+            provider_dir,
+            Path("provider-output"),
+        )
+        env = provider_module.cli_provider_subprocess_env(args, provider_dir)
+
+        self.assertEqual(command[0], "provider-python")
+        self.assertEqual(
+            command[1],
+            str(provider_dir / "scripts" / "inference_triposg.py"),
+        )
+        self.assertNotIn("scripts.inference_triposg", command)
+        self.assertIsNotNone(env)
+        self.assertEqual(
+            env["PYTHONPATH"].split(os.pathsep)[0],
+            str(provider_dir.resolve()),
+        )
+
     def test_official_source_snapshot_calls_are_pinned_and_idempotent(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "TripoSG"

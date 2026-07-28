@@ -18,12 +18,19 @@ from backend.pic_to_3d import _masked_edit_image
 DIRECT_MESH_METHODS = {"source-mesh-oracle", "external-image-to-mesh", "external-multiview-to-mesh"}
 DIRECT_MESH_INPUT_MODES = ("masked", "full", "mirror", "biharmonic")
 MESH_REPAIR_MODES = ("none", "basic", "convex-hull", "printable")
-MESH_REPAIR_PRECONDITIONERS = ("legacy", "voxel-close", "component-close")
+MESH_REPAIR_PRECONDITIONERS = (
+    "legacy",
+    "voxel-close",
+    "adaptive-voxel-close",
+    "component-close",
+)
 MESH_REPAIR_VOXEL_FILL_METHODS = ("base", "holes", "orthographic")
 MESH_REPAIR_SIMPLIFY_PLACEMENTS = ("optimal", "endpoint")
+MESH_TARGET_BBOX_MODES = ("exact", "uniform-max")
 DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION = 192
 DEFAULT_MESH_REPAIR_HOLE_FACE_ADDITION_RATIO = 0.02
 MAX_MESH_REPAIR_VOXEL_RESOLUTION = 384
+MAX_MESH_REPAIR_SMOOTHING_ITERATIONS = 20
 MAX_MESH_REPAIR_COMPONENT_FILTER_FACES = 3_000_000
 MAX_MESH_REPAIR_HOLE_FACE_ADDITIONS = 2_048
 MAX_MESH_REPAIR_HOLE_BOUNDARY_EDGES = 4
@@ -601,6 +608,72 @@ def _voxel_close_mesh(mesh, resolution: int, fill_method: str):
     return _largest_component(closed).copy()
 
 
+def _adaptive_voxel_close_mesh(
+    mesh,
+    max_resolution: int,
+    fill_method: str,
+    target_faces: int,
+    metrics: dict | None = None,
+):
+    """Choose the highest printable voxel resolution that fits the face budget."""
+    max_resolution = int(max_resolution or 0)
+    target_faces = int(target_faces or 0)
+    if target_faces <= 0:
+        closed = _voxel_close_mesh(mesh, max_resolution, fill_method)
+        if metrics is not None:
+            metrics.update(
+                {
+                    "repair_adaptive_voxel_target_faces": 0,
+                    "repair_adaptive_voxel_max_resolution": max_resolution,
+                    "repair_adaptive_voxel_selected_resolution": max_resolution,
+                    "repair_adaptive_voxel_selected_faces": int(len(closed.faces)),
+                    "repair_adaptive_voxel_probe_count": 1,
+                }
+            )
+        return closed
+
+    low = 16
+    high = max_resolution
+    selected = None
+    probes = []
+    while low <= high:
+        resolution = (low + high) // 2
+        candidate = _voxel_close_mesh(mesh, resolution, fill_method)
+        faces = int(len(candidate.faces))
+        printable = bool(mesh_is_printable_volume(candidate))
+        probes.append(
+            {
+                "resolution": resolution,
+                "faces": faces,
+                "printable": printable,
+            }
+        )
+        if printable and faces <= target_faces:
+            selected = (resolution, candidate)
+            low = resolution + 1
+        else:
+            high = resolution - 1
+
+    if selected is None:
+        raise RuntimeError(
+            "Adaptive voxel closure could not produce a printable mesh within the "
+            f"face budget: max_resolution={max_resolution}, target_faces={target_faces}"
+        )
+    resolution, closed = selected
+    if metrics is not None:
+        metrics.update(
+            {
+                "repair_adaptive_voxel_target_faces": target_faces,
+                "repair_adaptive_voxel_max_resolution": max_resolution,
+                "repair_adaptive_voxel_selected_resolution": resolution,
+                "repair_adaptive_voxel_selected_faces": int(len(closed.faces)),
+                "repair_adaptive_voxel_probe_count": len(probes),
+                "repair_adaptive_voxel_probes": probes,
+            }
+        )
+    return closed
+
+
 def _simplify_preserving_topology(
     mesh,
     target_faces: int,
@@ -920,6 +993,49 @@ def _mesh_geometry_audit(
     return audit
 
 
+def _smooth_voxel_surface(mesh, iterations: int, metrics: dict | None = None):
+    """Soften marching-cubes terraces without changing connectivity or face count."""
+    import trimesh
+
+    iterations = int(iterations or 0)
+    if iterations < 0 or iterations > MAX_MESH_REPAIR_SMOOTHING_ITERATIONS:
+        raise ValueError(
+            "Mesh repair smoothing iterations must be between 0 and "
+            f"{MAX_MESH_REPAIR_SMOOTHING_ITERATIONS}"
+        )
+    if metrics is not None:
+        metrics["repair_smoothing_iterations"] = iterations
+        metrics["repair_smoothing_applied"] = False
+    if iterations == 0:
+        return mesh
+
+    reference = mesh.copy()
+    smoothed = mesh.copy()
+    trimesh.smoothing.filter_taubin(
+        smoothed,
+        lamb=0.5,
+        nu=0.53,
+        iterations=iterations,
+    )
+    if not np.all(np.isfinite(np.asarray(smoothed.vertices))):
+        raise RuntimeError("Mesh repair smoothing produced non-finite vertices")
+    trimesh.repair.fix_normals(smoothed)
+    if not mesh_is_printable_volume(smoothed):
+        raise RuntimeError("Mesh repair smoothing broke printable topology")
+    if metrics is not None:
+        metrics.update(
+            _mesh_geometry_audit(
+                reference,
+                smoothed,
+                "repair_smoothing",
+                include_vertex_displacement=False,
+                include_preservation_verdict=False,
+            )
+        )
+        metrics["repair_smoothing_applied"] = True
+    return smoothed
+
+
 def _retriangulation_geometry_audit(reference, candidate, prefix: str) -> dict:
     return _mesh_geometry_audit(reference, candidate, prefix)
 
@@ -992,8 +1108,10 @@ def repair_mesh_for_printable_stl(
     component_area_ratio: float = 0.0,
     voxel_resolution: int = DEFAULT_MESH_REPAIR_VOXEL_RESOLUTION,
     voxel_fill_method: str = "orthographic",
+    smoothing_iterations: int = 0,
     hole_face_addition_ratio: float = DEFAULT_MESH_REPAIR_HOLE_FACE_ADDITION_RATIO,
     simplify_placement: str = "optimal",
+    allow_convex_hull_fallback: bool = True,
     metrics: dict | None = None,
 ) -> Path:
     if mode not in MESH_REPAIR_MODES or mode == "none":
@@ -1001,6 +1119,14 @@ def repair_mesh_for_printable_stl(
     if preconditioner not in MESH_REPAIR_PRECONDITIONERS:
         expected = ", ".join(MESH_REPAIR_PRECONDITIONERS)
         raise ValueError(f"Unsupported mesh repair preconditioner {preconditioner!r}; expected {expected}")
+    smoothing_iterations = int(smoothing_iterations or 0)
+    if smoothing_iterations < 0 or smoothing_iterations > MAX_MESH_REPAIR_SMOOTHING_ITERATIONS:
+        raise ValueError(
+            "Mesh repair smoothing iterations must be between 0 and "
+            f"{MAX_MESH_REPAIR_SMOOTHING_ITERATIONS}"
+        )
+    if smoothing_iterations and preconditioner not in ("voxel-close", "adaptive-voxel-close"):
+        raise ValueError("Mesh repair smoothing requires a voxel-close preconditioner")
     simplify_placement = str(simplify_placement or "optimal").strip().lower()
     if simplify_placement not in MESH_REPAIR_SIMPLIFY_PLACEMENTS:
         expected = ", ".join(MESH_REPAIR_SIMPLIFY_PLACEMENTS)
@@ -1022,7 +1148,20 @@ def repair_mesh_for_printable_stl(
     if metrics is not None:
         metrics["repair_input_faces"] = int(len(mesh.faces))
         metrics["repair_simplify_placement"] = simplify_placement
-    shape_preserving_preconditioner = preconditioner in ("voxel-close", "component-close")
+        metrics["repair_allow_convex_hull_fallback"] = bool(
+            allow_convex_hull_fallback
+        )
+    target_faces = int(target_faces or 0)
+    if target_faces <= 0:
+        target_faces = max_faces_for_normalized_bbox_complexity(
+            _valid_extents(mesh),
+            max_normalized_face_density_log1p,
+        )
+    shape_preserving_preconditioner = preconditioner in (
+        "voxel-close",
+        "adaptive-voxel-close",
+        "component-close",
+    )
     if shape_preserving_preconditioner:
         mesh = _filter_face_components_by_area(mesh, component_area_ratio, metrics)
         if metrics is not None:
@@ -1031,12 +1170,18 @@ def repair_mesh_for_printable_stl(
         mesh = _voxel_close_mesh(mesh, int(voxel_resolution), voxel_fill_method)
         if metrics is not None:
             metrics["repair_precondition_voxel_faces"] = int(len(mesh.faces))
-    target_faces = int(target_faces or 0)
-    if target_faces <= 0:
-        target_faces = max_faces_for_normalized_bbox_complexity(
-            _valid_extents(mesh),
-            max_normalized_face_density_log1p,
+    elif preconditioner == "adaptive-voxel-close":
+        mesh = _adaptive_voxel_close_mesh(
+            mesh,
+            int(voxel_resolution),
+            voxel_fill_method,
+            target_faces,
+            metrics,
         )
+        if metrics is not None:
+            metrics["repair_precondition_voxel_faces"] = int(len(mesh.faces))
+    if preconditioner in ("voxel-close", "adaptive-voxel-close"):
+        mesh = _smooth_voxel_surface(mesh, smoothing_iterations, metrics)
     simplification_target_faces = target_faces
     reserved_hole_faces = 0
     if preconditioner == "component-close" and target_faces > 4:
@@ -1176,7 +1321,10 @@ def repair_mesh_for_printable_stl(
         repaired = _convex_hull_mesh(mesh)
         used_convex_hull = True
         cleaning_skipped = True
-    elif preconditioner == "voxel-close" and preclean_printable:
+    elif (
+        preconditioner in ("voxel-close", "adaptive-voxel-close")
+        and preclean_printable
+    ):
         repaired = mesh.copy()
         used_convex_hull = False
         cleaning_skipped = True
@@ -1190,7 +1338,14 @@ def repair_mesh_for_printable_stl(
         cleaning_skipped = False
         if metrics is not None:
             metrics.update(_printability_audit(repaired, "repair_cleaned"))
-        used_convex_hull = mode == "printable" and not mesh_is_printable_volume(repaired)
+        needs_convex_hull = mode == "printable" and not mesh_is_printable_volume(
+            repaired
+        )
+        if needs_convex_hull and not allow_convex_hull_fallback:
+            raise RuntimeError(
+                "Printable mesh repair failed and convex-hull fallback is disabled"
+            )
+        used_convex_hull = needs_convex_hull
         if used_convex_hull:
             repaired = _convex_hull_mesh(repaired)
     else:
@@ -1198,7 +1353,14 @@ def repair_mesh_for_printable_stl(
         cleaning_skipped = False
         if metrics is not None:
             metrics.update(_printability_audit(repaired, "repair_cleaned"))
-        used_convex_hull = mode == "printable" and not mesh_is_printable_volume(repaired)
+        needs_convex_hull = mode == "printable" and not mesh_is_printable_volume(
+            repaired
+        )
+        if needs_convex_hull and not allow_convex_hull_fallback:
+            raise RuntimeError(
+                "Printable mesh repair failed and convex-hull fallback is disabled"
+            )
+        used_convex_hull = needs_convex_hull
         if used_convex_hull:
             repaired = _convex_hull_mesh(repaired)
     if not len(repaired.vertices) or not len(repaired.faces):
@@ -1444,17 +1606,33 @@ def _clamp_bbox_aspect_ratio(mesh, max_bbox_aspect_ratio: float):
     return clamped
 
 
-def _match_bbox_extents(mesh, target_bbox_extents):
+def _match_bbox_extents(mesh, target_bbox_extents, mode: str = "exact"):
     target = _target_extents_array(target_bbox_extents)
     if target is None:
         return mesh
+    mode = str(mode or "exact").strip().lower()
+    if mode not in MESH_TARGET_BBOX_MODES:
+        expected = ", ".join(MESH_TARGET_BBOX_MODES)
+        raise ValueError(
+            f"Unsupported mesh target bbox mode {mode!r}; expected {expected}"
+        )
     extents = _valid_extents(mesh)
     if extents is None:
         return mesh
     matched = mesh.copy()
     bounds = np.asarray(matched.bounds, dtype=np.float64)
-    center = bounds.mean(axis=0) if bounds.shape == (2, 3) and np.all(np.isfinite(bounds)) else np.zeros(3)
-    matched.vertices = (np.asarray(matched.vertices, dtype=np.float64) - center) * (target / extents) + center
+    center = (
+        bounds.mean(axis=0)
+        if bounds.shape == (2, 3) and np.all(np.isfinite(bounds))
+        else np.zeros(3)
+    )
+    if mode == "uniform-max":
+        scale = float(np.max(target)) / float(np.max(extents))
+    else:
+        scale = target / extents
+    matched.vertices = (
+        np.asarray(matched.vertices, dtype=np.float64) - center
+    ) * scale + center
     return matched
 
 
@@ -1523,6 +1701,7 @@ def postprocess_mesh_for_stl(
     min_bbox_dimension: float = 0.0,
     max_bbox_aspect_ratio: float = 0.0,
     target_bbox_extents=None,
+    target_bbox_mode: str = "exact",
     target_faces: int = 0,
     max_normalized_face_density_log1p: float = 0.0,
     preserve_printability: bool = False,
@@ -1534,7 +1713,11 @@ def postprocess_mesh_for_stl(
     processed = _scale_to_max_dimension(mesh, float(target_max_dimension or 0.0))
     processed = _enforce_min_bbox_dimension(processed, float(min_bbox_dimension or 0.0))
     processed = _clamp_bbox_aspect_ratio(processed, float(max_bbox_aspect_ratio or 0.0))
-    processed = _match_bbox_extents(processed, target_bbox_extents)
+    processed = _match_bbox_extents(
+        processed,
+        target_bbox_extents,
+        mode=target_bbox_mode,
+    )
     fixed_target = int(target_faces or 0)
     if fixed_target > 0:
         if preserve_printability:

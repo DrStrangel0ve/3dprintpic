@@ -4,13 +4,36 @@ import os
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from PIL import Image
 import trimesh
 
 import backend.video_selection_service as service_module
 from backend.video_selection_service import DEFAULTS, app
+
+
+def write_video_fixture(path: Path, *, blank: bool = False, frame_count: int = 20) -> bytes:
+    import cv2
+    import numpy as np
+
+    size = 96
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"MJPG"), 12.0, (size, size))
+    if not writer.isOpened():
+        raise RuntimeError("OpenCV MJPG writer is unavailable")
+    try:
+        for index in range(frame_count):
+            frame = np.full((size, size, 3), 238, dtype=np.uint8)
+            if not blank:
+                rectangle = ((48.0, 48.0), (52.0, 30.0), index * 180.0 / frame_count)
+                vertices = cv2.boxPoints(rectangle).astype(np.int32)
+                cv2.fillConvexPoly(frame, vertices, (170, 105, 45))
+            writer.write(frame)
+    finally:
+        writer.release()
+    return path.read_bytes()
 
 
 class VideoSelectionServiceTest(unittest.TestCase):
@@ -25,14 +48,31 @@ class VideoSelectionServiceTest(unittest.TestCase):
         self.assertEqual(data["mode"], "planner-plus-runner")
         self.assertIn("image-to-mesh", data["runner_modes"])
         self.assertIn("multiview-to-mesh", data["runner_modes"])
+        self.assertIn("video-to-mesh", data["runner_modes"])
+        self.assertIn("video-to-relief", data["runner_modes"])
         self.assertEqual(data["defaults"]["image_to_mesh"], DEFAULTS["image_to_mesh"])
         self.assertEqual(data["defaults"]["video_reconstruction"], "multiview-visual-hull")
         self.assertIn("selection", data["groups"])
         self.assertIn("panoptic-detr", {model["id"] for model in data["groups"]["selection"]})
+        self.assertIn("turntable-grabcut", {model["id"] for model in data["groups"]["selection"]})
+        self.assertIn("sam3.1-video", {model["id"] for model in data["groups"]["selection"]})
         self.assertIn("video_reconstruction", data["groups"])
         self.assertIn("multiview-visual-hull", {model["id"] for model in data["groups"]["video_reconstruction"]})
+        self.assertIn("vggt-omega", {model["id"] for model in data["groups"]["video_reconstruction"]})
         self.assertIn("stl_postprocess", data["groups"])
         self.assertIn("watertightness", data["metrics"])
+
+    def test_loopback_dev_origin_is_allowed(self):
+        response = self.client.get(
+            "/health",
+            headers={"Origin": "http://127.0.0.1:3100"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers.get("access-control-allow-origin"),
+            "http://127.0.0.1:3100",
+        )
 
     def test_photo_plan_routes_to_image_mesh_and_stl_repair(self):
         response = self.client.post(
@@ -351,6 +391,172 @@ class VideoSelectionServiceTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("not an uploaded or output artifact", response.json()["detail"])
+
+    def test_video_to_mesh_preflight_distinguishes_live_and_setup_required_models(self):
+        response = self.client.get("/providers/video-to-mesh")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["runner"], "video-to-mesh")
+        self.assertEqual(data["default_segmentation"], "turntable-grabcut")
+        segmentation = {row["id"]: row for row in data["preflight"]["segmentation"]}
+        geometry = {row["id"]: row for row in data["preflight"]["geometry"]}
+        self.assertTrue(segmentation["turntable-grabcut"]["runnable"])
+        self.assertIn("sam3.1-video", segmentation)
+        self.assertTrue(geometry["multiview-visual-hull"]["runnable"])
+        self.assertFalse(geometry["vggt-omega"]["checks"]["stl_extractor_attached"])
+
+    def test_video_to_mesh_runner_prepares_masks_and_emits_stl_contract(self):
+        observed = {}
+
+        def fake_provider(args):
+            observed["provider"] = args.provider
+            observed["bundle"] = json.loads(Path(args.input_bundle).read_text(encoding="utf-8"))
+            mesh = trimesh.creation.box(extents=(1.0, 0.75, 0.5))
+            args.output_mesh.parent.mkdir(parents=True, exist_ok=True)
+            mesh.export(args.output_mesh)
+            mesh.export(args.output_stl)
+            return args.output_mesh, args.output_stl
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            video_bytes = write_video_fixture(root / "turntable.avi")
+            output_dir = root / "output"
+            with patch.object(service_module, "OUTPUT_DIR", output_dir), patch.object(
+                service_module,
+                "run_provider_job",
+                side_effect=fake_provider,
+            ):
+                response = self.client.post(
+                    "/run/video-to-mesh",
+                    files={"file": ("turntable.avi", video_bytes, "video/x-msvideo")},
+                    data={
+                        "provider": "multiview-visual-hull",
+                        "frame_selection": "sharpness-motion-selector",
+                        "segmentation_provider": "turntable-grabcut",
+                        "selected_frame_count": "8",
+                        "frame_max_side": "256",
+                        "visual_hull_resolution": "24",
+                    },
+                )
+
+                self.assertEqual(response.status_code, 200, response.text)
+                data = response.json()
+                self.assertEqual(data["runner"], "video-to-mesh")
+                self.assertEqual(data["status"], "printable")
+                self.assertEqual(data["selected_frame_count"], 8)
+                self.assertEqual(len(data["selected_frame_urls"]), 8)
+                self.assertEqual(len(data["selected_mask_urls"]), 8)
+                self.assertTrue(data["mask_quality"]["passes_hard_checks"])
+                self.assertTrue(data["stl_passes_hard_checks"])
+                self.assertEqual(observed["provider"], "multiview-visual-hull")
+                self.assertEqual(len(observed["bundle"]["views"]), 8)
+
+                self.assertEqual(self.client.get(data["video_preparation_url"]).status_code, 200)
+                self.assertEqual(self.client.get(data["selected_frame_urls"][0]).status_code, 200)
+                self.assertEqual(self.client.get(data["selected_mask_urls"][0]).status_code, 200)
+                self.assertEqual(self.client.get(data["stl_url"]).status_code, 200)
+
+    def test_video_to_mesh_runner_blocks_blank_video_before_provider(self):
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            video_bytes = write_video_fixture(root / "blank.avi", blank=True)
+            with patch.object(service_module, "OUTPUT_DIR", root / "output"), patch.object(
+                service_module,
+                "run_provider_job",
+            ) as provider:
+                response = self.client.post(
+                    "/run/video-to-mesh",
+                    files={"file": ("blank.avi", video_bytes, "video/x-msvideo")},
+                    data={"selected_frame_count": "6", "frame_max_side": "256"},
+                )
+
+        self.assertEqual(response.status_code, 422, response.text)
+        detail = response.json()["detail"]
+        self.assertEqual(detail["error_type"], "VideoSegmentationError")
+        self.assertIn("failed quality checks", detail["message"])
+        provider.assert_not_called()
+
+    def test_video_to_mesh_runner_rejects_corrupt_container(self):
+        with TemporaryDirectory() as temp_dir, patch.object(service_module, "OUTPUT_DIR", Path(temp_dir) / "output"):
+            response = self.client.post(
+                "/run/video-to-mesh",
+                files={"file": ("broken.mp4", b"not a video", "video/mp4")},
+                data={"frame_max_side": "256"},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"]["error_type"], "VideoDecodeError")
+
+    def test_video_to_mesh_runner_enforces_upload_limit_before_decode(self):
+        with TemporaryDirectory() as temp_dir, patch.object(
+            service_module,
+            "OUTPUT_DIR",
+            Path(temp_dir) / "output",
+        ), patch.object(service_module, "VIDEO_MAX_UPLOAD_BYTES", 4):
+            response = self.client.post(
+                "/run/video-to-mesh",
+                files={"file": ("oversize.mp4", b"12345", "video/mp4")},
+                data={"frame_max_side": "256"},
+            )
+
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("upload exceeds", response.json()["detail"])
+
+    def test_video_to_relief_runner_returns_tracked_subject_artifacts(self):
+        def fake_subject_relief(_video_path, output_dir, **kwargs):
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            stl_path = output_dir / "output_model.stl"
+            trimesh.creation.box(extents=(20.0, 80.0, 6.0)).export(stl_path)
+            diagnostics = {
+                "stl_passes_hard_checks": True,
+                "stl_failed_checks": [],
+            }
+            diagnostics_path = output_dir / "diagnostics.json"
+            diagnostics_path.write_text(json.dumps(diagnostics), encoding="utf-8")
+            report_path = output_dir / "video_subject_relief.json"
+            report_path.write_text("{}", encoding="utf-8")
+            preview_path = output_dir / "selected_subject.png"
+            selected_frame_path = output_dir / "selected_frame.png"
+            selected_mask_path = output_dir / "selected_mask.png"
+            Image.new("RGB", (16, 16), "white").save(preview_path)
+            Image.new("RGB", (16, 16), "white").save(selected_frame_path)
+            Image.new("L", (16, 16), 255).save(selected_mask_path)
+            return SimpleNamespace(
+                stl_path=stl_path,
+                diagnostics_path=diagnostics_path,
+                report_path=report_path,
+                preview_path=preview_path,
+                selected_frame_path=selected_frame_path,
+                selected_mask_path=selected_mask_path,
+                report={
+                    "status": "printable",
+                    "motion": {"classification": "approach"},
+                    "selection": {"selected": {"source_index": 450}},
+                    "face_refinement": {"applied": False},
+                    "stl_diagnostics": diagnostics,
+                    "timings": {"total_seconds": 1.0},
+                },
+            )
+
+        with TemporaryDirectory() as temp_dir, patch.object(
+            service_module, "OUTPUT_DIR", Path(temp_dir) / "output"
+        ), patch.object(
+            service_module, "generate_video_subject_relief", side_effect=fake_subject_relief
+        ):
+            response = self.client.post(
+                "/run/video-to-relief",
+                files={"file": ("walk.mp4", b"video", "video/mp4")},
+                data={"frame_max_side": "850", "depth_device": "cuda"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["runner"], "video-to-relief")
+        self.assertEqual(data["motion"]["classification"], "approach")
+        self.assertTrue(data["stl_passes_hard_checks"])
+        self.assertTrue(data["stl_url"].endswith("output_model.stl"))
 
 
 if __name__ == "__main__":

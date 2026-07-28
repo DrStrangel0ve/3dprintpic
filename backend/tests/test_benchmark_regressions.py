@@ -5675,7 +5675,14 @@ class ColabInputPackageRegressionTests(unittest.TestCase):
         self.assertIn("/tmp/triposg_requirements_colab.txt", archive_run_script)
         self.assertIn("numpy==2.0.2", archive_run_script)
         self.assertIn("TripoSG setup checkpoint: Python deps importable", archive_run_script)
-        self.assertIn("-m scripts.inference_triposg --help", archive_run_script)
+        self.assertIn(
+            'PYTHONPATH="$TRIPOSG_DIR${PYTHONPATH:+:$PYTHONPATH}"',
+            archive_run_script,
+        )
+        self.assertIn(
+            '"$TRIPOSG_DIR/scripts/inference_triposg.py" --help',
+            archive_run_script,
+        )
         self.assertIn("TripoSG setup checkpoint: CLI imports ok", archive_run_script)
         self.assertIn("TRIPOSG_PREFETCH", archive_run_script)
         self.assertIn("torch.cuda.is_available()", archive_run_script)

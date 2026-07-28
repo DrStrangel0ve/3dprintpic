@@ -225,6 +225,7 @@ def hunyuan3d_command(args: argparse.Namespace, repaired: bool) -> str:
 
 
 def triposg_command(args: argparse.Namespace, repaired: bool) -> str:
+    shape_safe = repaired and getattr(args, "triposg_shape_safe_repair", True)
     triposg_extra = [
         "--triposg-model-revision",
         getattr(args, "triposg_model_revision", DEFAULT_TRIPOSG_MODEL_REVISION),
@@ -247,6 +248,25 @@ def triposg_command(args: argparse.Namespace, repaired: bool) -> str:
             ),
         ]
     )
+    if shape_safe:
+        triposg_extra.extend(
+            [
+                "--mesh-repair-preconditioner",
+                "adaptive-voxel-close",
+                "--mesh-repair-voxel-resolution",
+                str(getattr(args, "triposg_shape_safe_voxel_resolution", 128)),
+                "--no-mesh-allow-convex-hull-fallback",
+                "--mesh-target-bbox-mode",
+                "uniform-max",
+            ]
+        )
+    configured_target_faces = int(getattr(args, "mesh_target_faces", 0) or 0)
+    if shape_safe:
+        safe_target_faces = int(
+            getattr(args, "triposg_shape_safe_target_faces", 10_000) or 10_000
+        )
+        if configured_target_faces <= 0:
+            configured_target_faces = safe_target_faces
     return image_to_mesh_command(
         python=args.triposg_python,
         provider="triposg",
@@ -257,10 +277,16 @@ def triposg_command(args: argparse.Namespace, repaired: bool) -> str:
         output_mesh_raw=repaired,
         raw_output_ext="glb",
         mesh_target_max_dimension=getattr(args, "mesh_target_max_dimension", 0.0),
-        mesh_min_bbox_dimension=getattr(args, "mesh_min_bbox_dimension", 0.0),
-        mesh_max_bbox_aspect_ratio=getattr(args, "mesh_max_bbox_aspect_ratio", 0.0),
+        mesh_min_bbox_dimension=(
+            0.0 if shape_safe else getattr(args, "mesh_min_bbox_dimension", 0.0)
+        ),
+        mesh_max_bbox_aspect_ratio=(
+            0.0
+            if shape_safe
+            else getattr(args, "mesh_max_bbox_aspect_ratio", 0.0)
+        ),
         mesh_target_bbox_source=getattr(args, "mesh_target_bbox_source", "none"),
-        mesh_target_faces=getattr(args, "mesh_target_faces", 0),
+        mesh_target_faces=configured_target_faces,
         mesh_max_normalized_face_density_log1p=getattr(
             args,
             "mesh_max_normalized_face_density_log1p",
@@ -989,6 +1015,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--triposg-guidance-scale", type=float, default=7.0)
     parser.add_argument("--triposg-seed", type=int, default=42)
     parser.add_argument(
+        "--triposg-shape-safe-repair",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Use adaptive voxel closure, disable convex-hull fallback, and preserve native "
+            "mesh proportions during bbox scaling."
+        ),
+    )
+    parser.add_argument("--triposg-shape-safe-target-faces", type=int, default=10_000)
+    parser.add_argument("--triposg-shape-safe-voxel-resolution", type=int, default=128)
+    parser.add_argument(
         "--triposg-provider-cache-dir",
         default="/content/triposg-provider-cache",
         help="Content-addressed raw mesh cache used to make seeded TripoSG comparisons resumable.",
@@ -1157,7 +1194,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--continue-on-error", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
     args.triposr_direct_inputs = args.triposr_direct_inputs or ["masked"]
-    args.triposg_direct_inputs = args.triposg_direct_inputs or ["masked"]
+    args.triposg_direct_inputs = args.triposg_direct_inputs or ["mirror"]
     args.pixal3d_direct_inputs = args.pixal3d_direct_inputs or ["biharmonic"]
     args.step1x3d_direct_inputs = args.step1x3d_direct_inputs or ["biharmonic"]
     return args

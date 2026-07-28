@@ -28,6 +28,8 @@ from backend.benchmark.makehuman_face_fixture import (
 )
 from backend.benchmark.mesh_rendering import CameraSpec, RenderConfig, RenderResult, render_mesh
 from backend.benchmark.run_canonical_face_relief_smoke import (
+    PRODUCTION_PRINTABLE_FEATURE_DEPTH_MM,
+    _bounded_feature_emboss_check,
     _compact_appearance,
     _finite,
 )
@@ -318,7 +320,7 @@ def _emit_row(
         source_image=source_path,
         background_photo_detail_mm=float(background_photo_detail_mm),
         feature_weight_mask=feature_weight,
-        printable_feature_depth_mm=0.8,
+        printable_feature_depth_mm=PRODUCTION_PRINTABLE_FEATURE_DEPTH_MM,
         feature_bridge_depth_mm=0.8,
         surface_output_path=surface_path,
         reference_surface_output_path=reference_path,
@@ -390,10 +392,7 @@ def _emit_row(
             postprocess["face_boundary_alignment"].get("method")
             == "screened_gradient_domain_compression"
         ),
-        "redundant_emboss_suppressed": bool(
-            feature_stats.get("suppressed_after_screened_face_reconstruction", False)
-            and float(postprocess["effective_printable_feature_depth_mm"]) == 0.0
-        ),
+        "bounded_feature_emboss": _bounded_feature_emboss_check(postprocess),
         "direction_reversal_projection": bool(
             not reversal_projection.get("enabled", False)
             or reversal_projection.get("passed", False)
@@ -448,6 +447,33 @@ def _emit_row(
             "far_background_ceiling_mm": _finite(cap.get("far_background_ceiling_mm")),
             "feasible_attachment_jump_max_mm": _finite(cap.get("feasible_attachment_jump_max_mm")),
             "conflicting_attachment_pixels": int(cap.get("conflicting_attachment_pixels", 0)),
+        },
+        "feature_handling": {
+            "requested_feature_depth_mm": float(
+                postprocess["printable_feature_depth_mm"]
+            ),
+            "effective_feature_depth_mm": float(
+                postprocess["effective_printable_feature_depth_mm"]
+            ),
+            "emboss_suppressed": bool(
+                feature_stats.get(
+                    "suppressed_after_screened_face_reconstruction",
+                    False,
+                )
+            ),
+            "bounded_feature_emboss": bool(checks["bounded_feature_emboss"]),
+            "applied_feature_depth_max_mm": _finite(
+                feature_stats.get("applied_depth_max_mm")
+            ),
+            "slope_guard_enabled": bool(
+                postprocess["post_feature_slope_guard"].get("enabled")
+            ),
+            "detail_guard_enabled": bool(
+                postprocess["face_detail_guard"].get("enabled")
+            ),
+            "detail_guard_applied_scale": _finite(
+                postprocess["face_detail_guard"].get("applied_scale")
+            ),
         },
         "direction_reversal_projection": {
             key: reversal_projection.get(key)

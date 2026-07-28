@@ -1,6 +1,8 @@
+/* eslint-disable @next/next/no-img-element -- Blob URLs and backend mask previews must bypass the Next image optimizer. */
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import {
   BadgeCheck,
   Box,
@@ -28,6 +30,12 @@ import {
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { WorkspaceColumn, WorkspaceShell } from '@/components/workspace/workspace-shell';
+
+const StlViewer = dynamic(
+  () => import('react-stl-viewer').then((module) => module.StlViewer),
+  { ssr: false },
+);
 
 const DEFAULT_BACKEND_URL = 'http://localhost:8004';
 const DEFAULT_VIDEO_BACKEND_URL = 'http://localhost:8005';
@@ -35,12 +43,45 @@ const CONFIGURED_BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_BA
 const CONFIGURED_VIDEO_BACKEND_URL = process.env.NEXT_PUBLIC_VIDEO_BACKEND_URL || DEFAULT_VIDEO_BACKEND_URL;
 const PROCESS_IMAGE_TIMEOUT_MS = 10 * 60 * 1000;
 const IMAGE_TO_MESH_TIMEOUT_MS = 60 * 60 * 1000;
+const VIDEO_TO_MESH_TIMEOUT_MS = 60 * 60 * 1000;
 const FULL_MESH_RUNNER_STL_POSTPROCESS = 'trimesh-repair';
+const PRODUCTION_DEPTH_MODEL = 'depth-anything/Depth-Anything-V2-Large-hf';
+const PRODUCTION_PHOTO_SELECTION_MODEL = 'detr-resnet-50-panoptic';
+const PRODUCTION_TURNTABLE_SELECTION_MODEL = 'turntable-grabcut';
+const PRODUCTION_TRACKED_VIDEO_SELECTION_MODEL = 'sam2.1-hiera-tiny-video';
+const PRODUCTION_TURNTABLE_FRAME_MODEL = 'uniform-frame-sampler';
+const PRODUCTION_TRACKED_FRAME_MODEL = 'sharpness-motion-selector';
+const PRODUCTION_IMAGE_TO_MESH_MODEL = 'triposg';
+const LIVE_VIDEO_CAMERA_MODEL = 'turntable-orbit';
+const LIVE_VIDEO_RECONSTRUCTION_MODEL = 'multiview-visual-hull';
+const LIVE_VIDEO_FRAME_SELECTION_MODELS = ['uniform-frame-sampler', 'sharpness-motion-selector'] as const;
+const LIVE_VIDEO_SEGMENTATION_MODELS = [
+  'turntable-grabcut',
+  'sam2.1-hiera-tiny-video',
+  'sam2.1-hiera-base-plus-video',
+] as const;
+
+function isLiveVideoSegmentationModel(modelId: string) {
+  return (LIVE_VIDEO_SEGMENTATION_MODELS as readonly string[]).includes(modelId);
+}
+
+function isLiveVideoFrameSelectionModel(modelId: string) {
+  return (LIVE_VIDEO_FRAME_SELECTION_MODELS as readonly string[]).includes(modelId);
+}
 const DEPTH_PRO_MODEL_ID = 'apple/DepthPro-hf';
+const MODEL_GROUPS: ModelGroup[] = [
+  'selection',
+  'frame_selection',
+  'camera_pose',
+  'video_reconstruction',
+  'image_to_mesh',
+  'stl_postprocess',
+];
 
 type MediaKind = 'photo' | 'video';
 type PhotoScope = 'whole-image' | 'object-selection';
-type PhotoTarget = 'depth-relief' | 'full-mesh';
+type PhotoTarget = 'depth-relief' | 'scene-diorama' | 'full-mesh';
+type VideoTarget = 'turntable-mesh' | 'tracked-relief';
 type VideoScope = 'selected-frames' | 'everything';
 type RunState = 'idle' | 'running' | 'ready' | 'blocked' | 'error';
 type ReliefPolarity = 'raised-print' | 'mold';
@@ -87,10 +128,6 @@ type ProviderReadiness = {
     provider_dir_env_names?: string[];
     provider_python_env_names?: string[];
   };
-};
-
-type ProviderPreflightResponse = {
-  providers?: ProviderReadiness[];
 };
 
 type PlannerResponse = {
@@ -219,6 +256,7 @@ type PrinterPreset = {
   maxX: number;
   maxY: number;
   maxZ: number;
+  nozzleDiameter: number;
 };
 
 type PrintVolumePlan = {
@@ -235,6 +273,8 @@ type PrintVolumePlan = {
   target_dimension_mm: number;
   print_scale_percent: number;
   max_relief_height_mm: number;
+  nozzle_diameter_mm: number;
+  minimum_feature_mm: number;
 };
 
 type PipelineStep = {
@@ -253,60 +293,26 @@ type DepthModelOption = {
 
 const photoTargets: Array<{ value: PhotoTarget; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { value: 'depth-relief', label: '2.5D Relief STL', icon: ScanLine },
+  { value: 'scene-diorama', label: 'Scene Diorama', icon: Boxes },
   { value: 'full-mesh', label: 'Full Mesh STL', icon: Cuboid },
 ];
 
-const inpaintBackends = ['Mirror prior', 'SDXL inpaint', 'FLUX Fill', 'Qwen Image Edit'];
+const inpaintBackends = ['Biharmonic prefill'];
 const reliefDetailSamples = { min: 192, max: 900 };
 const resolutionMultipliers = [1.5, 2, 3, 4];
 const depthModels: DepthModelOption[] = [
   {
     id: 'depth-anything/Depth-Anything-V2-Large-hf',
     label: 'Depth Anything V2 Large',
-    tier: 'Best verified',
-    notes: 'Best CUDA-backed option verified locally for relief STL generation.',
-    farIsHigh: false,
-  },
-  {
-    id: DEPTH_PRO_MODEL_ID,
-    label: 'Apple Depth Pro',
-    tier: 'Experimental detail',
-    notes: 'Sharp distance edges with inverse-depth relief shaping; use after preload.',
-    farIsHigh: true,
-  },
-  {
-    id: 'depth-anything/Depth-Anything-V2-Metric-Indoor-Large-hf',
-    label: 'DA V2 Metric Indoor Large',
-    tier: 'Metric indoor',
-    notes: 'Good for room, person, furniture, and object photos.',
-    farIsHigh: true,
-  },
-  {
-    id: 'depth-anything/Depth-Anything-V2-Metric-Outdoor-Large-hf',
-    label: 'DA V2 Metric Outdoor Large',
-    tier: 'Metric outdoor',
-    notes: 'Good for larger outdoor scenes.',
-    farIsHigh: true,
-  },
-  {
-    id: 'depth-anything/Depth-Anything-V2-Base-hf',
-    label: 'Depth Anything V2 Base',
-    tier: 'Balanced',
-    notes: 'Good default for iteration speed and quality.',
-    farIsHigh: false,
-  },
-  {
-    id: 'depth-anything/Depth-Anything-V2-Small-hf',
-    label: 'Depth Anything V2 Small',
-    tier: 'Fast',
-    notes: 'Fastest option for quick previews.',
+    tier: 'Verified production',
+    notes: 'Selected by the measured 30 mm relief and scene-depth regressions on the local CUDA path.',
     farIsHigh: false,
   },
 ];
 
 const printerPresets: PrinterPreset[] = [
-  { id: 'bambulab-p1s', label: 'Bambu Lab P1S', maxX: 256, maxY: 256, maxZ: 256 },
-  { id: 'custom', label: 'Custom printer', maxX: 220, maxY: 220, maxZ: 220 },
+  { id: 'bambulab-p1s', label: 'Bambu Lab P1S', maxX: 256, maxY: 256, maxZ: 256, nozzleDiameter: 0.4 },
+  { id: 'custom', label: 'Custom printer', maxX: 220, maxY: 220, maxZ: 220, nozzleDiameter: 0.4 },
 ];
 
 const fallbackModelCatalog: ModelCatalog = {
@@ -315,13 +321,20 @@ const fallbackModelCatalog: ModelCatalog = {
   defaults: {
     selection: 'detr-resnet-50-panoptic',
     frame_selection: 'uniform-frame-sampler',
-    camera_pose: 'hloc-lightglue',
-    video_reconstruction: 'colmap-openmvs',
+    camera_pose: LIVE_VIDEO_CAMERA_MODEL,
+    video_reconstruction: LIVE_VIDEO_RECONSTRUCTION_MODEL,
     image_to_mesh: 'triposg',
     stl_postprocess: 'trimesh-repair',
   },
   groups: {
     selection: [
+      {
+        id: 'turntable-grabcut',
+        label: 'Turntable foreground',
+        model: 'OpenCV GrabCut with temporal mask prior',
+        role: 'automatic centered-object masks for controlled turntable videos',
+        availability: 'configured',
+      },
       {
         id: 'detr-resnet-50-panoptic',
         label: 'DETR Panoptic',
@@ -335,6 +348,20 @@ const fallbackModelCatalog: ModelCatalog = {
         model: 'facebook/sam2.1-hiera-large',
         role: 'promptable object and video mask propagation',
         availability: 'configured',
+      },
+      {
+        id: 'sam2.1-hiera-tiny-video',
+        label: 'SAM 2.1 Tiny Video',
+        model: 'facebook/sam2.1-hiera-tiny',
+        role: 'point-prompted temporal video masks',
+        availability: 'setup-required',
+      },
+      {
+        id: 'sam2.1-hiera-base-plus-video',
+        label: 'SAM 2.1 Base+ Video',
+        model: 'facebook/sam2.1-hiera-base-plus',
+        role: 'higher-quality temporal video masks',
+        availability: 'setup-required',
       },
       {
         id: 'grounding-dino-sam2',
@@ -376,6 +403,13 @@ const fallbackModelCatalog: ModelCatalog = {
     ],
     camera_pose: [
       {
+        id: LIVE_VIDEO_CAMERA_MODEL,
+        label: 'Turntable orbit',
+        model: 'frame-time orbit prior',
+        role: 'fixed-camera rotating-object camera assignment',
+        availability: 'configured',
+      },
+      {
         id: 'colmap-sift',
         label: 'COLMAP SIFT',
         model: 'COLMAP',
@@ -398,6 +432,13 @@ const fallbackModelCatalog: ModelCatalog = {
       },
     ],
     video_reconstruction: [
+      {
+        id: LIVE_VIDEO_RECONSTRUCTION_MODEL,
+        label: 'Multiview visual hull',
+        model: 'silhouette visual hull',
+        role: 'deterministic turntable mesh from object silhouettes',
+        availability: 'configured',
+      },
       {
         id: 'colmap-openmvs',
         label: 'COLMAP + OpenMVS',
@@ -547,28 +588,160 @@ function depthPreloadTone(status?: string) {
   return 'border-orange-700 bg-orange-50 text-orange-900';
 }
 
-function normalizeCatalog(data: Partial<ModelCatalog>): ModelCatalog {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function optionalString(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function optionalNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function stringList(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+    : [];
+}
+
+function normalizeModelOption(value: unknown): ModelOption | null {
+  if (!isRecord(value)) return null;
+  const id = optionalString(value.id);
+  if (!id) return null;
   return {
-    service: data.service || fallbackModelCatalog.service,
-    mode: data.mode || fallbackModelCatalog.mode,
-    defaults: { ...fallbackModelCatalog.defaults, ...(data.defaults || {}) },
-    groups: {
-      selection: data.groups?.selection?.length ? data.groups.selection : fallbackModelCatalog.groups.selection,
-      frame_selection: data.groups?.frame_selection?.length ? data.groups.frame_selection : fallbackModelCatalog.groups.frame_selection,
-      camera_pose: data.groups?.camera_pose?.length ? data.groups.camera_pose : fallbackModelCatalog.groups.camera_pose,
-      video_reconstruction: data.groups?.video_reconstruction?.length
-        ? data.groups.video_reconstruction
-        : fallbackModelCatalog.groups.video_reconstruction,
-      image_to_mesh: data.groups?.image_to_mesh?.length ? data.groups.image_to_mesh : fallbackModelCatalog.groups.image_to_mesh,
-      stl_postprocess: data.groups?.stl_postprocess?.length ? data.groups.stl_postprocess : fallbackModelCatalog.groups.stl_postprocess,
-    },
-    metrics: data.metrics?.length ? data.metrics : fallbackModelCatalog.metrics,
-    notes: data.notes || fallbackModelCatalog.notes,
+    id,
+    label: optionalString(value.label) || id,
+    model: optionalString(value.model),
+    role: optionalString(value.role),
+    availability: optionalString(value.availability),
+    notes: optionalString(value.notes),
+    local: typeof value.local === 'boolean' ? value.local : undefined,
+    gpu_supported: typeof value.gpu_supported === 'boolean' ? value.gpu_supported : undefined,
+  };
+}
+
+function normalizeModelOptions(value: unknown, fallback: ModelOption[]) {
+  if (!Array.isArray(value)) return fallback;
+  const options = value.map(normalizeModelOption).filter((option): option is ModelOption => Boolean(option));
+  return options.length ? options : fallback;
+}
+
+function normalizeCatalog(data: unknown): ModelCatalog {
+  const source = isRecord(data) ? data : {};
+  const sourceDefaults = isRecord(source.defaults) ? source.defaults : {};
+  const sourceGroups = isRecord(source.groups) ? source.groups : {};
+  const defaults = {} as Record<ModelGroup, string>;
+  const groups = {} as Record<ModelGroup, ModelOption[]>;
+
+  MODEL_GROUPS.forEach((group) => {
+    defaults[group] = optionalString(sourceDefaults[group]) || fallbackModelCatalog.defaults[group];
+    groups[group] = normalizeModelOptions(sourceGroups[group], fallbackModelCatalog.groups[group]);
+  });
+
+  const metrics = stringList(source.metrics);
+  return {
+    service: optionalString(source.service) || fallbackModelCatalog.service,
+    mode: optionalString(source.mode) || fallbackModelCatalog.mode,
+    defaults,
+    groups,
+    metrics: metrics.length ? metrics : fallbackModelCatalog.metrics,
+    notes: optionalString(source.notes) || fallbackModelCatalog.notes,
   };
 }
 
 function modelsFor(catalog: ModelCatalog, group: ModelGroup) {
-  return catalog.groups[group]?.length ? catalog.groups[group] : fallbackModelCatalog.groups[group];
+  const options = catalog.groups?.[group];
+  return Array.isArray(options) && options.length ? options : fallbackModelCatalog.groups[group];
+}
+
+function normalizeProviderReadiness(data: unknown) {
+  if (!isRecord(data) || !Array.isArray(data.providers)) return {};
+  return Object.fromEntries(
+    data.providers.flatMap((value): Array<[string, ProviderReadiness]> => {
+      if (!isRecord(value)) return [];
+      const id = optionalString(value.id);
+      if (!id) return [];
+      const env = isRecord(value.env) ? value.env : {};
+      return [[
+        id,
+        {
+          id,
+          label: optionalString(value.label),
+          status: optionalString(value.status),
+          runnable: typeof value.runnable === 'boolean' ? value.runnable : false,
+          setup_errors: stringList(value.setup_errors),
+          checks: isRecord(value.checks) ? value.checks : undefined,
+          env: {
+            timeout_seconds: optionalNumber(env.timeout_seconds),
+            provider_dir_configured:
+              typeof env.provider_dir_configured === 'boolean' ? env.provider_dir_configured : undefined,
+            provider_python_configured:
+              typeof env.provider_python_configured === 'boolean' ? env.provider_python_configured : undefined,
+            provider_dir_env_names: stringList(env.provider_dir_env_names),
+            provider_python_env_names: stringList(env.provider_python_env_names),
+          },
+        },
+      ]];
+    }),
+  );
+}
+
+function normalizeSelectionResult(data: unknown): SelectionResult {
+  if (!isRecord(data)) return {};
+  const points = Array.isArray(data.points)
+    ? data.points.flatMap((point) => {
+        if (!isRecord(point)) return [];
+        const x = optionalNumber(point.x);
+        const y = optionalNumber(point.y);
+        return x === undefined || y === undefined ? [] : [{ x, y }];
+      })
+    : undefined;
+  return {
+    job_id: optionalString(data.job_id),
+    selected_image: optionalString(data.selected_image),
+    selected_image_url: optionalString(data.selected_image_url),
+    mask: optionalString(data.mask),
+    mask_url: optionalString(data.mask_url),
+    overlay: optionalString(data.overlay),
+    overlay_url: optionalString(data.overlay_url),
+    tint: optionalString(data.tint),
+    tint_url: optionalString(data.tint_url),
+    metadata_url: optionalString(data.metadata_url),
+    points,
+    model_id: optionalString(data.model_id),
+    model_status: optionalString(data.model_status),
+    model_error: optionalString(data.model_error) || null,
+    selection_labels: stringList(data.selection_labels),
+    mask_pixels: optionalNumber(data.mask_pixels),
+    mask_coverage: optionalNumber(data.mask_coverage),
+  };
+}
+
+function normalizeSelectionPrecomputeResult(data: unknown): SelectionPrecomputeResult {
+  if (!isRecord(data)) return {};
+  return {
+    precompute_id: optionalString(data.precompute_id) || null,
+    model_id: optionalString(data.model_id),
+    model_status: optionalString(data.model_status),
+    precompute_supported:
+      typeof data.precompute_supported === 'boolean' ? data.precompute_supported : undefined,
+    message: optionalString(data.message),
+    segment_count: optionalNumber(data.segment_count),
+    selection_labels: stringList(data.selection_labels),
+    timings: isRecord(data.timings) ? (data.timings as StageTimings) : undefined,
+  };
+}
+
+function resolveServiceUrl(baseUrl: string, value: unknown) {
+  const path = optionalString(value);
+  if (!path) return '';
+  try {
+    return new URL(path, `${baseUrl.replace(/\/+$/, '')}/`).toString();
+  } catch {
+    return '';
+  }
 }
 
 function selectionModelSupportsPrecompute(modelId: string) {
@@ -675,6 +848,31 @@ function workflowSteps({
     ];
   }
 
+  if (mediaKind === 'photo' && photoTarget === 'scene-diorama') {
+    return [
+      {
+        icon: MousePointer2,
+        label: 'Select scene layers',
+        detail: photoScope === 'object-selection' ? 'Keep people, buildings, and props' : 'Use the whole frame',
+      },
+      {
+        icon: ScanLine,
+        label: 'Estimate scene depth',
+        detail: 'Monocular depth with semantic ordering',
+      },
+      {
+        icon: Boxes,
+        label: 'Build diorama',
+        detail: 'Facade completion and generated hidden sides',
+      },
+      {
+        icon: FileDown,
+        label: 'Export GLB + STL',
+        detail: 'Free-view scene and connected printable model',
+      },
+    ];
+  }
+
   if (mediaKind === 'photo') {
     return [
       {
@@ -749,6 +947,47 @@ function workflowSteps({
   ];
 }
 
+type ProductionModelFieldProps = {
+  controlId: string;
+  label: string;
+  modelId: string;
+  modelLabel: string;
+  detail?: string;
+  className?: string;
+};
+
+function ProductionModelField({
+  controlId,
+  label,
+  modelId,
+  modelLabel: displayName,
+  detail = 'Evidence-backed production choice',
+  className,
+}: ProductionModelFieldProps) {
+  return (
+    <div className={classNames('min-w-0', className)}>
+      <div className="flex items-center justify-between gap-2">
+        <label htmlFor={controlId} className="text-sm font-medium text-zinc-700">
+          {label}
+        </label>
+        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
+          <BadgeCheck className="h-3.5 w-3.5" />
+          Production
+        </span>
+      </div>
+      <select
+        id={controlId}
+        aria-label={label}
+        value={modelId}
+        disabled
+        className="mt-2 h-10 w-full appearance-none border border-zinc-300 bg-zinc-50 px-3 pr-9 text-sm font-medium text-zinc-800 disabled:cursor-default disabled:opacity-100"
+      >
+        <option value={modelId}>{displayName}</option>
+      </select>
+      {detail && <span className="mt-1 block text-xs text-zinc-500">{detail}</span>}
+    </div>
+  );
+}
 export default function Home() {
   const [backendUrl, setBackendUrl] = useState(DEFAULT_BACKEND_URL);
   const [videoBackendUrl, setVideoBackendUrl] = useState(DEFAULT_VIDEO_BACKEND_URL);
@@ -762,15 +1001,25 @@ export default function Home() {
   const [mediaKind, setMediaKind] = useState<MediaKind>('photo');
   const [photoScope, setPhotoScope] = useState<PhotoScope>('whole-image');
   const [photoTarget, setPhotoTarget] = useState<PhotoTarget>('depth-relief');
+  const [videoTarget, setVideoTarget] = useState<VideoTarget>('turntable-mesh');
   const [videoScope, setVideoScope] = useState<VideoScope>('selected-frames');
   const [selectedFrameCount, setSelectedFrameCount] = useState(12);
   const [frameStep, setFrameStep] = useState(8);
-  const [depthModel, setDepthModel] = useState('depth-anything/Depth-Anything-V2-Large-hf');
-  const [depthScale, setDepthScale] = useState(42);
+  const [depthModel, setDepthModel] = useState(PRODUCTION_DEPTH_MODEL);
+  const [depthScale, setDepthScale] = useState(10);
   const [baseThickness, setBaseThickness] = useState(2.4);
+  const [sceneDepth, setSceneDepth] = useState(64);
+  const [sceneSubjectDepth, setSceneSubjectDepth] = useState(12);
+  const [sceneFacadeDetail, setSceneFacadeDetail] = useState(0.8);
+  const [sceneDepthCompression, setSceneDepthCompression] = useState(0.65);
   const [reliefPolarity, setReliefPolarity] = useState<ReliefPolarity>('raised-print');
   const [detailSmoothing, setDetailSmoothing] = useState(0.35);
-  const [featureBoost, setFeatureBoost] = useState(1.7);
+  const [featureBoost, setFeatureBoost] = useState(0.8);
+  const [printableFeatureDepth, setPrintableFeatureDepth] = useState(0.4);
+  const [featureBridgeDepth, setFeatureBridgeDepth] = useState(0.8);
+  const [backgroundDetailBoost, setBackgroundDetailBoost] = useState(2.4);
+  const [backgroundPhotoDetail, setBackgroundPhotoDetail] = useState(0.60);
+  const [trimTopBackground, setTrimTopBackground] = useState(true);
   const [reliefGamma, setReliefGamma] = useState(0.75);
   const [baseBorderPx, setBaseBorderPx] = useState(2);
   const [meshResolutionMultiplier, setMeshResolutionMultiplier] = useState(2);
@@ -778,6 +1027,8 @@ export default function Home() {
   const [printerMaxX, setPrinterMaxX] = useState(256);
   const [printerMaxY, setPrinterMaxY] = useState(256);
   const [printerMaxZ, setPrinterMaxZ] = useState(256);
+  const [printerNozzleDiameter, setPrinterNozzleDiameter] = useState(0.4);
+  const [printerNozzleInput, setPrinterNozzleInput] = useState('0.4');
   const [printerClearance, setPrinterClearance] = useState(0);
   const [printScalePercent, setPrintScalePercent] = useState(100);
   const [meshBackend, setMeshBackend] = useState(fallbackModelCatalog.defaults.image_to_mesh);
@@ -799,6 +1050,7 @@ export default function Home() {
   const [videoBackend, setVideoBackend] = useState(fallbackModelCatalog.defaults.video_reconstruction);
   const [stlPostprocessModel, setStlPostprocessModel] = useState(fallbackModelCatalog.defaults.stl_postprocess);
   const [processedSTL, setProcessedSTL] = useState('');
+  const [processedSceneGLB, setProcessedSceneGLB] = useState('');
   const [diagnosticsUrl, setDiagnosticsUrl] = useState('');
   const [stlDiagnostics, setStlDiagnostics] = useState<StlDiagnostics | null>(null);
   const [backendRuntime, setBackendRuntime] = useState<RuntimeInfo | null>(null);
@@ -822,14 +1074,37 @@ export default function Home() {
   const precomputeRequestIdRef = useRef(0);
   const selectionSourceGenerationRef = useRef(0);
 
-  const selectionModels = modelsFor(modelCatalog, 'selection');
-  const frameSelectionModels = modelsFor(modelCatalog, 'frame_selection');
-  const cameraPoseModels = modelsFor(modelCatalog, 'camera_pose');
-  const videoModels = modelsFor(modelCatalog, 'video_reconstruction');
-  const meshModels = modelsFor(modelCatalog, 'image_to_mesh');
-  const stlPostprocessModels = modelsFor(modelCatalog, 'stl_postprocess');
   const selectedMeshReadiness = providerReadiness[meshBackend];
   const currentPrinterPreset = printerPresets.find((preset) => preset.id === printerPreset) || printerPresets[0];
+  const parsedPrinterNozzleDiameter = Number(printerNozzleInput);
+  const effectivePrinterNozzleDiameter =
+    Number.isFinite(parsedPrinterNozzleDiameter)
+    && parsedPrinterNozzleDiameter >= 0.2
+    && parsedPrinterNozzleDiameter <= 2
+      ? parsedPrinterNozzleDiameter
+      : printerNozzleDiameter;
+  const minimumFeatureSize = Math.max(0.4, effectivePrinterNozzleDiameter * 2);
+
+  useEffect(() => {
+    setDepthModel(PRODUCTION_DEPTH_MODEL);
+    setMeshBackend(PRODUCTION_IMAGE_TO_MESH_MODEL);
+    setCameraPoseModel(LIVE_VIDEO_CAMERA_MODEL);
+    setVideoBackend(LIVE_VIDEO_RECONSTRUCTION_MODEL);
+    setStlPostprocessModel(FULL_MESH_RUNNER_STL_POSTPROCESS);
+
+    if (mediaKind === 'photo') {
+      setSelectionModel(PRODUCTION_PHOTO_SELECTION_MODEL);
+      return;
+    }
+    if (videoTarget === 'tracked-relief') {
+      setSelectionModel(PRODUCTION_TRACKED_VIDEO_SELECTION_MODEL);
+      setFrameSelectionModel(PRODUCTION_TRACKED_FRAME_MODEL);
+      return;
+    }
+    setSelectionModel(PRODUCTION_TURNTABLE_SELECTION_MODEL);
+    setFrameSelectionModel(PRODUCTION_TURNTABLE_FRAME_MODEL);
+  }, [mediaKind, videoTarget]);
+
   const printVolume = useMemo<PrintVolumePlan>(() => {
     const usableX = Math.max(1, Math.floor(printerMaxX - printerClearance * 2));
     const usableY = Math.max(1, Math.floor(printerMaxY - printerClearance * 2));
@@ -851,15 +1126,27 @@ export default function Home() {
       target_dimension_mm: targetDimension,
       print_scale_percent: printScalePercent,
       max_relief_height_mm: Math.max(1, usableZ - baseThickness),
+      nozzle_diameter_mm: effectivePrinterNozzleDiameter,
+      minimum_feature_mm: minimumFeatureSize,
     };
-  }, [printerPreset, currentPrinterPreset.label, printerMaxX, printerMaxY, printerMaxZ, printerClearance, printScalePercent, baseThickness]);
+  }, [printerPreset, currentPrinterPreset.label, printerMaxX, printerMaxY, printerMaxZ, printerClearance, printScalePercent, baseThickness, effectivePrinterNozzleDiameter, minimumFeatureSize]);
   const effectiveReliefHeight = Math.min(depthScale, printVolume.max_relief_height_mm);
-  const reliefSliderMax = Math.max(12, Math.min(96, Math.floor(printVolume.max_relief_height_mm)));
+  const reliefSliderMax = Math.max(12, Math.min(40, Math.floor(printVolume.max_relief_height_mm)));
   const reliefTargetDimension = Math.min(
     reliefDetailSamples.max,
     Math.max(reliefDetailSamples.min, Math.round(printVolume.max_target_dimension_mm * meshResolutionMultiplier)),
   );
-  const reliefSamplePitch = printVolume.target_dimension_mm / Math.max(1, reliefTargetDimension - 1);
+  const reliefPrintableDimension = Math.min(
+    reliefTargetDimension,
+    Math.max(2, Math.floor(printVolume.target_dimension_mm / (minimumFeatureSize / 2)) + 1),
+  );
+  const reliefSamplePitch = printVolume.target_dimension_mm / Math.max(1, reliefPrintableDimension - 1);
+  const sceneDepthSliderMax = Math.max(24, Math.min(160, Math.floor(printVolume.usable_y_mm)));
+  const effectiveSceneDepth = Math.min(sceneDepth, sceneDepthSliderMax);
+  const sceneMaxSamples = Math.min(
+    320,
+    Math.max(96, Math.round(printVolume.target_dimension_mm / (minimumFeatureSize / 2)) + 1),
+  );
   const selectedDepthModel = depthModels.find((model) => model.id === depthModel) || depthModels[0];
   const reliefInvert = reliefPolarity === 'raised-print' ? selectedDepthModel.farIsHigh : !selectedDepthModel.farIsHigh;
 
@@ -869,11 +1156,24 @@ export default function Home() {
     setPrinterMaxX(preset.maxX);
     setPrinterMaxY(preset.maxY);
     setPrinterMaxZ(preset.maxZ);
+    setPrinterNozzleDiameter(preset.nozzleDiameter);
+    setPrinterNozzleInput(String(preset.nozzleDiameter));
+  };
+
+  const commitPrinterNozzleDiameter = () => {
+    const parsed = Number(printerNozzleInput);
+    const nozzle = Number.isFinite(parsed)
+      ? Math.min(2, Math.max(0.2, parsed))
+      : printerNozzleDiameter;
+    setPrinterNozzleDiameter(nozzle);
+    setPrinterNozzleInput(String(nozzle));
+    setPrinterPreset('custom');
   };
 
   useEffect(() => {
-    setBackendUrl(CONFIGURED_BACKEND_URL);
-    setVideoBackendUrl(CONFIGURED_VIDEO_BACKEND_URL);
+    const query = new URLSearchParams(window.location.search);
+    setBackendUrl(query.get('backendUrl') || CONFIGURED_BACKEND_URL);
+    setVideoBackendUrl(query.get('videoBackendUrl') || CONFIGURED_VIDEO_BACKEND_URL);
     setBackendConfigReady(true);
   }, []);
 
@@ -964,7 +1264,7 @@ export default function Home() {
         const response = await fetch(`${videoBackendUrl}/models`, { signal: controller.signal });
         window.clearTimeout(timeout);
         if (!response.ok) throw new Error(`Model planner ${response.status}`);
-        const data = (await response.json()) as Partial<ModelCatalog>;
+        const data: unknown = await response.json();
         if (!cancelled) {
           setModelCatalog(normalizeCatalog(data));
           setCatalogState('ready');
@@ -994,8 +1294,8 @@ export default function Home() {
         const response = await fetch(`${videoBackendUrl}/providers/image-to-mesh`, { signal: controller.signal });
         window.clearTimeout(timeout);
         if (!response.ok) throw new Error(`Provider preflight ${response.status}`);
-        const data = (await response.json()) as ProviderPreflightResponse;
-        const nextReadiness = Object.fromEntries((data.providers || []).map((provider) => [provider.id, provider]));
+        const data: unknown = await response.json();
+        const nextReadiness = normalizeProviderReadiness(data);
         if (!cancelled) {
           setProviderReadiness(nextReadiness);
           setProviderReadinessState('ready');
@@ -1025,6 +1325,7 @@ export default function Home() {
     setPreviewUrl(nextUrl);
     setMediaKind(mediaKindFromFile(file));
     setProcessedSTL('');
+    setProcessedSceneGLB('');
     setDiagnosticsUrl('');
     setStlDiagnostics(null);
     setStageTimings(null);
@@ -1122,6 +1423,7 @@ export default function Home() {
                   ? {
                       kept_object_count: selectedMasks.length,
                       edited_image_ready: Boolean(selectionAppliedFile),
+                      preserves_original_image: photoTarget === 'scene-diorama',
                       status: selectionState,
                       hover_status: hoverSelectionState,
                       model_status: selectionResult?.model_status || null,
@@ -1139,8 +1441,12 @@ export default function Home() {
                 target_dimension_mm: printVolume.target_dimension_mm,
                 max_xy_size_mm: printVolume.target_dimension_mm,
                 mesh_resolution_dimension: reliefTargetDimension,
+                printable_mesh_dimension: reliefPrintableDimension,
                 resolution_multiplier: meshResolutionMultiplier,
                 sample_pitch_mm: Number(reliefSamplePitch.toFixed(3)),
+                nozzle_diameter_mm: effectivePrinterNozzleDiameter,
+                minimum_feature_mm: minimumFeatureSize,
+                max_relief_slope: 2.0,
                 detail_basis_mm: printVolume.max_target_dimension_mm,
                 polarity: reliefPolarity,
                 invert_depth: reliefInvert,
@@ -1166,8 +1472,22 @@ export default function Home() {
                       output: 'watertight STL',
                     }
                   : null,
+              scene_reconstruction:
+                photoTarget === 'scene-diorama'
+                  ? {
+                      mode: 'single-photo-layered-diorama',
+                      selected_layer_count: photoScope === 'object-selection' ? selectedMasks.length : 0,
+                      scene_depth_mm: effectiveSceneDepth,
+                      subject_depth_mm: sceneSubjectDepth,
+                      facade_detail_mm: sceneFacadeDetail,
+                      depth_compression: sceneDepthCompression,
+                      max_samples: sceneMaxSamples,
+                      outputs: ['camera-free GLB', 'connected printable STL'],
+                    }
+                  : null,
             }
           : {
+              target: videoTarget,
               scope: videoScope,
               selected_frames: videoScope === 'selected-frames' ? selectedFrameCount : null,
               frame_step: videoScope === 'everything' ? frameStep : null,
@@ -1193,6 +1513,9 @@ export default function Home() {
       depthModel,
       depthScale,
       baseThickness,
+      sceneSubjectDepth,
+      sceneFacadeDetail,
+      sceneDepthCompression,
       inpaintBackend,
       meshBackend,
       selectionModel,
@@ -1203,6 +1526,7 @@ export default function Home() {
       selectionResult,
       frameSelectionModel,
       cameraPoseModel,
+      videoTarget,
       videoScope,
       selectedFrameCount,
       frameStep,
@@ -1212,8 +1536,13 @@ export default function Home() {
       printVolume,
       effectiveReliefHeight,
       reliefTargetDimension,
+      reliefPrintableDimension,
       meshResolutionMultiplier,
       reliefSamplePitch,
+      effectivePrinterNozzleDiameter,
+      minimumFeatureSize,
+      effectiveSceneDepth,
+      sceneMaxSamples,
       reliefPolarity,
       reliefInvert,
       detailSmoothing,
@@ -1236,34 +1565,57 @@ export default function Home() {
   }, [jobPlan]);
 
   const activeModelStack = useMemo(() => {
-    const stack: Array<{ group: ModelGroup; label: string; model: ModelOption }> = [];
+    const stack: Array<{ label: string; model: ModelOption }> = [];
+    const depthOption: ModelOption = {
+      id: selectedDepthModel.id,
+      label: selectedDepthModel.label,
+      model: selectedDepthModel.id,
+      role: selectedDepthModel.notes,
+      availability: 'configured',
+    };
+    const prefillOption: ModelOption = {
+      id: 'biharmonic-prefill',
+      label: inpaintBackend,
+      model: 'bounded biharmonic interpolation',
+      role: 'Known-mask completion selected by the promoted TripoSG benchmark lane.',
+      availability: 'configured',
+    };
+
     if (mediaKind === 'video') {
       stack.push(
-        { group: 'frame_selection', label: 'Frames', model: modelFor(modelCatalog, 'frame_selection', frameSelectionModel) },
-        { group: 'selection', label: 'Selection', model: modelFor(modelCatalog, 'selection', selectionModel) },
-        { group: 'camera_pose', label: 'Camera', model: modelFor(modelCatalog, 'camera_pose', cameraPoseModel) },
-        { group: 'video_reconstruction', label: 'Reconstruct', model: modelFor(modelCatalog, 'video_reconstruction', videoBackend) },
-        { group: 'stl_postprocess', label: 'Repair', model: modelFor(modelCatalog, 'stl_postprocess', stlPostprocessModel) },
+        { label: 'Frames', model: modelFor(modelCatalog, 'frame_selection', frameSelectionModel) },
+        { label: 'Selection', model: modelFor(modelCatalog, 'selection', selectionModel) },
       );
+      if (videoTarget === 'tracked-relief') {
+        stack.push({ label: 'Depth', model: depthOption });
+      } else {
+        stack.push(
+          { label: 'Camera', model: modelFor(modelCatalog, 'camera_pose', cameraPoseModel) },
+          { label: 'Reconstruct', model: modelFor(modelCatalog, 'video_reconstruction', videoBackend) },
+        );
+      }
+      stack.push({ label: 'Repair', model: modelFor(modelCatalog, 'stl_postprocess', stlPostprocessModel) });
       return stack;
     }
 
     if (photoScope === 'object-selection') {
-      stack.push({ group: 'selection', label: 'Selection', model: modelFor(modelCatalog, 'selection', selectionModel) });
+      stack.push({ label: 'Selection', model: modelFor(modelCatalog, 'selection', selectionModel) });
     }
     if (photoTarget === 'full-mesh') {
       stack.push(
-        { group: 'image_to_mesh', label: 'Mesh', model: modelFor(modelCatalog, 'image_to_mesh', meshBackend) },
-        { group: 'stl_postprocess', label: 'Repair', model: modelFor(modelCatalog, 'stl_postprocess', stlPostprocessModel) },
+        { label: 'Prefill', model: prefillOption },
+        { label: 'Mesh', model: modelFor(modelCatalog, 'image_to_mesh', meshBackend) },
       );
     } else {
-      stack.push({ group: 'stl_postprocess', label: 'Repair', model: modelFor(modelCatalog, 'stl_postprocess', stlPostprocessModel) });
+      stack.push({ label: 'Depth', model: depthOption });
     }
+    stack.push({ label: 'Repair', model: modelFor(modelCatalog, 'stl_postprocess', stlPostprocessModel) });
     return stack;
   }, [
     mediaKind,
     photoScope,
     photoTarget,
+    videoTarget,
     modelCatalog,
     frameSelectionModel,
     selectionModel,
@@ -1271,11 +1623,12 @@ export default function Home() {
     videoBackend,
     meshBackend,
     stlPostprocessModel,
+    selectedDepthModel,
+    inpaintBackend,
   ]);
 
   const backendAssetUrl = (path?: string) => {
-    if (!path) return '';
-    return path.startsWith('http') ? path : `${backendUrl}${path}`;
+    return resolveServiceUrl(backendUrl, path);
   };
 
   const selectionPointFromEvent = (event: React.MouseEvent<HTMLImageElement> | React.PointerEvent<HTMLImageElement>) => {
@@ -1353,7 +1706,7 @@ export default function Home() {
           throw new Error(message);
         }
 
-        const data = (await response.json()) as SelectionPrecomputeResult;
+        const data = normalizeSelectionPrecomputeResult(await response.json());
         if (cancelled || requestId !== precomputeRequestIdRef.current) return;
         setSelectionPrecompute(data);
         setSelectionPrecomputeState(data.precompute_id ? 'ready' : 'unsupported');
@@ -1461,7 +1814,7 @@ export default function Home() {
         || requestId !== hoverRequestIdRef.current
       ) return null;
       if (!response.ok) throw new Error(`Selection preview ${response.status}`);
-      const data = (await response.json()) as SelectionResult;
+      const data = normalizeSelectionResult(await response.json());
       if (
         sourceGeneration !== selectionSourceGenerationRef.current
         || requestId !== hoverRequestIdRef.current
@@ -1565,6 +1918,7 @@ export default function Home() {
         'mask_paths_json',
         JSON.stringify(selectedMasks.map((mask) => mask.maskPath)),
       );
+      formData.append('selection_infill_mode', 'clean-context');
 
       const response = await fetch(`${backendUrl}/selection/compose`, {
         method: 'POST',
@@ -1582,7 +1936,7 @@ export default function Home() {
         throw new Error(message);
       }
 
-      const data = (await response.json()) as SelectionResult;
+      const data = normalizeSelectionResult(await response.json());
       if (sourceGeneration !== selectionSourceGenerationRef.current) return null;
       if (!data.job_id || !data.mask || !data.selected_image) {
         throw new Error('Selection response did not include a complete, reusable compose job.');
@@ -1640,6 +1994,7 @@ export default function Home() {
   const resetFile = () => {
     replaceSourceFile(null);
     setProcessedSTL('');
+    setProcessedSceneGLB('');
     setDiagnosticsUrl('');
     setStlDiagnostics(null);
     setStageTimings(null);
@@ -1714,6 +2069,7 @@ export default function Home() {
 
     setError('');
     setProcessedSTL('');
+    setProcessedSceneGLB('');
     setDiagnosticsUrl('');
     setStlDiagnostics(null);
     setStageTimings(null);
@@ -1745,10 +2101,46 @@ export default function Home() {
       return;
     }
 
+    if (mediaKind === 'video') {
+      const unsupported =
+        videoScope !== 'selected-frames'
+          ? 'Whole-video processing is not attached yet. Use Selection for the live video runner.'
+          : !isLiveVideoFrameSelectionModel(frameSelectionModel)
+            ? `${modelLabel(modelCatalog, 'frame_selection', frameSelectionModel)} is planner-only. Select Uniform frame sampler or Sharpness/motion selector.`
+            : videoTarget === 'tracked-relief' && !selectionModel.startsWith('sam2.1-')
+              ? 'Tracked relief requires SAM 2.1 Tiny or Base+ video segmentation.'
+              : !isLiveVideoSegmentationModel(selectionModel)
+              ? `${modelLabel(modelCatalog, 'selection', selectionModel)} is not attached to the live video runner.`
+              : videoTarget === 'turntable-mesh' && cameraPoseModel !== LIVE_VIDEO_CAMERA_MODEL
+                ? `${modelLabel(modelCatalog, 'camera_pose', cameraPoseModel)} is planner-only. Select Turntable orbit for a live run.`
+                : videoTarget === 'turntable-mesh' && videoBackend !== LIVE_VIDEO_RECONSTRUCTION_MODEL
+                  ? `${modelLabel(modelCatalog, 'video_reconstruction', videoBackend)} is planner-only. Select Multiview visual hull for a live run.`
+                  : videoTarget === 'turntable-mesh' && stlPostprocessModel !== FULL_MESH_RUNNER_STL_POSTPROCESS
+                    ? `${modelLabel(modelCatalog, 'stl_postprocess', stlPostprocessModel)} is planner-only. Select Trimesh repair for a live run.`
+                    : '';
+      if (unsupported) {
+        setRunState('blocked');
+        setStatusText('Video adapter not attached');
+        setError(unsupported);
+        return;
+      }
+    }
+
     let pipelineInputFile = file;
     let pipelinePreviewUrl = previewUrl;
     let selectionJobId = '';
-    if (mediaKind === 'photo' && photoScope === 'object-selection') {
+    if (
+      mediaKind === 'photo'
+      && photoTarget === 'scene-diorama'
+      && photoScope === 'object-selection'
+      && selectedMasks.length === 0
+    ) {
+      setRunState('blocked');
+      setStatusText('Scene selection required');
+      setError('Select the people, building, and any props that should appear in the reconstructed scene.');
+      return;
+    }
+    if (mediaKind === 'photo' && photoScope === 'object-selection' && photoTarget !== 'scene-diorama') {
       const selectedInput = await applyObjectSelection();
       if (runSourceGeneration !== selectionSourceGenerationRef.current) return;
       if (!selectedInput) {
@@ -1758,6 +2150,87 @@ export default function Home() {
       pipelineInputFile = selectedInput.file;
       pipelinePreviewUrl = selectedInput.previewUrl;
       selectionJobId = selectedInput.selectionJobId;
+    }
+
+    if (mediaKind === 'photo' && photoTarget === 'scene-diorama') {
+      setRunState('running');
+      setStatusText('Reconstructing scene diorama');
+      try {
+        const healthController = new AbortController();
+        const healthTimeout = window.setTimeout(() => healthController.abort(), 2000);
+        const health = await fetch(`${backendUrl}/health`, { signal: healthController.signal });
+        window.clearTimeout(healthTimeout);
+        if (!health.ok) throw new Error(`Backend health ${health.status}`);
+
+        const sceneMasks = photoScope === 'object-selection' ? selectedMasks : [];
+        const formData = new FormData();
+        formData.append('file', file, file.name || 'scene.jpg');
+        formData.append('mask_paths_json', JSON.stringify(sceneMasks.map((mask) => mask.maskPath)));
+        formData.append(
+          'selection_labels_json',
+          JSON.stringify(sceneMasks.map((mask) => mask.selection_labels || [])),
+        );
+        formData.append('depth_provider', 'transformers');
+        formData.append('depth_model', depthModel);
+        formData.append('device', 'auto');
+        formData.append('max_size_mm', String(printVolume.target_dimension_mm));
+        formData.append('scene_depth_mm', String(effectiveSceneDepth));
+        formData.append('base_thickness_mm', String(baseThickness));
+        formData.append('facade_detail_mm', String(sceneFacadeDetail));
+        formData.append('subject_depth_mm', String(sceneSubjectDepth));
+        formData.append('depth_compression', String(sceneDepthCompression));
+        formData.append('nozzle_diameter_mm', String(effectivePrinterNozzleDiameter));
+        formData.append('minimum_feature_mm', String(minimumFeatureSize));
+        formData.append('max_samples', String(sceneMaxSamples));
+
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), PROCESS_IMAGE_TIMEOUT_MS);
+        const response = await fetch(`${backendUrl}/process_scene_diorama`, {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        });
+        window.clearTimeout(timeout);
+        if (!response.ok) {
+          let message = `Scene reconstruction ${response.status}`;
+          try {
+            const errorPayload: unknown = await response.json();
+            if (isRecord(errorPayload) && typeof errorPayload.detail === 'string') message = errorPayload.detail;
+          } catch {
+            // Keep the status-based message when the backend does not return JSON.
+          }
+          throw new Error(message);
+        }
+
+        const rawData: unknown = await response.json();
+        if (!isRecord(rawData)) throw new Error('Scene reconstruction returned an invalid response.');
+        const stlUrl = resolveServiceUrl(backendUrl, rawData.stl_url);
+        const sceneUrl = resolveServiceUrl(backendUrl, rawData.scene_url);
+        if (!stlUrl || !sceneUrl) throw new Error('Scene reconstruction did not return both STL and GLB artifacts.');
+        const diagnostics = isRecord(rawData.stl_diagnostics) ? (rawData.stl_diagnostics as StlDiagnostics) : null;
+        setProcessedSTL(stlUrl);
+        setProcessedSceneGLB(sceneUrl);
+        setDiagnosticsUrl(resolveServiceUrl(backendUrl, rawData.diagnostics_url));
+        setStlDiagnostics(diagnostics);
+        if (isRecord(rawData.runtime)) {
+          setBackendRuntime(rawData.runtime as RuntimeInfo);
+          setBackendRuntimeState('ready');
+        }
+        setStageTimings(isRecord(rawData.timings) ? (rawData.timings as StageTimings) : null);
+        setDepthRunMetadata(isRecord(rawData.depth_metadata) ? (rawData.depth_metadata as DepthRunMetadata) : null);
+        setCompletedPreview(resolveServiceUrl(backendUrl, rawData.preview_url) || previewUrl);
+        const passesHardChecks = diagnostics?.stl_passes_hard_checks !== false;
+        setRunState(passesHardChecks ? 'ready' : 'blocked');
+        setStatusText(passesHardChecks ? 'Scene GLB and STL ready' : 'Scene emitted; STL checks failed');
+        if (!passesHardChecks) {
+          setError(`Scene STL failed ${failedChecksLabel(diagnostics?.stl_failed_checks)}.`);
+        }
+      } catch (runError) {
+        setRunState('error');
+        setStatusText('Scene reconstruction failed');
+        setError(runError instanceof Error ? runError.message : String(runError));
+      }
+      return;
     }
 
     if (mediaKind === 'photo' && photoTarget === 'depth-relief') {
@@ -1772,7 +2245,11 @@ export default function Home() {
 
         const formData = new FormData();
         formData.append('file', pipelineInputFile, pipelineInputFile.name || file.name || 'photo.jpg');
-        if (selectionJobId) formData.append('selection_job_id', selectionJobId);
+        if (selectionJobId) {
+          formData.append('selection_job_id', selectionJobId);
+          formData.append('selection_mode', 'context');
+          formData.append('selection_subject_lock', 'true');
+        }
         formData.append('depth_provider', 'transformers');
         formData.append('depth_model', depthModel);
         formData.append('device', 'auto');
@@ -1783,6 +2260,11 @@ export default function Home() {
         formData.append('invert', String(reliefInvert));
         formData.append('sigma', String(detailSmoothing));
         formData.append('detail_boost', String(featureBoost));
+        formData.append('printable_feature_depth_mm', String(printableFeatureDepth));
+        formData.append('feature_bridge_depth_mm', String(featureBridgeDepth));
+        formData.append('background_detail_boost', String(backgroundDetailBoost));
+        formData.append('background_photo_detail_mm', String(backgroundPhotoDetail));
+        formData.append('trim_top_background', String(trimTopBackground));
         formData.append('relief_gamma', String(reliefGamma));
         formData.append('base_border_px', String(baseBorderPx));
         formData.append('detail_radius', '2.0');
@@ -1795,7 +2277,14 @@ export default function Home() {
         formData.append('printer_max_y_mm', String(printVolume.max_y_mm));
         formData.append('printer_max_z_mm', String(printVolume.max_z_mm));
         formData.append('printer_clearance_mm', String(printVolume.clearance_mm));
+        formData.append('nozzle_diameter_mm', String(effectivePrinterNozzleDiameter));
+        formData.append('minimum_feature_mm', String(minimumFeatureSize));
+        formData.append('max_relief_slope', '2.0');
         formData.append('print_scale_percent', String(printVolume.print_scale_percent));
+        formData.append('face_refinement_mode', 'auto');
+        formData.append('face_detail_strength', '1.0');
+        formData.append('face_feather_ratio', '0.20');
+        formData.append('face_max_correction_ratio', '0.08');
 
         const controller = new AbortController();
         const timeout = window.setTimeout(() => controller.abort(), PROCESS_IMAGE_TIMEOUT_MS);
@@ -1807,18 +2296,23 @@ export default function Home() {
         window.clearTimeout(timeout);
         if (!response.ok) throw new Error(`Process image ${response.status}`);
 
-        const data = await response.json();
-        const stlUrl = data.stl_url ? `${backendUrl}${data.stl_url}` : `${backendUrl}/stl_model/${data.stl_model}`;
+        const rawData: unknown = await response.json();
+        if (!isRecord(rawData)) throw new Error('Process image returned an invalid response.');
+        const stlModel = optionalString(rawData.stl_model);
+        const stlUrl =
+          resolveServiceUrl(backendUrl, rawData.stl_url) ||
+          (stlModel ? resolveServiceUrl(backendUrl, `/stl_model/${encodeURIComponent(stlModel)}`) : '');
+        if (!stlUrl) throw new Error('Process image did not return an STL artifact.');
         setProcessedSTL(stlUrl);
-        setDiagnosticsUrl(data.diagnostics_url ? `${backendUrl}${data.diagnostics_url}` : '');
-        setStlDiagnostics(data.stl_diagnostics || null);
-        if (data.runtime) {
-          setBackendRuntime(data.runtime);
+        setDiagnosticsUrl(resolveServiceUrl(backendUrl, rawData.diagnostics_url));
+        setStlDiagnostics(isRecord(rawData.stl_diagnostics) ? (rawData.stl_diagnostics as StlDiagnostics) : null);
+        if (isRecord(rawData.runtime)) {
+          setBackendRuntime(rawData.runtime as RuntimeInfo);
           setBackendRuntimeState('ready');
         }
-        setStageTimings(data.timings || null);
-        setDepthRunMetadata(data.depth_metadata || null);
-        setCompletedPreview(data.completed_image_url ? `${backendUrl}${data.completed_image_url}` : pipelinePreviewUrl);
+        setStageTimings(isRecord(rawData.timings) ? (rawData.timings as StageTimings) : null);
+        setDepthRunMetadata(isRecord(rawData.depth_metadata) ? (rawData.depth_metadata as DepthRunMetadata) : null);
+        setCompletedPreview(resolveServiceUrl(backendUrl, rawData.completed_image_url) || pipelinePreviewUrl);
         setRunState('ready');
         setStatusText('STL ready');
       } catch (runError) {
@@ -1830,7 +2324,15 @@ export default function Home() {
     }
 
     setRunState('running');
-    setStatusText(mediaKind === 'photo' && photoTarget === 'full-mesh' ? 'Running image-to-mesh' : 'Planning model stack');
+    setStatusText(
+      mediaKind === 'video'
+        ? videoTarget === 'tracked-relief'
+          ? 'Tracking subject for relief STL'
+          : 'Running turntable video-to-STL'
+        : mediaKind === 'photo' && photoTarget === 'full-mesh'
+          ? 'Running image-to-mesh'
+          : 'Planning model stack',
+    );
     try {
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 5000);
@@ -1844,6 +2346,138 @@ export default function Home() {
       if (!response.ok) throw new Error(`Planner ${response.status}`);
       const data = (await response.json()) as PlannerResponse;
       setPlannerResponse(data);
+
+      if (mediaKind === 'video') {
+        if (videoTarget === 'tracked-relief') {
+          const reliefFormData = new FormData();
+          reliefFormData.append('file', pipelineInputFile, pipelineInputFile.name || file.name || 'video.mp4');
+          reliefFormData.append('frame_selection', frameSelectionModel);
+          reliefFormData.append('segmentation_provider', selectionModel);
+          reliefFormData.append('segmentation_device', 'auto');
+          reliefFormData.append('selected_frame_count', String(Math.max(3, Math.min(64, Math.round(selectedFrameCount) || 12))));
+          reliefFormData.append('object_point_x', '0.5');
+          reliefFormData.append('object_point_y', '0.4');
+          reliefFormData.append('strict_segmentation', 'true');
+          reliefFormData.append('frame_max_side', '960');
+          reliefFormData.append('depth_model', depthModel);
+          reliefFormData.append('depth_device', 'auto');
+          reliefFormData.append('target_dimension', '360');
+          reliefFormData.append('max_xy_size_mm', String(printVolume.target_dimension_mm));
+          reliefFormData.append('minimum_feature_mm', String(minimumFeatureSize));
+
+          const reliefController = new AbortController();
+          const reliefTimeout = window.setTimeout(() => reliefController.abort(), VIDEO_TO_MESH_TIMEOUT_MS);
+          const reliefResponse = await fetch(`${videoBackendUrl}/run/video-to-relief`, {
+            method: 'POST',
+            body: reliefFormData,
+            signal: reliefController.signal,
+          });
+          window.clearTimeout(reliefTimeout);
+          if (!reliefResponse.ok) {
+            let message = `Tracked video relief ${reliefResponse.status}`;
+            try {
+              const errorPayload: unknown = await reliefResponse.json();
+              if (isRecord(errorPayload)) {
+                const detail = errorPayload.detail;
+                if (typeof detail === 'string') message = detail;
+                else if (isRecord(detail)) message = optionalString(detail.message) || message;
+              }
+            } catch {
+              // Keep the status-based message when the backend does not return JSON.
+            }
+            throw new Error(message);
+          }
+          const reliefData: unknown = await reliefResponse.json();
+          if (!isRecord(reliefData)) throw new Error('Tracked video relief returned an invalid response.');
+          const reliefStlUrl = resolveServiceUrl(videoBackendUrl, reliefData.stl_url);
+          if (!reliefStlUrl) throw new Error('Tracked video relief did not return an STL artifact.');
+          setProcessedSTL(reliefStlUrl);
+          setDiagnosticsUrl(resolveServiceUrl(videoBackendUrl, reliefData.diagnostics_url));
+          setStlDiagnostics(isRecord(reliefData.stl_diagnostics) ? (reliefData.stl_diagnostics as StlDiagnostics) : null);
+          setStageTimings(isRecord(reliefData.timings) ? (reliefData.timings as StageTimings) : null);
+          setCompletedPreview(
+            resolveServiceUrl(videoBackendUrl, reliefData.preview_url)
+              || resolveServiceUrl(videoBackendUrl, reliefData.selected_frame_url)
+              || pipelinePreviewUrl,
+          );
+          const passesHardChecks = Boolean(reliefData.stl_passes_hard_checks);
+          setStatusText(passesHardChecks ? 'Printable tracked relief ready' : 'Tracked relief emitted; checks failed');
+          setRunState(passesHardChecks ? 'ready' : 'blocked');
+          if (!passesHardChecks) {
+            setError(`Tracked relief failed ${failedChecksLabel(reliefData.stl_failed_checks)}.`);
+          }
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', pipelineInputFile, pipelineInputFile.name || file.name || 'video.mp4');
+        formData.append('provider', videoBackend);
+        formData.append('frame_selection', frameSelectionModel);
+        formData.append('segmentation_provider', selectionModel);
+        formData.append('segmentation_device', 'auto');
+        formData.append('selected_frame_count', String(Math.max(3, Math.min(64, Math.round(selectedFrameCount) || 12))));
+        formData.append('object_point_x', '0.5');
+        formData.append('object_point_y', '0.5');
+        formData.append('strict_segmentation', 'true');
+        formData.append('rotation_degrees', '360');
+        formData.append('rotation_direction', 'counter-clockwise');
+        formData.append('provider_device', 'cpu');
+        formData.append('mesh_repair', 'printable');
+        formData.append('mesh_target_max_dimension', String(printVolume.target_dimension_mm));
+        formData.append('mesh_min_bbox_dimension', '12');
+        formData.append('mesh_target_faces', '40000');
+        formData.append('frame_max_side', '960');
+        formData.append('visual_hull_resolution', '32');
+        formData.append('visual_hull_grid_extent', '1.9');
+        formData.append('visual_hull_ortho_scale', '2.0');
+        formData.append('visual_hull_mask_dilate', '1');
+
+        const runnerController = new AbortController();
+        const runnerTimeout = window.setTimeout(() => runnerController.abort(), VIDEO_TO_MESH_TIMEOUT_MS);
+        const runnerResponse = await fetch(`${videoBackendUrl}/run/video-to-mesh`, {
+          method: 'POST',
+          body: formData,
+          signal: runnerController.signal,
+        });
+        window.clearTimeout(runnerTimeout);
+        if (!runnerResponse.ok) {
+          let message = `Video-to-mesh runner ${runnerResponse.status}`;
+          try {
+            const errorPayload: unknown = await runnerResponse.json();
+            if (isRecord(errorPayload)) {
+              const detail = errorPayload.detail;
+              if (typeof detail === 'string') message = detail;
+              else if (isRecord(detail)) {
+                const detailMessage = optionalString(detail.message);
+                if (detailMessage) message = detailMessage;
+              }
+            }
+          } catch {
+            // Keep the status-based message when the backend does not return JSON.
+          }
+          throw new Error(message);
+        }
+        const runnerData: unknown = await runnerResponse.json();
+        if (!isRecord(runnerData)) throw new Error('Video-to-mesh runner returned an invalid response.');
+        const runnerStlUrl = resolveServiceUrl(videoBackendUrl, runnerData.stl_url);
+        if (!runnerStlUrl) throw new Error('Video-to-mesh runner did not return an STL artifact.');
+        const selectedFrameUrls = Array.isArray(runnerData.selected_frame_urls)
+          ? runnerData.selected_frame_urls.map((value) => resolveServiceUrl(videoBackendUrl, value)).filter(Boolean)
+          : [];
+        setProcessedSTL(runnerStlUrl);
+        setDiagnosticsUrl(resolveServiceUrl(videoBackendUrl, runnerData.diagnostics_url));
+        setStlDiagnostics(isRecord(runnerData.stl_diagnostics) ? (runnerData.stl_diagnostics as StlDiagnostics) : null);
+        setStageTimings(isRecord(runnerData.timings) ? (runnerData.timings as StageTimings) : null);
+        setCompletedPreview(selectedFrameUrls[0] || pipelinePreviewUrl);
+        const maskQualityPassed = !isRecord(runnerData.mask_quality) || runnerData.mask_quality.passes_hard_checks !== false;
+        const passesHardChecks = Boolean(runnerData.stl_passes_hard_checks) && maskQualityPassed;
+        setStatusText(passesHardChecks ? 'Printable video STL ready' : 'Video STL emitted; checks failed');
+        setRunState(passesHardChecks ? 'ready' : 'blocked');
+        if (!passesHardChecks) {
+          setError(`Video STL failed ${failedChecksLabel(runnerData.stl_failed_checks)}.`);
+        }
+        return;
+      }
 
       if (mediaKind === 'photo' && photoTarget === 'full-mesh') {
         const formData = new FormData();
@@ -1869,11 +2503,14 @@ export default function Home() {
         });
         window.clearTimeout(runnerTimeout);
         if (!runnerResponse.ok) throw new Error(`Image-to-mesh runner ${runnerResponse.status}`);
-        const runnerData = await runnerResponse.json();
-        setProcessedSTL(runnerData.stl_url ? `${videoBackendUrl}${runnerData.stl_url}` : '');
-        setDiagnosticsUrl(runnerData.diagnostics_url ? `${videoBackendUrl}${runnerData.diagnostics_url}` : '');
-        setStlDiagnostics(runnerData.stl_diagnostics || null);
-        setStageTimings(runnerData.timings || null);
+        const runnerData: unknown = await runnerResponse.json();
+        if (!isRecord(runnerData)) throw new Error('Image-to-mesh runner returned an invalid response.');
+        const runnerStlUrl = resolveServiceUrl(videoBackendUrl, runnerData.stl_url);
+        if (!runnerStlUrl) throw new Error('Image-to-mesh runner did not return an STL artifact.');
+        setProcessedSTL(runnerStlUrl);
+        setDiagnosticsUrl(resolveServiceUrl(videoBackendUrl, runnerData.diagnostics_url));
+        setStlDiagnostics(isRecord(runnerData.stl_diagnostics) ? (runnerData.stl_diagnostics as StlDiagnostics) : null);
+        setStageTimings(isRecord(runnerData.timings) ? (runnerData.timings as StageTimings) : null);
         setCompletedPreview(pipelinePreviewUrl);
         const passesHardChecks = Boolean(runnerData.stl_passes_hard_checks);
         setStatusText(passesHardChecks ? 'Printable STL ready' : 'STL emitted; checks failed');
@@ -1894,7 +2531,7 @@ export default function Home() {
         execution_mode: 'planner-offline',
         metrics: modelCatalog.metrics,
       });
-      if (mediaKind === 'photo' && photoTarget === 'full-mesh') {
+      if ((mediaKind === 'photo' && photoTarget === 'full-mesh') || mediaKind === 'video') {
         setRunState('error');
         setStatusText('Run failed');
         setError(planError instanceof Error ? planError.message : String(planError));
@@ -1917,7 +2554,7 @@ export default function Home() {
           ? 'CUDA'
           : 'CPU';
   const timingEntries = stageTimings
-    ? ['completion_seconds', 'depth_seconds', 'provider_seconds', 'stl_seconds', 'diagnostics_seconds', 'total_seconds']
+    ? ['preparation_seconds', 'completion_seconds', 'depth_seconds', 'provider_seconds', 'stl_seconds', 'diagnostics_seconds', 'total_seconds']
         .filter((key) => typeof stageTimings[key] === 'number')
         .map((key) => [key, stageTimings[key]] as const)
     : [];
@@ -1954,14 +2591,19 @@ export default function Home() {
       : `${selectedMasks.length} object${selectedMasks.length === 1 ? '' : 's'}`;
 
   return (
-    <main className="min-h-screen bg-zinc-50 text-zinc-950">
-      <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 px-4 py-4 lg:h-screen lg:flex-row lg:overflow-hidden">
-        <section className="flex min-h-0 flex-1 flex-col gap-4 lg:max-w-[430px]">
-          <div className="border border-zinc-200 bg-white p-4 shadow-sm">
+    <main className="workspace-canvas min-h-dvh overflow-x-hidden text-zinc-950">
+      <WorkspaceShell>
+        <WorkspaceColumn label="Input and run plan" name="input">
+          <div className="workspace-panel p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <h1 className="text-xl font-semibold">Photo/Video to STL</h1>
-                <p className="text-sm text-zinc-500">STL-first reconstruction workspace</p>
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-blue-200 bg-blue-50 text-blue-700">
+                  <Cuboid className="h-5 w-5" strokeWidth={1.8} />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="truncate text-lg font-semibold">Photo/Video to STL</h1>
+                  <p className="truncate text-sm text-zinc-500">STL-first reconstruction workspace</p>
+                </div>
               </div>
               <Button variant="outline" size="icon" onClick={resetFile} title="Reset workspace">
                 <RefreshCcw className="h-4 w-4" />
@@ -1969,7 +2611,7 @@ export default function Home() {
             </div>
 
             <div
-              className="group relative flex h-[250px] items-center justify-center overflow-hidden border border-dashed border-zinc-300 bg-zinc-100"
+              className="workspace-dropzone group relative flex h-[250px] items-center justify-center overflow-hidden border border-dashed border-zinc-300"
               onDragOver={(event) => event.preventDefault()}
               onDrop={handleDrop}
             >
@@ -2018,7 +2660,7 @@ export default function Home() {
                 type="button"
                 onClick={() => setMediaKind('photo')}
                 className={classNames(
-                  'flex h-10 items-center justify-center gap-2 border',
+                  'workspace-segment flex h-10 items-center justify-center gap-2 border',
                   mediaKind === 'photo' ? 'border-blue-700 bg-blue-50 text-blue-800' : 'border-zinc-200 bg-white',
                 )}
               >
@@ -2029,7 +2671,7 @@ export default function Home() {
                 type="button"
                 onClick={() => setMediaKind('video')}
                 className={classNames(
-                  'flex h-10 items-center justify-center gap-2 border',
+                  'workspace-segment flex h-10 items-center justify-center gap-2 border',
                   mediaKind === 'video' ? 'border-blue-700 bg-blue-50 text-blue-800' : 'border-zinc-200 bg-white',
                 )}
               >
@@ -2052,19 +2694,25 @@ export default function Home() {
             )}
           </div>
 
-          <div className="border border-zinc-200 bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center gap-2">
-              <Braces className="h-5 w-5 text-emerald-700" />
-              <h2 className="font-semibold">Run Plan</h2>
+          <details className="workspace-panel group">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4 [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center gap-2">
+                <Braces className="h-5 w-5 text-emerald-700" />
+                <span className="font-semibold">Run Plan</span>
+              </span>
+              <span className="text-xs font-medium text-zinc-500 group-open:hidden">Show JSON</span>
+              <span className="hidden text-xs font-medium text-zinc-500 group-open:inline">Hide JSON</span>
+            </summary>
+            <div className="border-t border-zinc-200 p-3">
+              <pre className="max-h-[330px] overflow-auto bg-zinc-950 p-3 text-xs leading-5 text-zinc-100">
+                {JSON.stringify(displayedPlan, null, 2)}
+              </pre>
             </div>
-            <pre className="max-h-[330px] overflow-auto bg-zinc-950 p-3 text-xs leading-5 text-zinc-100">
-              {JSON.stringify(displayedPlan, null, 2)}
-            </pre>
-          </div>
-        </section>
+          </details>
+        </WorkspaceColumn>
 
-        <section className="flex min-h-0 flex-[1.35] flex-col gap-4 lg:overflow-auto">
-          <div className="border border-zinc-200 bg-white p-4 shadow-sm">
+        <WorkspaceColumn label="Geometry route" name="geometry">
+          <div className="workspace-panel p-4">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Layers3 className="h-5 w-5 text-orange-700" />
@@ -2109,32 +2757,13 @@ export default function Home() {
 
                 {photoScope === 'object-selection' && (
                   <div className="space-y-3">
-                    <label className="block text-sm font-medium text-zinc-700">
-                      Selection model
-                      <select
-                        value={selectionModel}
-                        onChange={(event) => {
-                          setSelectionModel(event.target.value);
-                          invalidateSelectionResult();
-                          setHoverSelection(null);
-                          setHoverSelectionState('idle');
-                          setSelectedMasks([]);
-                          setSelectionPrecompute(null);
-                          setSelectionPrecomputeState('idle');
-                          setSelectionPrecomputeError('');
-                          precomputeRequestIdRef.current += 1;
-                          setSelectionPoints([]);
-                          setSelectionState('idle');
-                        }}
-                        className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
-                      >
-                        {selectionModels.map((model) => (
-                          <option key={model.id} value={model.id}>
-                            {model.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    <ProductionModelField
+                      controlId="photo-selection-model"
+                      label="Selection model"
+                      modelId={selectionModel}
+                      modelLabel={modelLabel(modelCatalog, 'selection', selectionModel)}
+                      detail="Selected for reliable cached click-to-segment masks on the local CUDA path."
+                    />
 
                     <div className="border border-zinc-200 bg-zinc-50 p-3">
                       <div className="mb-2 flex items-center justify-between gap-2">
@@ -2263,14 +2892,17 @@ export default function Home() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
                   {photoTargets.map((target) => {
                     const Icon = target.icon;
                     return (
                       <button
                         key={target.value}
                         type="button"
-                        onClick={() => setPhotoTarget(target.value)}
+                        onClick={() => {
+                          setPhotoTarget(target.value);
+                          if (target.value === 'scene-diorama') setPhotoScope('object-selection');
+                        }}
                         className={classNames(
                           'flex min-h-[72px] items-center gap-3 border px-3 text-left',
                           photoTarget === target.value ? 'border-blue-700 bg-blue-50 text-blue-900' : 'border-zinc-200',
@@ -2285,21 +2917,13 @@ export default function Home() {
 
                 {photoTarget === 'depth-relief' ? (
                   <div className="space-y-4">
-                    <label className="block text-sm font-medium text-zinc-700">
-                      Depth model
-                      <select
-                        value={depthModel}
-                        onChange={(event) => setDepthModel(event.target.value)}
-                        className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
-                      >
-                        {depthModels.map((model) => (
-                          <option key={model.id} value={model.id}>
-                            {model.label} - {model.tier}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="mt-1 block text-xs text-zinc-500">{selectedDepthModel.notes}</span>
-                    </label>
+                    <ProductionModelField
+                      controlId="relief-depth-model"
+                      label="Depth model"
+                      modelId={depthModel}
+                      modelLabel={selectedDepthModel.label}
+                      detail={selectedDepthModel.notes}
+                    />
 
                     {selectedDepthModel.id === DEPTH_PRO_MODEL_ID && (
                       <div className="border border-zinc-200 bg-zinc-50 p-3 text-xs">
@@ -2359,7 +2983,7 @@ export default function Home() {
                         <input
                           className="mt-2 w-full accent-blue-700"
                           type="range"
-                          min="12"
+                          min="2"
                           max={reliefSliderMax}
                           value={Math.min(depthScale, reliefSliderMax)}
                           onChange={(event) => setDepthScale(Number(event.target.value))}
@@ -2408,6 +3032,58 @@ export default function Home() {
                         <span className="text-xs text-zinc-500">{featureBoost.toFixed(1)}x local detail</span>
                       </label>
                       <label className="text-sm font-medium text-zinc-700">
+                        Feature depth
+                        <input
+                          className="mt-2 w-full accent-blue-700"
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={printableFeatureDepth}
+                          onChange={(event) => setPrintableFeatureDepth(Number(event.target.value))}
+                        />
+                        <span className="text-xs text-zinc-500">{printableFeatureDepth.toFixed(2)} mm signed detail</span>
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Feature attachment
+                        <input
+                          className="mt-2 w-full accent-blue-700"
+                          type="range"
+                          min="0"
+                          max="2"
+                          step="0.1"
+                          value={featureBridgeDepth}
+                          onChange={(event) => setFeatureBridgeDepth(Number(event.target.value))}
+                        />
+                        <span className="text-xs text-zinc-500">{featureBridgeDepth.toFixed(1)} mm bridge cap</span>
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Background detail
+                        <input
+                          className="mt-2 w-full accent-blue-700"
+                          type="range"
+                          min="1"
+                          max="3"
+                          step="0.1"
+                          value={backgroundDetailBoost}
+                          onChange={(event) => setBackgroundDetailBoost(Number(event.target.value))}
+                        />
+                        <span className="text-xs text-zinc-500">{backgroundDetailBoost.toFixed(1)}x outside faces</span>
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Photo texture
+                        <input
+                          className="mt-2 w-full accent-blue-700"
+                          type="range"
+                          min="0"
+                          max="0.6"
+                          step="0.02"
+                          value={backgroundPhotoDetail}
+                          onChange={(event) => setBackgroundPhotoDetail(Number(event.target.value))}
+                        />
+                        <span className="text-xs text-zinc-500">{backgroundPhotoDetail.toFixed(2)} mm image relief</span>
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
                         Relief curve
                         <input
                           className="mt-2 w-full accent-blue-700"
@@ -2437,7 +3113,7 @@ export default function Home() {
                           ))}
                         </select>
                         <span className="text-xs text-zinc-500">
-                          {reliefTargetDimension} samples, {reliefSamplePitch.toFixed(2)} mm/sample at selected size
+                          {reliefTargetDimension} depth / {reliefPrintableDimension} STL samples, {reliefSamplePitch.toFixed(2)} mm/sample
                         </span>
                       </label>
                       <label className="text-sm font-medium text-zinc-700">
@@ -2451,36 +3127,116 @@ export default function Home() {
                           onChange={(event) => setBaseBorderPx(Number(event.target.value))}
                         />
                       </label>
+                      <label className="flex items-center gap-3 text-sm font-medium text-zinc-700">
+                        <input
+                          className="h-4 w-4 accent-blue-700"
+                          type="checkbox"
+                          checked={trimTopBackground}
+                          onChange={(event) => setTrimTopBackground(event.target.checked)}
+                        />
+                        Skyline top
+                      </label>
+                    </div>
+                  </div>
+                ) : photoTarget === 'scene-diorama' ? (
+                  <div className="space-y-4">
+                    <ProductionModelField
+                      controlId="scene-depth-model"
+                      label="Scene depth model"
+                      modelId={depthModel}
+                      modelLabel={selectedDepthModel.label}
+                      detail="The same verified depth field keeps subject and background geometry on one measured scale."
+                    />
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <label className="text-sm font-medium text-zinc-700">
+                        Scene depth
+                        <input
+                          className="mt-2 w-full accent-blue-700"
+                          type="range"
+                          min="24"
+                          max={sceneDepthSliderMax}
+                          step="2"
+                          value={effectiveSceneDepth}
+                          onChange={(event) => setSceneDepth(Number(event.target.value))}
+                        />
+                        <span className="text-xs text-zinc-500">{effectiveSceneDepth.toFixed(0)} mm</span>
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Subject volume
+                        <input
+                          className="mt-2 w-full accent-blue-700"
+                          type="range"
+                          min="4"
+                          max="30"
+                          step="1"
+                          value={sceneSubjectDepth}
+                          onChange={(event) => setSceneSubjectDepth(Number(event.target.value))}
+                        />
+                        <span className="text-xs text-zinc-500">{sceneSubjectDepth.toFixed(0)} mm</span>
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Facade detail
+                        <input
+                          className="mt-2 w-full accent-blue-700"
+                          type="range"
+                          min="0"
+                          max="2"
+                          step="0.1"
+                          value={sceneFacadeDetail}
+                          onChange={(event) => setSceneFacadeDetail(Number(event.target.value))}
+                        />
+                        <span className="text-xs text-zinc-500">{sceneFacadeDetail.toFixed(1)} mm</span>
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Depth separation
+                        <input
+                          className="mt-2 w-full accent-blue-700"
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={sceneDepthCompression}
+                          onChange={(event) => setSceneDepthCompression(Number(event.target.value))}
+                        />
+                        <span className="text-xs text-zinc-500">{sceneDepthCompression.toFixed(2)}</span>
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Base thickness
+                        <input
+                          className="mt-2 w-full accent-blue-700"
+                          type="range"
+                          min="1"
+                          max="8"
+                          step="0.2"
+                          value={baseThickness}
+                          onChange={(event) => setBaseThickness(Number(event.target.value))}
+                        />
+                        <span className="text-xs text-zinc-500">{baseThickness.toFixed(1)} mm</span>
+                      </label>
+                      <div className="border border-zinc-200 bg-zinc-50 p-3 text-sm">
+                        <div className="text-xs font-medium text-zinc-500">Scene sampling</div>
+                        <div className="mt-1 font-semibold text-zinc-900">{sceneMaxSamples} samples</div>
+                      </div>
                     </div>
                   </div>
                 ) : (
                   <div className="grid gap-3 md:grid-cols-2">
-                    <label className="text-sm font-medium text-zinc-700">
-                      Inpainting
-                      <select
-                        value={inpaintBackend}
-                        onChange={(event) => setInpaintBackend(event.target.value)}
-                        className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
-                      >
-                        {inpaintBackends.map((backend) => (
-                          <option key={backend}>{backend}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="text-sm font-medium text-zinc-700">
-                      Mesh model
-                      <select
-                        value={meshBackend}
-                        onChange={(event) => setMeshBackend(event.target.value)}
-                        className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
-                      >
-                        {meshModels.map((model) => (
-                          <option key={model.id} value={model.id}>
-                            {model.label}
-                            {providerReadiness[model.id] ? ` - ${providerReadinessLabel(providerReadiness[model.id])}` : ''}
-                          </option>
-                        ))}
-                      </select>
+                    <ProductionModelField
+                      controlId="full-mesh-prefill"
+                      label="Inpainting"
+                      modelId={inpaintBackend}
+                      modelLabel={inpaintBackend}
+                      detail="Selected by the held-out TripoSG STL-quality promotion run."
+                    />
+                    <div className="min-w-0">
+                      <ProductionModelField
+                        controlId="full-mesh-model"
+                        label="Mesh model"
+                        modelId={meshBackend}
+                        modelLabel={modelLabel(modelCatalog, 'image_to_mesh', meshBackend)}
+                        detail="Promoted after a paired 10-object STL-quality run with all printability gates passing."
+                      />
                       <span
                         className={classNames(
                           'mt-2 inline-flex border px-2 py-1 text-xs font-medium',
@@ -2496,26 +3252,51 @@ export default function Home() {
                             : providerReadinessLabel(selectedMeshReadiness)}
                       </span>
                       <span className="mt-1 block text-xs text-zinc-500">{providerSetupMessage(selectedMeshReadiness)}</span>
-                    </label>
-                    <label className="text-sm font-medium text-zinc-700 md:col-span-2">
-                      STL repair
-                      <select
-                        value={stlPostprocessModel}
-                        onChange={(event) => setStlPostprocessModel(event.target.value)}
-                        className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
-                      >
-                        {stlPostprocessModels.map((model) => (
-                          <option key={model.id} value={model.id}>
-                            {model.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    </div>
+                    <ProductionModelField
+                      controlId="photo-stl-repair"
+                      label="STL repair"
+                      modelId={stlPostprocessModel}
+                      modelLabel={modelLabel(modelCatalog, 'stl_postprocess', stlPostprocessModel)}
+                      detail="Fixed to the repair path used by the watertightness and manifoldness gates."
+                      className="md:col-span-2"
+                    />
                   </div>
                 )}
               </div>
             ) : (
               <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2" aria-label="Video output mode">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVideoTarget('turntable-mesh');
+                      setSelectionModel('turntable-grabcut');
+                    }}
+                    className={classNames(
+                      'min-h-[64px] border px-3 text-sm',
+                      videoTarget === 'turntable-mesh' ? 'border-blue-700 bg-blue-50 text-blue-900' : 'border-zinc-200',
+                    )}
+                  >
+                    Turntable mesh
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVideoTarget('tracked-relief');
+                      setVideoScope('selected-frames');
+                      setFrameSelectionModel('sharpness-motion-selector');
+                      setSelectionModel('sam2.1-hiera-tiny-video');
+                    }}
+                    className={classNames(
+                      'min-h-[64px] border px-3 text-sm',
+                      videoTarget === 'tracked-relief' ? 'border-blue-700 bg-blue-50 text-blue-900' : 'border-zinc-200',
+                    )}
+                  >
+                    Tracked relief
+                  </button>
+                </div>
+
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -2539,14 +3320,14 @@ export default function Home() {
                   </button>
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid gap-3">
                   <label className="text-sm font-medium text-zinc-700">
                     {videoScope === 'selected-frames' ? 'Selected frames' : 'Frame step'}
                     <input
                       className="mt-2 h-10 w-full border border-zinc-300 px-3"
                       type="number"
-                      min="1"
-                      max="240"
+                      min={videoScope === 'selected-frames' ? 3 : 1}
+                      max={videoScope === 'selected-frames' ? 64 : 240}
                       value={videoScope === 'selected-frames' ? selectedFrameCount : frameStep}
                       onChange={(event) =>
                         videoScope === 'selected-frames'
@@ -2555,89 +3336,62 @@ export default function Home() {
                       }
                     />
                   </label>
-                  <label className="text-sm font-medium text-zinc-700">
-                    Frame selector
-                    <select
-                      value={frameSelectionModel}
-                      onChange={(event) => setFrameSelectionModel(event.target.value)}
-                      className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
-                    >
-                      {frameSelectionModels.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-zinc-700">
-                    Selection model
-                    <select
-                      value={selectionModel}
-                      onChange={(event) => setSelectionModel(event.target.value)}
-                      className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
-                    >
-                      {selectionModels.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-zinc-700">
-                    Camera/pose
-                    <select
-                      value={cameraPoseModel}
-                      onChange={(event) => setCameraPoseModel(event.target.value)}
-                      className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
-                    >
-                      {cameraPoseModels.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-zinc-700">
-                    Reconstruction
-                    <select
-                      value={videoBackend}
-                      onChange={(event) => setVideoBackend(event.target.value)}
-                      className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
-                    >
-                      {videoModels.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-zinc-700">
-                    STL repair
-                    <select
-                      value={stlPostprocessModel}
-                      onChange={(event) => setStlPostprocessModel(event.target.value)}
-                      className="mt-2 h-10 w-full border border-zinc-300 bg-white px-3"
-                    >
-                      {stlPostprocessModels.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <ProductionModelField
+                    controlId="video-frame-selector"
+                    label="Frame selector"
+                    modelId={frameSelectionModel}
+                    modelLabel={modelLabel(modelCatalog, 'frame_selection', frameSelectionModel)}
+                    detail={videoTarget === 'tracked-relief' ? 'Sharpness and motion coverage for the best relief frame.' : 'Uniform angular coverage for a controlled turntable clip.'}
+                  />
+                  <ProductionModelField
+                    controlId="video-selection-model"
+                    label="Selection model"
+                    modelId={selectionModel}
+                    modelLabel={modelLabel(modelCatalog, 'selection', selectionModel)}
+                    detail={videoTarget === 'tracked-relief' ? 'Temporal SAM propagation for the selected subject.' : 'Deterministic foreground masks for fixed-camera turntable video.'}
+                  />
+                  <ProductionModelField
+                    controlId="video-camera-model"
+                    label="Camera/pose"
+                    modelId={cameraPoseModel}
+                    modelLabel={modelLabel(modelCatalog, 'camera_pose', cameraPoseModel)}
+                    detail="Deterministic orbit assignment for the supported fixed-camera capture."
+                  />
+                  <ProductionModelField
+                    controlId="video-reconstruction-model"
+                    label="Reconstruction"
+                    modelId={videoBackend}
+                    modelLabel={modelLabel(modelCatalog, 'video_reconstruction', videoBackend)}
+                    detail="The measured multiview lane that emitted printable STLs across its held-out slice."
+                  />
+                  <ProductionModelField
+                    controlId="video-stl-repair"
+                    label="STL repair"
+                    modelId={stlPostprocessModel}
+                    modelLabel={modelLabel(modelCatalog, 'stl_postprocess', stlPostprocessModel)}
+                    detail="Shared printability repair and diagnostics path."
+                  />
                 </div>
 
                 <div className="grid gap-2 md:grid-cols-2">
                   <div className="border border-zinc-200 bg-zinc-50 p-3 text-sm">
                     <div className="mb-1 font-medium">Camera/keypoint stream</div>
                     <div className="text-zinc-600">
-                      {videoScope === 'selected-frames' ? 'Uncropped frames retained' : 'All sampled frames retained'}
+                      {videoTarget === 'tracked-relief'
+                        ? 'Perspective motion measured from tracked masks'
+                        : videoScope === 'selected-frames'
+                          ? 'Uncropped frames retained'
+                          : 'All sampled frames retained'}
                     </div>
                   </div>
                   <div className="border border-zinc-200 bg-zinc-50 p-3 text-sm">
                     <div className="mb-1 font-medium">Training target stream</div>
                     <div className="text-zinc-600">
-                      {videoScope === 'selected-frames' ? 'Object masks only' : 'Full scene/object mesh'}
+                      {videoTarget === 'tracked-relief'
+                        ? 'Best visible frame converted to printable relief'
+                        : videoScope === 'selected-frames'
+                          ? 'Object masks only'
+                          : 'Full scene/object mesh'}
                     </div>
                   </div>
                 </div>
@@ -2646,9 +3400,9 @@ export default function Home() {
 
             <div className="mt-4 border-t border-zinc-200 pt-4">
               <div className="mb-2 text-sm font-semibold">Active Model Stack</div>
-              <div className="grid gap-2 md:grid-cols-2">
-                {activeModelStack.map(({ group, label, model }) => (
-                  <article key={`${group}-${model.id}`} className="min-w-0 border border-zinc-200 bg-zinc-50 p-3 text-sm">
+              <div className="grid gap-2">
+                {activeModelStack.map(({ label, model }) => (
+                  <article key={`${label}-${model.id}`} className="min-w-0 border border-zinc-200 bg-zinc-50 p-3 text-sm">
                     <div className="mb-2 flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-xs font-medium uppercase text-zinc-500">{label}</div>
@@ -2665,13 +3419,13 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-4">
+          <div className="grid gap-3">
             {steps.map((step, index) => {
               const Icon = step.icon;
               const done = runState === 'ready' || (runState === 'running' && index < 1);
               const active = runState === 'running' && index === 1;
               return (
-                <article key={`${step.label}-${index}`} className="min-h-[128px] border border-zinc-200 bg-white p-4 shadow-sm">
+                <article key={`${step.label}-${index}`} className="workspace-step min-h-[128px] p-4">
                   <div className="mb-3 flex items-center justify-between">
                     <Icon className="h-5 w-5 text-zinc-800" />
                     <StepIcon active={active} done={done} />
@@ -2682,10 +3436,10 @@ export default function Home() {
               );
             })}
           </div>
-        </section>
+        </WorkspaceColumn>
 
-        <section className="flex min-h-0 flex-1 flex-col gap-4 lg:max-w-[390px]">
-          <div className="border border-zinc-200 bg-white p-4 shadow-sm">
+        <WorkspaceColumn label="STL output and printer settings" name="output">
+          <div className="workspace-panel p-4">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Box className="h-5 w-5 text-blue-700" />
@@ -2706,20 +3460,37 @@ export default function Home() {
             </div>
 
             <div className="relative flex aspect-square items-center justify-center overflow-hidden border border-zinc-200 bg-zinc-100">
-              {completedPreview || previewUrl ? (
-                <img src={completedPreview || previewUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-35" />
-              ) : null}
-              <div className="relative grid h-44 w-44 place-items-center border border-zinc-300 bg-white/80">
-                {runState === 'running' ? (
-                  <Loader2 className="h-14 w-14 animate-spin text-blue-700" />
-                ) : (
-                  <div className="relative h-24 w-24">
-                    <div className="absolute left-3 top-4 h-16 w-20 skew-x-[-12deg] border border-zinc-900 bg-emerald-100" />
-                    <div className="absolute left-7 top-1 h-16 w-16 rotate-45 border border-zinc-900 bg-blue-100" />
-                    <div className="absolute bottom-0 left-0 h-5 w-24 border border-zinc-900 bg-orange-100" />
+              {processedSTL ? (
+                <div className="absolute inset-0" data-testid="stl-orbit-viewer">
+                  <StlViewer
+                    key={processedSTL}
+                    style={{ width: '100%', height: '100%' }}
+                    url={processedSTL}
+                    orbitControls
+                    shadows
+                    modelProps={{ color: photoTarget === 'scene-diorama' ? '#d8574b' : '#737b85' }}
+                    floorProps={{ gridWidth: 8, gridLength: 8 }}
+                    canvasId="stl-output-canvas"
+                  />
+                </div>
+              ) : (
+                <>
+                  {completedPreview || previewUrl ? (
+                    <img src={completedPreview || previewUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-35" />
+                  ) : null}
+                  <div className="relative grid h-44 w-44 place-items-center border border-zinc-300 bg-white/80">
+                    {runState === 'running' ? (
+                      <Loader2 className="h-14 w-14 animate-spin text-blue-700" />
+                    ) : (
+                      <div className="relative h-24 w-24">
+                        <div className="absolute left-3 top-4 h-16 w-20 skew-x-[-12deg] border border-zinc-900 bg-emerald-100" />
+                        <div className="absolute left-7 top-1 h-16 w-16 rotate-45 border border-zinc-900 bg-blue-100" />
+                        <div className="absolute bottom-0 left-0 h-5 w-24 border border-zinc-900 bg-orange-100" />
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </>
+              )}
             </div>
 
             {error && <div className="mt-3 border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
@@ -2820,6 +3591,17 @@ export default function Home() {
               </a>
             )}
 
+            {processedSceneGLB && (
+              <a
+                href={processedSceneGLB}
+                download="scene.glb"
+                className="mt-2 flex h-11 items-center justify-center gap-2 border border-blue-700 bg-blue-50 text-sm font-medium text-blue-900"
+              >
+                <Box className="h-4 w-4" />
+                Download Scene GLB
+              </a>
+            )}
+
             {stlDiagnostics && (
               <div className="mt-3 border border-zinc-200 bg-zinc-50 p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
@@ -2861,7 +3643,7 @@ export default function Home() {
             )}
           </div>
 
-          <div className="border border-zinc-200 bg-white p-4 shadow-sm">
+          <div className="workspace-panel p-4">
             <div className="mb-3 flex items-center gap-2">
               <Printer className="h-5 w-5 text-orange-700" />
               <h2 className="font-semibold">Printer Volume</h2>
@@ -2905,18 +3687,36 @@ export default function Home() {
               ))}
             </div>
 
-            <label className="mt-3 block text-sm font-medium text-zinc-700">
-              Clearance
-              <input
-                className="mt-2 h-10 w-full border border-zinc-300 px-3"
-                type="number"
-                min="0"
-                max="40"
-                step="0.5"
-                value={printerClearance}
-                onChange={(event) => setPrinterClearance(Number(event.target.value))}
-              />
-            </label>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <label className="text-sm font-medium text-zinc-700">
+                Clearance
+                <input
+                  className="mt-2 h-10 w-full border border-zinc-300 px-3"
+                  type="number"
+                  min="0"
+                  max="40"
+                  step="0.5"
+                  value={printerClearance}
+                  onChange={(event) => setPrinterClearance(Number(event.target.value))}
+                />
+              </label>
+              <label className="text-sm font-medium text-zinc-700">
+                Nozzle
+                <input
+                  className="mt-2 h-10 w-full border border-zinc-300 px-3"
+                  type="number"
+                  min="0.2"
+                  max="2"
+                  step="0.05"
+                  value={printerNozzleInput}
+                  onChange={(event) => {
+                    setPrinterPreset('custom');
+                    setPrinterNozzleInput(event.target.value);
+                  }}
+                  onBlur={commitPrinterNozzleDiameter}
+                />
+              </label>
+            </div>
 
             <label className="mt-3 block text-sm font-medium text-zinc-700">
               Print size
@@ -2943,6 +3743,14 @@ export default function Home() {
                 <div className="text-xs font-medium uppercase text-zinc-500">Max relief Z</div>
                 <div className="font-semibold">{printVolume.max_relief_height_mm.toFixed(1)} mm</div>
               </div>
+              <div className="border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-medium uppercase text-zinc-500">Nozzle</div>
+                <div className="font-semibold">{effectivePrinterNozzleDiameter.toFixed(2)} mm</div>
+              </div>
+              <div className="border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-medium uppercase text-zinc-500">Min feature</div>
+                <div className="font-semibold">{minimumFeatureSize.toFixed(2)} mm</div>
+              </div>
             </div>
 
             <div className="mt-2 text-xs text-zinc-500">
@@ -2950,7 +3758,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="border border-zinc-200 bg-white p-4 shadow-sm">
+          <div className="workspace-panel p-4">
             <div className="mb-3 flex items-center gap-2">
               <BadgeCheck className="h-5 w-5 text-emerald-700" />
               <h2 className="font-semibold">Promotion Gates</h2>
@@ -2964,8 +3772,8 @@ export default function Home() {
               ))}
             </div>
           </div>
-        </section>
-      </div>
+        </WorkspaceColumn>
+      </WorkspaceShell>
     </main>
   );
 }

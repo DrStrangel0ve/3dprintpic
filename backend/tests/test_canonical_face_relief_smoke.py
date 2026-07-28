@@ -85,6 +85,18 @@ class CanonicalFaceReliefSmokeTest(unittest.TestCase):
         blend = compression["face_region_blend"]
         post_blend_audit = compression["post_blend_quality_audit"]
         self.assertTrue(row["checks"]["passed"])
+        self.assertTrue(row["checks"]["bounded_feature_emboss"])
+        self.assertAlmostEqual(
+            row["feature_handling"]["requested_feature_depth_mm"],
+            0.4,
+        )
+        self.assertAlmostEqual(
+            row["feature_handling"]["effective_feature_depth_mm"],
+            0.4,
+        )
+        self.assertFalse(row["feature_handling"]["emboss_suppressed"])
+        self.assertTrue(row["feature_handling"]["slope_guard_enabled"])
+        self.assertTrue(row["feature_handling"]["detail_guard_enabled"])
         self.assertTrue(retry["attempted"])
         self.assertEqual(retry["reason"], "retry_candidate_accepted")
         self.assertEqual(retry["trigger_failures"], ["cardinal_edge_p99"])

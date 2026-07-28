@@ -46,6 +46,7 @@ endsolid tetrahedron
 `);
 
 test('selected relief sends the selected preview and atomic compose job', async ({ page }) => {
+  let composeMultipartBody = '';
   let processMultipartBody = '';
   let processMultipartBuffer = Buffer.alloc(0);
   await page.route('**/health', (route) =>
@@ -100,8 +101,9 @@ test('selected relief sends the selected preview and atomic compose job', async 
       }),
     }),
   );
-  await page.route('**/selection/compose', (route) =>
-    route.fulfill({
+  await page.route('**/selection/compose', (route) => {
+    composeMultipartBody = (route.request().postDataBuffer() || Buffer.alloc(0)).toString('utf8');
+    return route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
         job_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -112,8 +114,8 @@ test('selected relief sends the selected preview and atomic compose job', async 
         mask_coverage: 0.42,
         model_status: 'composed-clicked-masks',
       }),
-    }),
-  );
+    });
+  });
   await page.route('**/selection-assets/*.png', (route) =>
     route.fulfill({
       contentType: 'image/png',
@@ -165,9 +167,16 @@ test('selected relief sends the selected preview and atomic compose job', async 
   await page.getByRole('button', { name: 'Run' }).click();
   await expect(page.getByText('STL ready', { exact: true })).toBeVisible();
 
+  expect(composeMultipartBody).toContain('name="selection_infill_mode"');
+  expect(composeMultipartBody).toContain('clean-context');
   expect(processMultipartBody).toContain('name="file"; filename="selected-llama.png"');
   expect(processMultipartBody).toContain('name="selection_job_id"');
   expect(processMultipartBody).toContain('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+  expect(processMultipartBody).toContain('name="selection_mode"');
+  expect(processMultipartBody).toContain('context');
+  expect(processMultipartBody).not.toContain('isolate');
+  expect(processMultipartBody).toContain('name="selection_subject_lock"');
+  expect(processMultipartBody).toContain('true');
   expect(processMultipartBody).not.toContain('name="depth_context_file"');
   expect(processMultipartBuffer.includes(selectedPng)).toBe(true);
   expect(processMultipartBuffer.includes(originalPng)).toBe(false);

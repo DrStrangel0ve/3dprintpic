@@ -540,14 +540,14 @@ class FaceDepthRefinementTest(unittest.TestCase):
         self.assertLessEqual(stats["saturated_core_ratio"], 0.05)
         np.testing.assert_array_equal(candidate[occlusion == 0], source[occlusion == 0])
 
-    def test_eyewear_reconstruction_rejects_bilateral_eye_detail_loss(self):
+    def test_eyewear_reconstruction_restores_bilateral_eye_detail(self):
         shape = (96, 96)
         yy, xx = np.indices(shape, dtype=np.float32)
         prior = 0.35 + xx * 0.001 + yy * 0.0004
         source = prior.copy()
         occlusion = np.zeros(shape, dtype=np.float32)
         occlusion[28:54, 16:80] = 1.0
-        source[occlusion > 0] += 0.08
+        source[occlusion > 0] += 0.07
         refined = source.copy()
         left_eye = np.zeros(shape, dtype=np.uint8)
         right_eye = np.zeros(shape, dtype=np.uint8)
@@ -566,14 +566,19 @@ class FaceDepthRefinementTest(unittest.TestCase):
             eye_masks={"left_eye": left_eye, "right_eye": right_eye},
         )
 
-        self.assertFalse(stats["enabled"])
-        self.assertEqual(stats["reason"], "quality_gate_failed")
-        self.assertIn(
-            "bilateral_eye_detail_retention",
-            stats["quality_gates"]["failures"],
+        self.assertTrue(stats["enabled"])
+        self.assertEqual(stats["quality_gates"]["failures"], [])
+        self.assertTrue(stats["bilateral_eye_detail_retention"]["passed"])
+        self.assertTrue(stats["eye_detail_restoration"]["applied"])
+        for part in stats["bilateral_eye_detail_retention"]["parts"]:
+            self.assertTrue(part["passed"])
+            self.assertTrue(part["restoration"]["applied"])
+            self.assertGreaterEqual(part["gradient_q95_retention"], 0.65)
+            self.assertLessEqual(part["gradient_q95_retention"], 1.60)
+        self.assertLess(
+            float(np.percentile(np.abs(candidate[occlusion > 0] - prior[occlusion > 0]), 95)),
+            float(np.percentile(np.abs(refined[occlusion > 0] - prior[occlusion > 0]), 95)),
         )
-        self.assertFalse(stats["bilateral_eye_detail_retention"]["passed"])
-        np.testing.assert_array_equal(candidate, refined)
 
     def test_eyewear_reconstruction_fails_closed_when_correction_cap_saturates(self):
         prior = np.full((64, 64), 0.35, dtype=np.float32)
@@ -929,6 +934,58 @@ class FaceDepthRefinementTest(unittest.TestCase):
             self.assertFalse(metadata["applied"])
             self.assertEqual(metadata["reason"], "no_face_detected")
 
+    def test_separate_detection_image_does_not_replace_refinement_crops(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = root / "selected.png"
+            detection_path = root / "detector.png"
+            depth_path = root / "depth.npy"
+            Image.new("RGB", (64, 64), (20, 40, 60)).save(image_path)
+            Image.new("RGB", (64, 64), (180, 160, 140)).save(detection_path)
+            np.save(depth_path, np.ones((32, 32), dtype=np.float32))
+            face_mask, feature_mask = face_masks_from_box(
+                (64, 64, 3),
+                (16, 12, 48, 56),
+            )
+            detector_pixels = []
+            crop_pixels = []
+
+            def detector(values):
+                detector_pixels.append(tuple(int(value) for value in values[0, 0]))
+                return [{
+                    "bbox": [16, 12, 48, 56],
+                    "face_mask": face_mask,
+                    "feature_mask": feature_mask,
+                    "detector": "test-detector",
+                }]
+
+            def infer_depth(crop_path, output_dir):
+                crop = Image.open(crop_path).convert("RGB")
+                crop_pixels.append(crop.getpixel((0, 0)))
+                output = Path(output_dir) / "output_depth_data.npy"
+                np.save(
+                    output,
+                    np.ones((crop.height, crop.width), dtype=np.float32),
+                )
+                return output
+
+            _refined_path, metadata = refine_depth_for_faces(
+                image_path,
+                depth_path,
+                root,
+                infer_depth=infer_depth,
+                mode="on",
+                detector=detector,
+                detection_image_path=detection_path,
+            )
+
+        self.assertEqual(detector_pixels, [(180, 160, 140)])
+        self.assertEqual(crop_pixels, [(20, 40, 60)])
+        self.assertEqual(
+            metadata["detection_image"]["mode"],
+            "selection-neutral-cutout",
+        )
+
     def test_selected_component_detail_fallback_refines_without_landmark_prior(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1063,6 +1120,7 @@ class FaceDepthRefinementTest(unittest.TestCase):
             self.assertAlmostEqual(call.kwargs["feather_ratio"], 0.25)
             self.assertAlmostEqual(call.kwargs["max_correction_ratio"], 0.05)
             self.assertIsNone(call.kwargs["detection_roi_mask"])
+            self.assertIsNone(call.kwargs["detection_image_path"])
             self.assertEqual(payload["face_refinement"], refinement_audit)
             self.assertIn("face_refinement_seconds", payload["timings"])
 

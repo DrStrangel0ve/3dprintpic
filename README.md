@@ -4,6 +4,13 @@ Take a picture, get a 3D print of it!
 
 ![3D Print a Picture Screenshot](https://github.com/user-attachments/assets/ca9eb833-b6d5-43c1-9abb-16c3500fb35b)
 
+## Project report
+
+The full production architecture, one-model-per-feature decisions, training
+history, dataset provenance, benchmark tables, closed research lanes,
+printability gates, and reproducibility map are collected in
+[docs/PROJECT_REPORT.md](docs/PROJECT_REPORT.md).
+
 ## How it works
 
 This app turns a 2D image into a printable height-field STL:
@@ -90,6 +97,7 @@ Frontend `.env.local` values:
 ```bash
 NEXT_PUBLIC_BACKEND_URL=http://localhost:8004
 NEXT_PUBLIC_VIDEO_BACKEND_URL=http://localhost:8005
+NEXT_PUBLIC_VOICEFLOW_PROJECT_ID=
 REPLICATE_API_TOKEN=
 GROQ_API_KEY=
 COHERE_API_KEY=

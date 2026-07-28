@@ -3,11 +3,12 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
 import trimesh
-from scipy.ndimage import laplace, zoom
+from scipy.ndimage import binary_erosion, laplace, zoom
 from stl import mesh
 from PIL import Image
 
@@ -41,6 +42,7 @@ from backend.pic_to_3d import (
     _stabilize_face_relief_height,
     _surface_lighting_agreement_metrics,
     _top_silhouette_mask,
+    complete_selection_context_with_modern_inpaint,
     compose_selection_depth_with_context,
     depth_data_to_3d_model,
     relief_value_transform_for_model,
@@ -48,6 +50,52 @@ from backend.pic_to_3d import (
 
 
 class ReliefStlControlsTest(unittest.TestCase):
+    def test_modern_selection_inpaint_never_conditions_on_removed_pixels(self):
+        rows, cols = np.indices((32, 48))
+        source_values = np.zeros((32, 48, 3), dtype=np.uint8)
+        source_values[..., 0] = np.where((rows + cols) % 2 == 0, 255, 0)
+        source_values[..., 1] = np.where(cols % 2 == 0, 0, 255)
+        source_values[..., 2] = 40
+        keep_values = np.zeros((32, 48), dtype=np.uint8)
+        keep_values[6:28, 12:36] = 255
+        source = Image.fromarray(source_values, mode="RGB")
+        keep_mask = Image.fromarray(keep_values, mode="L")
+        call = {}
+
+        def fake_pipe(**kwargs):
+            call.update(kwargs)
+            return SimpleNamespace(
+                images=[Image.new("RGB", kwargs["image"].size, (20, 80, 160))]
+            )
+
+        with patch.object(
+            pic_to_3d,
+            "_load_inpaint_pipeline",
+            return_value=fake_pipe,
+        ):
+            completed, metadata = complete_selection_context_with_modern_inpaint(
+                source,
+                keep_mask,
+                device="cpu",
+                inpaint_max_dimension=48,
+            )
+
+        completed_values = np.asarray(completed)
+        condition_values = np.asarray(call["image"])
+        generation_mask = np.asarray(call["mask_image"])
+        keep = keep_values > 0
+        np.testing.assert_array_equal(completed_values[keep], source_values[keep])
+        far_context = np.zeros_like(keep)
+        far_context[:3, :3] = True
+        self.assertTrue(np.all(completed_values[far_context] == [20, 80, 160]))
+        self.assertFalse(np.array_equal(condition_values[~keep], source_values[~keep]))
+        self.assertTrue(np.all(generation_mask[~keep] == 255))
+        self.assertTrue(np.any(generation_mask[keep] == 255))
+        self.assertTrue(np.any(generation_mask[keep] == 0))
+        self.assertTrue(metadata["source_free_removed_context"])
+        self.assertFalse(metadata["removed_source_pixels_conditioned"])
+        self.assertTrue(metadata["selected_pixels_exact"])
+
     def test_depth_input_applies_exif_orientation_before_mask_alignment(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             source_path = Path(tmp_dir) / "phone-photo.jpg"
@@ -1928,14 +1976,24 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertEqual(compression["sample_pitch_source"], "implicit_stl_grid_unit")
         self.assertAlmostEqual(compression["max_neighbor_step_mm"], 2.0)
         self.assertTrue(stl_exists)
-        self.assertFalse(postprocess["printable_feature_depth"]["enabled"])
-        self.assertTrue(
+        self.assertTrue(postprocess["printable_feature_depth"]["enabled"])
+        self.assertFalse(
             postprocess["printable_feature_depth"][
                 "suppressed_after_screened_face_reconstruction"
             ]
         )
+        self.assertTrue(
+            postprocess["printable_feature_depth"]["screened_face_reconstruction"]
+        )
         self.assertAlmostEqual(postprocess["printable_feature_depth_mm"], 0.8)
-        self.assertAlmostEqual(postprocess["effective_printable_feature_depth_mm"], 0.0)
+        self.assertAlmostEqual(postprocess["effective_printable_feature_depth_mm"], 0.8)
+        self.assertTrue(postprocess["post_feature_slope_guard"]["enabled"])
+        self.assertFalse(
+            postprocess["post_feature_slope_guard"]["fell_back_to_baseline"]
+        )
+        self.assertTrue(postprocess["face_detail_guard"]["enabled"])
+        self.assertTrue(postprocess["face_detail_guard"]["final"]["available"])
+        self.assertGreater(postprocess["face_detail_guard"]["applied_scale"], 0.0)
         transform = postprocess["surface_grid_transform"]
         self.assertEqual(transform["input_depth_shape"], [48, 48])
         self.assertEqual(transform["target_depth_shape"], [48, 48])
@@ -2387,6 +2445,144 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertEqual(len(selection_appearance["components"]), 1)
         self.assertTrue(selection_appearance["components"][0]["available"])
         self.assertTrue(stl_exists)
+
+    def test_low_face_relief_uses_face_aware_selection_path(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            depth_path = root / "depth.npy"
+            surface_path = root / "surface.npy"
+            rows, cols = np.indices((72, 96), dtype=np.float32)
+            face = (
+                (rows - 31.0) ** 2 / 210.0
+                + (cols - 36.0) ** 2 / 150.0
+            ) <= 1.0
+            torso = (
+                (rows - 53.0) ** 2 / 300.0
+                + (cols - 42.0) ** 2 / 330.0
+            ) <= 1.0
+            selected = face | torso
+            depth = 0.08 + 0.0012 * rows + 0.0018 * cols
+            depth += selected * (
+                0.52
+                + 0.05 * np.cos(rows / 4.0)
+                + 0.04 * np.sin(cols / 3.0)
+            )
+            np.save(depth_path, depth.astype(np.float32))
+
+            postprocess = depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(root / "selected-low-face.stl"),
+                target_dimension=-1,
+                z_scale=10.0,
+                max_xy_size=48.0,
+                sigma=0.0,
+                relief_gamma=1.0,
+                detail_boost=0.0,
+                low_percentile=0.0,
+                high_percentile=100.0,
+                base_border_px=1,
+                minimum_feature_mm=0.8,
+                max_relief_slope=2.0,
+                face_region_mask=face,
+                selection_region_mask=selected,
+                selection_background_depth_ratio=0.65,
+                surface_output_path=surface_path,
+            )
+
+        selection_compression = postprocess["selection_gradient_compression"]
+        self.assertNotEqual(
+            postprocess["face_boundary_alignment"]["reason"],
+            "no_face_region",
+        )
+        self.assertNotEqual(
+            postprocess["face_surface_protection"]["reason"],
+            "selection_gradient_domain",
+        )
+        self.assertFalse(selection_compression["face_protection_passed"])
+        self.assertFalse(selection_compression["enabled"])
+        self.assertEqual(
+            selection_compression["reason"],
+            "face_protection_gate",
+        )
+
+    def test_subject_locked_selection_preserves_subject_surface(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            depth_path = root / "depth.npy"
+            whole_surface_path = root / "whole-surface.npy"
+            selected_surface_path = root / "selected-surface.npy"
+            rows, cols = np.indices((72, 96), dtype=np.float32)
+            face = (
+                (rows - 31.0) ** 2 / 210.0
+                + (cols - 36.0) ** 2 / 150.0
+            ) <= 1.0
+            torso = (
+                (rows - 53.0) ** 2 / 300.0
+                + (cols - 42.0) ** 2 / 330.0
+            ) <= 1.0
+            selected = face | torso
+            depth = 0.08 + 0.0012 * rows + 0.0018 * cols
+            depth += selected * (
+                0.52
+                + 0.05 * np.cos(rows / 4.0)
+                + 0.04 * np.sin(cols / 3.0)
+            )
+            np.save(depth_path, depth.astype(np.float32))
+            common = {
+                "target_dimension": -1,
+                "z_scale": 10.0,
+                "max_xy_size": 48.0,
+                "sigma": 0.35,
+                "relief_gamma": 1.0,
+                "detail_boost": 0.0,
+                "low_percentile": 0.0,
+                "high_percentile": 100.0,
+                "base_border_px": 1,
+                "minimum_feature_mm": 0.8,
+                "max_relief_slope": 2.0,
+                "face_region_mask": face,
+            }
+
+            depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(root / "whole.stl"),
+                surface_output_path=whole_surface_path,
+                **common,
+            )
+            postprocess = depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(root / "selected.stl"),
+                selection_region_mask=selected,
+                selection_background_depth_ratio=0.65,
+                selection_subject_lock=True,
+                surface_output_path=selected_surface_path,
+                **common,
+            )
+            whole_surface = np.load(whole_surface_path)
+            selected_surface = np.load(selected_surface_path)
+            selected_mesh = trimesh.load_mesh(root / "selected.stl", force="mesh")
+            selected_mesh_is_watertight = bool(selected_mesh.is_watertight)
+            selected_mesh_winding_is_consistent = bool(
+                selected_mesh.is_winding_consistent
+            )
+
+        emitted_selection = np.flip(selected, axis=1)
+        subject_interior = binary_erosion(emitted_selection, iterations=3)
+        self.assertGreater(np.count_nonzero(subject_interior), 100)
+        np.testing.assert_array_equal(
+            selected_surface[subject_interior],
+            whole_surface[subject_interior],
+        )
+        self.assertTrue(postprocess["selection_subject_lock"])
+        self.assertEqual(
+            postprocess["selection_gradient_compression"]["reason"],
+            "subject_surface_locked",
+        )
+        self.assertTrue(
+            postprocess["selection_background_physical_cap"]["emission_passed"]
+        )
+        self.assertTrue(selected_mesh_is_watertight)
+        self.assertTrue(selected_mesh_winding_is_consistent)
 
     def test_selected_surface_appearance_holds_across_physical_sample_pitches(self):
         from backend.benchmark.run_relief_visual_sweep import (

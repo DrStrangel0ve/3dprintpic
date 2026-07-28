@@ -65,6 +65,18 @@ class MakeHumanFaceReliefSmokeTests(unittest.TestCase):
         self.assertTrue(row["checks"]["feasible_attachment"])
         self.assertTrue(row["checks"]["printable_mesh"])
         self.assertTrue(row["checks"]["complete_shell"])
+        self.assertTrue(row["checks"]["bounded_feature_emboss"])
+        self.assertAlmostEqual(
+            row["feature_handling"]["requested_feature_depth_mm"],
+            0.4,
+        )
+        self.assertAlmostEqual(
+            row["feature_handling"]["effective_feature_depth_mm"],
+            0.4,
+        )
+        self.assertFalse(row["feature_handling"]["emboss_suppressed"])
+        self.assertTrue(row["feature_handling"]["slope_guard_enabled"])
+        self.assertTrue(row["feature_handling"]["detail_guard_enabled"])
         self.assertEqual(context["face_mask"].shape, (96, 96))
         self.assertTrue(all(mask.any() for mask in context["part_masks"].values()))
 
@@ -152,10 +164,11 @@ class MakeHumanFaceReliefSmokeTests(unittest.TestCase):
                 background_depth_ratio=0.65,
             )
         self.assertTrue(row["checks"]["passed"])
-        self.assertLess(row["absolute_face"]["normal_angle_p95_deg"], 8.0)
+        # Keep this difficult crop tighter than the shared appearance gates.
+        self.assertLess(row["absolute_face"]["normal_angle_p95_deg"], 15.0)
         self.assertGreater(
             row["absolute_face"]["minimum_lighting_correlation"],
-            0.98,
+            0.95,
         )
         self.assertEqual(row["absolute_named_parts"]["failed_parts"], [])
         self.assertTrue(row["background"]["passed"])

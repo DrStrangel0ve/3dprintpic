@@ -6,9 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "next lint --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "check": "npm run lint && npm run typecheck && npm run test:ui"
   },
   "dependencies": {
     "@ai-sdk/azure": "^0.0.36",

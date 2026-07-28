@@ -7,6 +7,20 @@ interface DepthDataPlotProps {
   initialData: number[][];
 }
 
+const SPECIAL_VALUE = -12345678;
+
+function generateDummyData(rows: number, cols: number): number[][] {
+  return Array.from({ length: rows }, (_, i) =>
+    Array.from({ length: cols }, (_, j) => {
+      const centerX = (cols - 1) / 2;
+      const centerY = (rows - 1) / 2;
+      const distanceFromCenter = Math.sqrt(Math.pow(i - centerY, 2) + Math.pow(j - centerX, 2));
+      const maxDistance = Math.sqrt(Math.pow(centerX, 2) + Math.pow(centerY, 2)) || 1;
+      return (1 - distanceFromCenter / maxDistance) * 100;
+    }),
+  );
+}
+
 const DepthDataPlot: React.FC<DepthDataPlotProps> = ({ initialData }) => {
   const [data, setData] = useState<number[][]>([]);
   const [incrementValue, setIncrementValue] = useState<number>(0.1);
@@ -14,13 +28,12 @@ const DepthDataPlot: React.FC<DepthDataPlotProps> = ({ initialData }) => {
   const [gridRows, setGridRows] = useState<number>(100);
   const [gridCols, setGridCols] = useState<number>(100);
   const fixedGridWidth = 400; // Fixed width in pixels
-  const maxSpread = Math.floor(Math.min(gridRows, gridCols) / 2);
-
-  const SPECIAL_VALUE = -12345678;
+  const maxSpread = Math.max(1, Math.floor(Math.min(gridRows, gridCols) / 2));
 
   const { minValue, maxValue } = useMemo(() => {
     if (data.length === 0) return { minValue: 0, maxValue: 100 };
     const allValues = data.flat().filter(value => value !== SPECIAL_VALUE);
+    if (allValues.length === 0) return { minValue: 0, maxValue: 100 };
     return {
       minValue: Math.min(...allValues),
       maxValue: Math.max(...allValues)
@@ -41,23 +54,9 @@ const DepthDataPlot: React.FC<DepthDataPlotProps> = ({ initialData }) => {
     }
   }, [initialData]);
 
-  const generateDummyData = useCallback((rows: number, cols: number): number[][] => {
-    return Array.from({ length: rows }, (_, i) =>
-      Array.from({ length: cols }, (_, j) => {
-        const centerX = (cols - 1) / 2;
-        const centerY = (rows - 1) / 2;
-        const distanceFromCenter = Math.sqrt(
-          Math.pow(i - centerY, 2) + Math.pow(j - centerX, 2)
-        );
-        const normalizedDistance = distanceFromCenter / (Math.sqrt(Math.pow(centerX, 2) + Math.pow(centerY, 2)));
-        return (1 - normalizedDistance) * 100;
-      })
-    );
-  }, []);
-
   const getColor = useCallback((depth: number): string => {
     if (depth === SPECIAL_VALUE) return 'black';
-    const normalizedDepth = (depth - minValue) / (maxValue - minValue);
+    const normalizedDepth = (depth - minValue) / (maxValue - minValue || 1);
     const hue = normalizedDepth * 240; // Red (0) to Blue (240)
     return `hsl(${hue}, 100%, 50%)`;
   }, [minValue, maxValue]);

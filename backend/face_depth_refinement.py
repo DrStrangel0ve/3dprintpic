@@ -1715,6 +1715,103 @@ def _reconstruct_eyewear_occlusion(
     correction = np.clip(requested_correction, -maximum_correction, maximum_correction)
     candidate = refined.copy()
     candidate[finite] = refined[finite] + correction[finite]
+
+    # Removing the low-frequency eyewear sheet can also erase real frame and
+    # eye-region relief from the face crop. Restore only the high-frequency
+    # residual needed to satisfy the bilateral detail gate; the broad sheet
+    # remains governed by the landmark prior and the correction cap.
+    eye_detail_restoration: dict[str, dict] = {}
+    if eye_masks is not None:
+        detail_sigma_px = 1.0
+        refined_detail = refined - _smooth_nan_aware(refined, detail_sigma_px)
+        refined_detail_gradient = np.hypot(*np.gradient(refined_detail))
+        retention_target = min(
+            float(maximum_eye_detail_retention) - 0.05,
+            max(
+                float(minimum_eye_detail_retention) + 0.05,
+                float(minimum_eye_detail_retention) * 1.10,
+            ),
+        )
+
+        for name in ("left_eye", "right_eye"):
+            raw_mask = eye_masks.get(name)
+            if raw_mask is None:
+                continue
+            eye = np.asarray(raw_mask) > 0
+            if eye.shape != refined.shape:
+                eye = _resize_mask(eye.astype(np.uint8) * 255, refined.shape) > 0
+            metric_eye = cv2.erode(
+                eye.astype(np.uint8), np.ones((3, 3), np.uint8)
+            ) > 0
+            metric_support = metric_eye & finite & (weight > 0.05)
+            samples = int(np.count_nonzero(metric_support))
+            if samples < 12:
+                continue
+
+            before_q95 = float(
+                np.percentile(refined_detail_gradient[metric_support], 95.0)
+            )
+            denominator = max(before_q95, span * 1e-6)
+
+            feathered_eye = cv2.GaussianBlur(
+                eye.astype(np.float32),
+                (0, 0),
+                sigmaX=1.2,
+                sigmaY=1.2,
+            )
+            restoration_support = np.clip(feathered_eye, 0.0, 1.0) * weight
+
+            def restored_candidate(strength: float) -> tuple[np.ndarray, float]:
+                trial = candidate + (
+                    float(strength) * refined_detail * restoration_support
+                )
+                trial = refined + np.clip(
+                    trial - refined,
+                    -maximum_correction,
+                    maximum_correction,
+                )
+                trial_detail = trial - _smooth_nan_aware(trial, detail_sigma_px)
+                trial_gradient = np.hypot(*np.gradient(trial_detail))
+                after_q95 = float(
+                    np.percentile(trial_gradient[metric_support], 95.0)
+                )
+                return trial, after_q95 / denominator
+
+            _, initial_retention = restored_candidate(0.0)
+            selected_strength = 0.0
+            selected_retention = initial_retention
+            if initial_retention < float(minimum_eye_detail_retention):
+                upper_strength = 2.0
+                upper_candidate, upper_retention = restored_candidate(upper_strength)
+                if upper_retention >= retention_target:
+                    lower_strength = 0.0
+                    for _ in range(18):
+                        middle_strength = (lower_strength + upper_strength) * 0.5
+                        _, middle_retention = restored_candidate(middle_strength)
+                        if middle_retention < retention_target:
+                            lower_strength = middle_strength
+                        else:
+                            upper_strength = middle_strength
+                    selected_strength = upper_strength
+                    candidate, selected_retention = restored_candidate(
+                        selected_strength
+                    )
+                else:
+                    selected_strength = upper_strength
+                    candidate = upper_candidate
+                    selected_retention = upper_retention
+
+            eye_detail_restoration[name] = {
+                "samples": samples,
+                "target_gradient_q95_retention": retention_target,
+                "initial_gradient_q95_retention": float(initial_retention),
+                "restoration_strength": float(selected_strength),
+                "final_gradient_q95_retention": float(selected_retention),
+                "applied": bool(selected_strength > 0.0),
+            }
+
+    correction = np.zeros_like(refined)
+    correction[finite] = candidate[finite] - refined[finite]
     output_residual_p95 = float(np.percentile(np.abs(candidate[core] - prior[core]), 95.0))
     output_residual_ratio = output_residual_p95 / span
     residual_reduction = float(1.0 - output_residual_ratio / max(input_residual_ratio, 1e-8))
@@ -1772,6 +1869,7 @@ def _reconstruct_eyewear_occlusion(
                     "after_gradient_q95": after_q95,
                     "gradient_q95_retention": float(retention),
                     "passed": passed,
+                    "restoration": eye_detail_restoration.get(name),
                 }
             )
             eye_detail_retention.append(record)
@@ -1810,6 +1908,14 @@ def _reconstruct_eyewear_occlusion(
             "passed": bool(
                 len(eye_detail_retention) == 2
                 and all(record["passed"] for record in eye_detail_retention)
+            ),
+        },
+        "eye_detail_restoration": {
+            "method": "bounded-high-frequency-eye-residual",
+            "parts": eye_detail_restoration,
+            "applied": any(
+                record.get("applied", False)
+                for record in eye_detail_restoration.values()
             ),
         },
         "quality_gates": {
@@ -2223,6 +2329,7 @@ def refine_depth_for_faces(
     min_face_pixels: int = DEFAULT_MIN_FACE_PIXELS,
     detector: Callable[[np.ndarray], tuple[list[dict], list[str]] | list[dict]] | None = None,
     detection_roi_mask: str | Path | np.ndarray | None = None,
+    detection_image_path: str | Path | None = None,
     infer_surface_residual: Callable | None = None,
     enable_gnm_foundation: bool = True,
 ) -> tuple[str, dict]:
@@ -2250,6 +2357,7 @@ def refine_depth_for_faces(
             "effective": None,
         },
         "selection_roi_detection": {"enabled": False, "reason": "not_provided"},
+        "detection_image": {"mode": "refinement-image"},
     }
     if mode == "off":
         metadata["reason"] = "disabled"
@@ -2265,6 +2373,22 @@ def refine_depth_for_faces(
             raise
         metadata["reason"] = f"input_unavailable:{type(exc).__name__}:{exc}"
         return str(depth_path), metadata
+
+    detection_rgb = image_rgb
+    if detection_image_path is not None:
+        try:
+            candidate_detection_rgb = np.asarray(
+                Image.open(detection_image_path).convert("RGB")
+            )
+            if candidate_detection_rgb.shape != image_rgb.shape:
+                raise ValueError("detection image does not align with refinement image")
+            detection_rgb = candidate_detection_rgb
+            metadata["detection_image"] = {"mode": "selection-neutral-cutout"}
+        except Exception as exc:
+            metadata["detection_image"] = {
+                "mode": "refinement-image-fallback",
+                "error": f"{type(exc).__name__}:detection_image_unavailable",
+            }
 
     roi_mask = None
     if detection_roi_mask is not None:
@@ -2288,7 +2412,7 @@ def refine_depth_for_faces(
                 "error": f"{type(exc).__name__}:selection_roi_mask_unavailable",
             }
 
-    effective_min_face_pixels = _effective_min_face_pixels(image_rgb.shape, min_face_pixels)
+    effective_min_face_pixels = _effective_min_face_pixels(detection_rgb.shape, min_face_pixels)
     metadata["minimum_face_pixels"]["effective"] = int(effective_min_face_pixels)
     request_face_blendshapes = False
     request_facial_transformation_matrixes = False
@@ -2340,7 +2464,7 @@ def refine_depth_for_faces(
             kwargs["output_facial_transformation_matrixes"] = True
         return detect_face_regions(values, **kwargs)
 
-    detection_result = run_detector(image_rgb, max_faces, effective_min_face_pixels)
+    detection_result = run_detector(detection_rgb, max_faces, effective_min_face_pixels)
     if isinstance(detection_result, tuple):
         regions, detector_errors = detection_result
     else:
@@ -2359,7 +2483,7 @@ def refine_depth_for_faces(
             if request_facial_transformation_matrixes:
                 roi_kwargs["output_facial_transformation_matrixes"] = True
             regions, roi_errors, roi_stats = detect_face_regions_in_roi(
-                image_rgb,
+                detection_rgb,
                 roi_mask,
                 **roi_kwargs,
             )
