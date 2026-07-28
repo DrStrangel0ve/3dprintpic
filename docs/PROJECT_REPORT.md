@@ -61,7 +61,6 @@ candidate metadata, where they cannot be mistaken for shipped defaults.
 | --- | --- | --- |
 | Still-image object selection | `facebook/detr-resnet-50-panoptic` | The configured offline click-to-segment route supports cached panoptic precomputation and has end-to-end selection/STL contract coverage. |
 | Photo and scene depth | `depth-anything/Depth-Anything-V2-Large-hf` | It is the verified CUDA path used by the face, background, height, exact-shell, and object-depth regressions. |
-| Known-mask prefill | Bounded biharmonic interpolation | The promoted TripoSG candidate used biharmonic prefill and won all ten paired held-out comparisons while passing every printability gate. |
 | Single-image full mesh | `VAST-AI/TripoSG` | It is the only measured single-image provider promoted on the held-out ten-object STL-quality slice with zero failed checks. |
 | Controlled turntable segmentation | Temporal-prior GrabCut | It is deterministic, offline, and directly covered by the controlled-video mask and STL regressions. |
 | Tracked-video segmentation | `facebook/sam2.1-hiera-tiny` | It is the attached temporal propagation path that fits the local GPU budget; larger/gated checkpoints remain research candidates. |
@@ -73,6 +72,12 @@ candidate metadata, where they cannot be mistaken for shipped defaults.
 
 The exact machine-readable entries, revision pins, reasons, and evidence links
 are returned by `GET /profiles` from `backend/model_profiles.py`.
+
+Image completion is not a production feature. The application preserves
+original source pixels for relief depth, uses a neutral cutout only to guide
+small or occluded face detection, and rejects legacy completion requests.
+Inpainting models, LoRA training, and their measured outcomes remain below as
+research history so model-selection decisions stay reproducible.
 
 ## Main production routes
 

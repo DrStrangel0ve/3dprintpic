@@ -31,6 +31,7 @@ class ModelProfilesApiTest(unittest.TestCase):
             "depth-anything/Depth-Anything-V2-Large-hf",
         )
         self.assertEqual(features["single_image_mesh"]["runtime_id"], "triposg")
+        self.assertNotIn("known_mask_prefill", features)
         self.assertEqual(
             features["turntable_reconstruction"]["runtime_id"],
             "multiview-visual-hull",
@@ -50,6 +51,10 @@ class ModelProfilesApiTest(unittest.TestCase):
         self.assertEqual(full_mesh["mesh_repair_smoothing_iterations"], 2)
         self.assertFalse(full_mesh["mesh_allow_convex_hull_fallback"])
         self.assertEqual(full_mesh["mesh_target_bbox_mode"], "uniform-max")
+        self.assertIn(
+            "does not synthesize or inpaint",
+            selected["routes"]["photo-full-mesh"]["input_policy"],
+        )
         candidates = {candidate["id"]: candidate for candidate in payload["candidates"]}
         self.assertEqual(candidates["pixal3d-detail"]["status"], "provisional")
         self.assertEqual(candidates["trellis2-detail"]["status"], "unbenchmarked")

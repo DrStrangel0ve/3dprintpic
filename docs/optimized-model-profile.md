@@ -29,10 +29,11 @@ meaning of the recommended profile.
 ## Why these settings won
 
 The single-image comparison used the same ten held-out ModelNet rows for every
-method. TripoSG with biharmonic prefill, inferred shape scaling, adaptive mesh
-complexity, and printable repair won all ten paired comparisons against both
-the masked baseline and the previous mirror-depth path. All ten outputs passed
-the complete STL gate set.
+method. The historical winning experiment paired TripoSG with biharmonic
+prefill, inferred shape scaling, adaptive mesh complexity, and printable
+repair. It won all ten paired comparisons against both the masked baseline and
+the previous mirror-depth path, and all ten outputs passed the complete STL
+gate set.
 
 | Single-image method | Rank score | Chamfer median | H95 median | Median faces |
 | --- | ---: | ---: | ---: | ---: |
@@ -41,9 +42,11 @@ the complete STL gate set.
 | TripoSG, mirror prefill | `0.5623` | `0.1652` | `0.4234` | `10,677` |
 | Mirror depth relief | `0.1992` | `0.1593` | `0.4768` | `36,860` |
 
-For known missing-region masks, biharmonic prefill remains the preferred input
-preparation. For normal user photos without such a mask, the live route keeps
-the selected object intact and neutralizes only the background.
+The production application no longer runs image completion or inpainting.
+Selection preserves every chosen source pixel, neutralizes only the preview
+background, and keeps the untouched original scene as the depth source.
+Biharmonic and learned completion results remain benchmark history rather than
+shipping preprocessing.
 
 The multiview sweep compared resolutions `32`, `36`, and `40` on the same ten
 objects. Resolution `32` achieved the best aggregate score and lowest mesh

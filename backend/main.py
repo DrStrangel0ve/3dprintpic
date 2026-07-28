@@ -21,7 +21,6 @@ from tempfile import NamedTemporaryFile
 from urllib.parse import urlparse
 try:
     from .pic_to_3d import (
-        MODERN_INPAINT_MODELS,
         complete_image,
         complete_selection_context_with_modern_inpaint,
         compose_selection_depth_with_context,
@@ -41,7 +40,6 @@ except ImportError:  # pragma: no cover - supports running uvicorn from backend/
     if __package__:
         raise
     from pic_to_3d import (
-        MODERN_INPAINT_MODELS,
         complete_image,
         complete_selection_context_with_modern_inpaint,
         compose_selection_depth_with_context,
@@ -1613,6 +1611,15 @@ async def compose_selected_objects(
         raise HTTPException(status_code=400, detail=f"Invalid mask paths JSON: {exc}") from exc
     if not isinstance(mask_paths, list) or not all(isinstance(path, str) for path in mask_paths):
         raise HTTPException(status_code=400, detail="Mask paths must be a JSON list of strings")
+    normalized_infill_mode = str(selection_infill_mode or "none").strip().lower()
+    if normalized_infill_mode != "none":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Selection infill is not available in the production application; "
+                "reapply the selection without image completion"
+            ),
+        )
 
     job_id = uuid4().hex
     job_dir = OUTPUT_DIR / "selection" / job_id
@@ -1738,15 +1745,6 @@ async def process_image(
     high_percentile: float = Form(99.0),
     base_border_px: int = Form(2),
     completion_mode: str = Form("none"),
-    completion_provider: str = Form("mirror"),
-    completion_prompt: str | None = Form(None),
-    completion_model: str | None = Form(None),
-    completion_lora_weights: str | None = Form(None),
-    completion_lora_scale: float | None = Form(None),
-    completion_steps: int = Form(24),
-    completion_guidance: float | None = Form(None),
-    completion_seed: int | None = Form(None),
-    completion_inpaint_max_dimension: int = Form(768),
     face_refinement_mode: str = Form("auto"),
     face_detail_strength: float = Form(DEFAULT_FACE_DETAIL_STRENGTH),
     face_feather_ratio: float = Form(DEFAULT_FACE_FEATHER_RATIO),
@@ -1771,6 +1769,20 @@ async def process_image(
             if str(selection_job_id or "").strip()
             else None
         )
+        if (
+            selection_job is not None
+            and str(
+                selection_job["metadata"].get("selection_infill_mode") or "none"
+            ).strip().lower()
+            != "none"
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "This selection was created with removed image completion. "
+                    "Reapply the object selection before generating the STL"
+                ),
+            )
         resolved_selection_mode = str(selection_mode or "context").strip().lower()
         if resolved_selection_mode not in {"context", "isolate"}:
             raise HTTPException(
@@ -1782,10 +1794,14 @@ async def process_image(
                 status_code=400,
                 detail="Selection isolate mode requires a composed selection job",
             )
-        if selection_job and completion_mode not in ("", "none"):
+        resolved_completion_mode = str(completion_mode or "none").strip().lower()
+        if resolved_completion_mode not in ("", "none"):
             raise HTTPException(
                 status_code=400,
-                detail="Image completion and object-selection context cannot be combined in one relief run",
+                detail=(
+                    "Image completion is not available in the production relief route; "
+                    "depth is estimated from the original source pixels"
+                ),
             )
         if selection_job is None:
             upload_suffix = Path(file.filename or "").suffix or ".jpg"
@@ -1809,7 +1825,7 @@ async def process_image(
             image_input_path = str(selection_crop["selected_path"])
         else:
             image_input_path = (
-                str(selection_job["selected_path"])
+                str(selection_job["source_path"])
                 if selection_job
                 else str(normalized_input_path)
             )
@@ -1822,26 +1838,9 @@ async def process_image(
             selected_model,
             device,
         )
-        stage_started = time.perf_counter()
-        completed_image_path, applied_completion_mode = complete_image(
-            image_input_path,
-            output_dir=str(job_dir),
-            mode=completion_mode,
-            provider=completion_provider,
-            prompt=completion_prompt,
-            model_name=completion_model,
-            lora_weights=completion_lora_weights,
-            lora_scale=completion_lora_scale,
-            device=device,
-            num_inference_steps=completion_steps,
-            guidance_scale=completion_guidance,
-            seed=completion_seed,
-            inpaint_max_dimension=completion_inpaint_max_dimension,
-        )
-        record_timing("completion_seconds", stage_started)
-        image_for_depth = completed_image_path
-        # The edited artifact drives global and local depth. Selection jobs may
-        # provide a detector-only cutout so background infill cannot suppress a face.
+        image_for_depth = image_input_path
+        # Context selections keep the original scene for depth and face geometry.
+        # The selected artifact is only an isolated preview/input for isolate mode.
         depth_inference_source = image_for_depth
         face_refinement_source = image_for_depth
         face_detection_source = None
@@ -1954,7 +1953,7 @@ async def process_image(
                     "source_fingerprint": selection_job["metadata"].get("source_fingerprint"),
                     "selection_mask": output_relative_path(selection_region_mask_path),
                     "depth_file": Path(depth_data_path).name,
-                    "depth_source": "selection_edited_image",
+                    "depth_source": "selection_original_source",
                     "depth_source_file": output_relative_path(depth_inference_source),
                     "background_depth_ratio": float(selection_background_depth_ratio),
                     "mask_pixels": int(np.count_nonzero(selection_mask)),
@@ -2006,7 +2005,7 @@ async def process_image(
                         "source_fingerprint": selection_job["metadata"].get("source_fingerprint"),
                         "selection_mask": output_relative_path(selection_region_mask_path),
                         "depth_file": selected_context_depth_path.name,
-                        "depth_source": "selection_edited_image",
+                        "depth_source": "selection_original_source",
                         "depth_source_file": output_relative_path(depth_inference_source),
                         "preview_file": "output_depth_selected_context_preview.png",
                     }
@@ -2181,16 +2180,10 @@ async def process_image(
             "low_percentile": low_percentile,
             "high_percentile": high_percentile,
             "base_border_px": base_border_px,
-            "completion_mode": completion_mode,
-            "completion_provider": completion_provider,
-            "completion_model": completion_model,
-            "completion_lora_weights": completion_lora_weights,
-            "completion_lora_scale": completion_lora_scale,
-            "completion_steps": completion_steps,
-            "completion_guidance": completion_guidance,
-            "completion_seed": completion_seed,
-            "completion_inpaint_max_dimension": completion_inpaint_max_dimension,
-            "applied_completion_mode": applied_completion_mode,
+            "image_completion": {
+                "enabled": False,
+                "policy": "original-source-pixels-only",
+            },
             "face_refinement_mode": face_refinement_mode,
             "face_detail_strength": face_detail_strength,
             "face_feather_ratio": face_feather_ratio,
@@ -2207,12 +2200,6 @@ async def process_image(
         depth_relative_path = output_relative_path(depth_data_path)
         stl_relative_path = output_relative_path(stl_path)
         diagnostics_relative_path = output_relative_path(diagnostics_path)
-        completed_image_relative_path = (
-            output_relative_path(completed_image_path)
-            if completed_image_path and applied_completion_mode
-            else None
-        )
-        
         # Return paths to the generated files
         response = {
             **metadata,
@@ -2224,9 +2211,6 @@ async def process_image(
             "diagnostics_url": f"/diagnostics/{diagnostics_relative_path}",
             "stl_diagnostics": diagnostics,
         }
-        if completed_image_relative_path:
-            response["completed_image"] = completed_image_relative_path
-            response["completed_image_url"] = f"/depth_data/{completed_image_relative_path}"
         return response
     except HTTPException:
         raise
@@ -2576,44 +2560,6 @@ def sanitize_float(x):
     return float(x)
 
 
-def completion_provider_rows() -> list[dict]:
-    notes = {
-        "sdxl-inpaint": "Public SDXL inpainting checkpoint. Practical middle tier for a 12 GB GPU when run at 384-512 px with fp16 and CPU offload.",
-        "dreamshaper-inpaint": "Public SD1.5-style inpainting checkpoint. Smaller fp16 footprint than SDXL and useful as the first learned baseline to beat mirror/biharmonic.",
-        "amused-inpaint": "Small public masked-token inpainting model. Useful as a fast non-diffusion learned baseline against mirror/biharmonic.",
-        "flux-fill": "Modern rectified-flow inpainting/outpainting model. Large and may require Hugging Face access plus CPU offload.",
-        "qwen-image-inpaint": "Qwen Image model through the Diffusers inpaint pipeline. Large; preserves visible pixels after generation.",
-        "qwen-image-edit": "Official Qwen Image Edit pipeline prompted to fill the blank half. Large; visible pixels are restored after generation.",
-    }
-    rows = [
-        {
-            "id": "mirror",
-            "label": "Mirror prior",
-            "local": True,
-            "gpu_supported": False,
-            "notes": "Fast geometric symmetry prior. No diffusion model.",
-        },
-        {
-            "id": "mirror-seam-repair",
-            "label": "Mirror seam repair",
-            "local": True,
-            "gpu_supported": False,
-            "notes": "Experimental fast mirror prior with a small classical inpaint repair band along the generated seam. Benchmark before making it the default.",
-        }
-    ]
-    for provider_id, provider in MODERN_INPAINT_MODELS.items():
-        rows.append(
-            {
-                "id": provider_id,
-                "label": provider["label"],
-                "model": provider["model"],
-                "local": True,
-                "gpu_supported": True,
-                "notes": notes.get(provider_id, "Modern diffusion-based completion provider."),
-            }
-        )
-    return rows
-
 @app.get("/depth_data_downsampled/{file_path:path}")
 async def get_depth_data_downsampled(file_path: str):
     resolved_path = resolve_output_file(file_path, (".npy",))
@@ -2767,29 +2713,6 @@ async def get_models():
                 "gpu_supported": False,
             },
         ],
-        "completion_modes": [
-            {
-                "id": "none",
-                "label": "No completion",
-                "notes": "Estimate depth only from the input pixels.",
-            },
-            {
-                "id": "mirror-auto",
-                "label": "Auto mirror completion",
-                "notes": "Mirror the visually richer half across the center before depth estimation.",
-            },
-            {
-                "id": "mirror-left-to-right",
-                "label": "Mirror left to right",
-                "notes": "Use the left half to synthesize the right half.",
-            },
-            {
-                "id": "mirror-right-to-left",
-                "label": "Mirror right to left",
-                "notes": "Use the right half to synthesize the left half.",
-            },
-        ],
-        "completion_providers": completion_provider_rows(),
     }
 
 if __name__ == "__main__":

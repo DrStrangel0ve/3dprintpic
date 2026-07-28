@@ -148,6 +148,8 @@ EYEWEAR_MINIMUM_COMPONENT_COVERAGE = 0.45
 EYEWEAR_MINIMUM_COMPONENT_WIDTH_RATIO = 0.60
 EYEWEAR_ACCESSORY_RESIDUAL_RATIO = 0.02
 EYEWEAR_MAXIMUM_CORRECTION_RATIO = 0.15
+EYEWEAR_SHAPE_PRIOR_MIN_CONFIDENCE = 0.70
+EYEWEAR_SHAPE_PRIOR_CORRECTION_LIMIT_SCALE = 0.75
 
 
 def _clamp_box(box, width: int, height: int) -> tuple[int, int, int, int]:
@@ -1488,6 +1490,8 @@ def _fuse_face_landmark_shape_prior_with_context(
     max_correction_ratio: float = DEFAULT_FACE_MAX_CORRECTION_RATIO,
     minimum_abs_correlation: float = 0.15,
     maximum_yaw_proxy: float = 0.32,
+    minimum_confidence_weight: float = 0.0,
+    correction_limit_scale: float = 0.50,
 ) -> tuple[np.ndarray, np.ndarray, dict, dict | None]:
     """Fuse a gated coarse face prior while preserving the generic depth map."""
     global_depth = np.asarray(global_depth, dtype=np.float32)
@@ -1587,15 +1591,29 @@ def _fuse_face_landmark_shape_prior_with_context(
     aligned_prior = prior * scale + offset
     correction = aligned_prior - global_coarse
     correction -= float(np.median(correction[stable]))
-    correction_limit = reference_span * max(0.0, float(max_correction_ratio)) * 0.50
+    resolved_minimum_confidence = float(
+        np.clip(minimum_confidence_weight, 0.0, 1.0)
+    )
+    resolved_correction_limit_scale = float(
+        np.clip(correction_limit_scale, 0.0, 1.0)
+    )
+    correction_limit = (
+        reference_span
+        * max(0.0, float(max_correction_ratio))
+        * resolved_correction_limit_scale
+    )
     correction = np.clip(correction, -correction_limit, correction_limit)
-    confidence_weight = float(
+    unfloored_confidence_weight = float(
         np.clip(
             (abs(correlation) - float(minimum_abs_correlation))
             / max(0.60 - float(minimum_abs_correlation), 1e-6),
             0.0,
             1.0,
         )
+    )
+    confidence_weight = max(
+        unfloored_confidence_weight,
+        resolved_minimum_confidence,
     )
     correction = (
         np.nan_to_num(correction, nan=0.0, posinf=0.0, neginf=0.0)
@@ -1611,6 +1629,11 @@ def _fuse_face_landmark_shape_prior_with_context(
         "method": "mediapipe-relative-z-coarse-prior",
         "correlation": correlation,
         "confidence_weight": confidence_weight,
+        "confidence_weight_unfloored": unfloored_confidence_weight,
+        "minimum_confidence_weight": resolved_minimum_confidence,
+        "confidence_floor_applied": bool(
+            confidence_weight > unfloored_confidence_weight + 1e-8
+        ),
         "minimum_abs_correlation": float(minimum_abs_correlation),
         "yaw_proxy": float(yaw_proxy),
         "maximum_yaw_proxy": float(maximum_yaw_proxy),
@@ -1619,6 +1642,7 @@ def _fuse_face_landmark_shape_prior_with_context(
         "coarse_sigma_px": coarse_sigma_px,
         "feather_px": float(feather_px),
         "correction_limit": float(correction_limit),
+        "correction_limit_scale": resolved_correction_limit_scale,
         "max_abs_correction": float(np.max(np.abs(correction))),
         "mean_abs_correction": float(np.mean(np.abs(correction[face_binary]))),
         "boundary_max_abs_correction": float(np.max(np.abs(correction[boundary]))) if np.any(boundary) else 0.0,
@@ -1642,6 +1666,8 @@ def fuse_face_landmark_shape_prior(
     max_correction_ratio: float = DEFAULT_FACE_MAX_CORRECTION_RATIO,
     minimum_abs_correlation: float = 0.15,
     maximum_yaw_proxy: float = 0.32,
+    minimum_confidence_weight: float = 0.0,
+    correction_limit_scale: float = 0.50,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     refined, weight, stats, _ = _fuse_face_landmark_shape_prior_with_context(
         global_depth,
@@ -1653,6 +1679,8 @@ def fuse_face_landmark_shape_prior(
         max_correction_ratio=max_correction_ratio,
         minimum_abs_correlation=minimum_abs_correlation,
         maximum_yaw_proxy=maximum_yaw_proxy,
+        minimum_confidence_weight=minimum_confidence_weight,
+        correction_limit_scale=correction_limit_scale,
     )
     return refined, weight, stats
 
@@ -2702,6 +2730,16 @@ def refine_depth_for_faces(
                         landmarks_xyz[:, 2],
                         feather_ratio=feather_ratio,
                         max_correction_ratio=max_correction_ratio,
+                        minimum_confidence_weight=(
+                            EYEWEAR_SHAPE_PRIOR_MIN_CONFIDENCE
+                            if eyewear_detection_stats.get("enabled")
+                            else 0.0
+                        ),
+                        correction_limit_scale=(
+                            EYEWEAR_SHAPE_PRIOR_CORRECTION_LIMIT_SCALE
+                            if eyewear_detection_stats.get("enabled")
+                            else 0.50
+                        ),
                     )
                 except Exception as exc:
                     shape_prior_stats = {

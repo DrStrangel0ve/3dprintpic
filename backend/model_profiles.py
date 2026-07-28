@@ -59,18 +59,6 @@ MODEL_PROFILES = (
                 ),
                 "evidence": "docs/relief-face-context-v2.md",
             },
-            "known_mask_prefill": {
-                "model": "bounded biharmonic interpolation",
-                "runtime_id": "biharmonic-prefill",
-                "reason": (
-                    "The promoted TripoSG lane used biharmonic prefill and won all ten paired "
-                    "comparisons while every per-sample printability gate passed."
-                ),
-                "evidence": (
-                    "docs/benchmark-evidence/"
-                    "g4_stl_first_triposg_inferred_adaptive_s40_n10"
-                ),
-            },
             "single_image_mesh": {
                 "model": DEFAULT_TRIPOSG_MODEL,
                 "runtime_id": "triposg",
@@ -168,9 +156,9 @@ MODEL_PROFILES = (
                     "triposg_model_revision": DEFAULT_TRIPOSG_MODEL_REVISION,
                     "triposg_rembg_revision": DEFAULT_TRIPOSG_REMBG_REVISION,
                 },
-                "preprocessing_recommendation": (
-                    "Use biharmonic prefill when a known missing-region mask exists; otherwise preserve "
-                    "the selected object and neutralize only its background."
+                "input_policy": (
+                    "Preserve every selected source pixel and neutralize only the background. "
+                    "The production route does not synthesize or inpaint missing image regions."
                 ),
                 "evidence_status": "verified-benchmark-core",
             },

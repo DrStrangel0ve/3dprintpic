@@ -105,6 +105,16 @@ feature enhancement and the later maximum-filter bridge. The hard exclusion
 is applied after those operations expand their support, so they cannot stamp
 the lens sheet back into the STL.
 
+Accepted opaque eyewear also changes how the coarse shape prior is calibrated.
+Eyewear can lower agreement with the generic depth precisely because the
+generic estimate has collapsed the lens region into a sheet. After the same
+contour, yaw, finite-span, and `0.15` correlation gates pass, the shape-prior
+confidence therefore has a `0.70` floor and its correction-cap scale increases
+from `0.50` to `0.75`. The configured `0.08` face-range cap, feathered
+zero-boundary blend, and all deocclusion quality gates still apply. Ordinary
+faces and rejected eyewear detections retain the previous calibration
+bit-for-bit.
+
 The privacy-held two-face replay at 30 mm accepted both opaque eyewear regions.
 Prior residual fell by `64.86%` and `60.51%`; cap saturation was `0%` and
 `0.41%`. The regenerated STL retained the same `258,864` triangles,
@@ -112,6 +122,21 @@ Prior residual fell by `64.86%` and `60.51%`; cap saturation was `0%` and
 zero degenerate faces. Only aggregate evidence is committed under
 `docs/benchmark-evidence/face_eyewear_occlusion_local`; the personal source,
 crops, masks, renders, depth arrays, and STLs remain local and ignored.
+
+The final source-preservation replay fixed a later regression where context
+selection fed an interpolated canvas into global depth. It now uses the
+checksum-verified original scene for depth, face refinement, and photo detail,
+while a source-derived neutral cutout with a `1.5`-pixel feathered mask edge is
+detector-only. Both faces were
+recovered. The weak face's coarse-shape maximum correction increased from
+`0.004470` to `0.018363` normalized depth (`4.109x`); the second increased from
+`0.010719` to `0.018270` (`1.704x`). Final minimum component face-detail
+correlation/RMS retention were `0.954011` / `0.815322`. Background depth
+correlation, RMS retention, and gradient correlation were `0.999967`,
+`0.999854`, and `0.995648`. The 30 mm result emitted one watertight, manifold,
+consistently wound volume with zero degenerates. Aggregate evidence is under
+`docs/benchmark-evidence/face_source_preservation_eyewear_20260728`; no private
+photo or derived artifact is committed.
 
 ## Reliefs Above 12 mm
 

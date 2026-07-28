@@ -83,6 +83,27 @@ class MainStlContractTest(unittest.TestCase):
             "linear",
         )
 
+    def test_models_catalog_does_not_expose_image_completion(self):
+        response = TestClient(main_module.app).get("/models")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertNotIn("completion_modes", payload)
+        self.assertNotIn("completion_providers", payload)
+
+    def test_process_image_rejects_legacy_completion_before_inference(self):
+        response = TestClient(main_module.app).post(
+            "/process_image",
+            files={"file": ("source.png", self.png_bytes(), "image/png")},
+            data={"completion_mode": "mirror-auto"},
+        )
+
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn(
+            "not available in the production relief route",
+            response.json()["detail"],
+        )
+
     def test_relief_invert_tracks_effective_depth_model_semantics(self):
         self.assertTrue(
             main_module.relief_invert_for_model("apple/DepthPro-hf", "raised-print", requested_invert=False)
@@ -278,7 +299,7 @@ class MainStlContractTest(unittest.TestCase):
                 )
                 self.assertEqual(response.status_code, 422, response.text)
 
-    def test_process_image_uses_trusted_edited_selection_for_image_stages(self):
+    def test_process_image_uses_original_selection_source_for_context_image_stages(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_root = Path(temp_dir) / "output"
             mask_dir = output_root / "selection" / "fixture"
@@ -411,15 +432,15 @@ class MainStlContractTest(unittest.TestCase):
             payload = response.json()
             self.assertEqual(
                 inferred_pixels,
-                [((245, 245, 245), (200, 40, 20))],
+                [((70, 80, 90), (200, 40, 20))],
             )
             self.assertEqual(
                 refined_pixels,
-                [((245, 245, 245), (200, 40, 20))],
+                [((70, 80, 90), (200, 40, 20))],
             )
             self.assertEqual(
                 mesh_source_pixels,
-                [((245, 245, 245), (200, 40, 20))],
+                [((70, 80, 90), (200, 40, 20))],
             )
             self.assertEqual(
                 refinement_roi_masks,
@@ -442,11 +463,11 @@ class MainStlContractTest(unittest.TestCase):
             )
             self.assertEqual(
                 payload["selection_depth_context"]["depth_source"],
-                "selection_edited_image",
+                "selection_original_source",
             )
             self.assertTrue(
                 payload["selection_depth_context"]["depth_source_file"].endswith(
-                    "selected_image.png"
+                    "source.png"
                 )
             )
             self.assertEqual(payload["selection_depth_context"]["background_depth_ratio"], 0.65)
@@ -648,6 +669,64 @@ class MainStlContractTest(unittest.TestCase):
             self.assertEqual(response.status_code, 409, response.text)
             self.assertIn("provenance", response.json()["detail"])
 
+    def test_process_image_rejects_legacy_infilled_selection_job(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "output"
+            mask_dir = output_root / "selection" / "fixture"
+            mask_dir.mkdir(parents=True)
+            Image.new("L", (32, 24), 255).save(
+                mask_dir / "selection_mask.png"
+            )
+
+            with patch.object(main_module, "OUTPUT_DIR", output_root):
+                client = TestClient(main_module.app)
+                compose_response = client.post(
+                    "/selection/compose",
+                    files={
+                        "file": (
+                            "source.png",
+                            self.png_bytes(),
+                            "image/png",
+                        )
+                    },
+                    data={
+                        "mask_paths_json": json.dumps(
+                            ["selection/fixture/selection_mask.png"]
+                        )
+                    },
+                )
+                self.assertEqual(
+                    compose_response.status_code,
+                    200,
+                    compose_response.text,
+                )
+                payload = compose_response.json()
+                metadata_path = output_root / payload["metadata"]
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                metadata["selection_infill_mode"] = "clean-context"
+                metadata_path.write_text(
+                    json.dumps(metadata),
+                    encoding="utf-8",
+                )
+
+                response = client.post(
+                    "/process_image",
+                    files={
+                        "file": (
+                            "source.png",
+                            self.png_bytes(),
+                            "image/png",
+                        )
+                    },
+                    data={"selection_job_id": payload["job_id"]},
+                )
+
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn(
+            "created with removed image completion",
+            response.json()["detail"],
+        )
+
     def test_process_image_isolate_mode_crops_before_depth_and_masks_mesh_surface(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_root = Path(temp_dir) / "output"
@@ -789,7 +868,7 @@ class MainStlContractTest(unittest.TestCase):
             self.assertEqual(payload["selection_crop"]["crop_size"], [56, 46])
             self.assertTrue(payload["depth_data"].endswith("output_depth_data_selected_isolate.npy"))
 
-    def test_process_image_normalizes_exif_orientation_for_every_image_stage(self):
+    def test_process_image_normalizes_exif_orientation_and_skips_completion(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_root = Path(temp_dir) / "output"
             observed_sizes = {"completion": [], "depth": [], "face": [], "mesh": []}
@@ -855,7 +934,7 @@ class MainStlContractTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(observed_sizes, {
-                "completion": [(12, 24)],
+                "completion": [],
                 "depth": [(12, 24)],
                 "face": [(12, 24)],
                 "mesh": [(12, 24)],
@@ -1211,7 +1290,7 @@ class MainStlContractTest(unittest.TestCase):
         self.assertEqual(payload["background_mode"], "black")
         self.assertGreater(payload["mask_pixels"], 0)
 
-    def test_selection_compose_structural_context_fills_only_small_holes(self):
+    def test_structural_context_research_helper_fills_only_small_holes(self):
         width, height = 96, 72
         source_values = np.zeros((height, width, 3), dtype=np.uint8)
         source_values[..., 0] = np.arange(width, dtype=np.uint8)[None, :] * 2
@@ -1219,60 +1298,30 @@ class MainStlContractTest(unittest.TestCase):
         source_values[..., 2] = 80
         source_values[::2, ::2, 2] = 220
         source = Image.fromarray(source_values, mode="RGB")
-        source_buffer = BytesIO()
-        source.save(source_buffer, format="PNG")
-
         mask_values = np.zeros((height, width), dtype=np.uint8)
         mask_values[6:66, 8:88] = 255
         mask_values[28:30, 30:32] = 0
         mask_values[36:48, 54:66] = 0
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_dir = Path(temp_dir) / "output"
-            mask_path = output_dir / "selection" / "fixture" / "selection_mask.png"
-            mask_path.parent.mkdir(parents=True, exist_ok=True)
-            Image.fromarray(mask_values, mode="L").save(mask_path)
-            with patch.object(main_module, "OUTPUT_DIR", output_dir):
-                client = TestClient(main_module.app)
-                response = client.post(
-                    "/selection/compose",
-                    files={"file": ("scene.png", source_buffer.getvalue(), "image/png")},
-                    data={
-                        "mask_paths_json": json.dumps(
-                            ["selection/fixture/selection_mask.png"]
-                        ),
-                        "selection_infill_mode": "structural-context",
-                    },
-                )
-                self.assertEqual(response.status_code, 200, response.text)
-                payload = response.json()
-                with Image.open(output_dir / payload["selected_image"]) as selected_image:
-                    selected_values = np.asarray(selected_image.convert("RGB"))
-                with Image.open(output_dir / payload["mask"]) as final_mask_image:
-                    final_mask = np.asarray(final_mask_image.convert("L")) > 0
-                resolved_job = main_module.resolve_selection_compose_job(
-                    payload["job_id"]
-                )
-
-        self.assertEqual(payload["selection_infill_mode"], "structural-context")
-        self.assertEqual(
-            payload["face_detection_source"],
-            "neutral-selection-cutout",
+        selected_image, final_mask_image, infill = main_module.compose_selected_image(
+            source,
+            Image.fromarray(mask_values, mode="L"),
+            background_mode="neutral",
+            selection_infill_mode="structural-context",
         )
-        self.assertEqual(
-            resolved_job["face_detection_path"].name,
-            "selection_face_detection.png",
-        )
-        self.assertTrue(payload["selection_infill"]["enabled"])
-        self.assertEqual(payload["selection_infill"]["filled_hole_pixels"], 4)
-        self.assertTrue(payload["selection_infill"]["selected_core_exact"])
-        self.assertTrue(payload["selection_infill"]["selected_pixels_exact"])
+        selected_values = np.asarray(selected_image.convert("RGB"))
+        final_mask = np.asarray(final_mask_image.convert("L")) > 0
+
+        self.assertEqual(infill["mode"], "structural-context")
+        self.assertTrue(infill["enabled"])
+        self.assertEqual(infill["filled_hole_pixels"], 4)
+        self.assertTrue(infill["selected_core_exact"])
+        self.assertTrue(infill["selected_pixels_exact"])
         self.assertTrue(final_mask[28:30, 30:32].all())
         self.assertFalse(final_mask[36:48, 54:66].any())
         np.testing.assert_array_equal(selected_values[final_mask], source_values[final_mask])
         self.assertFalse(np.array_equal(selected_values[0, 0], np.array([245, 245, 245])))
 
-    def test_selection_compose_clean_context_discards_removed_source_detail(self):
+    def test_clean_context_research_helper_discards_removed_source_detail(self):
         width, height = 96, 72
         rows, cols = np.indices((height, width))
         source_values = np.zeros((height, width, 3), dtype=np.uint8)
@@ -1281,42 +1330,22 @@ class MainStlContractTest(unittest.TestCase):
         source_values[..., 2] = np.where(rows % 3 == 0, 230, 25)
         source_values[28:30, 30:32] = np.array([0, 255, 0], dtype=np.uint8)
         source = Image.fromarray(source_values, mode="RGB")
-        source_buffer = BytesIO()
-        source.save(source_buffer, format="PNG")
-
         mask_values = np.zeros((height, width), dtype=np.uint8)
         mask_values[6:66, 8:88] = 255
         mask_values[28:30, 30:32] = 0
         mask_values[36:48, 54:66] = 0
         original_selected = mask_values > 0
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_dir = Path(temp_dir) / "output"
-            mask_path = output_dir / "selection" / "fixture" / "selection_mask.png"
-            mask_path.parent.mkdir(parents=True, exist_ok=True)
-            Image.fromarray(mask_values, mode="L").save(mask_path)
-            with patch.object(main_module, "OUTPUT_DIR", output_dir):
-                client = TestClient(main_module.app)
-                response = client.post(
-                    "/selection/compose",
-                    files={"file": ("scene.png", source_buffer.getvalue(), "image/png")},
-                    data={
-                        "mask_paths_json": json.dumps(
-                            ["selection/fixture/selection_mask.png"]
-                        ),
-                        "selection_infill_mode": "clean-context",
-                    },
-                )
-                self.assertEqual(response.status_code, 200, response.text)
-                payload = response.json()
-                with Image.open(output_dir / payload["selected_image"]) as selected_image:
-                    selected_values = np.asarray(selected_image.convert("RGB"))
-                with Image.open(output_dir / payload["mask"]) as final_mask_image:
-                    final_mask = np.asarray(final_mask_image.convert("L")) > 0
+        selected_image, final_mask_image, infill = main_module.compose_selected_image(
+            source,
+            Image.fromarray(mask_values, mode="L"),
+            background_mode="neutral",
+            selection_infill_mode="clean-context",
+        )
+        selected_values = np.asarray(selected_image.convert("RGB"))
+        final_mask = np.asarray(final_mask_image.convert("L")) > 0
 
-        infill = payload["selection_infill"]
-        self.assertEqual(payload["selection_infill_mode"], "clean-context")
-        self.assertEqual(payload["face_detection_source"], "neutral-selection-cutout")
+        self.assertEqual(infill["mode"], "clean-context")
         self.assertTrue(infill["source_free"])
         self.assertFalse(infill["excluded_source_pixels_used"])
         self.assertEqual(infill["filled_hole_pixels"], 4)
@@ -1337,7 +1366,7 @@ class MainStlContractTest(unittest.TestCase):
         )
         self.assertFalse(np.array_equal(selected_values[0, 0], source_values[0, 0]))
 
-    def test_selection_compose_rejects_unknown_infill_mode(self):
+    def test_selection_compose_rejects_removed_and_unknown_infill_modes(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir) / "output"
             mask_path = output_dir / "selection" / "fixture" / "selection_mask.png"
@@ -1345,19 +1374,34 @@ class MainStlContractTest(unittest.TestCase):
             Image.new("L", (32, 24), 255).save(mask_path)
             with patch.object(main_module, "OUTPUT_DIR", output_dir):
                 client = TestClient(main_module.app)
-                response = client.post(
-                    "/selection/compose",
-                    files={"file": ("object.png", self.png_bytes(), "image/png")},
-                    data={
-                        "mask_paths_json": json.dumps(
-                            ["selection/fixture/selection_mask.png"]
-                        ),
-                        "selection_infill_mode": "invented",
-                    },
-                )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Unsupported selection infill mode", response.json()["detail"])
+                for mode in (
+                    "structural-context",
+                    "clean-context",
+                    "generative-context",
+                    "invented",
+                ):
+                    with self.subTest(mode=mode):
+                        response = client.post(
+                            "/selection/compose",
+                            files={
+                                "file": (
+                                    "object.png",
+                                    self.png_bytes(),
+                                    "image/png",
+                                )
+                            },
+                            data={
+                                "mask_paths_json": json.dumps(
+                                    ["selection/fixture/selection_mask.png"]
+                                ),
+                                "selection_infill_mode": mode,
+                            },
+                        )
+                        self.assertEqual(response.status_code, 400)
+                        self.assertIn(
+                            "Selection infill is not available",
+                            response.json()["detail"],
+                        )
 
     def test_selection_compose_rejects_empty_mask_list(self):
         with tempfile.TemporaryDirectory() as temp_dir:

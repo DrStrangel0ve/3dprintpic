@@ -516,6 +516,89 @@ class FaceDepthRefinementTest(unittest.TestCase):
         self.assertEqual(stats["reason"], "eyewear_detection_gate")
         self.assertEqual(float(np.max(weight)), 0.0)
 
+    def test_eyewear_detection_controls_production_shape_prior_calibration(self):
+        def run_pipeline(*, with_eyewear: bool):
+            with tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                image_path = root / "portrait.png"
+                depth_path = root / "depth.npy"
+                image = np.full((128, 128, 3), 210, dtype=np.uint8)
+                if with_eyewear:
+                    image[38:63, 25:103] = 24
+                Image.fromarray(image).save(image_path)
+
+                yy, xx = np.indices((64, 64), dtype=np.float32)
+                depth = 0.30 + 0.0012 * xx + 0.0004 * yy
+                depth += gaussian_peak((64, 64), (32, 32), 9.0, 0.025)
+                np.save(depth_path, depth.astype(np.float32))
+
+                points = self._synthetic_eyewear_landmarks()
+                px = (points[:, 0] - 64.0) / 39.0
+                py = (points[:, 1] - 64.0) / 51.0
+                relative_z = -np.exp(-(px**2 + py**2) / 0.70)
+                landmarks_xyz = np.column_stack(
+                    (
+                        points[:, 0] / 127.0,
+                        points[:, 1] / 127.0,
+                        relative_z,
+                    )
+                ).astype(np.float32)
+                face_mask, feature_mask = face_masks_from_box(
+                    image.shape,
+                    (20, 8, 108, 120),
+                )
+
+                def detector(_image):
+                    return [{
+                        "bbox": [20, 8, 108, 120],
+                        "face_mask": face_mask,
+                        "feature_mask": feature_mask,
+                        "detector": "mediapipe-test-landmarks",
+                        "landmark_count": 478,
+                        "landmarks_xyz": landmarks_xyz,
+                    }]
+
+                def infer_depth(crop_path, output_dir):
+                    crop = Image.open(crop_path)
+                    crop_y, crop_x = np.indices(
+                        (crop.height, crop.width),
+                        dtype=np.float32,
+                    )
+                    values = 0.6 + crop_x * 0.002 + crop_y * 0.0005
+                    output = Path(output_dir) / "output_depth_data.npy"
+                    np.save(output, values.astype(np.float32))
+                    return output
+
+                with patch.object(
+                    face_module,
+                    "_fuse_face_landmark_shape_prior_with_context",
+                    wraps=face_module._fuse_face_landmark_shape_prior_with_context,
+                ) as shape_fusion:
+                    _, metadata = refine_depth_for_faces(
+                        image_path,
+                        depth_path,
+                        root,
+                        infer_depth=infer_depth,
+                        mode="on",
+                        detector=detector,
+                        enable_gnm_foundation=False,
+                    )
+
+                return (
+                    metadata["faces"][0]["eyewear_deocclusion"]["detection"],
+                    shape_fusion.call_args.kwargs,
+                )
+
+        eyewear_detection, eyewear_kwargs = run_pipeline(with_eyewear=True)
+        plain_detection, plain_kwargs = run_pipeline(with_eyewear=False)
+
+        self.assertTrue(eyewear_detection["enabled"])
+        self.assertEqual(eyewear_kwargs["minimum_confidence_weight"], 0.70)
+        self.assertEqual(eyewear_kwargs["correction_limit_scale"], 0.75)
+        self.assertFalse(plain_detection["enabled"])
+        self.assertEqual(plain_kwargs["minimum_confidence_weight"], 0.0)
+        self.assertEqual(plain_kwargs["correction_limit_scale"], 0.50)
+
     def test_eyewear_sheet_is_replaced_by_bounded_landmark_surface(self):
         shape = (96, 96)
         yy, xx = np.indices(shape, dtype=np.float32)
@@ -632,6 +715,18 @@ class FaceDepthRefinementTest(unittest.TestCase):
             minimum_abs_correlation=0.08,
         )
         correction = refined - global_depth
+        eyewear_refined, _, eyewear_stats = fuse_face_landmark_shape_prior(
+            global_depth,
+            face_mask,
+            feature_mask,
+            points,
+            relative_z,
+            max_correction_ratio=0.40,
+            minimum_abs_correlation=0.08,
+            minimum_confidence_weight=0.70,
+            correction_limit_scale=0.75,
+        )
+        eyewear_correction = eyewear_refined - global_depth
 
         self.assertTrue(stats["enabled"])
         self.assertGreater(abs(stats["correlation"]), stats["minimum_abs_correlation"])
@@ -640,6 +735,21 @@ class FaceDepthRefinementTest(unittest.TestCase):
         self.assertLessEqual(stats["boundary_max_abs_correction"], 1e-7)
         self.assertLessEqual(float(np.max(np.abs(correction))), stats["correction_limit"] + 1e-6)
         self.assertGreater(float(weight[64, 64]), float(weight[10, 64]))
+        self.assertTrue(eyewear_stats["confidence_floor_applied"])
+        self.assertAlmostEqual(eyewear_stats["confidence_weight"], 0.70)
+        self.assertAlmostEqual(eyewear_stats["correction_limit_scale"], 0.75)
+        self.assertGreater(
+            float(np.max(np.abs(eyewear_correction))),
+            float(np.max(np.abs(correction))) * 2.0,
+        )
+        self.assertEqual(
+            float(np.max(np.abs(eyewear_correction[face_mask == 0]))),
+            0.0,
+        )
+        self.assertLessEqual(
+            float(np.max(np.abs(eyewear_correction))),
+            eyewear_stats["correction_limit"] + 1e-6,
+        )
 
     def test_landmark_shape_prior_rejects_large_yaw_proxy(self):
         shape = (96, 96)

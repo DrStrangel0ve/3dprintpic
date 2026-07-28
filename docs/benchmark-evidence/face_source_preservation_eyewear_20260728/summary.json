@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "run_kind": "privacy-held-exact-two-face-30mm-relief",
+  "private_artifacts_committed": false,
+  "production_input_policy": {
+    "depth_source": "original_source_pixels",
+    "detector_guide": "source-derived_neutral_cutout_with_1.5px_feather",
+    "selection_infill_mode": "none",
+    "image_completion_available": false
+  },
+  "face_detection": {
+    "detected_faces": 2,
+    "refined_faces": 2,
+    "opaque_eyewear_faces": 2
+  },
+  "eyewear_shape_calibration": {
+    "minimum_confidence_weight": 0.7,
+    "correction_limit_scale": 0.75,
+    "weak_face_unfloored_confidence": 0.25957999665246045,
+    "weak_face_final_confidence": 0.7,
+    "weak_face_prior_max_correction_before": 0.004469683393836021,
+    "weak_face_prior_max_correction_after": 0.01836273819208145,
+    "weak_face_correction_gain": 4.1082861075584995,
+    "second_face_prior_max_correction_before": 0.01071873214095831,
+    "second_face_prior_max_correction_after": 0.018269559368491173,
+    "second_face_correction_gain": 1.7044515273107461
+  },
+  "face_detail_preservation": {
+    "minimum_component_correlation": 0.9540109190634869,
+    "minimum_component_rms_retention": 0.8153218195196655,
+    "quality_gate_passed": true
+  },
+  "background_depth_preservation": {
+    "correlation": 0.9999665142656319,
+    "rms_retention": 0.9998536973592899,
+    "gradient_correlation": 0.9956484472467599,
+    "coverage_ratio": 1.0,
+    "quality_gate_passed": true
+  },
+  "physical_and_mesh_checks": {
+    "requested_relief_height_mm": 30.0,
+    "emitted_bbox_z_mm": 30.3955295085907,
+    "faces": 689120,
+    "watertight": true,
+    "manifold": true,
+    "positive_volume": true,
+    "winding_consistent": true,
+    "component_count": 1,
+    "degenerate_face_count": 0,
+    "background_cap_passed": true,
+    "feasible_attachment_constraints_passed": true
+  },
+  "runtime": {
+    "gpu": "NVIDIA GeForce RTX 3080 Ti",
+    "total_seconds": 31.723
+  }
+}

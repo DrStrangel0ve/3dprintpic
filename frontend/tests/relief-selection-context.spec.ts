@@ -152,6 +152,9 @@ test('selected relief sends the selected preview and atomic compose job', async 
   );
 
   await page.goto('/');
+  await page.getByRole('button', { name: 'Full Mesh STL' }).click();
+  await expect(page.getByText('Inpainting', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '2.5D Relief STL' }).click();
   await page.locator('input[type="file"]').setInputFiles({
     name: 'llama.png',
     mimeType: 'image/png',
@@ -163,17 +166,18 @@ test('selected relief sends the selected preview and atomic compose job', async 
   await selectionImage.click({ position: { x: 1, y: 1 } });
   await expect(page.getByRole('button', { name: 'Apply' })).toBeEnabled();
   await page.getByRole('button', { name: 'Apply' }).click();
-  await expect(page.getByText('Edited image', { exact: true })).toBeVisible();
+  await expect(page.getByText('Selection preview', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Run' }).click();
   await expect(page.getByText('STL ready', { exact: true })).toBeVisible();
 
   expect(composeMultipartBody).toContain('name="selection_infill_mode"');
-  expect(composeMultipartBody).toContain('clean-context');
+  expect(composeMultipartBody).toContain('none');
   expect(processMultipartBody).toContain('name="file"; filename="selected-llama.png"');
   expect(processMultipartBody).toContain('name="selection_job_id"');
   expect(processMultipartBody).toContain('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
   expect(processMultipartBody).toContain('name="selection_mode"');
   expect(processMultipartBody).toContain('context');
+  expect(processMultipartBody).not.toContain('name="completion_mode"');
   expect(processMultipartBody).not.toContain('isolate');
   expect(processMultipartBody).toContain('name="selection_subject_lock"');
   expect(processMultipartBody).toContain('true');
@@ -268,7 +272,7 @@ test('late compose response cannot attach an old mask to a replacement photo', a
   await fileInput.setInputFiles({ name: 'second.png', mimeType: 'image/png', buffer: selectedPng });
   releaseCompose?.();
   await expect(page.getByText('Ready', { exact: true })).toBeVisible();
-  await expect(page.getByText('Edited image', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Selection preview', { exact: true })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Run' }).click();
   await expect(page.getByText('Selection required', { exact: true })).toBeVisible();

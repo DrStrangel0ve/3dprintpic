@@ -297,7 +297,6 @@ const photoTargets: Array<{ value: PhotoTarget; label: string; icon: React.Compo
   { value: 'full-mesh', label: 'Full Mesh STL', icon: Cuboid },
 ];
 
-const inpaintBackends = ['Biharmonic prefill'];
 const reliefDetailSamples = { min: 192, max: 900 };
 const resolutionMultipliers = [1.5, 2, 3, 4];
 const depthModels: DepthModelOption[] = [
@@ -563,7 +562,6 @@ function secondsLabel(seconds?: number) {
 
 function timingLabel(key: string) {
   const labels: Record<string, string> = {
-    completion_seconds: 'Complete',
     depth_seconds: 'Depth',
     provider_seconds: 'Provider',
     stl_seconds: 'STL mesh',
@@ -809,7 +807,6 @@ function workflowSteps({
   videoScope,
   selectedFrameCount,
   frameStep,
-  inpaintBackend,
   meshBackend,
   videoBackend,
 }: {
@@ -819,7 +816,6 @@ function workflowSteps({
   videoScope: VideoScope;
   selectedFrameCount: number;
   frameStep: number;
-  inpaintBackend: string;
   meshBackend: string;
   videoBackend: string;
 }): PipelineStep[] {
@@ -863,7 +859,7 @@ function workflowSteps({
       {
         icon: Boxes,
         label: 'Build diorama',
-        detail: 'Facade completion and generated hidden sides',
+        detail: 'Layered facade geometry and hidden sides',
       },
       {
         icon: FileDown,
@@ -881,13 +877,8 @@ function workflowSteps({
         detail: photoScope === 'object-selection' ? 'Selected object only' : 'Whole visible subject',
       },
       {
-        icon: Wand2,
-        label: 'Complete hidden side',
-        detail: inpaintBackend,
-      },
-      {
         icon: Cuboid,
-        label: 'Image to mesh',
+        label: 'Generate full mesh',
         detail: meshBackend,
       },
       {
@@ -1032,7 +1023,6 @@ export default function Home() {
   const [printerClearance, setPrinterClearance] = useState(0);
   const [printScalePercent, setPrintScalePercent] = useState(100);
   const [meshBackend, setMeshBackend] = useState(fallbackModelCatalog.defaults.image_to_mesh);
-  const [inpaintBackend, setInpaintBackend] = useState(inpaintBackends[0]);
   const [selectionModel, setSelectionModel] = useState(fallbackModelCatalog.defaults.selection);
   const [selectionPoints, setSelectionPoints] = useState<SelectionPoint[]>([]);
   const [selectionResult, setSelectionResult] = useState<SelectionResult | null>(null);
@@ -1364,7 +1354,6 @@ export default function Home() {
         videoScope,
         selectedFrameCount,
         frameStep,
-        inpaintBackend,
         meshBackend: modelLabel(modelCatalog, 'image_to_mesh', meshBackend),
         videoBackend: modelLabel(modelCatalog, 'video_reconstruction', videoBackend),
       }),
@@ -1375,7 +1364,6 @@ export default function Home() {
       videoScope,
       selectedFrameCount,
       frameStep,
-      inpaintBackend,
       meshBackend,
       videoBackend,
       modelCatalog,
@@ -1455,10 +1443,9 @@ export default function Home() {
                 relief_gamma: reliefGamma,
                 base_border_px: baseBorderPx,
               },
-              completion:
+              full_mesh:
                 photoTarget === 'full-mesh'
                   ? {
-                      inpaint_backend: inpaintBackend,
                       mesh_backend: meshBackend,
                       mesh_backend_label: modelLabel(modelCatalog, 'image_to_mesh', meshBackend),
                       mesh_provider_readiness: selectedMeshReadiness
@@ -1516,7 +1503,6 @@ export default function Home() {
       sceneSubjectDepth,
       sceneFacadeDetail,
       sceneDepthCompression,
-      inpaintBackend,
       meshBackend,
       selectionModel,
       selectedMasks.length,
@@ -1573,14 +1559,6 @@ export default function Home() {
       role: selectedDepthModel.notes,
       availability: 'configured',
     };
-    const prefillOption: ModelOption = {
-      id: 'biharmonic-prefill',
-      label: inpaintBackend,
-      model: 'bounded biharmonic interpolation',
-      role: 'Known-mask completion selected by the promoted TripoSG benchmark lane.',
-      availability: 'configured',
-    };
-
     if (mediaKind === 'video') {
       stack.push(
         { label: 'Frames', model: modelFor(modelCatalog, 'frame_selection', frameSelectionModel) },
@@ -1602,10 +1580,7 @@ export default function Home() {
       stack.push({ label: 'Selection', model: modelFor(modelCatalog, 'selection', selectionModel) });
     }
     if (photoTarget === 'full-mesh') {
-      stack.push(
-        { label: 'Prefill', model: prefillOption },
-        { label: 'Mesh', model: modelFor(modelCatalog, 'image_to_mesh', meshBackend) },
-      );
+      stack.push({ label: 'Mesh', model: modelFor(modelCatalog, 'image_to_mesh', meshBackend) });
     } else {
       stack.push({ label: 'Depth', model: depthOption });
     }
@@ -1624,7 +1599,6 @@ export default function Home() {
     meshBackend,
     stlPostprocessModel,
     selectedDepthModel,
-    inpaintBackend,
   ]);
 
   const backendAssetUrl = (path?: string) => {
@@ -1918,7 +1892,7 @@ export default function Home() {
         'mask_paths_json',
         JSON.stringify(selectedMasks.map((mask) => mask.maskPath)),
       );
-      formData.append('selection_infill_mode', 'clean-context');
+      formData.append('selection_infill_mode', 'none');
 
       const response = await fetch(`${backendUrl}/selection/compose`, {
         method: 'POST',
@@ -2253,7 +2227,6 @@ export default function Home() {
         formData.append('depth_provider', 'transformers');
         formData.append('depth_model', depthModel);
         formData.append('device', 'auto');
-        formData.append('completion_mode', 'none');
         formData.append('target_dimension', String(reliefTargetDimension));
         formData.append('z_scale', String(effectiveReliefHeight));
         formData.append('max_xy_size', String(printVolume.target_dimension_mm));
@@ -2554,7 +2527,7 @@ export default function Home() {
           ? 'CUDA'
           : 'CPU';
   const timingEntries = stageTimings
-    ? ['preparation_seconds', 'completion_seconds', 'depth_seconds', 'provider_seconds', 'stl_seconds', 'diagnostics_seconds', 'total_seconds']
+    ? ['preparation_seconds', 'depth_seconds', 'provider_seconds', 'stl_seconds', 'diagnostics_seconds', 'total_seconds']
         .filter((key) => typeof stageTimings[key] === 'number')
         .map((key) => [key, stageTimings[key]] as const)
     : [];
@@ -2569,7 +2542,7 @@ export default function Home() {
     selectionState === 'applying'
       ? 'Applying'
       : selectionState === 'ready'
-        ? 'Edited image ready'
+        ? 'Selection ready'
         : selectionState === 'error'
           ? 'Selection error'
           : selectionPrecomputeState === 'loading'
@@ -2854,7 +2827,7 @@ export default function Home() {
                       {selectionPreviewUrl && (
                         <div className="mt-3 border border-emerald-200 bg-white p-2">
                           <div className="mb-2 flex items-center justify-between gap-2 text-xs">
-                            <span className="font-semibold text-emerald-900">Edited image</span>
+                            <span className="font-semibold text-emerald-900">Selection preview</span>
                             <span className="text-zinc-500">{selectionCoverageLabel}</span>
                           </div>
                           <img src={selectionPreviewUrl} alt="" className="block w-full border border-zinc-200" />
@@ -3222,13 +3195,6 @@ export default function Home() {
                   </div>
                 ) : (
                   <div className="grid gap-3 md:grid-cols-2">
-                    <ProductionModelField
-                      controlId="full-mesh-prefill"
-                      label="Inpainting"
-                      modelId={inpaintBackend}
-                      modelLabel={inpaintBackend}
-                      detail="Selected by the held-out TripoSG STL-quality promotion run."
-                    />
                     <div className="min-w-0">
                       <ProductionModelField
                         controlId="full-mesh-model"
@@ -3259,7 +3225,6 @@ export default function Home() {
                       modelId={stlPostprocessModel}
                       modelLabel={modelLabel(modelCatalog, 'stl_postprocess', stlPostprocessModel)}
                       detail="Fixed to the repair path used by the watertightness and manifoldness gates."
-                      className="md:col-span-2"
                     />
                   </div>
                 )}
