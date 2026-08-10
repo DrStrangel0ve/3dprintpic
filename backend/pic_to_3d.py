@@ -22,7 +22,7 @@ import argparse
 try:
     from .face_relief_geometry import align_face_to_scene_gradient_domain
     from .da3_depth_provider import (
-        DA3_LARGE_MODEL_ID,
+        DA3_MODEL_IDS,
         infer_da3_depth,
         is_da3_model,
         release_da3_models,
@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - supports running from backend/
         raise
     from face_relief_geometry import align_face_to_scene_gradient_domain
     from da3_depth_provider import (
-        DA3_LARGE_MODEL_ID,
+        DA3_MODEL_IDS,
         infer_da3_depth,
         is_da3_model,
         release_da3_models,
@@ -60,7 +60,7 @@ NORMALIZATION_REFERENCE_TAPER_PX = 4.0
 METRIC_FAR_HIGH_DEPTH_MODELS = frozenset(
     {
         DEPTHPRO_MODEL_ID,
-        DA3_LARGE_MODEL_ID,
+        *DA3_MODEL_IDS,
         "depth-anything/Depth-Anything-V2-Metric-Indoor-Large-hf",
         "depth-anything/Depth-Anything-V2-Metric-Outdoor-Large-hf",
     }

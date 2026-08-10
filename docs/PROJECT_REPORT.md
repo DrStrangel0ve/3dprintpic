@@ -9,7 +9,7 @@ set of research candidates retained for auditability.
 
 At close-out the repository contains:
 
-- 79 compact benchmark-evidence bundles and 346 evidence files;
+- 83 compact benchmark-evidence bundles and 354 evidence files;
 - 55 repeatable experiment configurations;
 - 95 backend test modules and 6 Playwright specifications;
 - local 3080 Ti runs, Colab G4 Blackwell runs, checksum-pinned payloads, and
@@ -60,7 +60,7 @@ candidate metadata, where they cannot be mistaken for shipped defaults.
 | Product feature | Production choice | Why it was selected |
 | --- | --- | --- |
 | Still-image object selection | `facebook/sam3` | The pinned concept path reached 1.0 face/torso mask IoU for all three people on the exact shirt-omission regression; the same checkpoint also selected buildings and a vehicle through cached open-vocabulary masks. |
-| Photo and scene depth | `depth-anything/Depth-Anything-V2-Large-hf` | It is the verified CUDA path used by the face, background, height, exact-shell, and object-depth regressions. |
+| Photo and scene depth | `depth-anything/Depth-Anything-V2-Large-hf` | It is the verified CUDA path used by the face, background, height, exact-shell, and object-depth regressions. An August 2026 audit held DA3MONO, InfiniDepth, and both MetricAnything students because every challenger regressed 30 mm eyes/nose/mouth geometry or worse. Its pinned model-card weights are CC BY-NC 4.0, so this quality selection is not commercial-license clearance. |
 | Single-image full mesh | `VAST-AI/TripoSG` | It is the only measured single-image provider promoted on the held-out ten-object STL-quality slice with zero failed checks. |
 | Controlled turntable segmentation | Temporal-prior GrabCut | It is deterministic, offline, and directly covered by the controlled-video mask and STL regressions. |
 | Tracked-video segmentation | `facebook/sam2.1-hiera-tiny` | It is the attached temporal propagation path that fits the local GPU budget; larger/gated checkpoints remain research candidates. |

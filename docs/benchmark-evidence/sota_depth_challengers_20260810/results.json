@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "run_date": "2026-08-10",
+  "decision": "hold_challengers_keep_da2_large",
+  "production_model": "depth-anything/Depth-Anything-V2-Large-hf",
+  "production_weight_license": "CC-BY-NC-4.0",
+  "commercial_clearance": false,
+  "source_sha256": "368b04492a8b73d749e14646fae757331705ee3b095df19df6ae4851846ff973",
+  "relief_heights_mm": [30.0, 40.0],
+  "challenger_full_gate_pass_count": 0,
+  "rows": [
+    {
+      "provider": "depth-anything-v2-large",
+      "role": "production_control",
+      "peak_vram_gib": 0.863213062286377,
+      "metrics_30mm": {
+        "failed_parts": ["mouth"],
+        "face_normal_mean_cosine": 0.9645224538848961,
+        "face_normal_p05_cosine": 0.8784255381021772,
+        "background_correlation": -0.12263053134931745,
+        "background_gradient_correlation": 0.0507723588489165
+      },
+      "metrics_40mm": {
+        "failed_parts": [],
+        "face_normal_mean_cosine": 0.9608686987011045,
+        "face_normal_p05_cosine": 0.8577605931789817,
+        "background_correlation": -0.10618027723491937,
+        "background_gradient_correlation": 0.08727576797897979
+      }
+    },
+    {
+      "provider": "da3mono-large-r1008",
+      "decision": "hold",
+      "peak_vram_gib": 2.3883233070373535,
+      "summary_sha256": "c434f18bc41592d736ddcce104246ddc8a1b7640bc51c12134e181fc07182452",
+      "metrics_30mm": {
+        "failed_parts": ["left_eye", "mouth", "nose", "right_eye"],
+        "face_normal_mean_cosine": 0.9485479909589775,
+        "face_normal_p05_cosine": 0.8284419529500977,
+        "background_correlation": -0.10618385057449413,
+        "background_gradient_correlation": 0.1116465953688495
+      },
+      "metrics_40mm": {
+        "failed_parts": ["mouth", "nose", "right_eye"],
+        "face_normal_mean_cosine": 0.9425006403704788,
+        "face_normal_p05_cosine": 0.8036580777265795,
+        "background_correlation": -0.09019370626068729,
+        "background_gradient_correlation": 0.13291552418217195
+      }
+    },
+    {
+      "provider": "infinidepth-r512-q512",
+      "decision": "hold",
+      "peak_vram_gib": 2.388240337371826,
+      "summary_sha256": "776a8818d31aed1373ac49390adbb9d29fd24c1ed07b24eb1d5d635e4a3b7dec",
+      "official_depth_clamp_fraction": 0.12944793701171875,
+      "metrics_30mm": {
+        "failed_parts": ["left_eye", "mouth", "nose", "right_eye"],
+        "face_normal_mean_cosine": 0.9267526246154131,
+        "face_normal_p05_cosine": 0.7017630357306124,
+        "background_correlation": -0.00347411020479099,
+        "background_gradient_correlation": -0.02687278721888955
+      },
+      "metrics_40mm": {
+        "failed_parts": ["left_eye", "mouth", "nose", "right_eye"],
+        "face_normal_mean_cosine": 0.9093802235091697,
+        "face_normal_p05_cosine": 0.5920542826283955,
+        "background_correlation": 0.02429577665003114,
+        "background_gradient_correlation": 0.007372349858622131
+      }
+    },
+    {
+      "provider": "metricanything-student-pointmap-l9",
+      "decision": "hold",
+      "peak_vram_gib": 2.844930648803711,
+      "summary_sha256": "eb90e63c9c776292d56061f2db731a5620c4eaa01656bdcb05fc0e8bcc0bc288",
+      "predicted_mask_fraction": 0.2141876220703125,
+      "metrics_30mm": {
+        "failed_parts": ["left_eye", "mouth", "nose", "right_eye"],
+        "face_normal_mean_cosine": 0.9356601494314574,
+        "face_normal_p05_cosine": 0.7590620801072905,
+        "background_correlation": -0.06410408728503442,
+        "background_gradient_correlation": 0.16710364223070878
+      },
+      "metrics_40mm": {
+        "failed_parts": ["left_eye", "mouth", "nose", "right_eye"],
+        "face_normal_mean_cosine": 0.9264505469086483,
+        "face_normal_p05_cosine": 0.7031876151273101,
+        "background_correlation": -0.0430073028316567,
+        "background_gradient_correlation": 0.19947820039748218
+      }
+    },
+    {
+      "provider": "metricanything-student-depthmap",
+      "decision": "hold",
+      "peak_vram_gib": 8.883151531219482,
+      "summary_sha256": "e4be3d41fba84322622d64b4f82abf4a83ce6e8a7f021467ab8c8b6ab866661f",
+      "metrics_30mm": {
+        "failed_parts": ["left_eye", "left_eyebrow", "mouth", "nose", "right_eye", "right_eyebrow"],
+        "face_normal_mean_cosine": 0.822228999403317,
+        "face_normal_p05_cosine": 0.40270087885891104,
+        "background_correlation": -0.20464243042974492,
+        "background_gradient_correlation": 0.23807195037945145
+      },
+      "metrics_40mm": {
+        "failed_parts": ["left_eye", "left_eyebrow", "mouth", "nose", "right_eye", "right_eyebrow"],
+        "face_normal_mean_cosine": 0.76934161264657,
+        "face_normal_p05_cosine": 0.22054161468132796,
+        "background_correlation": -0.21381882759489593,
+        "background_gradient_correlation": 0.24341359570519852
+      }
+    }
+  ]
+}

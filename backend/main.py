@@ -174,7 +174,7 @@ DEPTH_MODELS = [
         "provider": "transformers",
         "recommended": False,
         "depth_value_semantics": "relative_distance_far_high",
-        "notes": "Modern any-view depth with direct distance output; 1.64 GB first download.",
+        "notes": "Research-only any-view checkpoint under CC BY-NC 4.0; not eligible for production promotion.",
     },
     {
         "id": "apple/DepthPro-hf",
@@ -222,7 +222,7 @@ DEPTH_MODELS = [
         "provider": "transformers",
         "recommended": True,
         "depth_value_semantics": "relative_close_high",
-        "notes": "Best verified local quality option for CUDA relief generation.",
+        "notes": "Best verified local quality option for CUDA relief generation; pinned model-card weights are CC BY-NC 4.0.",
     },
 ]
 
@@ -230,7 +230,10 @@ DEPTH_MODELS = [
 def depth_model_far_is_high(model_id: str | None) -> bool:
     for model in DEPTH_MODELS:
         if model.get("id") == model_id:
-            return model.get("depth_value_semantics") == "metric_far_high"
+            return model.get("depth_value_semantics") in {
+                "metric_far_high",
+                "relative_distance_far_high",
+            }
     return False
 
 
