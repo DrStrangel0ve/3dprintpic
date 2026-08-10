@@ -57,25 +57,39 @@ class TripoSGPinningTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "TripoSG"
             inference = root / "scripts" / "inference_triposg.py"
+            vae = root / "triposg" / "models" / "autoencoders" / "autoencoder_kl_triposg.py"
             inference.parent.mkdir(parents=True)
+            vae.parent.mkdir(parents=True)
             inference.write_text(
                 "import os\n"
                 "from huggingface_hub import snapshot_download\n"
                 "triposg_weights_dir = 'pretrained_weights/TripoSG'\n"
                 "rmbg_weights_dir = 'pretrained_weights/RMBG-1.4'\n"
                 f'snapshot_download(repo_id="{DEFAULT_TRIPOSG_MODEL}", local_dir=triposg_weights_dir)\n'
-                f'snapshot_download(repo_id="{DEFAULT_TRIPOSG_REMBG_MODEL}", local_dir=rmbg_weights_dir)\n',
+                f'snapshot_download(repo_id="{DEFAULT_TRIPOSG_REMBG_MODEL}", local_dir=rmbg_weights_dir)\n'
+                "pipe: TripoSGPipeline = TripoSGPipeline.from_pretrained(triposg_weights_dir).to(device, dtype)\n",
+                encoding="utf-8",
+            )
+            vae.write_text(
+                "        def query_fn(q, kv):\n"
+                "            q = self.proj_query(q)\n"
+                "            return q\n",
                 encoding="utf-8",
             )
 
             first = patch_triposg_sources(root)
             second = patch_triposg_sources(root)
             text = inference.read_text(encoding="utf-8")
+            vae_text = vae.read_text(encoding="utf-8")
 
         self.assertEqual(first["inference_sha256"], second["inference_sha256"])
         self.assertIn("TRIPOSG_MODEL_REVISION", text)
         self.assertIn("TRIPOSG_REMBG_REVISION", text)
         self.assertEqual(text.count("local_files_only"), 2)
+        self.assertIn("torch_dtype=dtype", text)
+        self.assertIn("low_cpu_mem_usage=True", text)
+        self.assertEqual(first["vae_sha256"], second["vae_sha256"])
+        self.assertIn("self.proj_query.weight.dtype", vae_text)
 
     def test_smoke_command_and_preflight_preserve_both_revisions(self):
         argv = [
@@ -116,6 +130,41 @@ class TripoSGPinningTest(unittest.TestCase):
                 },
             },
         )
+
+    def test_patcher_accepts_pinned_rmbg_allow_pattern_variant(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "TripoSG"
+            inference = root / "scripts" / "inference_triposg.py"
+            vae = root / "triposg" / "models" / "autoencoders" / "autoencoder_kl_triposg.py"
+            inference.parent.mkdir(parents=True)
+            vae.parent.mkdir(parents=True)
+            inference.write_text(
+                "import os\n"
+                f'snapshot_download(repo_id="{DEFAULT_TRIPOSG_MODEL}", '
+                "revision=os.environ['TRIPOSG_MODEL_REVISION'], local_dir=triposg_weights_dir, "
+                "local_files_only=os.environ.get('TRIPOSG_HF_LOCAL_ONLY') == '1')\n"
+                "snapshot_download(\n"
+                f'    repo_id="{DEFAULT_TRIPOSG_REMBG_MODEL}",\n'
+                "    revision=os.environ['TRIPOSG_REMBG_REVISION'],\n"
+                "    local_dir=rmbg_weights_dir,\n"
+                "    allow_patterns=['config.json', 'model.safetensors'],\n"
+                "    local_files_only=os.environ.get('TRIPOSG_HF_LOCAL_ONLY') == '1',\n"
+                ")\n"
+                "pipe: TripoSGPipeline = TripoSGPipeline.from_pretrained(\n"
+                "    triposg_weights_dir, torch_dtype=dtype, low_cpu_mem_usage=True\n"
+                ").to(device)\n",
+                encoding="utf-8",
+            )
+            vae.write_text(
+                "            q = self.proj_query(q.to(dtype=self.proj_query.weight.dtype))\n",
+                encoding="utf-8",
+            )
+
+            first = patch_triposg_sources(root)
+            second = patch_triposg_sources(root)
+
+        self.assertEqual(first["inference_sha256"], second["inference_sha256"])
+        self.assertEqual(first["vae_sha256"], second["vae_sha256"])
 
     def test_revisions_change_cache_identity_and_partial_sets_fail(self):
         base = SimpleNamespace(

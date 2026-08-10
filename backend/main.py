@@ -3220,6 +3220,51 @@ async def health():
     }
 
 
+def release_runtime_models_for_heavy_gpu_job() -> dict:
+    selection_models = len(SELECTION_MODEL_CACHE)
+    started = time.perf_counter()
+    cuda_before = None
+    cuda_after = None
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            cuda_before = {
+                "allocated_bytes": int(torch.cuda.memory_allocated()),
+                "reserved_bytes": int(torch.cuda.memory_reserved()),
+            }
+    except (ImportError, RuntimeError):
+        torch = None
+
+    release_selection_models()
+    release_depth_pipelines()
+    release_inpaint_pipelines()
+
+    if torch is not None:
+        try:
+            if torch.cuda.is_available():
+                cuda_after = {
+                    "allocated_bytes": int(torch.cuda.memory_allocated()),
+                    "reserved_bytes": int(torch.cuda.memory_reserved()),
+                }
+        except RuntimeError:
+            pass
+    return {
+        "status": "released",
+        "selection_models_released": int(selection_models),
+        "released_caches": ["selection", "depth", "inpaint"],
+        "cuda_before": cuda_before,
+        "cuda_after": cuda_after,
+        "release_seconds": round(time.perf_counter() - started, 3),
+    }
+
+
+@app.post("/runtime/release-models")
+async def release_runtime_models():
+    """Yield this process's model memory to a heavier local GPU runner."""
+    return await asyncio.to_thread(release_runtime_models_for_heavy_gpu_job)
+
+
 @app.get("/depth/preload/depthpro/status")
 async def depthpro_preload_status():
     return _depthpro_cache_status()

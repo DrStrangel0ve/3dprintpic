@@ -273,6 +273,36 @@ class VideoSelectionServiceTest(unittest.TestCase):
         self.assertIn("stl_is_watertight", data["stl_failed_checks"])
         self.assertIn("stl_is_volume", data["stl_failed_checks"])
 
+    def test_triposg_cuda_run_releases_competing_backend_models(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b'{"status":"released","selection_models_released":2}'
+
+        with (
+            patch.dict(os.environ, {"RELIEF_BACKEND_URL": "http://127.0.0.1:8123"}),
+            patch.object(service_module, "urlopen", return_value=FakeResponse()) as opener,
+        ):
+            result = service_module.release_competing_model_caches("triposg", "cuda")
+
+        self.assertEqual(result["status"], "released")
+        self.assertEqual(result["details"]["selection_models_released"], 2)
+        request = opener.call_args.args[0]
+        self.assertEqual(request.full_url, "http://127.0.0.1:8123/runtime/release-models")
+        self.assertEqual(request.get_method(), "POST")
+
+    def test_non_cuda_provider_does_not_release_competing_models(self):
+        with patch.object(service_module, "urlopen") as opener:
+            result = service_module.release_competing_model_caches("triposg", "cpu")
+
+        self.assertEqual(result, {"attempted": False, "status": "not-required"})
+        opener.assert_not_called()
+
     def test_image_to_mesh_runner_rejects_unknown_provider(self):
         response = self.client.post(
             "/run/image-to-mesh",

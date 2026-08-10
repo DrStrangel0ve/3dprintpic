@@ -2525,7 +2525,23 @@ export default function Home() {
           signal: runnerController.signal,
         });
         window.clearTimeout(runnerTimeout);
-        if (!runnerResponse.ok) throw new Error(`Image-to-mesh runner ${runnerResponse.status}`);
+        if (!runnerResponse.ok) {
+          let message = `Image-to-mesh runner ${runnerResponse.status}`;
+          try {
+            const errorPayload: unknown = await runnerResponse.json();
+            if (isRecord(errorPayload)) {
+              const detail = errorPayload.detail;
+              if (typeof detail === 'string') message = detail;
+              else if (isRecord(detail)) {
+                const detailMessage = optionalString(detail.message);
+                if (detailMessage) message = detailMessage;
+              }
+            }
+          } catch {
+            // Keep the status-based message when the backend does not return JSON.
+          }
+          throw new Error(message);
+        }
         const runnerData: unknown = await runnerResponse.json();
         if (!isRecord(runnerData)) throw new Error('Image-to-mesh runner returned an invalid response.');
         const runnerStlUrl = resolveServiceUrl(videoBackendUrl, runnerData.stl_url);

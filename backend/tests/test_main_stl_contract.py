@@ -1413,6 +1413,29 @@ class MainStlContractTest(unittest.TestCase):
             main_module.SELECTION_MODEL_CACHE = original_cache
             main_module.SELECTION_PRECOMPUTE_CACHE.clear()
 
+    def test_runtime_release_endpoint_yields_all_heavy_model_caches(self):
+        original_cache = main_module.SELECTION_MODEL_CACHE
+        try:
+            main_module.SELECTION_MODEL_CACHE = {("model", "revision", "cuda"): object()}
+            with (
+                patch.object(main_module, "release_selection_models") as release_selection,
+                patch.object(main_module, "release_depth_pipelines") as release_depth,
+                patch.object(main_module, "release_inpaint_pipelines") as release_inpaint,
+                patch("torch.cuda.is_available", return_value=False),
+            ):
+                response = TestClient(main_module.app).post("/runtime/release-models")
+
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(payload["status"], "released")
+            self.assertEqual(payload["selection_models_released"], 1)
+            self.assertEqual(payload["released_caches"], ["selection", "depth", "inpaint"])
+            release_selection.assert_called_once_with()
+            release_depth.assert_called_once_with()
+            release_inpaint.assert_called_once_with()
+        finally:
+            main_module.SELECTION_MODEL_CACHE = original_cache
+
     def test_selection_mask_preview_can_use_panoptic_segmenter(self):
         def fake_panoptic(image, points, device="auto"):
             mask = Image.new("L", image.size, 0)

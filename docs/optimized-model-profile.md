@@ -20,6 +20,13 @@ an operational adaptation rather than exact benchmark parity.
 | Multiview full mesh | Visual hull | Resolution `32`, grid extent `1.9`, ortho scale `2.0`, one-pixel mask dilation, printable repair. |
 | STL postprocess | Trimesh printable repair | Largest-body cleanup, bounded topology repair, watertight fallback, scaling, and diagnostics. |
 
+On 12 GB local GPUs, the full-mesh runner asks the relief backend to release
+cached selection/depth models before loading TripoSG and serializes concurrent
+TripoSG requests. The August 10 local recovery smoke completed the exact
+50-step profile in `108.263 s` and emitted a 39,210-face watertight, manifold,
+single-component STL with zero degenerates and no hull fallback. See
+[`benchmark-evidence/local_triposg_runtime_3080ti_20260810`](benchmark-evidence/local_triposg_runtime_3080ti_20260810/README.md).
+
 The profile pins TripoSG to
 `VAST-AI/TripoSG@2c1c516d22d58db486a058d98d31bb6177344e06` and its foreground
 model to `briaai/RMBG-1.4@2ceba5a5efaec153162aedea169f76caf9b46cf8`.
