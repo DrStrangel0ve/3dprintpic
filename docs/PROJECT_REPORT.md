@@ -26,7 +26,7 @@ unless the emitted mesh also satisfies the applicable printability gates.
 flowchart LR
     UI["Next.js workspace"] --> MAIN["FastAPI relief service"]
     UI --> PLAN["FastAPI model and video service"]
-    MAIN --> SELECT["Photo object selection"]
+    MAIN --> SELECT["SAM 3 photo selection"]
     MAIN --> DEPTH["Depth Anything V2 Large"]
     DEPTH --> RELIEF["Face/context-aware relief compositor"]
     RELIEF --> STL["Watertight STL writer"]
@@ -59,7 +59,7 @@ candidate metadata, where they cannot be mistaken for shipped defaults.
 
 | Product feature | Production choice | Why it was selected |
 | --- | --- | --- |
-| Still-image object selection | `facebook/detr-resnet-50-panoptic` | The configured offline click-to-segment route supports cached panoptic precomputation and has end-to-end selection/STL contract coverage. |
+| Still-image object selection | `facebook/sam3` | The pinned concept path reached 1.0 face/torso mask IoU for all three people on the exact shirt-omission regression; the same checkpoint also selected buildings and a vehicle through cached open-vocabulary masks. |
 | Photo and scene depth | `depth-anything/Depth-Anything-V2-Large-hf` | It is the verified CUDA path used by the face, background, height, exact-shell, and object-depth regressions. |
 | Single-image full mesh | `VAST-AI/TripoSG` | It is the only measured single-image provider promoted on the held-out ten-object STL-quality slice with zero failed checks. |
 | Controlled turntable segmentation | Temporal-prior GrabCut | It is deterministic, offline, and directly covered by the controlled-video mask and STL regressions. |

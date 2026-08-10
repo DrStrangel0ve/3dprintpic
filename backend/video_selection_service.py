@@ -469,6 +469,16 @@ app.add_middleware(
 MODEL_GROUPS = {
     "selection": [
         {
+            "id": "sam3-person-aware",
+            "label": "SAM 3 Person-aware",
+            "model": "facebook/sam3",
+            "role": "cached full-person masks with point-tracker fallback for non-person objects",
+            "local": True,
+            "gpu_supported": True,
+            "availability": "configured",
+            "notes": "Pinned gated checkpoint; promoted after the exact shirt-omission regression reached 1.0 face/torso consistency.",
+        },
+        {
             "id": "turntable-grabcut",
             "label": "Turntable foreground",
             "model": "OpenCV GrabCut with temporal mask prior",
@@ -477,6 +487,16 @@ MODEL_GROUPS = {
             "gpu_supported": False,
             "availability": "configured",
             "notes": "Live deterministic video baseline with mask drift and coverage gates; best on a static, contrasting background.",
+        },
+        {
+            "id": "sam2.1-hiera-tiny",
+            "label": "SAM 2.1 Tiny",
+            "model": "facebook/sam2.1-hiera-tiny",
+            "role": "whole-object point-prompted masks for still photos",
+            "local": True,
+            "gpu_supported": True,
+            "availability": "configured",
+            "notes": "Pinned still-image selector; favors complete click-anchored objects and removes disconnected mask islands.",
         },
         {
             "id": "detr-resnet-50-panoptic",
@@ -832,7 +852,7 @@ MODEL_GROUPS = {
 }
 
 DEFAULTS = {
-    "selection": "detr-resnet-50-panoptic",
+    "selection": "sam3-person-aware",
     "frame_selection": "uniform-frame-sampler",
     "camera_pose": "turntable-orbit",
     "video_reconstruction": "multiview-visual-hull",

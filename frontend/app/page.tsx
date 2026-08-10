@@ -46,7 +46,7 @@ const IMAGE_TO_MESH_TIMEOUT_MS = 60 * 60 * 1000;
 const VIDEO_TO_MESH_TIMEOUT_MS = 60 * 60 * 1000;
 const FULL_MESH_RUNNER_STL_POSTPROCESS = 'trimesh-repair';
 const PRODUCTION_DEPTH_MODEL = 'depth-anything/Depth-Anything-V2-Large-hf';
-const PRODUCTION_PHOTO_SELECTION_MODEL = 'detr-resnet-50-panoptic';
+const PRODUCTION_PHOTO_SELECTION_MODEL = 'sam3-person-aware';
 const PRODUCTION_TURNTABLE_SELECTION_MODEL = 'turntable-grabcut';
 const PRODUCTION_TRACKED_VIDEO_SELECTION_MODEL = 'sam2.1-hiera-tiny-video';
 const PRODUCTION_TURNTABLE_FRAME_MODEL = 'uniform-frame-sampler';
@@ -277,6 +277,11 @@ type PrintVolumePlan = {
   minimum_feature_mm: number;
 };
 
+type MediaDimensions = {
+  width: number;
+  height: number;
+};
+
 type PipelineStep = {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -318,7 +323,7 @@ const fallbackModelCatalog: ModelCatalog = {
   service: 'frontend-fallback',
   mode: 'planner-only',
   defaults: {
-    selection: 'detr-resnet-50-panoptic',
+    selection: 'sam3-person-aware',
     frame_selection: 'uniform-frame-sampler',
     camera_pose: LIVE_VIDEO_CAMERA_MODEL,
     video_reconstruction: LIVE_VIDEO_RECONSTRUCTION_MODEL,
@@ -328,10 +333,25 @@ const fallbackModelCatalog: ModelCatalog = {
   groups: {
     selection: [
       {
+        id: 'sam3-person-aware',
+        label: 'SAM 3 Person-aware',
+        model: 'facebook/sam3',
+        role: 'cached full-person concept masks with point-tracker fallback for other objects',
+        availability: 'configured',
+        notes: 'Pinned from the gated official checkpoint and measured on the shirt-omission regression.',
+      },
+      {
         id: 'turntable-grabcut',
         label: 'Turntable foreground',
         model: 'OpenCV GrabCut with temporal mask prior',
         role: 'automatic centered-object masks for controlled turntable videos',
+        availability: 'configured',
+      },
+      {
+        id: 'sam2.1-hiera-tiny',
+        label: 'SAM 2.1 Tiny',
+        model: 'facebook/sam2.1-hiera-tiny',
+        role: 'whole-object point-prompted masks for still photos',
         availability: 'configured',
       },
       {
@@ -744,6 +764,9 @@ function resolveServiceUrl(baseUrl: string, value: unknown) {
 
 function selectionModelSupportsPrecompute(modelId: string) {
   return (
+    modelId === 'sam3-person-aware' ||
+    modelId === 'facebook/sam3' ||
+    modelId.startsWith('sam2') ||
     modelId === 'panoptic-detr' ||
     modelId === 'detr-resnet-50-panoptic' ||
     modelId.includes('detr-resnet-50-panoptic')
@@ -989,6 +1012,7 @@ export default function Home() {
   const [providerReadinessState, setProviderReadinessState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState('');
+  const [mediaDimensions, setMediaDimensions] = useState<MediaDimensions | null>(null);
   const [mediaKind, setMediaKind] = useState<MediaKind>('photo');
   const [photoScope, setPhotoScope] = useState<PhotoScope>('whole-image');
   const [photoTarget, setPhotoTarget] = useState<PhotoTarget>('depth-relief');
@@ -1120,6 +1144,21 @@ export default function Home() {
       minimum_feature_mm: minimumFeatureSize,
     };
   }, [printerPreset, currentPrinterPreset.label, printerMaxX, printerMaxY, printerMaxZ, printerClearance, printScalePercent, baseThickness, effectivePrinterNozzleDiameter, minimumFeatureSize]);
+  const printFootprint = useMemo<MediaDimensions | null>(() => {
+    if (!mediaDimensions || mediaDimensions.width <= 0 || mediaDimensions.height <= 0) return null;
+    const aspectRatio = mediaDimensions.width / mediaDimensions.height;
+    if (!Number.isFinite(aspectRatio) || aspectRatio <= 0) return null;
+    if (aspectRatio >= 1) {
+      return {
+        width: printVolume.target_dimension_mm,
+        height: printVolume.target_dimension_mm / aspectRatio,
+      };
+    }
+    return {
+      width: printVolume.target_dimension_mm * aspectRatio,
+      height: printVolume.target_dimension_mm,
+    };
+  }, [mediaDimensions, printVolume.target_dimension_mm]);
   const effectiveReliefHeight = Math.min(depthScale, printVolume.max_relief_height_mm);
   const reliefSliderMax = Math.max(12, Math.min(40, Math.floor(printVolume.max_relief_height_mm)));
   const reliefTargetDimension = Math.min(
@@ -1307,6 +1346,7 @@ export default function Home() {
   useEffect(() => {
     selectionSourceGenerationRef.current += 1;
     hoverRequestIdRef.current += 1;
+    setMediaDimensions(null);
     if (!file) {
       setPreviewUrl('');
       return;
@@ -1840,7 +1880,7 @@ export default function Home() {
     const point = selectionPointFromEvent(event);
     if (!point) return;
     if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
-    const mask = maskDistance(hoverSelection, point) < 0.08 ? hoverSelection : await requestSelectionMask(point, 'click');
+    const mask = await requestSelectionMask(point, 'click');
     if (!mask) return;
     invalidateSelectionResult();
     setSelectedMasks((masks) => [...masks, { ...mask, id: `kept-${mask.id}-${masks.length}` }]);
@@ -1963,6 +2003,16 @@ export default function Home() {
   const handleFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0];
     if (nextFile) replaceSourceFile(nextFile);
+  };
+
+  const recordImageDimensions = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
+    if (width > 0 && height > 0) setMediaDimensions({ width, height });
+  };
+
+  const recordVideoDimensions = (event: React.SyntheticEvent<HTMLVideoElement>) => {
+    const { videoWidth: width, videoHeight: height } = event.currentTarget;
+    if (width > 0 && height > 0) setMediaDimensions({ width, height });
   };
 
   const resetFile = () => {
@@ -2591,9 +2641,21 @@ export default function Home() {
               {previewUrl ? (
                 <>
                   {mediaKind === 'video' ? (
-                    <video src={previewUrl} className="h-full w-full object-cover" muted playsInline controls />
+                    <video
+                      src={previewUrl}
+                      className="h-full w-full object-cover"
+                      muted
+                      playsInline
+                      controls
+                      onLoadedMetadata={recordVideoDimensions}
+                    />
                   ) : (
-                    <img src={previewUrl} alt="" className="h-full w-full object-cover" />
+                    <img
+                      src={previewUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      onLoad={recordImageDimensions}
+                    />
                   )}
                   <button
                     type="button"
@@ -2735,7 +2797,7 @@ export default function Home() {
                       label="Selection model"
                       modelId={selectionModel}
                       modelLabel={modelLabel(modelCatalog, 'selection', selectionModel)}
-                      detail="Selected for reliable cached click-to-segment masks on the local CUDA path."
+                      detail="Selected for complete person and garment masks from one still-photo click."
                     />
 
                     <div className="border border-zinc-200 bg-zinc-50 p-3">
@@ -3433,6 +3495,7 @@ export default function Home() {
                     url={processedSTL}
                     orbitControls
                     shadows
+                    cameraProps={{ initialPosition: { latitude: Math.PI / 8, longitude: 0, distance: 1 } }}
                     modelProps={{ color: photoTarget === 'scene-diorama' ? '#d8574b' : '#737b85' }}
                     floorProps={{ gridWidth: 8, gridLength: 8 }}
                     canvasId="stl-output-canvas"
@@ -3695,19 +3758,31 @@ export default function Home() {
                 onChange={(event) => setPrintScalePercent(Number(event.target.value))}
               />
               <span className="text-xs text-zinc-500">
-                {printScalePercent}% / {printVolume.target_dimension_mm} mm XY
+                {printScalePercent}% / {printFootprint
+                  ? `${printFootprint.width.toFixed(1)} x ${printFootprint.height.toFixed(1)} mm`
+                  : `${printVolume.target_dimension_mm} mm max`}
               </span>
             </label>
 
-            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
               <div className="border border-zinc-200 bg-zinc-50 p-3">
-                <div className="text-xs font-medium uppercase text-zinc-500">STL XY</div>
-                <div className="font-semibold">{printVolume.target_dimension_mm} mm</div>
+                <div className="text-xs font-medium uppercase text-zinc-500">STL X</div>
+                <div className="font-semibold" data-testid="print-size-x">
+                  {printFootprint ? `${printFootprint.width.toFixed(1)} mm` : '--'}
+                </div>
+              </div>
+              <div className="border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-medium uppercase text-zinc-500">STL Y</div>
+                <div className="font-semibold" data-testid="print-size-y">
+                  {printFootprint ? `${printFootprint.height.toFixed(1)} mm` : '--'}
+                </div>
               </div>
               <div className="border border-zinc-200 bg-zinc-50 p-3">
                 <div className="text-xs font-medium uppercase text-zinc-500">Max relief Z</div>
                 <div className="font-semibold">{printVolume.max_relief_height_mm.toFixed(1)} mm</div>
               </div>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
               <div className="border border-zinc-200 bg-zinc-50 p-3">
                 <div className="text-xs font-medium uppercase text-zinc-500">Nozzle</div>
                 <div className="font-semibold">{effectivePrinterNozzleDiameter.toFixed(2)} mm</div>

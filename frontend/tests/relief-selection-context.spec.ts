@@ -49,6 +49,8 @@ test('selected relief sends the selected preview and atomic compose job', async 
   let composeMultipartBody = '';
   let processMultipartBody = '';
   let processMultipartBuffer = Buffer.alloc(0);
+  let precomputedMaskMultipartBody = '';
+  let liveSelectionMaskRequests = 0;
   await page.route('**/health', (route) =>
     route.fulfill({
       contentType: 'application/json',
@@ -63,7 +65,7 @@ test('selected relief sends the selected preview and atomic compose job', async 
       contentType: 'application/json',
       body: JSON.stringify({
         defaults: {
-          selection: 'detr-resnet-50-panoptic',
+          selection: 'sam3-person-aware',
           frame_selection: 'uniform-frame-sampler',
           camera_pose: 'turntable-orbit',
           video_reconstruction: 'multiview-visual-hull',
@@ -71,7 +73,7 @@ test('selected relief sends the selected preview and atomic compose job', async 
           stl_postprocess: 'trimesh-repair',
         },
         groups: {
-          selection: [{ id: 'detr-resnet-50-panoptic', label: 'DETR Panoptic', availability: 'configured' }],
+          selection: [{ id: 'sam3-person-aware', label: 'SAM 3 Person-aware', availability: 'configured' }],
           frame_selection: [{ id: 'uniform-frame-sampler', label: 'Uniform frames' }],
           camera_pose: [{ id: 'turntable-orbit', label: 'Turntable orbit' }],
           video_reconstruction: [{ id: 'multiview-visual-hull', label: 'Visual hull' }],
@@ -87,11 +89,29 @@ test('selected relief sends the selected preview and atomic compose job', async 
   await page.route('**/selection/precompute', (route) =>
     route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ precompute_supported: false, model_status: 'live-mask' }),
+      body: JSON.stringify({
+        precompute_supported: true,
+        precompute_id: 'sam3-cache-1',
+        model_status: 'sam3-concepts-precomputed',
+        segment_count: 3,
+      }),
     }),
   );
-  await page.route('**/selection/mask', (route) =>
-    route.fulfill({
+  await page.route('**/selection/precomputed_mask', (route) => {
+    precomputedMaskMultipartBody = (route.request().postDataBuffer() || Buffer.alloc(0)).toString('utf8');
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        mask: 'selection/preview/mask.png',
+        mask_url: '/selection-assets/mask.png',
+        tint_url: '/selection-assets/tint.png',
+        model_status: 'sam3-concept-precomputed-point',
+      }),
+    });
+  });
+  await page.route('**/selection/mask', (route) => {
+    liveSelectionMaskRequests += 1;
+    return route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
         mask: 'selection/preview/mask.png',
@@ -99,8 +119,8 @@ test('selected relief sends the selected preview and atomic compose job', async 
         tint_url: '/selection-assets/tint.png',
         model_status: 'ready',
       }),
-    }),
-  );
+    });
+  });
   await page.route('**/selection/compose', (route) => {
     composeMultipartBody = (route.request().postDataBuffer() || Buffer.alloc(0)).toString('utf8');
     return route.fulfill({
@@ -161,6 +181,7 @@ test('selected relief sends the selected preview and atomic compose job', async 
     buffer: originalPng,
   });
   await page.getByRole('button', { name: 'Object selection' }).click();
+  await expect(page.getByText('Precomputed 3 segments', { exact: true })).toBeVisible();
   const selectionImage = page.locator('img.cursor-crosshair');
   await expect(selectionImage).toBeVisible();
   await selectionImage.click({ position: { x: 1, y: 1 } });
@@ -172,6 +193,9 @@ test('selected relief sends the selected preview and atomic compose job', async 
 
   expect(composeMultipartBody).toContain('name="selection_infill_mode"');
   expect(composeMultipartBody).toContain('none');
+  expect(precomputedMaskMultipartBody).toContain('name="precompute_id"');
+  expect(precomputedMaskMultipartBody).toContain('sam3-cache-1');
+  expect(liveSelectionMaskRequests).toBe(0);
   expect(processMultipartBody).toContain('name="file"; filename="selected-llama.png"');
   expect(processMultipartBody).toContain('name="selection_job_id"');
   expect(processMultipartBody).toContain('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
@@ -204,7 +228,7 @@ test('late compose response cannot attach an old mask to a replacement photo', a
       contentType: 'application/json',
       body: JSON.stringify({
         defaults: {
-          selection: 'detr-resnet-50-panoptic',
+          selection: 'sam3-person-aware',
           frame_selection: 'uniform-frame-sampler',
           camera_pose: 'turntable-orbit',
           video_reconstruction: 'multiview-visual-hull',
@@ -212,7 +236,7 @@ test('late compose response cannot attach an old mask to a replacement photo', a
           stl_postprocess: 'trimesh-repair',
         },
         groups: {
-          selection: [{ id: 'detr-resnet-50-panoptic', label: 'DETR Panoptic' }],
+          selection: [{ id: 'sam3-person-aware', label: 'SAM 3 Person-aware' }],
           frame_selection: [{ id: 'uniform-frame-sampler', label: 'Uniform frames' }],
           camera_pose: [{ id: 'turntable-orbit', label: 'Turntable orbit' }],
           video_reconstruction: [{ id: 'multiview-visual-hull', label: 'Visual hull' }],

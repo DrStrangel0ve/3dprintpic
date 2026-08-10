@@ -1144,6 +1144,275 @@ class MainStlContractTest(unittest.TestCase):
         self.assertEqual(payload["model_status"], "fallback-click-region")
         self.assertGreater(payload["mask_pixels"], 0)
 
+    def test_sam2_candidate_selection_prefers_complete_seeded_object(self):
+        candidates = np.zeros((3, 20, 20), dtype=bool)
+        candidates[0, 4:18, 7:13] = True
+        candidates[0, 1:3, 1:3] = True
+        candidates[1, :, :] = True
+        candidates[2, 8:14, 8:12] = True
+
+        selected, selected_index = main_module.select_sam2_object_candidate(
+            candidates,
+            np.asarray([0.62, 0.70, 0.90], dtype=np.float32),
+            [[9.0, 10.0]],
+        )
+
+        self.assertEqual(selected_index, 0)
+        self.assertTrue(np.all(selected[4:18, 7:13]))
+        self.assertFalse(np.any(selected[1:3, 1:3]))
+        self.assertLess(float(selected.mean()), main_module.SAM2_SELECTION_MAX_COVERAGE)
+
+    def test_sam2_candidate_selection_expands_credible_shirt_to_whole_person(self):
+        candidates = np.zeros((3, 40, 40), dtype=bool)
+        candidates[0, 20:40, 14:28] = True
+        candidates[1, 4:40, 7:34] = True
+        candidates[2, 22:40, 16:27] = True
+
+        selected, selected_index = main_module.select_sam2_object_candidate(
+            candidates,
+            np.asarray([0.96, 0.26, 0.38], dtype=np.float32),
+            [[20.0, 28.0]],
+        )
+
+        self.assertEqual(selected_index, 1)
+        self.assertTrue(np.all(selected[4:40, 7:34]))
+
+    def test_sam2_candidate_selection_rejects_uncredible_large_region(self):
+        candidates = np.zeros((3, 40, 40), dtype=bool)
+        candidates[0, 20:30, 16:24] = True
+        candidates[1, 2:38, 2:38] = True
+        candidates[2, 18:32, 14:26] = True
+
+        _selected, selected_index = main_module.select_sam2_object_candidate(
+            candidates,
+            np.asarray([0.82, 0.02, 0.57], dtype=np.float32),
+            [[20.0, 24.0]],
+        )
+
+        self.assertEqual(selected_index, 2)
+
+    def test_sam3_bounded_hole_fill_repairs_shirt_texture_without_filling_large_gap(self):
+        mask = np.zeros((40, 40), dtype=bool)
+        mask[4:36, 4:36] = True
+        mask[10:12, 10:12] = False
+        mask[18:28, 18:28] = False
+
+        filled = main_module.fill_bounded_selection_holes(mask, 0.01)
+
+        self.assertTrue(np.all(filled[10:12, 10:12]))
+        self.assertFalse(np.any(filled[18:28, 18:28]))
+
+    def test_sam3_person_instance_is_identical_from_face_or_shirt_click(self):
+        masks = np.zeros((2, 24, 32), dtype=bool)
+        masks[0, 3:24, 4:14] = True
+        masks[1, 4:24, 18:29] = True
+        scores = np.asarray([0.9, 0.8], dtype=np.float32)
+
+        face_mask, face_ids, face_labels = main_module.sam3_selection_mask_from_instances(
+            masks,
+            scores,
+            ["person", "person"],
+            [{"x": 0.25, "y": 0.25}],
+            (32, 24),
+        )
+        shirt_mask, shirt_ids, shirt_labels = main_module.sam3_selection_mask_from_instances(
+            masks,
+            scores,
+            ["person", "person"],
+            [{"x": 0.25, "y": 0.75}],
+            (32, 24),
+        )
+
+        self.assertEqual(face_ids, [0])
+        self.assertEqual(shirt_ids, [0])
+        self.assertEqual(face_labels, ["person"])
+        self.assertEqual(shirt_labels, ["person"])
+        np.testing.assert_array_equal(np.asarray(face_mask), np.asarray(shirt_mask))
+
+        packed_face_mask, packed_ids, packed_labels = (
+            main_module.sam3_selection_mask_from_packed_instances(
+                np.packbits(masks, axis=2),
+                32,
+                scores,
+                ["person", "person"],
+                [{"x": 0.25, "y": 0.25}],
+                (32, 24),
+            )
+        )
+        self.assertEqual(packed_ids, face_ids)
+        self.assertEqual(packed_labels, face_labels)
+        np.testing.assert_array_equal(np.asarray(packed_face_mask), np.asarray(face_mask))
+
+    def test_sam3_checkpoint_loading_is_local_by_default_and_opt_in_download(self):
+        with (
+            patch.dict(main_module.os.environ, {"SELECTION_ALLOW_MODEL_DOWNLOAD": ""}),
+            patch.object(
+                main_module,
+                "_cached_selection_snapshot",
+                return_value=Path("cached-sam3"),
+            ) as cached_snapshot,
+        ):
+            source, kwargs = main_module.selection_checkpoint_load_source(
+                "facebook/sam3",
+                "pinned-revision",
+            )
+        self.assertEqual(source, "cached-sam3")
+        self.assertEqual(kwargs, {"local_files_only": True})
+        cached_snapshot.assert_called_once_with("facebook/sam3", "pinned-revision")
+
+        with patch.dict(main_module.os.environ, {"SELECTION_ALLOW_MODEL_DOWNLOAD": "1"}):
+            source, kwargs = main_module.selection_checkpoint_load_source(
+                "facebook/sam3",
+                "pinned-revision",
+            )
+        self.assertEqual(source, "facebook/sam3")
+        self.assertEqual(
+            kwargs,
+            {"revision": "pinned-revision", "local_files_only": False},
+        )
+
+    def test_selection_sam3_precompute_reuses_person_instances(self):
+        def fake_compute(image, device="auto"):
+            masks = np.zeros((1, image.height, image.width), dtype=bool)
+            masks[0, 3:image.height, 6:20] = True
+            return masks, np.asarray([0.95], dtype=np.float32), ["person"], "facebook/sam3"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(main_module, "OUTPUT_DIR", Path(temp_dir) / "output"),
+                patch.object(main_module, "compute_sam3_selection_instances", side_effect=fake_compute) as compute_mock,
+            ):
+                main_module.SELECTION_PRECOMPUTE_CACHE.clear()
+                client = TestClient(main_module.app)
+                precompute_response = client.post(
+                    "/selection/precompute",
+                    files={"file": ("person.png", self.png_bytes(), "image/png")},
+                    data={"model_id": "sam3-person-aware"},
+                )
+                self.assertEqual(precompute_response.status_code, 200, precompute_response.text)
+                precompute_payload = precompute_response.json()
+                mask_response = client.post(
+                    "/selection/precomputed_mask",
+                    data={
+                        "precompute_id": precompute_payload["precompute_id"],
+                        "points_json": json.dumps([{"x": 0.3, "y": 0.5}]),
+                    },
+                )
+                self.assertEqual(mask_response.status_code, 200, mask_response.text)
+                payload = mask_response.json()
+
+        self.assertEqual(compute_mock.call_count, 1)
+        self.assertEqual(precompute_payload["model_status"], "sam3-concepts-precomputed")
+        self.assertEqual(precompute_payload["segment_count"], 1)
+        self.assertEqual(payload["model_status"], "sam3-concept-precomputed-point")
+        self.assertEqual(payload["selection_labels"], ["person"])
+        self.assertGreater(payload["mask_pixels"], 0)
+        main_module.SELECTION_PRECOMPUTE_CACHE.clear()
+
+    def test_selection_sam3_precompute_uses_tracker_outside_person(self):
+        masks = np.zeros((1, 24, 32), dtype=bool)
+        masks[3:24, 6:16] = True
+        tracker_mask = Image.new("L", (32, 24), 0)
+        for x in range(22, 30):
+            for y in range(6, 18):
+                tracker_mask.putpixel((x, y), 255)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(main_module, "OUTPUT_DIR", Path(temp_dir) / "output"),
+                patch.object(
+                    main_module,
+                    "compute_sam3_selection_instances",
+                    return_value=(masks, np.asarray([0.95], dtype=np.float32), ["person"], "facebook/sam3"),
+                ),
+                patch.object(
+                    main_module,
+                    "sam3_tracker_selection_mask",
+                    return_value=(tracker_mask, "facebook/sam3"),
+                ) as tracker_mock,
+            ):
+                main_module.SELECTION_PRECOMPUTE_CACHE.clear()
+                client = TestClient(main_module.app)
+                precompute_payload = client.post(
+                    "/selection/precompute",
+                    files={"file": ("scene.png", self.png_bytes(), "image/png")},
+                    data={"model_id": "sam3-person-aware"},
+                ).json()
+                response = client.post(
+                    "/selection/precomputed_mask",
+                    data={
+                        "precompute_id": precompute_payload["precompute_id"],
+                        "points_json": json.dumps([{"x": 0.8, "y": 0.5}]),
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["model_status"], "sam3-tracker-fallback-point")
+        self.assertEqual(tracker_mock.call_count, 1)
+        main_module.SELECTION_PRECOMPUTE_CACHE.clear()
+
+    def test_selection_sam3_precompute_unions_concept_and_unmatched_tracker_points(self):
+        masks = np.zeros((1, 24, 32), dtype=bool)
+        masks[0, 3:24, 6:16] = True
+        tracker_mask = Image.new("L", (32, 24), 0)
+        for x in range(22, 30):
+            for y in range(6, 18):
+                tracker_mask.putpixel((x, y), 255)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(main_module, "OUTPUT_DIR", Path(temp_dir) / "output"),
+                patch.object(
+                    main_module,
+                    "compute_sam3_selection_instances",
+                    return_value=(masks, np.asarray([0.95], dtype=np.float32), ["person"], "facebook/sam3"),
+                ),
+                patch.object(
+                    main_module,
+                    "sam3_tracker_selection_mask",
+                    return_value=(tracker_mask, "facebook/sam3"),
+                ) as tracker_mock,
+            ):
+                main_module.SELECTION_PRECOMPUTE_CACHE.clear()
+                client = TestClient(main_module.app)
+                precompute_payload = client.post(
+                    "/selection/precompute",
+                    files={"file": ("scene.png", self.png_bytes(), "image/png")},
+                    data={"model_id": "sam3-person-aware"},
+                ).json()
+                response = client.post(
+                    "/selection/precomputed_mask",
+                    data={
+                        "precompute_id": precompute_payload["precompute_id"],
+                        "points_json": json.dumps([
+                            {"x": 0.3, "y": 0.5},
+                            {"x": 0.8, "y": 0.5},
+                        ]),
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["model_status"], "sam3-concept-precomputed+tracker-point")
+        self.assertEqual(payload["selected_segment_ids"], [0])
+        self.assertEqual(payload["selection_labels"], ["person"])
+        self.assertGreater(payload["mask_pixels"], int(masks[0].sum()))
+        tracker_mock.assert_called_once()
+        main_module.SELECTION_PRECOMPUTE_CACHE.clear()
+
+    def test_release_selection_models_clears_cached_cuda_models(self):
+        original_cache = main_module.SELECTION_MODEL_CACHE
+        try:
+            main_module.SELECTION_MODEL_CACHE = {("model", "revision", "cuda"): object()}
+            main_module.SELECTION_PRECOMPUTE_CACHE["cached"] = {"kind": "test"}
+            with patch("torch.cuda.is_available", return_value=False):
+                main_module.release_selection_models()
+            self.assertEqual(main_module.SELECTION_MODEL_CACHE, {})
+            self.assertIn("cached", main_module.SELECTION_PRECOMPUTE_CACHE)
+        finally:
+            main_module.SELECTION_MODEL_CACHE = original_cache
+            main_module.SELECTION_PRECOMPUTE_CACHE.clear()
+
     def test_selection_mask_preview_can_use_panoptic_segmenter(self):
         def fake_panoptic(image, points, device="auto"):
             mask = Image.new("L", image.size, 0)

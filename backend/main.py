@@ -135,12 +135,31 @@ DEPTH_PRELOAD_STATE = {
 SELECTION_MODEL_LOCK = Lock()
 SELECTION_MODEL_CACHE = {}
 SELECTION_MODEL_IDS = {
+    "sam3-person-aware": "facebook/sam3",
+    "sam2.1-hiera-tiny": "facebook/sam2.1-hiera-tiny",
     "sam2.1-hiera-large": "facebook/sam2.1-hiera-large",
     "sam2.1-hiera-base-plus": "facebook/sam2.1-hiera-base-plus",
     "grounding-dino-sam2": "facebook/sam2.1-hiera-large",
 }
+SELECTION_MODEL_REVISIONS = {
+    "facebook/sam3": "3c879f39826c281e95690f02c7821c4de09afae7",
+    "facebook/sam2.1-hiera-tiny": "de431c4043854a71d8101e17995dfe596bf101a5",
+    "facebook/sam2.1-hiera-large": "665f8e2ad61cf5f53d65644ff27c8ee525124610",
+}
+SAM2_SELECTION_MAX_COVERAGE = 0.65
+SAM2_SELECTION_SCORE_MARGIN = 0.75
+SAM2_SELECTION_MIN_CREDIBLE_SCORE = 0.20
+SAM3_SELECTION_RUNTIME_ID = "sam3-person-aware"
+SAM3_SELECTION_MODEL_ID = "facebook/sam3"
+SAM3_PERSON_DETECTION_THRESHOLD = 0.30
+SAM3_PERSON_MASK_THRESHOLD = 0.20
+SAM3_PERSON_MIN_COVERAGE = 0.002
+SAM3_OTHER_CONCEPT_MIN_COVERAGE = 0.0005
+SAM3_PERSON_MAX_HOLE_IMAGE_RATIO = 0.001
+SAM3_SELECTION_CONCEPTS = ("person", "building", "vehicle", "animal", "plant", "furniture")
 PANOPTIC_SELECTION_MODEL_ID = os.getenv("SELECTION_PANOPTIC_MODEL", "facebook/detr-resnet-50-panoptic")
 SELECTION_PRECOMPUTE_LOCK = Lock()
+SELECTION_INFERENCE_LOCK = Lock()
 SELECTION_PRECOMPUTE_CACHE: dict[str, dict] = {}
 SELECTION_PRECOMPUTE_MAX_ENTRIES = int(os.getenv("SELECTION_PRECOMPUTE_MAX_ENTRIES", "12"))
 RELIEF_MIN_DETAIL_DIMENSION = int(os.getenv("RELIEF_MIN_DETAIL_DIMENSION", "192"))
@@ -613,23 +632,119 @@ def fallback_selection_mask(image: Image.Image, points: list[dict[str, float]], 
 
 def load_sam2_selection_model(model_id: str, device: str):
     import torch
+    from huggingface_hub import hf_hub_download
     from transformers import Sam2Model, Sam2Processor
 
     hf_model_id = SELECTION_MODEL_IDS.get(model_id, model_id if "/" in model_id else SELECTION_MODEL_IDS["sam2.1-hiera-large"])
-    cache_key = (hf_model_id, device)
+    revision = SELECTION_MODEL_REVISIONS.get(hf_model_id)
+    cache_key = (hf_model_id, revision, device)
     with SELECTION_MODEL_LOCK:
         if cache_key in SELECTION_MODEL_CACHE:
             return SELECTION_MODEL_CACHE[cache_key]
 
         allow_download = os.getenv("SELECTION_ALLOW_MODEL_DOWNLOAD", "").lower() in {"1", "true", "yes", "on"}
         local_files_only = not allow_download
-        processor = Sam2Processor.from_pretrained(hf_model_id, local_files_only=local_files_only)
+        load_source = hf_model_id
+        load_kwargs = {"local_files_only": local_files_only}
+        if revision:
+            load_kwargs["revision"] = revision
+            if local_files_only:
+                # Loading a pinned Transformers processor by repo id can miss
+                # processor-side files in an otherwise complete Windows cache.
+                # Resolve the immutable snapshot first and load every component
+                # from that same directory.
+                load_source = str(
+                    Path(
+                        hf_hub_download(
+                            hf_model_id,
+                            filename="config.json",
+                            revision=revision,
+                            local_files_only=True,
+                        )
+                    ).parent
+                )
+                load_kwargs = {"local_files_only": True}
+        processor = Sam2Processor.from_pretrained(load_source, **load_kwargs)
         torch_dtype = torch.float16 if str(device).startswith("cuda") else torch.float32
-        model = Sam2Model.from_pretrained(hf_model_id, torch_dtype=torch_dtype, local_files_only=local_files_only)
+        model = Sam2Model.from_pretrained(load_source, torch_dtype=torch_dtype, **load_kwargs)
         model.to(device)
         model.eval()
         SELECTION_MODEL_CACHE[cache_key] = (processor, model, hf_model_id)
         return SELECTION_MODEL_CACHE[cache_key]
+
+
+def release_selection_models() -> None:
+    with SELECTION_MODEL_LOCK:
+        SELECTION_MODEL_CACHE.clear()
+    try:
+        import gc
+        import torch
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except (ImportError, RuntimeError):
+        pass
+
+
+def seeded_sam2_component(candidate: np.ndarray, pixel_points: list[list[float]]) -> np.ndarray:
+    binary = np.asarray(candidate, dtype=bool)
+    component_count, labels = cv2.connectedComponents(binary.astype(np.uint8), connectivity=8)
+    if component_count <= 1:
+        return binary
+
+    selected_labels: set[int] = set()
+    height, width = binary.shape
+    for px_float, py_float in pixel_points:
+        px = int(np.clip(round(px_float), 0, max(0, width - 1)))
+        py = int(np.clip(round(py_float), 0, max(0, height - 1)))
+        component_label = int(labels[py, px])
+        if component_label > 0:
+            selected_labels.add(component_label)
+
+    if not selected_labels:
+        return binary
+    return np.isin(labels, list(selected_labels))
+
+
+def select_sam2_object_candidate(
+    candidates: np.ndarray,
+    scores: np.ndarray | None,
+    pixel_points: list[list[float]],
+) -> tuple[np.ndarray, int]:
+    cleaned_candidates = [seeded_sam2_component(candidate, pixel_points) for candidate in candidates]
+    coverages = np.asarray([float(candidate.mean()) for candidate in cleaned_candidates], dtype=np.float64)
+    nonempty = [index for index, coverage in enumerate(coverages) if coverage > 0.0]
+    if not nonempty:
+        raise RuntimeError("SAM2 returned an empty selection mask")
+
+    plausible = [index for index in nonempty if coverages[index] <= SAM2_SELECTION_MAX_COVERAGE]
+    if not plausible:
+        plausible = nonempty
+
+    score_values = None if scores is None else np.asarray(scores, dtype=np.float64).reshape(-1)
+    if score_values is not None and len(score_values) == len(cleaned_candidates):
+        credible = [
+            index
+            for index in plausible
+            if np.isfinite(score_values[index])
+            and score_values[index] >= SAM2_SELECTION_MIN_CREDIBLE_SCORE
+        ]
+        if credible:
+            plausible = credible
+        finite_scores = [score_values[index] for index in plausible if np.isfinite(score_values[index])]
+        if finite_scores:
+            minimum_score = max(finite_scores) - SAM2_SELECTION_SCORE_MARGIN
+            within_margin = [
+                index
+                for index in plausible
+                if np.isfinite(score_values[index]) and score_values[index] >= minimum_score
+            ]
+            if within_margin:
+                plausible = within_margin
+
+    selected_index = max(plausible, key=lambda index: (coverages[index], -index))
+    return cleaned_candidates[selected_index], int(selected_index)
 
 
 def sam2_selection_mask(image: Image.Image, points: list[dict[str, float]], model_id: str, device: str = "auto") -> tuple[Image.Image, str]:
@@ -664,15 +779,350 @@ def sam2_selection_mask(image: Image.Image, points: list[dict[str, float]], mode
     candidates = masks.reshape((-1, masks.shape[-2], masks.shape[-1]))
     scores = getattr(outputs, "iou_scores", None)
     if scores is not None and scores.numel() == len(candidates):
-        best_index = int(torch.argmax(scores.detach().cpu().reshape(-1)).item())
+        score_values = scores.detach().cpu().reshape(-1).numpy()
     else:
-        areas = candidates.reshape((len(candidates), -1)).sum(axis=1)
-        best_index = int(np.argmax(areas))
+        score_values = None
 
-    selected_mask = candidates[best_index]
-    if not np.any(selected_mask):
-        raise RuntimeError("SAM2 returned an empty selection mask")
+    selected_mask, _selected_index = select_sam2_object_candidate(candidates, score_values, pixel_points)
     return Image.fromarray((selected_mask.astype(np.uint8) * 255), mode="L"), hf_model_id
+
+
+def _cached_selection_snapshot(model_id: str, revision: str) -> Path:
+    from huggingface_hub import hf_hub_download
+
+    return Path(
+        hf_hub_download(
+            model_id,
+            filename="config.json",
+            revision=revision,
+            local_files_only=True,
+        )
+    ).parent
+
+
+def selection_checkpoint_load_source(model_id: str, revision: str) -> tuple[str, dict]:
+    allow_download = os.getenv("SELECTION_ALLOW_MODEL_DOWNLOAD", "").lower() in {"1", "true", "yes", "on"}
+    if allow_download:
+        return model_id, {"revision": revision, "local_files_only": False}
+    return str(_cached_selection_snapshot(model_id, revision)), {"local_files_only": True}
+
+
+def load_sam3_selection_model(component: str, device: str):
+    import torch
+    from transformers import Sam3Model, Sam3Processor, Sam3TrackerModel, Sam3TrackerProcessor
+
+    revision = SELECTION_MODEL_REVISIONS[SAM3_SELECTION_MODEL_ID]
+    cache_key = (SAM3_SELECTION_MODEL_ID, revision, device, component)
+    with SELECTION_MODEL_LOCK:
+        if cache_key in SELECTION_MODEL_CACHE:
+            return SELECTION_MODEL_CACHE[cache_key]
+
+        load_source, load_kwargs = selection_checkpoint_load_source(SAM3_SELECTION_MODEL_ID, revision)
+        torch_dtype = torch.float16 if str(device).startswith("cuda") else torch.float32
+        if component == "concept":
+            processor = Sam3Processor.from_pretrained(load_source, **load_kwargs)
+            model = Sam3Model.from_pretrained(
+                load_source,
+                dtype=torch_dtype,
+                low_cpu_mem_usage=True,
+                **load_kwargs,
+            )
+        elif component == "tracker":
+            processor = Sam3TrackerProcessor.from_pretrained(load_source, **load_kwargs)
+            model = Sam3TrackerModel.from_pretrained(
+                load_source,
+                dtype=torch_dtype,
+                low_cpu_mem_usage=True,
+                **load_kwargs,
+            )
+        else:
+            raise ValueError(f"Unknown SAM3 component: {component}")
+        model.to(device)
+        model.eval()
+        SELECTION_MODEL_CACHE[cache_key] = (processor, model, SAM3_SELECTION_MODEL_ID)
+        return SELECTION_MODEL_CACHE[cache_key]
+
+
+def fill_bounded_selection_holes(mask: np.ndarray, max_hole_image_ratio: float) -> np.ndarray:
+    binary = np.asarray(mask, dtype=bool)
+    if not np.any(binary) or max_hole_image_ratio <= 0.0:
+        return binary
+
+    height, width = binary.shape
+    max_hole_pixels = max(1, int(math.floor(height * width * max_hole_image_ratio)))
+    inverse = (~binary).astype(np.uint8)
+    component_count, labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        inverse,
+        connectivity=8,
+    )
+    filled = binary.copy()
+    for component_index in range(1, component_count):
+        x = int(stats[component_index, cv2.CC_STAT_LEFT])
+        y = int(stats[component_index, cv2.CC_STAT_TOP])
+        component_width = int(stats[component_index, cv2.CC_STAT_WIDTH])
+        component_height = int(stats[component_index, cv2.CC_STAT_HEIGHT])
+        component_pixels = int(stats[component_index, cv2.CC_STAT_AREA])
+        touches_border = (
+            x == 0
+            or y == 0
+            or x + component_width >= width
+            or y + component_height >= height
+        )
+        if not touches_border and component_pixels <= max_hole_pixels:
+            filled[labels == component_index] = True
+    return filled
+
+
+def compute_sam3_selection_instances(
+    image: Image.Image,
+    device: str = "auto",
+) -> tuple[np.ndarray, np.ndarray, list[str], str]:
+    import torch
+
+    selected_device = device
+    if selected_device == "auto":
+        selected_device = "cuda" if torch.cuda.is_available() else "cpu"
+    processor, model, resolved_model_id = load_sam3_selection_model("concept", selected_device)
+    kept_masks = []
+    kept_scores = []
+    kept_labels = []
+    with SELECTION_INFERENCE_LOCK:
+        for concept in SAM3_SELECTION_CONCEPTS:
+            inputs = processor(images=image, text=concept, return_tensors="pt").to(selected_device)
+            with torch.inference_mode():
+                outputs = model(**inputs)
+            processed = processor.post_process_instance_segmentation(
+                outputs,
+                threshold=SAM3_PERSON_DETECTION_THRESHOLD,
+                mask_threshold=SAM3_PERSON_MASK_THRESHOLD,
+                target_sizes=inputs["original_sizes"].detach().cpu().tolist(),
+            )[0]
+            raw_masks = processed["masks"].detach().cpu().numpy().astype(bool)
+            raw_scores = processed["scores"].detach().cpu().numpy().reshape(-1)
+            minimum_coverage = (
+                SAM3_PERSON_MIN_COVERAGE
+                if concept == "person"
+                else SAM3_OTHER_CONCEPT_MIN_COVERAGE
+            )
+            for raw_mask, raw_score in zip(raw_masks, raw_scores):
+                filled = fill_bounded_selection_holes(
+                    raw_mask,
+                    SAM3_PERSON_MAX_HOLE_IMAGE_RATIO,
+                )
+                coverage = float(filled.mean())
+                if minimum_coverage <= coverage <= SAM2_SELECTION_MAX_COVERAGE:
+                    kept_masks.append(filled)
+                    kept_scores.append(float(raw_score))
+                    kept_labels.append(concept)
+    if not kept_masks:
+        return (
+            np.empty((0, image.height, image.width), dtype=bool),
+            np.empty((0,), dtype=np.float32),
+            [],
+            resolved_model_id,
+        )
+    return (
+        np.asarray(kept_masks, dtype=bool),
+        np.asarray(kept_scores, dtype=np.float32),
+        kept_labels,
+        resolved_model_id,
+    )
+
+
+def sam3_selection_mask_from_instances(
+    masks: np.ndarray,
+    scores: np.ndarray,
+    labels: list[str],
+    points: list[dict[str, float]],
+    image_size: tuple[int, int],
+) -> tuple[Image.Image | None, list[int], list[str]]:
+    width, height = image_size
+    pixel_points = selection_points_to_pixels(points, width, height)
+    selected_masks = []
+    selected_indices: set[int] = set()
+    selected_labels: set[str] = set()
+    for pixel_point in pixel_points:
+        px = int(np.clip(round(pixel_point[0]), 0, max(0, width - 1)))
+        py = int(np.clip(round(pixel_point[1]), 0, max(0, height - 1)))
+        matching = [index for index, candidate in enumerate(masks) if candidate[py, px]]
+        if not matching:
+            continue
+        selected_index = max(matching, key=lambda index: float(scores[index]))
+        if selected_index in selected_indices:
+            continue
+        selected_indices.add(selected_index)
+        selected_labels.add(labels[selected_index])
+        selected_masks.append(seeded_sam2_component(masks[selected_index], [pixel_point]))
+    if not selected_masks:
+        return None, [], []
+    selected = np.logical_or.reduce(selected_masks)
+    return (
+        Image.fromarray((selected.astype(np.uint8) * 255), mode="L"),
+        sorted(selected_indices),
+        sorted(selected_labels),
+    )
+
+
+def sam3_selection_mask_from_packed_instances(
+    packed_masks: np.ndarray,
+    mask_width: int,
+    scores: np.ndarray,
+    labels: list[str],
+    points: list[dict[str, float]],
+    image_size: tuple[int, int],
+) -> tuple[Image.Image | None, list[int], list[str]]:
+    width, height = image_size
+    if mask_width != width:
+        raise ValueError("Cached SAM3 mask width does not match its source image")
+    pixel_points = selection_points_to_pixels(points, width, height)
+    selected_indices: set[int] = set()
+    selected_labels: set[str] = set()
+    selected_points: dict[int, list[list[float]]] = {}
+    for pixel_point in pixel_points:
+        px = int(np.clip(round(pixel_point[0]), 0, max(0, width - 1)))
+        py = int(np.clip(round(pixel_point[1]), 0, max(0, height - 1)))
+        byte_index = px // 8
+        bit_shift = 7 - (px % 8)
+        containing = np.flatnonzero((packed_masks[:, py, byte_index] >> bit_shift) & 1)
+        if not len(containing):
+            continue
+        selected_index = max(containing.tolist(), key=lambda index: float(scores[index]))
+        selected_indices.add(selected_index)
+        selected_labels.add(labels[selected_index])
+        selected_points.setdefault(selected_index, []).append(pixel_point)
+    if not selected_indices:
+        return None, [], []
+
+    selected_masks = []
+    for selected_index in sorted(selected_indices):
+        candidate = np.unpackbits(
+            packed_masks[selected_index],
+            axis=1,
+            count=width,
+        ).astype(bool)
+        selected_masks.append(
+            seeded_sam2_component(candidate, selected_points[selected_index])
+        )
+    selected = np.logical_or.reduce(selected_masks)
+    return (
+        Image.fromarray((selected.astype(np.uint8) * 255), mode="L"),
+        sorted(selected_indices),
+        sorted(selected_labels),
+    )
+
+
+def sam3_unmatched_points_from_instances(
+    masks: np.ndarray,
+    points: list[dict[str, float]],
+    image_size: tuple[int, int],
+) -> list[dict[str, float]]:
+    width, height = image_size
+    pixel_points = selection_points_to_pixels(points, width, height)
+    unmatched = []
+    for point, pixel_point in zip(points, pixel_points):
+        px = int(np.clip(round(pixel_point[0]), 0, max(0, width - 1)))
+        py = int(np.clip(round(pixel_point[1]), 0, max(0, height - 1)))
+        if len(masks) == 0 or not np.any(masks[:, py, px]):
+            unmatched.append(point)
+    return unmatched
+
+
+def sam3_unmatched_points_from_packed_instances(
+    packed_masks: np.ndarray,
+    mask_width: int,
+    points: list[dict[str, float]],
+    image_size: tuple[int, int],
+) -> list[dict[str, float]]:
+    width, height = image_size
+    if mask_width != width:
+        raise ValueError("Cached SAM3 mask width does not match its source image")
+    pixel_points = selection_points_to_pixels(points, width, height)
+    unmatched = []
+    for point, pixel_point in zip(points, pixel_points):
+        px = int(np.clip(round(pixel_point[0]), 0, max(0, width - 1)))
+        py = int(np.clip(round(pixel_point[1]), 0, max(0, height - 1)))
+        byte_index = px // 8
+        bit_shift = 7 - (px % 8)
+        if len(packed_masks) == 0 or not np.any((packed_masks[:, py, byte_index] >> bit_shift) & 1):
+            unmatched.append(point)
+    return unmatched
+
+
+def union_binary_selection_masks(masks: list[Image.Image], image_size: tuple[int, int]) -> Image.Image:
+    if not masks:
+        raise RuntimeError("SAM3 returned no selection masks")
+    combined = np.zeros((image_size[1], image_size[0]), dtype=bool)
+    for mask in masks:
+        combined |= np.asarray(mask.convert("L")) > 0
+    return Image.fromarray((combined.astype(np.uint8) * 255), mode="L")
+
+
+def sam3_tracker_selection_mask(
+    image: Image.Image,
+    points: list[dict[str, float]],
+    device: str = "auto",
+) -> tuple[Image.Image, str]:
+    import torch
+
+    selected_device = device
+    if selected_device == "auto":
+        selected_device = "cuda" if torch.cuda.is_available() else "cpu"
+    processor, model, resolved_model_id = load_sam3_selection_model("tracker", selected_device)
+    pixel_points = selection_points_to_pixels(points, *image.size)
+    with SELECTION_INFERENCE_LOCK:
+        inputs = processor(
+            images=image,
+            input_points=[[pixel_points]],
+            input_labels=[[[1 for _ in pixel_points]]],
+            return_tensors="pt",
+        ).to(selected_device)
+        with torch.inference_mode():
+            outputs = model(**inputs)
+        post_masks = processor.post_process_masks(
+            outputs.pred_masks.detach().cpu(),
+            inputs["original_sizes"].detach().cpu(),
+            mask_threshold=0.0,
+            binarize=True,
+            max_hole_area=256.0,
+            max_sprinkle_area=128.0,
+        )[0]
+    masks = post_masks.detach().cpu().numpy().astype(bool)
+    candidates = masks.reshape((-1, masks.shape[-2], masks.shape[-1]))
+    scores = outputs.iou_scores.detach().cpu().reshape(-1).numpy()
+    selected_mask, _selected_index = select_sam2_object_candidate(candidates, scores, pixel_points)
+    return Image.fromarray((selected_mask.astype(np.uint8) * 255), mode="L"), resolved_model_id
+
+
+def sam3_person_aware_selection_mask(
+    image: Image.Image,
+    points: list[dict[str, float]],
+    device: str = "auto",
+) -> tuple[Image.Image, str, str, list[str]]:
+    masks, scores, labels, resolved_model_id = compute_sam3_selection_instances(image, device=device)
+    concept_mask, _selected_indices, selected_labels = sam3_selection_mask_from_instances(
+        masks,
+        scores,
+        labels,
+        points,
+        image.size,
+    )
+    unmatched_points = sam3_unmatched_points_from_instances(masks, points, image.size)
+    if concept_mask is not None and not unmatched_points:
+        return concept_mask, resolved_model_id, "sam3-open-vocabulary-concept", selected_labels
+    selected_masks = [concept_mask] if concept_mask is not None else []
+    for unmatched_point in unmatched_points:
+        tracker_mask, resolved_model_id = sam3_tracker_selection_mask(
+            image,
+            [unmatched_point],
+            device=device,
+        )
+        selected_masks.append(tracker_mask)
+    model_status = (
+        "sam3-open-vocabulary-concept+tracker"
+        if concept_mask is not None
+        else "sam3-tracker-fallback"
+    )
+    return union_binary_selection_masks(selected_masks, image.size), resolved_model_id, model_status, selected_labels
 
 
 def load_panoptic_selection_model(device: str):
@@ -800,6 +1250,18 @@ def selection_mask_for_points(
     mask_max_dimension: int = 1024,
 ) -> tuple[Image.Image, str, str | None, str, list[str]]:
     model_error = None
+    if model_id == SAM3_SELECTION_RUNTIME_ID or model_id == SAM3_SELECTION_MODEL_ID:
+        try:
+            mask, resolved_model_id, model_status, labels = sam3_person_aware_selection_mask(
+                image,
+                points,
+                device=device,
+            )
+            return mask, resolved_model_id, model_error, model_status, labels
+        except Exception as exc:
+            model_error = compact_selection_error(exc, "SAM3")
+            logger.warning("SAM3 selection failed; trying panoptic segmenter: %s", model_error)
+
     if model_id.startswith("sam2") or model_id == "grounding-dino-sam2":
         try:
             mask, resolved_model_id = sam2_selection_mask(image, points, model_id=model_id, device=device)
@@ -837,10 +1299,35 @@ def cache_panoptic_precompute(
     precompute_id = uuid4().hex
     with SELECTION_PRECOMPUTE_LOCK:
         SELECTION_PRECOMPUTE_CACHE[precompute_id] = {
+            "kind": "panoptic",
             "segmentation": segmentation,
             "segment_labels": segment_labels,
             "model_id": model_id,
             "image_size": image_size,
+            "created_at_epoch": time.time(),
+        }
+        trim_selection_precompute_cache()
+    return precompute_id
+
+
+def cache_sam3_precompute(
+    image: Image.Image,
+    masks: np.ndarray,
+    scores: np.ndarray,
+    labels: list[str],
+    model_id: str,
+) -> str:
+    precompute_id = uuid4().hex
+    with SELECTION_PRECOMPUTE_LOCK:
+        SELECTION_PRECOMPUTE_CACHE[precompute_id] = {
+            "kind": "sam3-person-aware",
+            "image": image.copy(),
+            "packed_masks": np.packbits(np.asarray(masks, dtype=bool), axis=2),
+            "mask_width": image.width,
+            "scores": np.asarray(scores, dtype=np.float32),
+            "labels": list(labels),
+            "model_id": model_id,
+            "image_size": image.size,
             "created_at_epoch": time.time(),
         }
         trim_selection_precompute_cache()
@@ -855,6 +1342,47 @@ def get_selection_precompute(precompute_id: str) -> dict:
     if not cached:
         raise HTTPException(status_code=404, detail="Selection precompute session not found")
     return cached
+
+
+def sam3_selection_mask_from_precompute(
+    cached: dict,
+    points: list[dict[str, float]],
+) -> tuple[Image.Image, list[int], list[str], str]:
+    mask, selected_segment_ids, selection_labels = sam3_selection_mask_from_packed_instances(
+        cached["packed_masks"],
+        int(cached["mask_width"]),
+        cached["scores"],
+        cached["labels"],
+        points,
+        cached["image_size"],
+    )
+    unmatched_points = sam3_unmatched_points_from_packed_instances(
+        cached["packed_masks"],
+        int(cached["mask_width"]),
+        points,
+        cached["image_size"],
+    )
+    if mask is not None and not unmatched_points:
+        return mask, selected_segment_ids, selection_labels, "sam3-concept-precomputed-point"
+
+    selected_masks = [mask] if mask is not None else []
+    for unmatched_point in unmatched_points:
+        tracker_mask, _resolved_model_id = sam3_tracker_selection_mask(
+            cached["image"],
+            [unmatched_point],
+        )
+        selected_masks.append(tracker_mask)
+    model_status = (
+        "sam3-concept-precomputed+tracker-point"
+        if mask is not None
+        else "sam3-tracker-fallback-point"
+    )
+    return (
+        union_binary_selection_masks(selected_masks, cached["image_size"]),
+        selected_segment_ids,
+        selection_labels,
+        model_status,
+    )
 
 
 def save_selection_mask_artifacts(
@@ -933,21 +1461,6 @@ def _fill_small_selection_holes(
             filled[labels == component_index] = True
             filled_hole_pixels += area
     return filled, filled_hole_pixels, max_hole_pixels
-
-
-def release_selection_models():
-    import gc
-
-    with SELECTION_MODEL_LOCK:
-        SELECTION_MODEL_CACHE.clear()
-    gc.collect()
-    try:
-        import torch
-
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except ImportError:
-        pass
 
 
 def structural_context_selection_infill(
@@ -1354,6 +1867,30 @@ async def precompute_selection_model(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
 
+    if model_id == SAM3_SELECTION_RUNTIME_ID or model_id == SAM3_SELECTION_MODEL_ID:
+        try:
+            masks, scores, labels, resolved_model_id = await asyncio.to_thread(
+                compute_sam3_selection_instances,
+                image,
+                device,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=compact_selection_error(exc, "SAM3")) from exc
+        precompute_id = cache_sam3_precompute(image, masks, scores, labels, resolved_model_id)
+        return {
+            "job_id": job_id,
+            "precompute_id": precompute_id,
+            "model_id": resolved_model_id,
+            "model_status": "sam3-concepts-precomputed",
+            "precompute_supported": True,
+            "message": "SAM3 semantic masks are cached; unmatched clicks use its tracker head.",
+            "image_size": {"width": image.width, "height": image.height},
+            "segment_count": len(masks),
+            "selection_labels": sorted(set(labels)),
+            "timings": {"precompute_seconds": round(time.perf_counter() - started, 3)},
+            "created_at": datetime.utcnow().isoformat() + "Z",
+        }
+
     if model_id.startswith("sam2") or model_id == "grounding-dino-sam2":
         try:
             selected_device = device
@@ -1361,7 +1898,11 @@ async def precompute_selection_model(
                 import torch
 
                 selected_device = "cuda" if torch.cuda.is_available() else "cpu"
-            _processor, _model, resolved_model_id = load_sam2_selection_model(model_id, selected_device)
+            _processor, _model, resolved_model_id = await asyncio.to_thread(
+                load_sam2_selection_model,
+                model_id,
+                selected_device,
+            )
             return {
                 "job_id": job_id,
                 "precompute_id": None,
@@ -1377,7 +1918,11 @@ async def precompute_selection_model(
             raise HTTPException(status_code=503, detail=compact_selection_error(exc, "SAM2")) from exc
 
     try:
-        segmentation, segment_labels, resolved_model_id = compute_panoptic_segmentation(image, device=device)
+        segmentation, segment_labels, resolved_model_id = await asyncio.to_thread(
+            compute_panoptic_segmentation,
+            image,
+            device,
+        )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=compact_selection_error(exc, "Panoptic")) from exc
 
@@ -1412,13 +1957,20 @@ async def preview_precomputed_selection_mask(
     job_dir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     cached = get_selection_precompute(precompute_id)
-
-    mask, selection_labels, selected_segment_ids = panoptic_mask_from_segmentation(
-        cached["segmentation"],
-        cached["segment_labels"],
-        points,
-        cached["image_size"],
-    )
+    if cached.get("kind") == "sam3-person-aware":
+        mask, selected_segment_ids, selection_labels, model_status = await asyncio.to_thread(
+            sam3_selection_mask_from_precompute,
+            cached,
+            points,
+        )
+    else:
+        mask, selection_labels, selected_segment_ids = panoptic_mask_from_segmentation(
+            cached["segmentation"],
+            cached["segment_labels"],
+            points,
+            cached["image_size"],
+        )
+        model_status = "panoptic-precomputed-point"
     mask_pixels = int(np.count_nonzero(np.asarray(mask) > 0))
     width, height = cached["image_size"]
     metadata = {
@@ -1426,7 +1978,7 @@ async def preview_precomputed_selection_mask(
         "precompute_id": precompute_id,
         "points": points,
         "model_id": cached["model_id"],
-        "model_status": "panoptic-precomputed-point",
+        "model_status": model_status,
         "selection_labels": selection_labels,
         "selected_segment_ids": selected_segment_ids,
         "image_size": {"width": width, "height": height},
@@ -1443,7 +1995,7 @@ async def preview_precomputed_selection_mask(
 async def keep_selected_objects(
     file: UploadFile = File(...),
     points_json: str = Form("[]"),
-    model_id: str = Form("sam2.1-hiera-large"),
+    model_id: str = Form(SAM3_SELECTION_RUNTIME_ID),
     device: str = Form("auto"),
     background_mode: str = Form("neutral"),
     mask_max_dimension: int = Form(1024),
@@ -1463,12 +2015,13 @@ async def keep_selected_objects(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
 
-    mask, model_id, model_error, model_status, selection_labels = selection_mask_for_points(
+    mask, model_id, model_error, model_status, selection_labels = await asyncio.to_thread(
+        selection_mask_for_points,
         image,
         points,
-        model_id=model_id,
-        device=device,
-        mask_max_dimension=mask_max_dimension,
+        model_id,
+        device,
+        mask_max_dimension,
     )
 
     selected = selected_image_from_mask(image, mask, background_mode=background_mode)
@@ -1528,7 +2081,7 @@ async def keep_selected_objects(
 async def preview_selection_mask(
     file: UploadFile = File(...),
     points_json: str = Form("[]"),
-    model_id: str = Form("sam2.1-hiera-large"),
+    model_id: str = Form(SAM3_SELECTION_RUNTIME_ID),
     device: str = Form("auto"),
     mask_max_dimension: int = Form(1024),
 ):
@@ -1547,12 +2100,13 @@ async def preview_selection_mask(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
 
-    mask, model_id, model_error, model_status, selection_labels = selection_mask_for_points(
+    mask, model_id, model_error, model_status, selection_labels = await asyncio.to_thread(
+        selection_mask_for_points,
         image,
         points,
-        model_id=model_id,
-        device=device,
-        mask_max_dimension=mask_max_dimension,
+        model_id,
+        device,
+        mask_max_dimension,
     )
 
     mask_path = job_dir / "selection_mask.png"
@@ -1620,6 +2174,11 @@ async def compose_selected_objects(
                 "reapply the selection without image completion"
             ),
         )
+
+    # The still-image segmenter is no longer needed after the masks are
+    # composed. Releasing it here preserves the full CUDA budget for depth and
+    # face inference on 12 GB cards.
+    await asyncio.to_thread(release_selection_models)
 
     job_id = uuid4().hex
     job_dir = OUTPUT_DIR / "selection" / job_id
