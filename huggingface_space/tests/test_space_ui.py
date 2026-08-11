@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import unittest
 
 from huggingface_space import app
@@ -20,6 +21,11 @@ class SpaceUiTests(unittest.TestCase):
     def test_ui_has_one_model_per_learned_feature(self):
         self.assertIn("depth-anything/Depth-Anything-V2-Large-hf", app.DEPTH_MODEL)
         self.assertEqual(app.SAM3_MODEL, "facebook/sam3")
+
+    def test_zero_gpu_runtime_uses_writable_xet_cache_and_free_tier_mesh_window(self):
+        self.assertEqual(os.environ["HF_XET_CACHE"], str(app.HF_XET_CACHE_DIR))
+        self.assertTrue(app.HF_XET_CACHE_DIR.is_dir())
+        self.assertEqual(app.FULL_MESH_GPU_DURATION_SECONDS, 150)
 
     def test_gpu_events_share_one_serial_queue(self):
         gpu_functions = [

@@ -55,10 +55,12 @@ rationale remain in the GitHub repository under `docs/benchmark-evidence`.
 
 GPU work is isolated to one shared serialized Gradio queue. Visitors use their
 own Hugging Face ZeroGPU allowance. Selection requests 45 seconds, relief and
-diorama request 110 seconds, and a full TripoSG mesh requests 240 seconds.
-Signed-in free users can combine selection with one full-mesh run inside the
-daily five-minute allowance; anonymous users can run a full-scene relief within
-their shorter allowance.
+diorama request 110 seconds, and a full TripoSG mesh requests 150 seconds. The
+full-mesh reservation was reduced after a live ZeroGPU smoke showed that the
+former 240-second decorator became a 360-second scheduler request, which could
+not fit inside a free user's daily five-minute allowance. Signed-in free users
+can combine selection with one full-mesh run. Anonymous visitors have a
+two-minute daily quota and should sign in before using the mesh workflow.
 
 ### Owner setup
 
@@ -66,7 +68,9 @@ Object selection uses the gated `facebook/sam3` weights. The Space owner must
 accept the SAM 3 access terms, create a read-only Hugging Face token, and store
 it as the private Space secret `HF_TOKEN`. The application fails closed when
 that secret is absent; it never places the token in source code or generated
-artifacts.
+artifacts. Startup also points `HF_XET_CACHE` at writable temporary Space
+storage. This avoids the read-only `/home/user/.cache/huggingface/xet` failure
+observed while downloading the gated SAM 3 checkpoint on ZeroGPU.
 
 ## Privacy
 

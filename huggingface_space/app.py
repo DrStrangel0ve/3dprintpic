@@ -1,6 +1,16 @@
 from __future__ import annotations
 
 import os
+import tempfile
+from pathlib import Path
+
+
+SPACE_RUNTIME_ROOT = Path(
+    os.getenv("THREEDPRINTPIC_RUNTIME_DIR", Path(tempfile.gettempdir()) / "3dprintpic-space")
+)
+HF_XET_CACHE_DIR = Path(os.getenv("HF_XET_CACHE", SPACE_RUNTIME_ROOT / "huggingface-xet"))
+HF_XET_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+os.environ["HF_XET_CACHE"] = str(HF_XET_CACHE_DIR)
 
 import gradio as gr
 
@@ -169,7 +179,10 @@ def _generate_diorama_ui(image, scope, selection, max_size, scene_depth, base_th
         raise gr.Error(str(exc)) from exc
 
 
-@spaces.GPU(duration=240)
+FULL_MESH_GPU_DURATION_SECONDS = 150
+
+
+@spaces.GPU(duration=FULL_MESH_GPU_DURATION_SECONDS)
 def _generate_full_mesh_ui(image, scope, selection, max_dimension, seed):
     try:
         cleanup_expired_outputs()
