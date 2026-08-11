@@ -43,3 +43,17 @@ covering the measured single-image TripoSG inference path.
 
 Result: 12 tests passed. The suite now asserts both the writable Xet cache
 contract and the 150-second Full Mesh duration.
+
+## Final deployment state
+
+- The Hugging Face Space source and README were synchronized with the tested
+  GitHub implementation.
+- The final Space rebuild reached `Running on Zero` with `HF_TOKEN` still
+  private and `HF_XET_CACHE` present.
+- A clean post-rebuild UI check exposed Select object and Generate full mesh,
+  retained the no-inpainting contract, and showed no application error.
+- The standalone `.hf.space` smoke was anonymous, so its Full Mesh call was
+  correctly rejected by the two-minute anonymous quota. Signed-in free users
+  should launch from the Hugging Face Space page; the 45-second selection plus
+  150-second mesh reservations now fit beneath the documented five-minute
+  free-account allowance after the observed scheduler multiplier.
