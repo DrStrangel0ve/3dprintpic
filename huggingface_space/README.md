@@ -62,14 +62,18 @@ kept region. Highlighting and draft assembly remain browser-local; click, Undo,
 and Clear only invoke a lightweight non-GPU callback to invalidate any stale
 applied mask. `Done selecting` sends the chosen region IDs and click coordinates
 through one CPU callback, unions the exact connected SAM 3 components, and emits
-one reusable selected image. The preview panel shows that isolated image on the
-same neutral background consumed by the depth pipeline; the green overlay is
-retained only as a diagnostic artifact.
+one reusable selected image. The preview panel shows that isolated image on a
+neutral background; the green overlay is retained only as a diagnostic artifact.
+The neutral preview is not used for depth estimation.
 
-For printable reliefs, `Select object` uses strict isolate mode: the union mask
-is cropped before depth inference and every unselected depth sample is removed
-before mesh construction. Full-scene depth and the Background depth control are
-used only by `Full scene`; they cannot leak scenery into a selected-object STL.
+For printable reliefs, `Select object` uses `source-depth-isolate`: Depth
+Anything V2 sees the complete original photograph, preserving the same scene
+context used by the local frontend. The resulting depth is mapped to the selected
+bounds, aligned with the unedited source crop for face preservation, and every
+unselected sample is replaced by a non-finite value before mesh construction.
+The cropped original RGB image supplies photo-detail features on that same grid.
+This keeps local-quality depth cues while ensuring scenery cannot enter the
+selected-object STL. The Background depth control remains exclusive to `Full scene`.
 Relief and diorama request 110
 seconds, and a full TripoSG mesh requests 150 seconds. The
 full-mesh reservation was reduced after a live ZeroGPU smoke showed that the

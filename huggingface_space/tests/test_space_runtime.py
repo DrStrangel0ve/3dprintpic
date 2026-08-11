@@ -374,7 +374,7 @@ class SpaceRuntimeTests(unittest.TestCase):
                 "stl_model": f"{job_id}/output_model.stl",
                 "diagnostics": f"{job_id}/diagnostics.json",
                 "stl_diagnostics": {"is_watertight": True, "component_count": 1},
-                "selection_mode": "isolate",
+                "selection_mode": "source-depth-isolate",
                 "selection_crop": {"crop_size": [80, 100]},
             }
             with (
@@ -397,23 +397,33 @@ class SpaceRuntimeTests(unittest.TestCase):
                 )
             request_data = post.call_args.kwargs["data"]
             self.assertEqual(request_data["completion_mode"], "none")
-            self.assertEqual(request_data["selection_mode"], "isolate")
+            self.assertEqual(request_data["selection_mode"], "source-depth-isolate")
             self.assertEqual(request_data["selection_subject_lock"], "false")
             self.assertEqual(request_data["selection_background_depth_ratio"], "0.0")
+            self.assertEqual(request_data["sigma"], "0.35")
+            self.assertEqual(request_data["detail_boost"], "0.8")
+            self.assertEqual(request_data["printable_feature_depth_mm"], "0.4")
+            self.assertEqual(request_data["face_detail_strength"], "1.0")
             self.assertEqual(request_data["selection_job_id"], selection["job_id"])
             self.assertEqual(request_data["depth_model"], "/models/depth-v2")
             self.assertEqual(
                 result[3]["summary"]["dimensions_mm"],
                 {"x": 102.4, "y": 128.0, "z": 30.0},
             )
-            self.assertEqual(result[3]["summary"]["scope"], "selected-objects-isolated")
-            self.assertEqual(result[3]["summary"]["selection_mode"], "isolate")
+            self.assertEqual(
+                result[3]["summary"]["scope"],
+                "selected-objects-source-depth-isolated",
+            )
+            self.assertEqual(
+                result[3]["summary"]["selection_mode"],
+                "source-depth-isolate",
+            )
             self.assertFalse(result[3]["summary"]["inpainting"])
 
     def test_model_and_source_revisions_are_immutable(self):
         self.assertEqual(
             space_runtime.PROJECT_REVISION,
-            "3808d76bf02d31b9a6724e825bfd325bf6c3d412",
+            "4db91d5a5fe94e2680d8d2eb3bd71effeed57f50",
         )
         self.assertEqual(
             space_runtime.TRIPOSG_SOURCE_REVISION,

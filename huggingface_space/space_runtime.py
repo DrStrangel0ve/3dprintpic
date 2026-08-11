@@ -21,7 +21,7 @@ from PIL import Image, ImageOps
 
 
 PROJECT_REPOSITORY = "https://github.com/DrStrangel0ve/3dprintpic.git"
-PROJECT_REVISION = "3808d76bf02d31b9a6724e825bfd325bf6c3d412"
+PROJECT_REVISION = "4db91d5a5fe94e2680d8d2eb3bd71effeed57f50"
 TRIPOSG_REPOSITORY = "https://github.com/VAST-AI-Research/TripoSG.git"
 TRIPOSG_SOURCE_REVISION = "fc5c40990181e2a756c4e0b1c2f4d6b5202faf8c"
 TRIPOSG_MODEL_REVISION = "2c1c516d22d58db486a058d98d31bb6177344e06"
@@ -743,7 +743,7 @@ def generate_relief(
     x_mm, y_mm = image_dimensions_mm(image_path, long_edge_mm)
     depth_model_source = _depth_model_source()
     data = {
-        "selection_mode": "isolate" if selected else "context",
+        "selection_mode": "source-depth-isolate" if selected else "context",
         "selection_subject_lock": "false",
         "depth_provider": "transformers",
         "depth_model": depth_model_source,
@@ -755,8 +755,26 @@ def generate_relief(
         "selection_background_depth_ratio": (
             "0.0" if selected else str(float(background_depth_ratio))
         ),
+        "sigma": "0.35",
+        "detail_boost": "0.8",
+        "printable_feature_depth_mm": "0.4",
+        "feature_bridge_depth_mm": "0.8",
+        "background_detail_boost": "2.4",
+        "background_photo_detail_mm": "0.60",
+        "trim_top_background": "true",
+        "relief_gamma": "0.75",
+        "base_border_px": "2",
+        "detail_radius": "2.0",
+        "low_percentile": "1.0",
+        "high_percentile": "99.0",
+        "max_relief_slope": "2.0",
+        "nozzle_diameter_mm": "0.4",
+        "minimum_feature_mm": "0.8",
         "completion_mode": "none",
         "face_refinement_mode": "auto",
+        "face_detail_strength": "1.0",
+        "face_feather_ratio": "0.20",
+        "face_max_correction_ratio": "0.08",
     }
     if selected:
         data["selection_job_id"] = selection["job_id"]
@@ -789,7 +807,7 @@ def generate_relief(
     diagnostics = result.get("stl_diagnostics", {})
     summary = _diagnostic_summary(diagnostics, model=DEPTH_MODEL)
     summary["dimensions_mm"] = {"x": x_mm, "y": y_mm, "z": float(relief_height_mm)}
-    summary["scope"] = "selected-objects-isolated" if selected else "full-scene"
+    summary["scope"] = "selected-objects-source-depth-isolated" if selected else "full-scene"
     summary["selection_mode"] = result.get("selection_mode", data["selection_mode"])
     summary["inpainting"] = False
     return (

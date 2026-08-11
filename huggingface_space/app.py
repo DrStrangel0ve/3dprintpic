@@ -727,7 +727,7 @@ with gr.Blocks(
                         x_size = gr.Number(value=128, label="X width (mm)", interactive=False)
                         y_size = gr.Number(value=128, label="Y height (mm)", interactive=False)
                     relief_height = gr.Slider(2, 40, value=20, step=1, label="Relief height Z (mm)")
-                    detail_samples = gr.Slider(240, 720, value=420, step=20, label="Surface detail")
+                    detail_samples = gr.Slider(240, 720, value=520, step=20, label="Surface detail")
                     background_ratio = gr.Slider(
                         0.35,
                         0.85,

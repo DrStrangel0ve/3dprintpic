@@ -23,6 +23,15 @@ class SpaceUiTests(unittest.TestCase):
         self.assertIn("depth-anything/Depth-Anything-V2-Large-hf", app.DEPTH_MODEL)
         self.assertEqual(app.SAM3_MODEL, "facebook/sam3")
 
+    def test_relief_defaults_to_local_quality_surface_density(self):
+        detail_components = [
+            component
+            for component in app.demo.get_config_file().get("components", [])
+            if component.get("props", {}).get("label") == "Surface detail"
+        ]
+        self.assertEqual(len(detail_components), 1)
+        self.assertEqual(detail_components[0]["props"]["value"], 520)
+
     def test_zero_gpu_runtime_uses_writable_xet_cache_and_free_tier_mesh_window(self):
         self.assertEqual(os.environ["HF_XET_CACHE"], str(app.HF_XET_CACHE_DIR))
         self.assertTrue(app.HF_XET_CACHE_DIR.is_dir())
