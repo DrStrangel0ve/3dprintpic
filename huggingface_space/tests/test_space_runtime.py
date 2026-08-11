@@ -256,6 +256,33 @@ class SpaceRuntimeTests(unittest.TestCase):
                 "sam3-concept-precomputed-multi-point",
             )
 
+    def test_selection_job_exposes_isolated_pixels_as_preview(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "photo.png"
+            image = Image.new("RGB", (40, 30), (180, 20, 30))
+            image.save(image_path)
+            mask_array = np.zeros((30, 40), dtype=np.uint8)
+            mask_array[8:22, 10:30] = 255
+            mask = Image.fromarray(mask_array, mode="L")
+            output_dir = Path(temp_dir) / "output"
+            with (
+                patch.object(space_runtime, "OUTPUT_DIR", output_dir),
+                patch.object(space_runtime.backend_main, "OUTPUT_DIR", output_dir),
+            ):
+                result = space_runtime._save_selection_job(
+                    image_path,
+                    image,
+                    mask,
+                    resolved_model=space_runtime.SAM3_MODEL,
+                    model_status="sam3-concept-precomputed-point",
+                    labels=["person"],
+                )
+            self.assertNotEqual(result["selected"], result["overlay"])
+            with Image.open(result["selected"]) as preview:
+                pixels = preview.convert("RGB")
+                self.assertEqual(pixels.getpixel((0, 0)), (245, 245, 245))
+                self.assertEqual(pixels.getpixel((20, 15)), (180, 20, 30))
+
     def test_hover_cache_discards_source_pixels_and_expires_old_entries(self):
         old_id = "hover-old-test"
         fresh_id = "hover-fresh-test"

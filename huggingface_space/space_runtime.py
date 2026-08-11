@@ -244,6 +244,7 @@ def _save_selection_job(
     (job_dir / "selection.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     return {
         "job_id": job_id,
+        "selected": _safe_file(job_dir / "selected_image.png"),
         "overlay": _safe_file(job_dir / "selection_overlay.png"),
         "mask": backend_main.output_relative_path(job_dir / "selection_mask.png"),
         "labels": labels,

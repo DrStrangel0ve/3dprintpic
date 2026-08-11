@@ -62,7 +62,9 @@ kept region. Highlighting and draft assembly remain browser-local; click, Undo,
 and Clear only invoke a lightweight non-GPU callback to invalidate any stale
 applied mask. `Done selecting` sends the chosen region IDs and click coordinates
 through one CPU callback, unions the exact connected SAM 3 components, and emits
-one reusable selected image.
+one reusable selected image. The preview panel shows that isolated image on the
+same neutral background consumed by the depth pipeline; the green overlay is
+retained only as a diagnostic artifact.
 Relief and diorama request 110
 seconds, and a full TripoSG mesh requests 150 seconds. The
 full-mesh reservation was reduced after a live ZeroGPU smoke showed that the

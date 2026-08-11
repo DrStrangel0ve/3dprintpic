@@ -9,6 +9,7 @@ single SAM 3 precompute:
 2. Click toggles that region into or out of a persistent kept set.
 3. Undo removes the most recently kept region; Clear removes all kept regions.
 4. Done selecting composes the kept components and emits one selected image.
+5. The preview shows only that isolated selected image, not the diagnostic tint.
 
 ## Implementation
 
@@ -20,6 +21,9 @@ single SAM 3 precompute:
 - The CPU apply callback validates the image fingerprint and session schema,
   decompresses each referenced instance at most once, extracts the clicked
   component, unions all components, and creates one normal selection job.
+- The user-facing preview returns `selected_image.png`, which is the same
+  neutral-background cutout consumed by generation. `selection_overlay.png`
+  remains available in the job directory for diagnostics only.
 - Re-clicking a kept region removes it. This gives direct correction in
   addition to Undo and Clear.
 - Every draft mutation sends one lightweight, non-GPU invalidation event. It

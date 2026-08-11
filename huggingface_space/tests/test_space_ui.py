@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from unittest.mock import patch
 
 from huggingface_space import app
 
@@ -103,6 +104,23 @@ class SpaceUiTests(unittest.TestCase):
         self.assertIn("Undo", labels)
         self.assertIn("Clear", labels)
         self.assertIn("Done selecting", labels)
+
+        with patch.object(
+            app,
+            "select_precomputed_objects",
+            return_value={
+                "selected": "selected_image.png",
+                "overlay": "selection_overlay.png",
+                "labels": ["person"],
+                "mask_coverage": 0.25,
+            },
+        ):
+            preview, _selection, _status = app._apply_hover_selection(
+                "photo.png",
+                {"precompute_id": "test"},
+                '{"selections":[{"region_id":1,"x":0.5,"y":0.5}]}',
+            )
+        self.assertEqual(preview, "selected_image.png")
 
         cleared = app._invalidate_hover_selection(
             {"region_count": 8},

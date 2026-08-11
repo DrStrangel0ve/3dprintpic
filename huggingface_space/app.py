@@ -488,7 +488,7 @@ def _apply_hover_selection(image_path, precompute_state, event_json):
         coverage = 100.0 * float(result.get("mask_coverage", 0.0))
         count = len({int(selection["region_id"]) for selection in selections})
         return (
-            result["overlay"],
+            result["selected"],
             result,
             f"Selection ready: {count} object{'s' if count != 1 else ''} kept ({coverage:.1f}% of image; {labels}).",
         )
@@ -573,7 +573,7 @@ def _selection_controls(prefix: str, *, selection_required: bool = False):
     )
     selection_preview = gr.Image(
         type="filepath",
-        label="Selection",
+        label="Selected objects",
         interactive=False,
         height=250,
         visible=True,
