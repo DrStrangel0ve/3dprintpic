@@ -60,6 +60,14 @@ Signed-in free users can combine selection with one full-mesh run inside the
 daily five-minute allowance; anonymous users can run a full-scene relief within
 their shorter allowance.
 
+### Owner setup
+
+Object selection uses the gated `facebook/sam3` weights. The Space owner must
+accept the SAM 3 access terms, create a read-only Hugging Face token, and store
+it as the private Space secret `HF_TOKEN`. The application fails closed when
+that secret is absent; it never places the token in source code or generated
+artifacts.
+
 ## Privacy
 
 Uploads are processed only to produce the requested preview and downloadable
