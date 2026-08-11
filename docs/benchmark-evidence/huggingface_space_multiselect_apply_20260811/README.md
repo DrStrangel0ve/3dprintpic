@@ -24,6 +24,11 @@ single SAM 3 precompute:
 - The user-facing preview returns `selected_image.png`, which is the same
   neutral-background cutout consumed by generation. `selection_overlay.png`
   remains available in the job directory for diagnostics only.
+- Printable selected-object reliefs submit `selection_mode=isolate`, crop to
+  the union-mask bounds before depth inference, and replace all unselected depth
+  samples with non-finite values before meshing. The legacy context/subject-lock
+  route is reserved for full-scene generation and cannot reintroduce railings,
+  vegetation, terrain, or other unselected pixels into this STL path.
 - Re-clicking a kept region removes it. This gives direct correction in
   addition to Undo and Clear.
 - Every draft mutation sends one lightweight, non-GPU invalidation event. It

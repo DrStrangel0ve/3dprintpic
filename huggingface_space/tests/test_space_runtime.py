@@ -355,7 +355,7 @@ class SpaceRuntimeTests(unittest.TestCase):
             compute.assert_not_called()
             self.assertEqual(save.call_args.kwargs["model_status"], "sam3-concept-precomputed-point")
 
-    def test_relief_route_uses_original_pixels_and_subject_lock(self):
+    def test_relief_route_isolates_selected_objects(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             image_path = Path(temp_dir) / "photo.png"
             Image.new("RGB", (200, 100), "white").save(image_path)
@@ -374,6 +374,8 @@ class SpaceRuntimeTests(unittest.TestCase):
                 "stl_model": f"{job_id}/output_model.stl",
                 "diagnostics": f"{job_id}/diagnostics.json",
                 "stl_diagnostics": {"is_watertight": True, "component_count": 1},
+                "selection_mode": "isolate",
+                "selection_crop": {"crop_size": [80, 100]},
             }
             with (
                 patch.object(space_runtime, "release_gpu_models"),
@@ -395,10 +397,17 @@ class SpaceRuntimeTests(unittest.TestCase):
                 )
             request_data = post.call_args.kwargs["data"]
             self.assertEqual(request_data["completion_mode"], "none")
-            self.assertEqual(request_data["selection_subject_lock"], "true")
+            self.assertEqual(request_data["selection_mode"], "isolate")
+            self.assertEqual(request_data["selection_subject_lock"], "false")
+            self.assertEqual(request_data["selection_background_depth_ratio"], "0.0")
             self.assertEqual(request_data["selection_job_id"], selection["job_id"])
             self.assertEqual(request_data["depth_model"], "/models/depth-v2")
-            self.assertEqual(result[3]["summary"]["dimensions_mm"], {"x": 128.0, "y": 64.0, "z": 30.0})
+            self.assertEqual(
+                result[3]["summary"]["dimensions_mm"],
+                {"x": 102.4, "y": 128.0, "z": 30.0},
+            )
+            self.assertEqual(result[3]["summary"]["scope"], "selected-objects-isolated")
+            self.assertEqual(result[3]["summary"]["selection_mode"], "isolate")
             self.assertFalse(result[3]["summary"]["inpainting"])
 
     def test_model_and_source_revisions_are_immutable(self):

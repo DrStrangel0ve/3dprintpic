@@ -743,8 +743,8 @@ def generate_relief(
     x_mm, y_mm = image_dimensions_mm(image_path, long_edge_mm)
     depth_model_source = _depth_model_source()
     data = {
-        "selection_mode": "context",
-        "selection_subject_lock": "true" if selected else "false",
+        "selection_mode": "isolate" if selected else "context",
+        "selection_subject_lock": "false",
         "depth_provider": "transformers",
         "depth_model": depth_model_source,
         "device": "cuda",
@@ -752,7 +752,9 @@ def generate_relief(
         "z_scale": str(float(relief_height_mm)),
         "max_xy_size": str(max(x_mm, y_mm)),
         "relief_polarity": "raised-print",
-        "selection_background_depth_ratio": str(float(background_depth_ratio)),
+        "selection_background_depth_ratio": (
+            "0.0" if selected else str(float(background_depth_ratio))
+        ),
         "completion_mode": "none",
         "face_refinement_mode": "auto",
     }
@@ -768,6 +770,16 @@ def generate_relief(
     if response.status_code != 200:
         raise _response_error(response)
     result = response.json()
+    selection_crop = result.get("selection_crop") if selected else None
+    crop_size = selection_crop.get("crop_size") if isinstance(selection_crop, dict) else None
+    if (
+        isinstance(crop_size, (list, tuple))
+        and len(crop_size) == 2
+        and all(float(value) > 0 for value in crop_size)
+    ):
+        crop_scale = float(long_edge_mm) / max(float(crop_size[0]), float(crop_size[1]))
+        x_mm = round(float(crop_size[0]) * crop_scale, 2)
+        y_mm = round(float(crop_size[1]) * crop_scale, 2)
     job_dir = OUTPUT_DIR / result["job_id"]
     stl_path = OUTPUT_DIR / result["stl_model"]
     preview_path = job_dir / "output_relief_preview.png"
@@ -777,7 +789,8 @@ def generate_relief(
     diagnostics = result.get("stl_diagnostics", {})
     summary = _diagnostic_summary(diagnostics, model=DEPTH_MODEL)
     summary["dimensions_mm"] = {"x": x_mm, "y": y_mm, "z": float(relief_height_mm)}
-    summary["scope"] = "selected-object-with-scene-context" if selected else "full-scene"
+    summary["scope"] = "selected-objects-isolated" if selected else "full-scene"
+    summary["selection_mode"] = result.get("selection_mode", data["selection_mode"])
     summary["inpainting"] = False
     return (
         _safe_file(stl_path),

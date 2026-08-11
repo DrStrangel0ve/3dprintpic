@@ -65,6 +65,11 @@ through one CPU callback, unions the exact connected SAM 3 components, and emits
 one reusable selected image. The preview panel shows that isolated image on the
 same neutral background consumed by the depth pipeline; the green overlay is
 retained only as a diagnostic artifact.
+
+For printable reliefs, `Select object` uses strict isolate mode: the union mask
+is cropped before depth inference and every unselected depth sample is removed
+before mesh construction. Full-scene depth and the Background depth control are
+used only by `Full scene`; they cannot leak scenery into a selected-object STL.
 Relief and diorama request 110
 seconds, and a full TripoSG mesh requests 150 seconds. The
 full-mesh reservation was reduced after a live ZeroGPU smoke showed that the
