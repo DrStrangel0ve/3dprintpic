@@ -206,6 +206,56 @@ class SpaceRuntimeTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "too large to cache safely"):
                     space_runtime.prepare_object_selection(image_path)
 
+    def test_multi_click_composes_selected_components_once(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "photo.png"
+            image = Image.new("RGB", (12, 8), "white")
+            image.save(image_path)
+            masks = np.zeros((2, 8, 12), dtype=bool)
+            masks[0, 1:4, 1:4] = True
+            masks[1, 4:7, 7:11] = True
+            compressed_masks = [
+                space_runtime.zlib.compress(np.packbits(mask, axis=1).tobytes())
+                for mask in masks
+            ]
+            state = {
+                "state_version": space_runtime.SAM3_PRECOMPUTE_STATE_VERSION,
+                "precompute_id": "session",
+                "source_fingerprint": space_runtime.backend_main.selection_source_fingerprint(image),
+                "hover_size": [12, 8],
+                "region_instances": {"10": 0, "20": 1},
+                "selection_precompute": {
+                    "compressed_masks": compressed_masks,
+                    "mask_width": 12,
+                    "labels": ["person", "furniture"],
+                    "model_id": space_runtime.SAM3_MODEL,
+                    "image_size": [12, 8],
+                    "created_at_epoch": space_runtime.time.time(),
+                },
+            }
+            with patch.object(
+                space_runtime,
+                "_save_selection_job",
+                return_value={"job_id": "combined"},
+            ) as save:
+                result = space_runtime.select_precomputed_objects(
+                    image_path,
+                    state,
+                    [
+                        {"region_id": 10, "x": 0.2, "y": 0.25},
+                        {"region_id": 20, "x": 0.75, "y": 0.7},
+                    ],
+                )
+            self.assertEqual(result, {"job_id": "combined"})
+            saved_mask = np.asarray(save.call_args.args[2]) > 0
+            self.assertEqual(int(np.count_nonzero(saved_mask)), 21)
+            self.assertEqual(save.call_args.kwargs["labels"], ["person", "furniture"])
+            self.assertEqual(save.call_args.kwargs["mask_count"], 2)
+            self.assertEqual(
+                save.call_args.kwargs["model_status"],
+                "sam3-concept-precomputed-multi-point",
+            )
+
     def test_hover_cache_discards_source_pixels_and_expires_old_entries(self):
         old_id = "hover-old-test"
         fresh_id = "hover-fresh-test"

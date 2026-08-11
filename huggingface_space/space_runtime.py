@@ -206,6 +206,7 @@ def _save_selection_job(
     resolved_model: str,
     model_status: str,
     labels: list[str],
+    mask_count: int = 1,
 ) -> dict:
     width, height = image.size
     if resolved_model != SAM3_MODEL or not model_status.startswith("sam3"):
@@ -221,7 +222,7 @@ def _save_selection_job(
         "job_id": job_id,
         "source_filename": Path(image_path).name,
         "source_fingerprint": backend_main.selection_source_fingerprint(image),
-        "mask_count": 1,
+        "mask_count": int(mask_count),
         "model_id": resolved_model,
         "selection_model_status": model_status,
         "model_status": "composed-clicked-masks",
@@ -537,40 +538,7 @@ def _inline_selection_precompute(precompute_state: dict) -> dict | None:
     }
 
 
-def select_precomputed_object(
-    image_path: str | Path | None,
-    precompute_state: dict | None,
-    normalized_x: float,
-    normalized_y: float,
-    region_id: int | None = None,
-) -> dict:
-    if not image_path:
-        raise ValueError("Upload a photo before selecting an object")
-    if not precompute_state or not (
-        precompute_state.get("selection_precompute")
-        or precompute_state.get("precompute_id")
-    ):
-        raise ValueError("Wait for SAM 3 to finish finding objects")
-    coordinates = np.asarray([normalized_x, normalized_y], dtype=np.float64)
-    if not np.all(np.isfinite(coordinates)):
-        raise ValueError("Selection coordinates must be finite")
-    point = {
-        "x": float(np.clip(coordinates[0], 0.0, 1.0)),
-        "y": float(np.clip(coordinates[1], 0.0, 1.0)),
-    }
-    image = _load_selection_image(image_path)
-    fingerprint = backend_main.selection_source_fingerprint(image)
-    if fingerprint != precompute_state.get("source_fingerprint"):
-        raise ValueError("The uploaded image changed; wait for SAM 3 to refresh the object map")
-    cached = _inline_selection_precompute(precompute_state)
-    if cached is None:
-        cleanup_expired_selection_precomputes()
-        cached = backend_main.get_selection_precompute(str(precompute_state["precompute_id"]))
-    region_instances = precompute_state.get("region_instances") or {}
-    try:
-        instance_index = int(region_instances[str(int(region_id))])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError("The highlighted SAM 3 region is no longer available") from exc
+def _selection_candidate(cached: dict, instance_index: int) -> np.ndarray:
     mask_count = (
         len(cached["compressed_masks"])
         if "compressed_masks" in cached
@@ -593,11 +561,20 @@ def select_precomputed_object(
         )
     else:
         packed_mask = cached["packed_masks"][instance_index]
-    candidate = np.unpackbits(
+    return np.unpackbits(
         packed_mask,
         axis=1,
         count=int(cached["mask_width"]),
     ).astype(bool)
+
+
+def _selection_component_at_point(
+    candidate: np.ndarray,
+    point: dict[str, float],
+    precompute_state: dict,
+    width: int,
+    height: int,
+) -> np.ndarray:
     pixel_point = backend_main.selection_points_to_pixels([point], width, height)[0]
     px = int(np.clip(round(pixel_point[0]), 0, max(0, width - 1)))
     py = int(np.clip(round(pixel_point[1]), 0, max(0, height - 1)))
@@ -617,19 +594,105 @@ def select_precomputed_object(
             raise ValueError("No cached SAM 3 object covers that point; hover over a highlighted object")
         distances = (local_x + left - px) ** 2 + (local_y + top - py) ** 2
         nearest = int(np.argmin(distances))
-        px = int(local_x[nearest] + left)
-        py = int(local_y[nearest] + top)
-        pixel_point = [float(px), float(py)]
-    selected = backend_main.seeded_sam2_component(candidate, [pixel_point])
-    mask = Image.fromarray((selected.astype(np.uint8) * 255), mode="L")
-    labels = [str(cached["labels"][instance_index])]
+        pixel_point = [float(local_x[nearest] + left), float(local_y[nearest] + top)]
+    return backend_main.seeded_sam2_component(candidate, [pixel_point])
+
+
+def select_precomputed_objects(
+    image_path: str | Path | None,
+    precompute_state: dict | None,
+    selections: list[dict] | None,
+) -> dict:
+    if not image_path:
+        raise ValueError("Upload a photo before selecting an object")
+    if not precompute_state or not (
+        precompute_state.get("selection_precompute")
+        or precompute_state.get("precompute_id")
+    ):
+        raise ValueError("Wait for SAM 3 to finish finding objects")
+    if not isinstance(selections, list) or not selections:
+        raise ValueError("Click at least one highlighted object before finishing")
+    if len(selections) > SAM3_PRECOMPUTE_MAX_MASKS:
+        raise ValueError("Too many highlighted objects were selected")
+    image = _load_selection_image(image_path)
+    fingerprint = backend_main.selection_source_fingerprint(image)
+    if fingerprint != precompute_state.get("source_fingerprint"):
+        raise ValueError("The uploaded image changed; wait for SAM 3 to refresh the object map")
+    cached = _inline_selection_precompute(precompute_state)
+    if cached is None:
+        cleanup_expired_selection_precomputes()
+        cached = backend_main.get_selection_precompute(str(precompute_state["precompute_id"]))
+    region_instances = precompute_state.get("region_instances") or {}
+    width, height = cached["image_size"]
+    combined = np.zeros((height, width), dtype=bool)
+    labels: list[str] = []
+    candidates: dict[int, np.ndarray] = {}
+    seen_regions: set[int] = set()
+    for selection in selections:
+        try:
+            region_id = int(selection["region_id"])
+            coordinates = np.asarray([selection["x"], selection["y"]], dtype=np.float64)
+            instance_index = int(region_instances[str(region_id)])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("A highlighted SAM 3 region is no longer available") from exc
+        if region_id in seen_regions:
+            continue
+        if not np.all(np.isfinite(coordinates)):
+            raise ValueError("Selection coordinates must be finite")
+        seen_regions.add(region_id)
+        point = {
+            "x": float(np.clip(coordinates[0], 0.0, 1.0)),
+            "y": float(np.clip(coordinates[1], 0.0, 1.0)),
+        }
+        if instance_index not in candidates:
+            candidates[instance_index] = _selection_candidate(cached, instance_index)
+        component = _selection_component_at_point(
+            candidates[instance_index],
+            point,
+            precompute_state,
+            width,
+            height,
+        )
+        combined |= component
+        label = str(cached["labels"][instance_index])
+        if label not in labels:
+            labels.append(label)
+    if not np.any(combined):
+        raise ValueError("The selected SAM 3 objects produced an empty mask")
+    mask = Image.fromarray((combined.astype(np.uint8) * 255), mode="L")
+    model_status = (
+        "sam3-concept-precomputed-point"
+        if len(seen_regions) == 1
+        else "sam3-concept-precomputed-multi-point"
+    )
     return _save_selection_job(
         image_path,
         image,
         mask,
         resolved_model=str(cached["model_id"]),
-        model_status="sam3-concept-precomputed-point",
+        model_status=model_status,
         labels=labels,
+        mask_count=len(seen_regions),
+    )
+
+
+def select_precomputed_object(
+    image_path: str | Path | None,
+    precompute_state: dict | None,
+    normalized_x: float,
+    normalized_y: float,
+    region_id: int | None = None,
+) -> dict:
+    return select_precomputed_objects(
+        image_path,
+        precompute_state,
+        [
+            {
+                "x": normalized_x,
+                "y": normalized_y,
+                "region_id": region_id,
+            }
+        ],
     )
 
 

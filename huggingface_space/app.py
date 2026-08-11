@@ -41,7 +41,7 @@ try:
         generate_relief,
         image_dimensions_mm,
         prepare_object_selection,
-        select_precomputed_object,
+        select_precomputed_objects,
     )
 except ImportError:  # Hugging Face runs app.py from the Space repository root.
     from space_runtime import (
@@ -56,7 +56,7 @@ except ImportError:  # Hugging Face runs app.py from the Space repository root.
         generate_relief,
         image_dimensions_mm,
         prepare_object_selection,
-        select_precomputed_object,
+        select_precomputed_objects,
     )
 
 
@@ -107,6 +107,8 @@ main.app {
 }
 .selection-status { min-height: 34px; color: var(--body-text-color-subdued); font-size: 13px; }
 .selection-hidden { display: none !important; }
+.selection-actions { display: none !important; }
+.selection-actions.selection-actions-ready { display: flex !important; }
 .sam3-hover-overlay {
   position: absolute;
   pointer-events: none;
@@ -168,8 +170,8 @@ SELECTION_HOVER_JS = r"""
         canvas: null,
         context: null,
         hoveredId: 0,
-        selectedId: 0,
-        renderedId: -1,
+        selectedRegions: new Map(),
+        renderedSignature: "",
       });
     }
     return pickers.get(prefix);
@@ -213,8 +215,8 @@ SELECTION_HOVER_JS = r"""
     ) {
       picker.canvas.width = picker.manifest.width;
       picker.canvas.height = picker.manifest.height;
-      picker.renderedId = -1;
-      renderRegion(picker, picker.hoveredId || picker.selectedId);
+      picker.renderedSignature = "";
+      renderRegions(picker);
     }
   };
 
@@ -233,30 +235,38 @@ SELECTION_HOVER_JS = r"""
       + (picker.mapPixels[offset + 2] << 16);
   };
 
-  const renderRegion = (picker, regionId) => {
+  const renderRegions = (picker) => {
     if (!picker.context || !picker.mapPixels || !picker.manifest) return;
-    if (picker.renderedId === regionId) return;
-    picker.renderedId = regionId;
+    const selectedIds = new Set(picker.selectedRegions.keys());
+    const signature = `${picker.hoveredId}|${Array.from(selectedIds).sort((a, b) => a - b).join(",")}`;
+    if (picker.renderedSignature === signature) return;
+    picker.renderedSignature = signature;
     const output = picker.context.createImageData(
       picker.manifest.width,
       picker.manifest.height
     );
-    if (regionId) {
-      for (let offset = 0; offset < picker.mapPixels.length; offset += 4) {
-        const candidate = picker.mapPixels[offset]
-          + (picker.mapPixels[offset + 1] << 8)
-          + (picker.mapPixels[offset + 2] << 16);
-        if (candidate === regionId) {
-          output.data[offset] = 8;
-          output.data[offset + 1] = 119;
-          output.data[offset + 2] = 91;
-          output.data[offset + 3] = 154;
-        }
+    for (let offset = 0; offset < picker.mapPixels.length; offset += 4) {
+      const candidate = picker.mapPixels[offset]
+        + (picker.mapPixels[offset + 1] << 8)
+        + (picker.mapPixels[offset + 2] << 16);
+      const selected = selectedIds.has(candidate);
+      const hovered = candidate === picker.hoveredId && !selected;
+      if (selected || hovered) {
+        output.data[offset] = 8;
+        output.data[offset + 1] = 119;
+        output.data[offset + 2] = 91;
+        output.data[offset + 3] = selected ? 190 : 110;
       }
     }
     picker.context.putImageData(output, 0, 0);
-    const region = picker.manifest.regions[String(regionId)];
-    picker.canvas.setAttribute("aria-label", region ? `${region.label} selection preview` : "");
+    const region = picker.manifest.regions[String(picker.hoveredId)];
+    const selectedCount = selectedIds.size;
+    picker.canvas.setAttribute(
+      "aria-label",
+      selectedCount
+        ? `${selectedCount} object${selectedCount === 1 ? "" : "s"} selected`
+        : region ? `${region.label} selection preview` : ""
+    );
   };
 
   const pointerPosition = (picker, event) => {
@@ -268,21 +278,11 @@ SELECTION_HOVER_JS = r"""
     return {x, y};
   };
 
-  const commitSelection = (picker, event) => {
-    if (event.target.closest("button, input, .icon-button-wrapper")) return;
-    const regionId = regionAt(picker, event.clientX, event.clientY);
-    const position = pointerPosition(picker, event);
-    if (!regionId || !position) return;
-    event.preventDefault();
-    event.stopPropagation();
-    picker.selectedId = regionId;
-    renderRegion(picker, regionId);
+  const writeSelectionRequest = (picker) => {
     const target = componentInput(`${picker.prefix}-hover-event`);
     if (!target) return;
     const payload = JSON.stringify({
-      x: position.x,
-      y: position.y,
-      region_id: regionId,
+      selections: Array.from(picker.selectedRegions.values()),
       nonce: Date.now(),
     });
     const prototype = target.tagName === "TEXTAREA"
@@ -295,6 +295,62 @@ SELECTION_HOVER_JS = r"""
       inputType: "insertText",
       data: payload,
     }));
+  };
+
+  const updateSelectionStatus = (picker) => {
+    const root = document.getElementById(`${picker.prefix}-selection-status`);
+    const paragraph = root && root.querySelector("p");
+    if (!paragraph || !picker.manifest) return;
+    const count = picker.selectedRegions.size;
+    paragraph.textContent = count
+      ? `${count} object${count === 1 ? "" : "s"} kept. Click Done selecting when ready.`
+      : `${Object.keys(picker.manifest.regions).length} selectable regions ready. Click objects to keep them.`;
+  };
+
+  const setActionsReady = (picker, ready) => {
+    const actions = document.getElementById(`${picker.prefix}-selection-actions`);
+    if (actions) actions.classList.toggle("selection-actions-ready", Boolean(ready));
+  };
+
+  const commitSelection = (picker, event) => {
+    if (event.target.closest("button, input, .icon-button-wrapper")) return;
+    const regionId = regionAt(picker, event.clientX, event.clientY);
+    const position = pointerPosition(picker, event);
+    if (!regionId || !position) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (picker.selectedRegions.has(regionId)) {
+      picker.selectedRegions.delete(regionId);
+    } else {
+      picker.selectedRegions.set(regionId, {
+        x: position.x,
+        y: position.y,
+        region_id: regionId,
+      });
+    }
+    picker.renderedSignature = "";
+    renderRegions(picker);
+    writeSelectionRequest(picker);
+    updateSelectionStatus(picker);
+  };
+
+  const clearSelection = (prefix) => {
+    const picker = pickerFor(prefix);
+    picker.selectedRegions.clear();
+    picker.renderedSignature = "";
+    writeSelectionRequest(picker);
+    renderRegions(picker);
+    updateSelectionStatus(picker);
+  };
+
+  const undoSelection = (prefix) => {
+    const picker = pickerFor(prefix);
+    const selectedIds = Array.from(picker.selectedRegions.keys());
+    if (selectedIds.length) picker.selectedRegions.delete(selectedIds[selectedIds.length - 1]);
+    picker.renderedSignature = "";
+    writeSelectionRequest(picker);
+    renderRegions(picker);
+    updateSelectionStatus(picker);
   };
 
   const attachPicker = (prefix) => {
@@ -319,13 +375,13 @@ SELECTION_HOVER_JS = r"""
         const current = pickerFor(prefix);
         const regionId = regionAt(current, event.clientX, event.clientY);
         current.hoveredId = regionId;
-        renderRegion(current, regionId || current.selectedId);
+        renderRegions(current);
         if (current.image) current.image.style.cursor = regionId ? "pointer" : "default";
       }, {passive: true});
       root.addEventListener("pointerleave", () => {
         const current = pickerFor(prefix);
         current.hoveredId = 0;
-        renderRegion(current, current.selectedId);
+        renderRegions(current);
         if (current.image) current.image.style.cursor = "default";
       }, {passive: true});
       root.addEventListener("click", (event) => commitSelection(pickerFor(prefix), event), true);
@@ -345,8 +401,10 @@ SELECTION_HOVER_JS = r"""
     picker.manifest = null;
     picker.mapPixels = null;
     picker.hoveredId = 0;
-    picker.selectedId = 0;
-    picker.renderedId = -1;
+    picker.selectedRegions.clear();
+    picker.renderedSignature = "";
+    writeSelectionRequest(picker);
+    setActionsReady(picker, false);
     if (!manifestText) {
       if (picker.context && picker.canvas) {
         picker.context.clearRect(0, 0, picker.canvas.width, picker.canvas.height);
@@ -369,12 +427,16 @@ SELECTION_HOVER_JS = r"""
       context.drawImage(hitMap, 0, 0, scratch.width, scratch.height);
       picker.mapPixels = context.getImageData(0, 0, scratch.width, scratch.height).data;
       attachPicker(prefix);
-      renderRegion(picker, 0);
+      setActionsReady(picker, true);
+      renderRegions(picker);
+      updateSelectionStatus(picker);
     };
     hitMap.src = picker.manifest.hit_map;
   };
 
   const sync = () => prefixes.forEach((prefix) => loadManifest(prefix));
+  window.__sam3ClearSelection = clearSelection;
+  window.__sam3UndoSelection = undoSelection;
   const observer = new MutationObserver(sync);
   observer.observe(document.body, {childList: true, subtree: true});
   window.addEventListener("resize", () => prefixes.forEach((prefix) => {
@@ -407,27 +469,52 @@ def _prepare_hover_selection(image_path, scope):
     try:
         manifest, precompute_state = prepare_object_selection(image_path)
         region_count = int(precompute_state.get("region_count", 0))
-        status = f"{region_count} selectable regions ready. Hover to preview and click to select."
+        status = f"{region_count} selectable regions ready. Click objects to keep them, then choose Done selecting."
         return manifest, precompute_state, None, None, status
     except Exception as exc:
         raise gr.Error(str(exc)) from exc
 
 
-def _select_from_hover_event(image_path, precompute_state, event_json):
+def _apply_hover_selection(image_path, precompute_state, event_json):
     try:
         event = json.loads(event_json or "{}")
-        result = select_precomputed_object(
+        selections = event.get("selections") or []
+        result = select_precomputed_objects(
             image_path,
             precompute_state,
-            float(event["x"]),
-            float(event["y"]),
-            int(event["region_id"]),
+            selections,
         )
         labels = ", ".join(result.get("labels") or ["object"])
         coverage = 100.0 * float(result.get("mask_coverage", 0.0))
-        return result["overlay"], result, f"Selected {labels} with SAM 3 ({coverage:.1f}% of image)."
+        count = len({int(selection["region_id"]) for selection in selections})
+        return (
+            result["overlay"],
+            result,
+            f"Selection ready: {count} object{'s' if count != 1 else ''} kept ({coverage:.1f}% of image; {labels}).",
+        )
     except Exception as exc:
         raise gr.Error(str(exc)) from exc
+
+
+def _invalidate_hover_selection(precompute_state, event_json):
+    region_count = int((precompute_state or {}).get("region_count", 0))
+    try:
+        event = json.loads(event_json or "{}")
+        selected_count = len(
+            {int(selection["region_id"]) for selection in event.get("selections") or []}
+        )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        selected_count = 0
+    if selected_count:
+        status = (
+            f"{selected_count} object{'s' if selected_count != 1 else ''} kept. "
+            "Click Done selecting when ready."
+        )
+    elif region_count:
+        status = f"{region_count} selectable regions ready. Click objects to keep them."
+    else:
+        status = "Upload a photo to find objects."
+    return None, None, status
 
 
 @spaces.GPU(duration=110)
@@ -492,7 +579,11 @@ def _selection_controls(prefix: str, *, selection_required: bool = False):
         visible=True,
     )
     initial_status = "Upload a photo to find objects." if selection_required else "Using the full scene."
-    selection_status = gr.Markdown(initial_status, elem_classes="selection-status")
+    selection_status = gr.Markdown(
+        initial_status,
+        elem_id=f"{prefix}-selection-status",
+        elem_classes="selection-status",
+    )
     hover_manifest = gr.Textbox(
         value="",
         interactive=False,
@@ -512,6 +603,14 @@ def _selection_controls(prefix: str, *, selection_required: bool = False):
         elem_id=f"{prefix}-prepare-selection",
         elem_classes="selection-hidden",
     )
+    with gr.Row(elem_id=f"{prefix}-selection-actions", elem_classes="selection-actions"):
+        undo_selection = gr.Button("Undo", variant="secondary")
+        clear_selection = gr.Button("Clear", variant="secondary")
+        done_selection = gr.Button(
+            "Done selecting",
+            variant="primary",
+            elem_classes="primary-button",
+        )
     prepare_event = prepare_trigger.click(
         _prepare_hover_selection,
         inputs=[source, scope],
@@ -528,13 +627,32 @@ def _selection_controls(prefix: str, *, selection_required: bool = False):
         concurrency_limit=1,
         trigger_mode="always_last",
     )
-    hover_event.input(
-        _select_from_hover_event,
+    done_event = done_selection.click(
+        _apply_hover_selection,
         inputs=[source, precompute_state, hover_event],
+        outputs=[selection_preview, selection_state, selection_status],
+        show_progress="full",
+        show_progress_on=selection_preview,
+        trigger_mode="always_last",
+    )
+    hover_event.input(
+        _invalidate_hover_selection,
+        inputs=[precompute_state, hover_event],
         outputs=[selection_preview, selection_state, selection_status],
         show_progress="hidden",
         queue=False,
         trigger_mode="always_last",
+        cancels=done_event,
+    )
+    undo_selection.click(
+        None,
+        js=f"() => {{ if (window.__sam3UndoSelection) window.__sam3UndoSelection('{prefix}'); }}",
+        queue=False,
+    )
+    clear_selection.click(
+        None,
+        js=f"() => {{ if (window.__sam3ClearSelection) window.__sam3ClearSelection('{prefix}'); }}",
+        queue=False,
     )
     reset_outputs = [
         hover_manifest,
@@ -560,7 +678,7 @@ def _selection_controls(prefix: str, *, selection_required: bool = False):
         show_progress="hidden",
         queue=False,
         js=trigger_js,
-        cancels=prepare_event,
+        cancels=[prepare_event, done_event],
     )
     scope.change(
         _reset_selection,
@@ -569,7 +687,7 @@ def _selection_controls(prefix: str, *, selection_required: bool = False):
         show_progress="hidden",
         queue=False,
         js=trigger_js,
-        cancels=prepare_event,
+        cancels=[prepare_event, done_event],
     )
     return source, scope, selection_state
 

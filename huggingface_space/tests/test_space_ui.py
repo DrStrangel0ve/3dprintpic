@@ -49,7 +49,9 @@ class SpaceUiTests(unittest.TestCase):
             for function in app.demo.fns.values()
         ]
         self.assertEqual(function_names.count("_prepare_hover_selection"), 3)
-        self.assertEqual(function_names.count("_select_from_hover_event"), 3)
+        self.assertEqual(function_names.count("_apply_hover_selection"), 3)
+        self.assertEqual(function_names.count("_invalidate_hover_selection"), 3)
+        self.assertNotIn("_select_from_hover_event", function_names)
         self.assertNotIn("_select_from_click", function_names)
         prepare_functions = [
             function
@@ -57,17 +59,57 @@ class SpaceUiTests(unittest.TestCase):
             if getattr(function.fn, "__name__", "") == "_prepare_hover_selection"
         ]
         self.assertTrue(all(function.trigger_mode == "always_last" for function in prepare_functions))
+        dependencies = app.demo.get_config_file().get("dependencies", [])
         cancellation_dependencies = [
             dependency
-            for dependency in app.demo.get_config_file().get("dependencies", [])
+            for dependency in dependencies
             if dependency.get("cancels")
         ]
-        self.assertEqual(len(cancellation_dependencies), 6)
+        self.assertEqual(len(cancellation_dependencies), 9)
+        apply_ids = {
+            dependency["id"]
+            for dependency in dependencies
+            if str(dependency.get("api_name", "")).startswith("_apply_hover_selection")
+        }
+        draft_cancellations = [
+            dependency
+            for dependency in cancellation_dependencies
+            if set(dependency["cancels"]).issubset(apply_ids)
+            and len(dependency["cancels"]) == 1
+        ]
+        self.assertEqual(len(draft_cancellations), 3)
+        invalidations = [
+            dependency
+            for dependency in dependencies
+            if str(dependency.get("api_name", "")).startswith("_invalidate_hover_selection")
+        ]
+        self.assertEqual(len(invalidations), 3)
+        self.assertTrue(all(dependency["queue"] is False for dependency in invalidations))
         self.assertIn('root.addEventListener("pointermove"', app.SELECTION_HOVER_JS)
         self.assertIn("regionAt(current", app.SELECTION_HOVER_JS)
         self.assertIn('fit === "scale-down"', app.SELECTION_HOVER_JS)
         self.assertIn('event.target.closest("button, input', app.SELECTION_HOVER_JS)
+        self.assertIn("selectedRegions: new Map()", app.SELECTION_HOVER_JS)
+        self.assertIn("picker.selectedRegions.has(regionId)", app.SELECTION_HOVER_JS)
+        self.assertIn("window.__sam3UndoSelection", app.SELECTION_HOVER_JS)
+        self.assertIn("window.__sam3ClearSelection", app.SELECTION_HOVER_JS)
         self.assertNotIn("fetch(", app.SELECTION_HOVER_JS)
+
+        labels = {
+            component.get("props", {}).get("value")
+            for component in app.demo.get_config_file().get("components", [])
+            if component.get("type") == "button"
+        }
+        self.assertIn("Undo", labels)
+        self.assertIn("Clear", labels)
+        self.assertIn("Done selecting", labels)
+
+        cleared = app._invalidate_hover_selection(
+            {"region_count": 8},
+            '{"selections":[{"region_id":1},{"region_id":2}]}',
+        )
+        self.assertEqual(cleared[:2], (None, None))
+        self.assertIn("2 objects kept", cleared[2])
 
     def test_packed_mask_state_has_real_ttl(self):
         state_components = [

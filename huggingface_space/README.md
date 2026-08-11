@@ -57,7 +57,13 @@ GPU work is isolated to one shared serialized Gradio queue. Visitors use their
 own Hugging Face ZeroGPU allowance. When object selection is enabled, SAM 3
 runs once after the upload in a 45-second reservation and returns a compact
 object-region map. Hover previews and subsequent clicks use that cached map in
-the browser and do not launch more GPU jobs. Relief and diorama request 110
+the browser and do not launch more GPU jobs. Each click toggles a persistent
+kept region. Highlighting and draft assembly remain browser-local; click, Undo,
+and Clear only invoke a lightweight non-GPU callback to invalidate any stale
+applied mask. `Done selecting` sends the chosen region IDs and click coordinates
+through one CPU callback, unions the exact connected SAM 3 components, and emits
+one reusable selected image.
+Relief and diorama request 110
 seconds, and a full TripoSG mesh requests 150 seconds. The
 full-mesh reservation was reduced after a live ZeroGPU smoke showed that the
 former 240-second decorator became a 360-second scheduler request, which could
@@ -75,8 +81,9 @@ required because ZeroGPU GPU workers are forked processes and their
 process-local globals disappear after inference. Source size, instance count,
 and compressed bytes are hard-bounded. Gradio evicts packed state after 20
 minutes; the browser tint is generated locally from the ID map.
-Clicking a highlighted region materializes the exact cached SAM 3 mask into the
-existing selection job without rerunning the model or invoking its tracker.
+Finishing a selection materializes the union of all kept cached SAM 3 masks
+into the existing selection job without rerunning the model or invoking its
+tracker.
 
 ### Owner setup
 
