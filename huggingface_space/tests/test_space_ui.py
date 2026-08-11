@@ -33,7 +33,7 @@ class SpaceUiTests(unittest.TestCase):
             for function in app.demo.fns.values()
             if getattr(function.fn, "__name__", "")
             in {
-                "_select_from_click",
+                "_prepare_hover_selection",
                 "_generate_relief_ui",
                 "_generate_diorama_ui",
                 "_generate_full_mesh_ui",
@@ -42,6 +42,32 @@ class SpaceUiTests(unittest.TestCase):
         self.assertEqual(len(gpu_functions), 6)
         self.assertTrue(all(function.concurrency_id == "gpu-work" for function in gpu_functions))
         self.assertTrue(all(function.concurrency_limit == 1 for function in gpu_functions))
+
+    def test_hover_selection_is_client_side_after_one_gpu_precompute(self):
+        function_names = [
+            getattr(function.fn, "__name__", "")
+            for function in app.demo.fns.values()
+        ]
+        self.assertEqual(function_names.count("_prepare_hover_selection"), 3)
+        self.assertEqual(function_names.count("_select_from_hover_event"), 3)
+        self.assertNotIn("_select_from_click", function_names)
+        prepare_functions = [
+            function
+            for function in app.demo.fns.values()
+            if getattr(function.fn, "__name__", "") == "_prepare_hover_selection"
+        ]
+        self.assertTrue(all(function.trigger_mode == "always_last" for function in prepare_functions))
+        cancellation_dependencies = [
+            dependency
+            for dependency in app.demo.get_config_file().get("dependencies", [])
+            if dependency.get("cancels")
+        ]
+        self.assertEqual(len(cancellation_dependencies), 6)
+        self.assertIn('root.addEventListener("pointermove"', app.SELECTION_HOVER_JS)
+        self.assertIn("regionAt(current", app.SELECTION_HOVER_JS)
+        self.assertIn('fit === "scale-down"', app.SELECTION_HOVER_JS)
+        self.assertIn('event.target.closest("button, input', app.SELECTION_HOVER_JS)
+        self.assertNotIn("fetch(", app.SELECTION_HOVER_JS)
 
 
 if __name__ == "__main__":

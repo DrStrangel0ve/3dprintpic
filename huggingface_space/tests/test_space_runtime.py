@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 from PIL import Image
 
 from huggingface_space import space_runtime
@@ -64,6 +66,137 @@ class SpaceRuntimeTests(unittest.TestCase):
             with patch.dict(os.environ, {"HF_TOKEN": ""}, clear=False):
                 with self.assertRaisesRegex(RuntimeError, "read-only HF_TOKEN"):
                     space_runtime.select_object(image_path, 10, 10)
+
+    def test_hover_region_map_prefers_scores_and_splits_disconnected_regions(self):
+        masks = np.zeros((2, 8, 10), dtype=bool)
+        masks[0, 1:4, 1:4] = True
+        masks[0, 5:8, 1:4] = True
+        masks[1, 2:6, 2:7] = True
+        hover_map, regions, size = space_runtime._sam3_hover_region_map(
+            masks,
+            np.asarray([0.6, 0.9], dtype=np.float32),
+            ["person", "furniture"],
+            (10, 8),
+        )
+        encoded = np.asarray(hover_map, dtype=np.uint32)
+        region_ids = encoded[..., 0] + (encoded[..., 1] << 8) + (encoded[..., 2] << 16)
+        self.assertEqual(size, (10, 8))
+        self.assertEqual(regions[str(int(region_ids[3, 3]))]["label"], "furniture")
+        person_ids = {
+            int(region_id)
+            for region_id, metadata in regions.items()
+            if metadata["label"] == "person"
+        }
+        self.assertGreaterEqual(len(person_ids), 2)
+        self.assertEqual(int(region_ids[0, 0]), 0)
+
+    def test_prepare_object_selection_runs_sam3_once_and_releases_it(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "photo.png"
+            Image.new("RGB", (20, 12), "white").save(image_path)
+            masks = np.zeros((1, 12, 20), dtype=bool)
+            masks[0, 2:10, 4:16] = True
+            with (
+                patch.dict(os.environ, {"HF_TOKEN": "test-token"}, clear=False),
+                patch.object(
+                    space_runtime.backend_main,
+                    "compute_sam3_selection_instances",
+                    return_value=(
+                        masks,
+                        np.asarray([0.95], dtype=np.float32),
+                        ["person"],
+                        space_runtime.SAM3_MODEL,
+                    ),
+                ) as compute,
+                patch.object(
+                    space_runtime.backend_main,
+                    "cache_sam3_precompute",
+                    return_value="cached-selection",
+                ) as cache,
+                patch.object(space_runtime.backend_main, "release_selection_models") as release,
+            ):
+                manifest_json, state = space_runtime.prepare_object_selection(image_path)
+            manifest = json.loads(manifest_json)
+            self.assertEqual(manifest["version"], space_runtime.SAM3_HOVER_MAP_VERSION)
+            self.assertTrue(manifest["hit_map"].startswith("data:image/png;base64,"))
+            self.assertEqual(state["precompute_id"], "cached-selection")
+            self.assertGreater(state["region_count"], 0)
+            self.assertEqual(set(state["region_instances"].values()), {0})
+            compute.assert_called_once()
+            cache.assert_called_once()
+            release.assert_called_once()
+
+    def test_hover_cache_discards_source_pixels_and_expires_old_entries(self):
+        old_id = "hover-old-test"
+        fresh_id = "hover-fresh-test"
+        cache = space_runtime.backend_main.SELECTION_PRECOMPUTE_CACHE
+        lock = space_runtime.backend_main.SELECTION_PRECOMPUTE_LOCK
+        try:
+            with lock:
+                cache[old_id] = {"created_at_epoch": 100.0, "image": object()}
+                cache[fresh_id] = {"created_at_epoch": 950.0, "image": object()}
+            space_runtime._discard_precompute_source_pixels(fresh_id)
+            removed = space_runtime.cleanup_expired_selection_precomputes(
+                max_age_seconds=200,
+                now=1000.0,
+            )
+            self.assertEqual(removed, 1)
+            with lock:
+                self.assertNotIn(old_id, cache)
+                self.assertIn(fresh_id, cache)
+                self.assertNotIn("image", cache[fresh_id])
+        finally:
+            with lock:
+                cache.pop(old_id, None)
+                cache.pop(fresh_id, None)
+
+    def test_cached_click_uses_packed_masks_without_another_model_call(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "photo.png"
+            image = Image.new("RGB", (16, 10), "white")
+            image.save(image_path)
+            mask = np.zeros((1, 10, 16), dtype=bool)
+            mask[0, 2:9, 3:14] = True
+            fingerprint = space_runtime.backend_main.selection_source_fingerprint(image)
+            cached = {
+                "packed_masks": np.packbits(mask, axis=2),
+                "mask_width": 16,
+                "scores": np.asarray([0.9], dtype=np.float32),
+                "labels": ["person"],
+                "image_size": (16, 10),
+                "model_id": space_runtime.SAM3_MODEL,
+            }
+            with (
+                patch.object(
+                    space_runtime.backend_main,
+                    "get_selection_precompute",
+                    return_value=cached,
+                ),
+                patch.object(
+                    space_runtime.backend_main,
+                    "compute_sam3_selection_instances",
+                ) as compute,
+                patch.object(
+                    space_runtime,
+                    "_save_selection_job",
+                    return_value={"job_id": "selected"},
+                ) as save,
+            ):
+                result = space_runtime.select_precomputed_object(
+                    image_path,
+                    {
+                        "precompute_id": "cached-selection",
+                        "source_fingerprint": fingerprint,
+                        "hover_size": [16, 10],
+                        "region_instances": {"7": 0},
+                    },
+                    0.5,
+                    0.5,
+                    7,
+                )
+            self.assertEqual(result, {"job_id": "selected"})
+            compute.assert_not_called()
+            self.assertEqual(save.call_args.kwargs["model_status"], "sam3-concept-precomputed-point")
 
     def test_relief_route_uses_original_pixels_and_subject_lock(self):
         with tempfile.TemporaryDirectory() as temp_dir:

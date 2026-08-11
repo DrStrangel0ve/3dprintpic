@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -38,7 +39,8 @@ try:
         generate_full_mesh,
         generate_relief,
         image_dimensions_mm,
-        select_object,
+        prepare_object_selection,
+        select_precomputed_object,
     )
 except ImportError:  # Hugging Face runs app.py from the Space repository root.
     from space_runtime import (
@@ -51,7 +53,8 @@ except ImportError:  # Hugging Face runs app.py from the Space repository root.
         generate_full_mesh,
         generate_relief,
         image_dimensions_mm,
-        select_object,
+        prepare_object_selection,
+        select_precomputed_object,
     )
 
 
@@ -101,6 +104,12 @@ main.app {
   border-color: var(--studio-green-hover) !important;
 }
 .selection-status { min-height: 34px; color: var(--body-text-color-subdued); font-size: 13px; }
+.selection-hidden { display: none !important; }
+.sam3-hover-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 8;
+}
 .model-note {
   color: var(--body-text-color-subdued);
   font-size: 12px;
@@ -128,24 +137,290 @@ button, input, textarea, select { letter-spacing: 0 !important; }
 """
 
 
+SELECTION_HOVER_JS = r"""
+() => {
+  if (window.__sam3HoverPickerInstalled) return [];
+  window.__sam3HoverPickerInstalled = true;
+  document.documentElement.dataset.sam3HoverPickerInstalled = "true";
+  const prefixes = ["relief", "diorama", "mesh"];
+  const pickers = new Map();
+
+  const componentInput = (id) => document.querySelector(
+    `#${id} textarea, #${id} input`
+  );
+
+  const sourceImage = (root) => {
+    const candidates = Array.from(root.querySelectorAll('[data-testid="image"] img, img[src]'));
+    return candidates.find((image) => image.naturalWidth > 1 && image.naturalHeight > 1) || null;
+  };
+
+  const pickerFor = (prefix) => {
+    if (!pickers.has(prefix)) {
+      pickers.set(prefix, {
+        prefix,
+        manifestText: "",
+        manifest: null,
+        mapPixels: null,
+        root: null,
+        image: null,
+        canvas: null,
+        context: null,
+        hoveredId: 0,
+        selectedId: 0,
+        renderedId: -1,
+      });
+    }
+    return pickers.get(prefix);
+  };
+
+  const contentRect = (picker) => {
+    const image = picker.image;
+    if (!image || !image.naturalWidth || !image.naturalHeight) return null;
+    const bounds = image.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return null;
+    const fit = window.getComputedStyle(image).objectFit;
+    const widthScale = bounds.width / image.naturalWidth;
+    const heightScale = bounds.height / image.naturalHeight;
+    let scale = Math.min(widthScale, heightScale);
+    if (fit === "scale-down") scale = Math.min(1, scale);
+    if (fit === "none") scale = 1;
+    if (fit === "cover") scale = Math.max(widthScale, heightScale);
+    const width = image.naturalWidth * scale;
+    const height = image.naturalHeight * scale;
+    return {
+      left: bounds.left + (bounds.width - width) / 2,
+      top: bounds.top + (bounds.height - height) / 2,
+      width,
+      height,
+    };
+  };
+
+  const syncCanvasLayout = (picker) => {
+    if (!picker.root || !picker.canvas || !picker.manifest) return;
+    const imageRect = contentRect(picker);
+    if (!imageRect) return;
+    const rootRect = picker.root.getBoundingClientRect();
+    picker.root.style.position = "relative";
+    picker.canvas.style.left = `${imageRect.left - rootRect.left}px`;
+    picker.canvas.style.top = `${imageRect.top - rootRect.top}px`;
+    picker.canvas.style.width = `${imageRect.width}px`;
+    picker.canvas.style.height = `${imageRect.height}px`;
+    if (
+      picker.canvas.width !== picker.manifest.width
+      || picker.canvas.height !== picker.manifest.height
+    ) {
+      picker.canvas.width = picker.manifest.width;
+      picker.canvas.height = picker.manifest.height;
+      picker.renderedId = -1;
+      renderRegion(picker, picker.hoveredId || picker.selectedId);
+    }
+  };
+
+  const regionAt = (picker, clientX, clientY) => {
+    if (!picker.mapPixels || !picker.manifest) return 0;
+    const rect = contentRect(picker);
+    if (!rect) return 0;
+    const nx = (clientX - rect.left) / rect.width;
+    const ny = (clientY - rect.top) / rect.height;
+    if (nx < 0 || nx >= 1 || ny < 0 || ny >= 1) return 0;
+    const x = Math.min(picker.manifest.width - 1, Math.floor(nx * picker.manifest.width));
+    const y = Math.min(picker.manifest.height - 1, Math.floor(ny * picker.manifest.height));
+    const offset = 4 * (y * picker.manifest.width + x);
+    return picker.mapPixels[offset]
+      + (picker.mapPixels[offset + 1] << 8)
+      + (picker.mapPixels[offset + 2] << 16);
+  };
+
+  const renderRegion = (picker, regionId) => {
+    if (!picker.context || !picker.mapPixels || !picker.manifest) return;
+    if (picker.renderedId === regionId) return;
+    picker.renderedId = regionId;
+    const output = picker.context.createImageData(
+      picker.manifest.width,
+      picker.manifest.height
+    );
+    if (regionId) {
+      for (let offset = 0; offset < picker.mapPixels.length; offset += 4) {
+        const candidate = picker.mapPixels[offset]
+          + (picker.mapPixels[offset + 1] << 8)
+          + (picker.mapPixels[offset + 2] << 16);
+        if (candidate === regionId) {
+          output.data[offset] = 8;
+          output.data[offset + 1] = 119;
+          output.data[offset + 2] = 91;
+          output.data[offset + 3] = 154;
+        }
+      }
+    }
+    picker.context.putImageData(output, 0, 0);
+    const region = picker.manifest.regions[String(regionId)];
+    picker.canvas.setAttribute("aria-label", region ? `${region.label} selection preview` : "");
+  };
+
+  const pointerPosition = (picker, event) => {
+    const rect = contentRect(picker);
+    if (!rect) return null;
+    const x = (event.clientX - rect.left) / rect.width;
+    const y = (event.clientY - rect.top) / rect.height;
+    if (x < 0 || x >= 1 || y < 0 || y >= 1) return null;
+    return {x, y};
+  };
+
+  const commitSelection = (picker, event) => {
+    if (event.target.closest("button, input, .icon-button-wrapper")) return;
+    const regionId = regionAt(picker, event.clientX, event.clientY);
+    const position = pointerPosition(picker, event);
+    if (!regionId || !position) return;
+    event.preventDefault();
+    event.stopPropagation();
+    picker.selectedId = regionId;
+    renderRegion(picker, regionId);
+    const target = componentInput(`${picker.prefix}-hover-event`);
+    if (!target) return;
+    const payload = JSON.stringify({
+      x: position.x,
+      y: position.y,
+      region_id: regionId,
+      nonce: Date.now(),
+    });
+    const prototype = target.tagName === "TEXTAREA"
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(prototype, "value").set;
+    setter.call(target, payload);
+    target.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      inputType: "insertText",
+      data: payload,
+    }));
+  };
+
+  const attachPicker = (prefix) => {
+    const picker = pickerFor(prefix);
+    const root = document.getElementById(`${prefix}-source`);
+    if (!root) return;
+    const image = sourceImage(root);
+    if (!image) return;
+    picker.root = root;
+    picker.image = image;
+    let canvas = root.querySelector("canvas.sam3-hover-overlay");
+    if (!canvas) {
+      canvas = document.createElement("canvas");
+      canvas.className = "sam3-hover-overlay";
+      root.appendChild(canvas);
+    }
+    picker.canvas = canvas;
+    picker.context = canvas.getContext("2d", {willReadFrequently: false});
+    if (!root.dataset.sam3HoverBound) {
+      root.dataset.sam3HoverBound = "true";
+      root.addEventListener("pointermove", (event) => {
+        const current = pickerFor(prefix);
+        const regionId = regionAt(current, event.clientX, event.clientY);
+        current.hoveredId = regionId;
+        renderRegion(current, regionId || current.selectedId);
+        if (current.image) current.image.style.cursor = regionId ? "pointer" : "default";
+      }, {passive: true});
+      root.addEventListener("pointerleave", () => {
+        const current = pickerFor(prefix);
+        current.hoveredId = 0;
+        renderRegion(current, current.selectedId);
+        if (current.image) current.image.style.cursor = "default";
+      }, {passive: true});
+      root.addEventListener("click", (event) => commitSelection(pickerFor(prefix), event), true);
+    }
+    syncCanvasLayout(picker);
+  };
+
+  const loadManifest = (prefix) => {
+    const picker = pickerFor(prefix);
+    const input = componentInput(`${prefix}-hover-manifest`);
+    const manifestText = input ? input.value : "";
+    if (manifestText === picker.manifestText) {
+      attachPicker(prefix);
+      return;
+    }
+    picker.manifestText = manifestText;
+    picker.manifest = null;
+    picker.mapPixels = null;
+    picker.hoveredId = 0;
+    picker.selectedId = 0;
+    picker.renderedId = -1;
+    if (!manifestText) {
+      if (picker.context && picker.canvas) {
+        picker.context.clearRect(0, 0, picker.canvas.width, picker.canvas.height);
+      }
+      return;
+    }
+    try {
+      picker.manifest = JSON.parse(manifestText);
+    } catch (_error) {
+      return;
+    }
+    const manifest = picker.manifest;
+    const hitMap = new Image();
+    hitMap.onload = () => {
+      if (picker.manifest !== manifest || picker.manifestText !== manifestText) return;
+      const scratch = document.createElement("canvas");
+      scratch.width = manifest.width;
+      scratch.height = manifest.height;
+      const context = scratch.getContext("2d", {willReadFrequently: true});
+      context.drawImage(hitMap, 0, 0, scratch.width, scratch.height);
+      picker.mapPixels = context.getImageData(0, 0, scratch.width, scratch.height).data;
+      attachPicker(prefix);
+      renderRegion(picker, 0);
+    };
+    hitMap.src = picker.manifest.hit_map;
+  };
+
+  const sync = () => prefixes.forEach((prefix) => loadManifest(prefix));
+  const observer = new MutationObserver(sync);
+  observer.observe(document.body, {childList: true, subtree: true});
+  window.addEventListener("resize", () => prefixes.forEach((prefix) => {
+    syncCanvasLayout(pickerFor(prefix));
+  }));
+  window.setInterval(sync, 350);
+  sync();
+  return [];
+}
+"""
+
 def _dimensions(image_path, long_edge_mm):
     return image_dimensions_mm(image_path, long_edge_mm)
 
 
-def _clear_selection(scope):
-    status = "Click an object in the uploaded photo." if str(scope).startswith("Select") else "Using the full scene."
-    return None, None, status
+def _reset_selection(image_path, scope):
+    if str(scope).startswith("Select"):
+        status = "Finding selectable objects with SAM 3..." if image_path else "Upload a photo to find objects."
+    else:
+        status = "Using the full scene."
+    return "", None, None, None, status
 
 
 @spaces.GPU(duration=45)
-def _select_from_click(image_path, scope, previous_selection, event: gr.SelectData):
+def _prepare_hover_selection(image_path, scope):
     if not str(scope).startswith("Select"):
-        return image_path, None, "Using the full scene."
+        return "", None, None, None, "Using the full scene."
     if not image_path:
-        raise gr.Error("Upload a photo before selecting an object")
+        return "", None, None, None, "Upload a photo to find objects."
     try:
-        x, y = event.index
-        result = select_object(image_path, float(x), float(y))
+        manifest, precompute_state = prepare_object_selection(image_path)
+        region_count = int(precompute_state.get("region_count", 0))
+        status = f"{region_count} selectable regions ready. Hover to preview and click to select."
+        return manifest, precompute_state, None, None, status
+    except Exception as exc:
+        raise gr.Error(str(exc)) from exc
+
+
+def _select_from_hover_event(image_path, precompute_state, event_json):
+    try:
+        event = json.loads(event_json or "{}")
+        result = select_precomputed_object(
+            image_path,
+            precompute_state,
+            float(event["x"]),
+            float(event["y"]),
+            int(event["region_id"]),
+        )
         labels = ", ".join(result.get("labels") or ["object"])
         coverage = 100.0 * float(result.get("mask_coverage", 0.0))
         return result["overlay"], result, f"Selected {labels} with SAM 3 ({coverage:.1f}% of image)."
@@ -193,6 +468,7 @@ def _generate_full_mesh_ui(image, scope, selection, max_dimension, seed):
 
 def _selection_controls(prefix: str, *, selection_required: bool = False):
     selection_state = gr.State(None)
+    precompute_state = gr.State(None)
     scope = gr.Radio(
         choices=["Select object"] if selection_required else ["Full scene", "Select object"],
         value="Select object" if selection_required else "Full scene",
@@ -213,26 +489,85 @@ def _selection_controls(prefix: str, *, selection_required: bool = False):
         height=250,
         visible=True,
     )
-    initial_status = "Click an object in the uploaded photo." if selection_required else "Using the full scene."
+    initial_status = "Upload a photo to find objects." if selection_required else "Using the full scene."
     selection_status = gr.Markdown(initial_status, elem_classes="selection-status")
-    source.select(
-        _select_from_click,
-        inputs=[source, scope, selection_state],
-        outputs=[selection_preview, selection_state, selection_status],
+    hover_manifest = gr.Textbox(
+        value="",
+        interactive=False,
+        container=False,
+        elem_id=f"{prefix}-hover-manifest",
+        elem_classes="selection-hidden",
+    )
+    hover_event = gr.Textbox(
+        value="",
+        interactive=True,
+        container=False,
+        elem_id=f"{prefix}-hover-event",
+        elem_classes="selection-hidden",
+    )
+    prepare_trigger = gr.Button(
+        "Prepare object selection",
+        elem_id=f"{prefix}-prepare-selection",
+        elem_classes="selection-hidden",
+    )
+    prepare_event = prepare_trigger.click(
+        _prepare_hover_selection,
+        inputs=[source, scope],
+        outputs=[
+            hover_manifest,
+            precompute_state,
+            selection_preview,
+            selection_state,
+            selection_status,
+        ],
         show_progress="full",
+        show_progress_on=source,
         concurrency_id="gpu-work",
         concurrency_limit=1,
+        trigger_mode="always_last",
+    )
+    hover_event.input(
+        _select_from_hover_event,
+        inputs=[source, precompute_state, hover_event],
+        outputs=[selection_preview, selection_state, selection_status],
+        show_progress="hidden",
+        queue=False,
+        trigger_mode="always_last",
+    )
+    reset_outputs = [
+        hover_manifest,
+        precompute_state,
+        selection_preview,
+        selection_state,
+        selection_status,
+    ]
+    trigger_js = (
+        "(image, scope) => { const install = "
+        + SELECTION_HOVER_JS
+        + "; install(); "
+        + "if (image && String(scope).startsWith('Select')) { "
+        + "window.setTimeout(() => { "
+        + f"const root = document.getElementById('{prefix}-prepare-selection'); "
+        + "const button = root && (root.matches('button') ? root : root.querySelector('button')); "
+        + "if (button) button.click(); }, 100); } return [image, scope]; }"
     )
     source.change(
-        lambda: (None, None, "Upload complete. Choose a scope."),
-        outputs=[selection_preview, selection_state, selection_status],
+        _reset_selection,
+        inputs=[source, scope],
+        outputs=reset_outputs,
         show_progress="hidden",
+        queue=False,
+        js=trigger_js,
+        cancels=prepare_event,
     )
     scope.change(
-        _clear_selection,
-        inputs=[scope],
-        outputs=[selection_preview, selection_state, selection_status],
+        _reset_selection,
+        inputs=[source, scope],
+        outputs=reset_outputs,
         show_progress="hidden",
+        queue=False,
+        js=trigger_js,
+        cancels=prepare_event,
     )
     return source, scope, selection_state
 
@@ -244,7 +579,11 @@ theme = gr.themes.Base(
     font=[gr.themes.GoogleFont("Inter"), "Arial", "sans-serif"],
 )
 
-with gr.Blocks(title="3D Print a Picture", theme=theme, css=CSS) as demo:
+with gr.Blocks(
+    title="3D Print a Picture",
+    theme=theme,
+    css=CSS,
+) as demo:
     gr.HTML(
         f"""
         <div class="app-header">
@@ -381,6 +720,8 @@ with gr.Blocks(title="3D Print a Picture", theme=theme, css=CSS) as demo:
         </div>
         """
     )
+
+    demo.load(None, js=SELECTION_HOVER_JS, queue=False)
 
 demo.queue(default_concurrency_limit=1, max_size=16)
 

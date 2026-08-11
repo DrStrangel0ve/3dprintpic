@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import gc
+import io
 import json
 import os
 import shutil
@@ -35,6 +37,10 @@ TRIPOSG_DIR = RUNTIME_ROOT / "TripoSG"
 
 _SOURCE_LOCK = Lock()
 _TRIPOSG_LOCK = Lock()
+
+SAM3_HOVER_MAP_MAX_DIMENSION = 1024
+SAM3_HOVER_MAP_VERSION = 1
+SAM3_PRECOMPUTE_TTL_SECONDS = 20 * 60
 
 
 def _run_git(*args: str, cwd: Path | None = None) -> str:
@@ -175,27 +181,28 @@ def _diagnostic_summary(diagnostics: dict, *, model: str) -> dict:
     return summary
 
 
-def _selection_job(
-    image_path: str | Path,
-    point_x: float,
-    point_y: float,
-) -> dict:
+def _require_sam3_token() -> None:
     if not os.getenv("HF_TOKEN"):
         raise RuntimeError(
             "SAM 3 needs the Space owner's read-only HF_TOKEN secret before object selection can run."
         )
+
+
+def _load_selection_image(image_path: str | Path) -> Image.Image:
     with Image.open(image_path) as source:
-        image = ImageOps.exif_transpose(source).convert("RGB")
+        return ImageOps.exif_transpose(source).convert("RGB")
+
+
+def _save_selection_job(
+    image_path: str | Path,
+    image: Image.Image,
+    mask: Image.Image,
+    *,
+    resolved_model: str,
+    model_status: str,
+    labels: list[str],
+) -> dict:
     width, height = image.size
-    normalized_point = {
-        "x": float(np.clip(point_x / max(width, 1), 0.0, 1.0)),
-        "y": float(np.clip(point_y / max(height, 1), 0.0, 1.0)),
-    }
-    mask, resolved_model, model_status, labels = backend_main.sam3_person_aware_selection_mask(
-        image,
-        [normalized_point],
-        device="cuda",
-    )
     if resolved_model != SAM3_MODEL or not model_status.startswith("sam3"):
         raise RuntimeError("SAM 3 did not produce a verified selection mask")
 
@@ -240,10 +247,285 @@ def _selection_job(
     }
 
 
+def _selection_job(
+    image_path: str | Path,
+    point_x: float,
+    point_y: float,
+) -> dict:
+    _require_sam3_token()
+    image = _load_selection_image(image_path)
+    width, height = image.size
+    normalized_point = {
+        "x": float(np.clip(point_x / max(width, 1), 0.0, 1.0)),
+        "y": float(np.clip(point_y / max(height, 1), 0.0, 1.0)),
+    }
+    mask, resolved_model, model_status, labels = backend_main.sam3_person_aware_selection_mask(
+        image,
+        [normalized_point],
+        device="cuda",
+    )
+    return _save_selection_job(
+        image_path,
+        image,
+        mask,
+        resolved_model=resolved_model,
+        model_status=model_status,
+        labels=labels,
+    )
+
+
 def select_object(image_path: str | Path | None, point_x: float, point_y: float) -> dict:
     if not image_path:
         raise ValueError("Upload a photo before selecting an object")
     return _selection_job(image_path, point_x, point_y)
+
+
+def _png_data_url(image: Image.Image) -> str:
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+def cleanup_expired_selection_precomputes(
+    max_age_seconds: int = SAM3_PRECOMPUTE_TTL_SECONDS,
+    *,
+    now: float | None = None,
+) -> int:
+    cutoff = (time.time() if now is None else float(now)) - float(max_age_seconds)
+    removed = 0
+    with backend_main.SELECTION_PRECOMPUTE_LOCK:
+        expired = [
+            cache_id
+            for cache_id, entry in backend_main.SELECTION_PRECOMPUTE_CACHE.items()
+            if float(entry.get("created_at_epoch", 0.0)) < cutoff
+        ]
+        for cache_id in expired:
+            backend_main.SELECTION_PRECOMPUTE_CACHE.pop(cache_id, None)
+            removed += 1
+    return removed
+
+
+def _discard_precompute_source_pixels(precompute_id: str) -> None:
+    with backend_main.SELECTION_PRECOMPUTE_LOCK:
+        cached = backend_main.SELECTION_PRECOMPUTE_CACHE.get(precompute_id)
+        if cached is not None:
+            cached.pop("image", None)
+
+
+def _sam3_hover_region_map(
+    masks: np.ndarray,
+    scores: np.ndarray,
+    labels: list[str],
+    image_size: tuple[int, int],
+    *,
+    max_dimension: int = SAM3_HOVER_MAP_MAX_DIMENSION,
+) -> tuple[Image.Image, dict[str, dict], tuple[int, int]]:
+    import cv2
+
+    width, height = image_size
+    scale = min(1.0, float(max_dimension) / float(max(width, height, 1)))
+    map_width = max(1, round(width * scale))
+    map_height = max(1, round(height * scale))
+    mask_array = np.asarray(masks, dtype=bool)
+    score_array = np.asarray(scores, dtype=np.float32).reshape(-1)
+    if len(score_array) != len(mask_array) or len(labels) != len(mask_array):
+        raise RuntimeError("SAM 3 returned inconsistent instance metadata")
+    if not len(mask_array):
+        raise RuntimeError("SAM 3 found no selectable objects in this image")
+
+    winner_scores = np.full((map_height, map_width), -np.inf, dtype=np.float32)
+    winners = np.full((map_height, map_width), -1, dtype=np.int32)
+    for instance_index, mask in enumerate(mask_array):
+        if (map_width, map_height) == (width, height):
+            resized = mask
+        else:
+            resized = cv2.resize(
+                mask.astype(np.uint8),
+                (map_width, map_height),
+                interpolation=cv2.INTER_NEAREST,
+            ).astype(bool)
+        update = resized & (score_array[instance_index] > winner_scores)
+        winner_scores[update] = score_array[instance_index]
+        winners[update] = instance_index
+    covered = winners >= 0
+
+    region_map = np.zeros((map_height, map_width), dtype=np.uint32)
+    regions: dict[str, dict] = {}
+    minimum_region_pixels = max(4, round(map_width * map_height * 0.00001))
+    next_region_id = 1
+    for instance_index in range(len(mask_array)):
+        winning_pixels = (winners == instance_index) & covered
+        component_count, component_labels, stats, _centroids = cv2.connectedComponentsWithStats(
+            winning_pixels.astype(np.uint8),
+            connectivity=8,
+        )
+        for component_index in range(1, component_count):
+            area = int(stats[component_index, cv2.CC_STAT_AREA])
+            if area < minimum_region_pixels:
+                continue
+            if next_region_id >= 2**24:
+                raise RuntimeError("SAM 3 produced too many hover regions")
+            region_map[component_labels == component_index] = next_region_id
+            regions[str(next_region_id)] = {
+                "label": str(labels[instance_index]),
+                "score": round(float(score_array[instance_index]), 6),
+                "pixels": area,
+                "instance_index": instance_index,
+            }
+            next_region_id += 1
+    if not regions:
+        raise RuntimeError("SAM 3 found no selectable objects in this image")
+
+    encoded = np.stack(
+        (
+            region_map & 255,
+            (region_map >> 8) & 255,
+            (region_map >> 16) & 255,
+        ),
+        axis=-1,
+    ).astype(np.uint8)
+    return Image.fromarray(encoded, mode="RGB"), regions, (map_width, map_height)
+
+
+def prepare_object_selection(image_path: str | Path | None) -> tuple[str, dict]:
+    if not image_path:
+        raise ValueError("Upload a photo before selecting an object")
+    _require_sam3_token()
+    cleanup_expired_selection_precomputes()
+    image = _load_selection_image(image_path)
+    masks = np.empty((0, image.height, image.width), dtype=bool)
+    scores = np.empty((0,), dtype=np.float32)
+    labels: list[str] = []
+    resolved_model = ""
+    try:
+        masks, scores, labels, resolved_model = backend_main.compute_sam3_selection_instances(
+            image,
+            device="cuda",
+        )
+        if resolved_model != SAM3_MODEL:
+            raise RuntimeError("SAM 3 did not produce verified selection instances")
+        precompute_id = backend_main.cache_sam3_precompute(
+            image,
+            masks,
+            scores,
+            labels,
+            resolved_model,
+        )
+        _discard_precompute_source_pixels(precompute_id)
+    finally:
+        release_gpu_models()
+
+    hover_map, regions, hover_size = _sam3_hover_region_map(
+        masks,
+        scores,
+        labels,
+        image.size,
+    )
+    source_fingerprint = backend_main.selection_source_fingerprint(image)
+    public_regions = {
+        region_id: {
+            "label": metadata["label"],
+            "score": metadata["score"],
+            "pixels": metadata["pixels"],
+        }
+        for region_id, metadata in regions.items()
+    }
+    manifest = {
+        "version": SAM3_HOVER_MAP_VERSION,
+        "width": hover_size[0],
+        "height": hover_size[1],
+        "source_width": image.width,
+        "source_height": image.height,
+        "hit_map": _png_data_url(hover_map),
+        "regions": public_regions,
+    }
+    state = {
+        "precompute_id": precompute_id,
+        "source_fingerprint": source_fingerprint,
+        "image_size": [image.width, image.height],
+        "hover_size": [hover_size[0], hover_size[1]],
+        "region_count": len(regions),
+        "region_instances": {
+            region_id: metadata["instance_index"]
+            for region_id, metadata in regions.items()
+        },
+        "model": resolved_model,
+    }
+    return json.dumps(manifest, separators=(",", ":")), state
+
+
+def select_precomputed_object(
+    image_path: str | Path | None,
+    precompute_state: dict | None,
+    normalized_x: float,
+    normalized_y: float,
+    region_id: int | None = None,
+) -> dict:
+    if not image_path:
+        raise ValueError("Upload a photo before selecting an object")
+    if not precompute_state or not precompute_state.get("precompute_id"):
+        raise ValueError("Wait for SAM 3 to finish finding objects")
+    coordinates = np.asarray([normalized_x, normalized_y], dtype=np.float64)
+    if not np.all(np.isfinite(coordinates)):
+        raise ValueError("Selection coordinates must be finite")
+    point = {
+        "x": float(np.clip(coordinates[0], 0.0, 1.0)),
+        "y": float(np.clip(coordinates[1], 0.0, 1.0)),
+    }
+    image = _load_selection_image(image_path)
+    fingerprint = backend_main.selection_source_fingerprint(image)
+    if fingerprint != precompute_state.get("source_fingerprint"):
+        raise ValueError("The uploaded image changed; wait for SAM 3 to refresh the object map")
+    cleanup_expired_selection_precomputes()
+    cached = backend_main.get_selection_precompute(str(precompute_state["precompute_id"]))
+    region_instances = precompute_state.get("region_instances") or {}
+    try:
+        instance_index = int(region_instances[str(int(region_id))])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("The highlighted SAM 3 region is no longer available") from exc
+    packed_masks = cached["packed_masks"]
+    if not 0 <= instance_index < len(packed_masks):
+        raise ValueError("The highlighted SAM 3 region has an invalid instance index")
+    width, height = cached["image_size"]
+    candidate = np.unpackbits(
+        packed_masks[instance_index],
+        axis=1,
+        count=int(cached["mask_width"]),
+    ).astype(bool)
+    pixel_point = backend_main.selection_points_to_pixels([point], width, height)[0]
+    px = int(np.clip(round(pixel_point[0]), 0, max(0, width - 1)))
+    py = int(np.clip(round(pixel_point[1]), 0, max(0, height - 1)))
+    if not candidate[py, px]:
+        hover_width, hover_height = precompute_state.get("hover_size") or [width, height]
+        source_pixels_per_hover_pixel = max(
+            width / max(1, int(hover_width)),
+            height / max(1, int(hover_height)),
+        )
+        radius = max(2, int(np.ceil(source_pixels_per_hover_pixel)) + 1)
+        left = max(0, px - radius)
+        right = min(width, px + radius + 1)
+        top = max(0, py - radius)
+        bottom = min(height, py + radius + 1)
+        local_y, local_x = np.nonzero(candidate[top:bottom, left:right])
+        if not len(local_x):
+            raise ValueError("No cached SAM 3 object covers that point; hover over a highlighted object")
+        distances = (local_x + left - px) ** 2 + (local_y + top - py) ** 2
+        nearest = int(np.argmin(distances))
+        px = int(local_x[nearest] + left)
+        py = int(local_y[nearest] + top)
+        pixel_point = [float(px), float(py)]
+    selected = backend_main.seeded_sam2_component(candidate, [pixel_point])
+    mask = Image.fromarray((selected.astype(np.uint8) * 255), mode="L")
+    labels = [str(cached["labels"][instance_index])]
+    return _save_selection_job(
+        image_path,
+        image,
+        mask,
+        resolved_model=str(cached["model_id"]),
+        model_status="sam3-concept-precomputed-point",
+        labels=labels,
+    )
 
 
 def release_gpu_models() -> None:
@@ -566,6 +848,7 @@ def generate_full_mesh(
 
 
 def cleanup_expired_outputs(max_age_seconds: int = 6 * 60 * 60) -> int:
+    cleanup_expired_selection_precomputes()
     if not OUTPUT_DIR.is_dir():
         return 0
     now = time.time()

@@ -54,13 +54,26 @@ rationale remain in the GitHub repository under `docs/benchmark-evidence`.
 ## ZeroGPU usage
 
 GPU work is isolated to one shared serialized Gradio queue. Visitors use their
-own Hugging Face ZeroGPU allowance. Selection requests 45 seconds, relief and
-diorama request 110 seconds, and a full TripoSG mesh requests 150 seconds. The
+own Hugging Face ZeroGPU allowance. When object selection is enabled, SAM 3
+runs once after the upload in a 45-second reservation and returns a compact
+object-region map. Hover previews and subsequent clicks use that cached map in
+the browser and do not launch more GPU jobs. Relief and diorama request 110
+seconds, and a full TripoSG mesh requests 150 seconds. The
 full-mesh reservation was reduced after a live ZeroGPU smoke showed that the
 former 240-second decorator became a 360-second scheduler request, which could
 not fit inside a free user's daily five-minute allowance. Signed-in free users
 can combine selection with one full-mesh run. Anonymous visitors have a
 two-minute daily quota and should sign in before using the mesh workflow.
+
+The hover map is capped at a 1024-pixel long edge, uses score-resolved connected
+regions, and is encoded as a lossless 24-bit PNG. It contains only region IDs,
+labels, scores, and pixel counts. The original photo remains in Gradio's normal
+temporary upload path and is removed from the global precompute cache as soon
+as masks are packed. Packed entries idle for 20 minutes are pruned on the next
+Space action and remain count-bounded; the browser tint is generated locally
+from the ID map.
+Clicking a highlighted region materializes the exact cached SAM 3 mask into the
+existing selection job without rerunning the model or invoking its tracker.
 
 ### Owner setup
 
