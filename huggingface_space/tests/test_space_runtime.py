@@ -64,6 +64,7 @@ class SpaceRuntimeTests(unittest.TestCase):
             }
             with (
                 patch.object(space_runtime, "release_gpu_models"),
+                patch.object(space_runtime, "_depth_model_source", return_value="/models/depth-v2"),
                 patch.object(
                     space_runtime.BACKEND_CLIENT,
                     "post",
@@ -83,6 +84,7 @@ class SpaceRuntimeTests(unittest.TestCase):
             self.assertEqual(request_data["completion_mode"], "none")
             self.assertEqual(request_data["selection_subject_lock"], "true")
             self.assertEqual(request_data["selection_job_id"], selection["job_id"])
+            self.assertEqual(request_data["depth_model"], "/models/depth-v2")
             self.assertEqual(result[3]["summary"]["dimensions_mm"], {"x": 128.0, "y": 64.0, "z": 30.0})
             self.assertFalse(result[3]["summary"]["inpainting"])
 
@@ -99,6 +101,38 @@ class SpaceRuntimeTests(unittest.TestCase):
             space_runtime.TRIPOSG_MODEL_REVISION,
             "2c1c516d22d58db486a058d98d31bb6177344e06",
         )
+        self.assertEqual(
+            space_runtime.DEPTH_MODEL_REVISION,
+            "7581137eff8d4e94f6e796d3baea0e9fa79b22d2",
+        )
+        self.assertEqual(
+            space_runtime.SAM3_MODEL_REVISION,
+            "3c879f39826c281e95690f02c7821c4de09afae7",
+        )
+
+    def test_full_mesh_requires_explicit_selection(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "photo.png"
+            Image.new("RGB", (32, 32), "white").save(image_path)
+            with self.assertRaisesRegex(ValueError, "requires Select object"):
+                space_runtime.generate_full_mesh(image_path, "Full scene", None, 96, 42)
+
+    def test_selected_mesh_input_uses_source_pixels_and_white_background(self):
+        job_id = "c" * 32
+        selection_dir = space_runtime.OUTPUT_DIR / "selection" / job_id
+        selection_dir.mkdir(parents=True, exist_ok=True)
+        source = Image.new("RGB", (40, 20), (10, 20, 30))
+        source.save(selection_dir / "source.png")
+        mask = Image.new("L", source.size, 0)
+        for x in range(10, 30):
+            for y in range(5, 15):
+                mask.putpixel((x, y), 255)
+        mask.save(selection_dir / "selection_mask.png")
+        output = selection_dir / "mesh-input.png"
+        prepared = space_runtime._prepare_selected_mesh_image({"job_id": job_id}, output, 64)
+        self.assertEqual(prepared.size, (64, 64))
+        self.assertEqual(prepared.getpixel((0, 0)), (255, 255, 255))
+        self.assertIn((10, 20, 30), prepared.getdata())
 
 
 if __name__ == "__main__":

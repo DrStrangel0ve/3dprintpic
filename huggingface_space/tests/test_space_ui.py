@@ -21,6 +21,22 @@ class SpaceUiTests(unittest.TestCase):
         self.assertIn("depth-anything/Depth-Anything-V2-Large-hf", app.DEPTH_MODEL)
         self.assertEqual(app.SAM3_MODEL, "facebook/sam3")
 
+    def test_gpu_events_share_one_serial_queue(self):
+        gpu_functions = [
+            function
+            for function in app.demo.fns.values()
+            if getattr(function.fn, "__name__", "")
+            in {
+                "_select_from_click",
+                "_generate_relief_ui",
+                "_generate_diorama_ui",
+                "_generate_full_mesh_ui",
+            }
+        ]
+        self.assertEqual(len(gpu_functions), 6)
+        self.assertTrue(all(function.concurrency_id == "gpu-work" for function in gpu_functions))
+        self.assertTrue(all(function.concurrency_limit == 1 for function in gpu_functions))
+
 
 if __name__ == "__main__":
     unittest.main()

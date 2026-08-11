@@ -127,7 +127,7 @@ def _clear_selection(scope):
     return None, None, status
 
 
-@spaces.GPU(duration=75)
+@spaces.GPU(duration=45)
 def _select_from_click(image_path, scope, previous_selection, event: gr.SelectData):
     if not str(scope).startswith("Select"):
         return image_path, None, "Using the full scene."
@@ -143,7 +143,7 @@ def _select_from_click(image_path, scope, previous_selection, event: gr.SelectDa
         raise gr.Error(str(exc)) from exc
 
 
-@spaces.GPU(duration=180)
+@spaces.GPU(duration=110)
 def _generate_relief_ui(image, scope, selection, long_edge, relief_height, samples, background_ratio):
     try:
         cleanup_expired_outputs()
@@ -160,16 +160,16 @@ def _generate_relief_ui(image, scope, selection, long_edge, relief_height, sampl
         raise gr.Error(str(exc)) from exc
 
 
-@spaces.GPU(duration=180)
-def _generate_diorama_ui(image, selection, max_size, scene_depth, base_thickness):
+@spaces.GPU(duration=110)
+def _generate_diorama_ui(image, scope, selection, max_size, scene_depth, base_thickness):
     try:
         cleanup_expired_outputs()
-        return generate_diorama(image, selection, max_size, scene_depth, base_thickness)
+        return generate_diorama(image, scope, selection, max_size, scene_depth, base_thickness)
     except Exception as exc:
         raise gr.Error(str(exc)) from exc
 
 
-@spaces.GPU(duration=300)
+@spaces.GPU(duration=240)
 def _generate_full_mesh_ui(image, scope, selection, max_dimension, seed):
     try:
         cleanup_expired_outputs()
@@ -178,11 +178,11 @@ def _generate_full_mesh_ui(image, scope, selection, max_dimension, seed):
         raise gr.Error(str(exc)) from exc
 
 
-def _selection_controls(prefix: str):
+def _selection_controls(prefix: str, *, selection_required: bool = False):
     selection_state = gr.State(None)
     scope = gr.Radio(
-        choices=["Full scene", "Select object"],
-        value="Full scene",
+        choices=["Select object"] if selection_required else ["Full scene", "Select object"],
+        value="Select object" if selection_required else "Full scene",
         label="Scope",
     )
     source = gr.Image(
@@ -200,12 +200,15 @@ def _selection_controls(prefix: str):
         height=250,
         visible=True,
     )
-    selection_status = gr.Markdown("Using the full scene.", elem_classes="selection-status")
+    initial_status = "Click an object in the uploaded photo." if selection_required else "Using the full scene."
+    selection_status = gr.Markdown(initial_status, elem_classes="selection-status")
     source.select(
         _select_from_click,
         inputs=[source, scope, selection_state],
         outputs=[selection_preview, selection_state, selection_status],
         show_progress="full",
+        concurrency_id="gpu-work",
+        concurrency_limit=1,
     )
     source.change(
         lambda: (None, None, "Upload complete. Choose a scope."),
@@ -293,12 +296,14 @@ with gr.Blocks(title="3D Print a Picture", theme=theme, css=CSS) as demo:
                     background_ratio,
                 ],
                 outputs=[relief_model, relief_file, relief_preview, relief_diagnostics],
+                concurrency_id="gpu-work",
+                concurrency_limit=1,
             )
 
         with gr.Tab("Scene Diorama"):
             with gr.Row(equal_height=False):
                 with gr.Column(scale=6, elem_classes="tool-panel"):
-                    diorama_image, _diorama_scope, diorama_selection = _selection_controls("diorama")
+                    diorama_image, diorama_scope, diorama_selection = _selection_controls("diorama")
                 with gr.Column(scale=4, elem_classes="tool-panel"):
                     diorama_size = gr.Slider(80, 240, value=180, step=5, label="Maximum size (mm)")
                     diorama_depth = gr.Slider(20, 100, value=64, step=2, label="Scene depth (mm)")
@@ -315,7 +320,7 @@ with gr.Blocks(title="3D Print a Picture", theme=theme, css=CSS) as demo:
                     diorama_diagnostics = gr.JSON(label="Print checks")
             diorama_generate.click(
                 _generate_diorama_ui,
-                inputs=[diorama_image, diorama_selection, diorama_size, diorama_depth, diorama_base],
+                inputs=[diorama_image, diorama_scope, diorama_selection, diorama_size, diorama_depth, diorama_base],
                 outputs=[
                     diorama_model,
                     diorama_stl,
@@ -323,12 +328,16 @@ with gr.Blocks(title="3D Print a Picture", theme=theme, css=CSS) as demo:
                     diorama_preview,
                     diorama_diagnostics,
                 ],
+                concurrency_id="gpu-work",
+                concurrency_limit=1,
             )
 
         with gr.Tab("Full Mesh STL"):
             with gr.Row(equal_height=False):
                 with gr.Column(scale=6, elem_classes="tool-panel"):
-                    mesh_image, mesh_scope, mesh_selection = _selection_controls("mesh")
+                    mesh_image, mesh_scope, mesh_selection = _selection_controls(
+                        "mesh", selection_required=True
+                    )
                 with gr.Column(scale=4, elem_classes="tool-panel"):
                     mesh_size = gr.Slider(40, 220, value=96, step=2, label="Maximum dimension (mm)")
                     mesh_seed = gr.Number(value=42, precision=0, label="Seed")
@@ -347,6 +356,8 @@ with gr.Blocks(title="3D Print a Picture", theme=theme, css=CSS) as demo:
                 _generate_full_mesh_ui,
                 inputs=[mesh_image, mesh_scope, mesh_selection, mesh_size, mesh_seed],
                 outputs=[mesh_model, mesh_stl, mesh_glb, mesh_diagnostics],
+                concurrency_id="gpu-work",
+                concurrency_limit=1,
             )
 
     gr.HTML(

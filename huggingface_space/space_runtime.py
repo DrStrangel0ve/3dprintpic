@@ -22,9 +22,10 @@ PROJECT_REVISION = "3808d76bf02d31b9a6724e825bfd325bf6c3d412"
 TRIPOSG_REPOSITORY = "https://github.com/VAST-AI-Research/TripoSG.git"
 TRIPOSG_SOURCE_REVISION = "fc5c40990181e2a756c4e0b1c2f4d6b5202faf8c"
 TRIPOSG_MODEL_REVISION = "2c1c516d22d58db486a058d98d31bb6177344e06"
-TRIPOSG_REMBG_REVISION = "2ceba5a5efaec153162aedea169f76caf9b46cf8"
 DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Large-hf"
+DEPTH_MODEL_REVISION = "7581137eff8d4e94f6e796d3baea0e9fa79b22d2"
 SAM3_MODEL = "facebook/sam3"
+SAM3_MODEL_REVISION = "3c879f39826c281e95690f02c7821c4de09afae7"
 
 SPACE_DIR = Path(__file__).resolve().parent
 RUNTIME_ROOT = Path(os.getenv("THREEDPRINTPIC_RUNTIME_DIR", Path(tempfile.gettempdir()) / "3dprintpic-space"))
@@ -231,6 +232,16 @@ def release_gpu_models() -> None:
         backend_main.release_selection_models()
     except Exception:
         pass
+
+
+def _depth_model_source() -> str:
+    from huggingface_hub import snapshot_download
+
+    return snapshot_download(
+        repo_id=DEPTH_MODEL,
+        revision=DEPTH_MODEL_REVISION,
+        token=os.getenv("HF_TOKEN") or None,
+    )
     try:
         backend_main.release_depth_pipelines()
     except Exception:
@@ -260,11 +271,12 @@ def generate_relief(
     if selected and not selection:
         raise ValueError("Click the object in the image before generating the selected-object relief")
     x_mm, y_mm = image_dimensions_mm(image_path, long_edge_mm)
+    depth_model_source = _depth_model_source()
     data = {
         "selection_mode": "context",
         "selection_subject_lock": "true" if selected else "false",
         "depth_provider": "transformers",
-        "depth_model": DEPTH_MODEL,
+        "depth_model": depth_model_source,
         "device": "cuda",
         "target_dimension": str(int(detail_samples)),
         "z_scale": str(float(relief_height_mm)),
@@ -307,6 +319,7 @@ def generate_relief(
 
 def generate_diorama(
     image_path: str | Path | None,
+    scope: str,
     selection: dict | None,
     max_size_mm: float,
     scene_depth_mm: float,
@@ -314,12 +327,16 @@ def generate_diorama(
 ) -> tuple[str, str, str, str, dict]:
     if not image_path:
         raise ValueError("Upload a photo before generating a scene diorama")
+    selected = str(scope).lower().startswith("select")
+    if selected and not selection:
+        raise ValueError("Click the object in the image before building selected diorama layers")
     release_gpu_models()
+    depth_model_source = _depth_model_source()
     data = {
         "mask_paths_json": json.dumps([selection["mask"]] if selection else []),
         "selection_labels_json": json.dumps([selection.get("labels", [])] if selection else []),
         "depth_provider": "transformers",
-        "depth_model": DEPTH_MODEL,
+        "depth_model": depth_model_source,
         "device": "cuda",
         "max_size_mm": str(float(max_size_mm)),
         "scene_depth_mm": str(float(scene_depth_mm)),
@@ -340,7 +357,7 @@ def generate_diorama(
     diagnostics = result.get("stl_diagnostics", {})
     summary = _diagnostic_summary(diagnostics, model=DEPTH_MODEL)
     summary["scene_mode"] = "layered-camera-free-diorama"
-    summary["selected_layers"] = 1 if selection else 0
+    summary["selected_layers"] = 1 if selected else 0
     summary["inpainting"] = False
     return (
         _safe_file(glb_path),
@@ -386,35 +403,54 @@ def _load_triposg_models():
     for path in (source, scripts_dir):
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
-    from briarmbg import BriaRMBG
     from triposg.pipelines.pipeline_triposg import TripoSGPipeline
 
-    model_root = RUNTIME_ROOT / "models"
     triposg_weights = Path(
         snapshot_download(
             repo_id="VAST-AI/TripoSG",
             revision=TRIPOSG_MODEL_REVISION,
-            local_dir=model_root / "TripoSG",
             token=os.getenv("HF_TOKEN") or None,
         )
     )
-    rmbg_weights = Path(
-        snapshot_download(
-            repo_id="briaai/RMBG-1.4",
-            revision=TRIPOSG_REMBG_REVISION,
-            local_dir=model_root / "RMBG-1.4",
-            allow_patterns=["config.json", "model.safetensors"],
-            token=os.getenv("HF_TOKEN") or None,
-        )
-    )
-    rmbg = BriaRMBG.from_pretrained(rmbg_weights).to("cuda")
-    rmbg.eval()
     pipeline = TripoSGPipeline.from_pretrained(
         triposg_weights,
         torch_dtype=torch.float16,
         low_cpu_mem_usage=True,
     ).to("cuda")
-    return pipeline, rmbg
+    return pipeline
+
+
+def _prepare_selected_mesh_image(selection: dict, output_path: Path, canvas_size: int = 512) -> Image.Image:
+    selection_dir = OUTPUT_DIR / "selection" / selection["job_id"]
+    source_path = selection_dir / "source.png"
+    mask_path = selection_dir / "selection_mask.png"
+    _safe_file(source_path)
+    _safe_file(mask_path)
+    with Image.open(source_path) as source_file, Image.open(mask_path) as mask_file:
+        source = ImageOps.exif_transpose(source_file).convert("RGB")
+        mask = mask_file.convert("L")
+    bbox = mask.getbbox()
+    if bbox is None:
+        raise ValueError("The selected object mask is empty")
+    left, top, right, bottom = bbox
+    margin = max(2, int(round(max(right - left, bottom - top) * 0.08)))
+    crop_box = (
+        max(0, left - margin),
+        max(0, top - margin),
+        min(source.width, right + margin),
+        min(source.height, bottom + margin),
+    )
+    source_crop = source.crop(crop_box)
+    mask_crop = mask.crop(crop_box)
+    selected_crop = Image.composite(source_crop, Image.new("RGB", source_crop.size, "white"), mask_crop)
+    selected_crop.thumbnail((int(canvas_size * 0.9), int(canvas_size * 0.9)), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGB", (canvas_size, canvas_size), "white")
+    canvas.paste(
+        selected_crop,
+        ((canvas_size - selected_crop.width) // 2, (canvas_size - selected_crop.height) // 2),
+    )
+    canvas.save(output_path)
+    return canvas
 
 
 def generate_full_mesh(
@@ -426,13 +462,8 @@ def generate_full_mesh(
 ) -> tuple[str, str, str, dict]:
     if not image_path:
         raise ValueError("Upload a photo before generating a full mesh")
-    selected = str(scope).lower().startswith("select")
-    if selected and not selection:
-        raise ValueError("Click the object in the image before generating the selected-object mesh")
-    mesh_input_path = Path(image_path)
-    if selected:
-        mesh_input_path = OUTPUT_DIR / "selection" / selection["job_id"] / "selected_image.png"
-        _safe_file(mesh_input_path)
+    if not str(scope).lower().startswith("select") or not selection:
+        raise ValueError("Full Mesh requires Select object; click the object before generating")
     import torch
     import trimesh
 
@@ -448,19 +479,9 @@ def generate_full_mesh(
     started = time.perf_counter()
     torch.cuda.reset_peak_memory_stats()
     pipeline = None
-    rmbg = None
     try:
-        pipeline, rmbg = _load_triposg_models()
-        scripts_dir = ensure_triposg_source() / "scripts"
-        if str(scripts_dir) not in sys.path:
-            sys.path.insert(0, str(scripts_dir))
-        from image_process import prepare_image
-
-        prepared = prepare_image(
-            mesh_input_path,
-            bg_color=np.array([1.0, 1.0, 1.0]),
-            rmbg_net=rmbg,
-        )
+        pipeline = _load_triposg_models()
+        prepared = _prepare_selected_mesh_image(selection, job_dir / "mesh_input.png")
         with torch.inference_mode():
             samples = pipeline(
                 image=prepared,
@@ -504,11 +525,12 @@ def generate_full_mesh(
             {
                 "source_revision": TRIPOSG_SOURCE_REVISION,
                 "model_revision": TRIPOSG_MODEL_REVISION,
-                "foreground_model_revision": TRIPOSG_REMBG_REVISION,
+                "foreground_model": SAM3_MODEL,
+                "foreground_model_revision": SAM3_MODEL_REVISION,
                 "runtime_seconds": round(time.perf_counter() - started, 3),
                 "peak_vram_gib": round(torch.cuda.max_memory_allocated() / (1024**3), 3),
                 "repair": metrics,
-                "scope": "selected-object" if selected else "full-visible-subject",
+                "scope": "selected-object",
                 "inpainting": False,
             }
         )
@@ -518,7 +540,7 @@ def generate_full_mesh(
         )
         return _safe_file(final_stl), _safe_file(final_stl), _safe_file(final_glb), summary
     finally:
-        del pipeline, rmbg
+        del pipeline
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -530,12 +552,16 @@ def cleanup_expired_outputs(max_age_seconds: int = 6 * 60 * 60) -> int:
     now = time.time()
     removed = 0
     for child in OUTPUT_DIR.iterdir():
-        if child.name == "selection" or not child.is_dir():
+        if not child.is_dir():
             continue
-        try:
-            if now - child.stat().st_mtime > max_age_seconds:
-                shutil.rmtree(child)
-                removed += 1
-        except OSError:
-            continue
+        candidates = list(child.iterdir()) if child.name in {"selection", "full-mesh"} else [child]
+        for candidate in candidates:
+            if not candidate.is_dir():
+                continue
+            try:
+                if now - candidate.stat().st_mtime > max_age_seconds:
+                    shutil.rmtree(candidate)
+                    removed += 1
+            except OSError:
+                continue
     return removed
