@@ -135,25 +135,44 @@ def _response_error(response) -> RuntimeError:
 
 
 def _diagnostic_summary(diagnostics: dict, *, model: str) -> dict:
-    keys = (
-        "is_watertight",
-        "is_volume",
-        "winding_consistent",
-        "component_count",
-        "nonmanifold_edge_count",
-        "degenerate_face_count",
-        "positive_volume",
-        "bbox_extents",
-        "face_count",
-        "vertex_count",
-        "normalized_bbox_complexity_log1p",
-        "stl_passes_hard_checks",
-        "stl_failed_checks",
-    )
-    return {
-        "model": model,
-        **{key: diagnostics[key] for key in keys if key in diagnostics},
+    aliases = {
+        "is_watertight": ("stl_is_watertight", "is_watertight"),
+        "is_volume": ("stl_is_volume", "is_volume"),
+        "is_manifold": ("stl_is_manifold", "is_manifold"),
+        "winding_consistent": ("stl_winding_consistent", "winding_consistent"),
+        "component_count": ("stl_component_count", "component_count"),
+        "nonmanifold_edge_count": ("stl_nonmanifold_edge_count", "nonmanifold_edge_count"),
+        "degenerate_face_count": ("stl_degenerate_face_count", "degenerate_face_count"),
+        "positive_volume": ("stl_positive_volume", "positive_volume"),
+        "face_count": ("stl_faces", "face_count"),
+        "vertex_count": ("stl_vertices", "vertex_count"),
+        "normalized_bbox_complexity_log1p": (
+            "stl_faces_per_normalized_bbox_volume_log1p",
+            "normalized_bbox_complexity_log1p",
+        ),
     }
+    summary = {"model": model}
+    for output_key, candidates in aliases.items():
+        for candidate in candidates:
+            if candidate in diagnostics:
+                summary[output_key] = diagnostics[candidate]
+                break
+    bbox = [diagnostics.get(f"stl_bbox_{axis}") for axis in "xyz"]
+    if all(value is not None for value in bbox):
+        summary["bbox_extents"] = bbox
+    hard_checks = {
+        "watertight": summary.get("is_watertight") is True,
+        "volume": summary.get("is_volume") is True,
+        "manifold": summary.get("is_manifold") is True,
+        "winding": summary.get("winding_consistent") is True,
+        "single_component": summary.get("component_count") == 1,
+        "nonmanifold_edges": summary.get("nonmanifold_edge_count") == 0,
+        "degenerate_faces": summary.get("degenerate_face_count") == 0,
+        "positive_volume": summary.get("positive_volume") is True,
+    }
+    summary["stl_passes_hard_checks"] = all(hard_checks.values())
+    summary["stl_failed_checks"] = [name for name, passed in hard_checks.items() if not passed]
+    return summary
 
 
 def _selection_job(

@@ -34,6 +34,29 @@ class SpaceRuntimeTests(unittest.TestCase):
             Image.new("RGB", (150, 300), "white").save(image_path)
             self.assertEqual(space_runtime.image_dimensions_mm(image_path, 120), (60.0, 120.0))
 
+    def test_diagnostic_summary_maps_prefixed_stl_contract(self):
+        diagnostics = {
+            "stl_is_watertight": True,
+            "stl_is_volume": True,
+            "stl_is_manifold": True,
+            "stl_winding_consistent": True,
+            "stl_component_count": 1,
+            "stl_nonmanifold_edge_count": 0,
+            "stl_degenerate_face_count": 0,
+            "stl_positive_volume": True,
+            "stl_faces": 1200,
+            "stl_vertices": 602,
+            "stl_bbox_x": 64.0,
+            "stl_bbox_y": 40.0,
+            "stl_bbox_z": 10.0,
+            "stl_faces_per_normalized_bbox_volume_log1p": 8.5,
+        }
+        summary = space_runtime._diagnostic_summary(diagnostics, model="test/model")
+        self.assertTrue(summary["stl_passes_hard_checks"])
+        self.assertEqual(summary["stl_failed_checks"], [])
+        self.assertEqual(summary["bbox_extents"], [64.0, 40.0, 10.0])
+        self.assertEqual(summary["face_count"], 1200)
+
     def test_sam3_selection_fails_closed_without_owner_token(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             image_path = Path(temp_dir) / "photo.png"
