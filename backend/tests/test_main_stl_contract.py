@@ -929,6 +929,7 @@ class MainStlContractTest(unittest.TestCase):
                     "weight_file": "output_face_refinement_weight.png",
                     "region_file": "output_face_refinement_region.png",
                     "occlusion_file": "output_face_refinement_occlusion.png",
+                    "metadata_file": "output_face_refinement_metadata.json",
                 }
 
             def load_luma(path):
@@ -1074,6 +1075,26 @@ class MainStlContractTest(unittest.TestCase):
             self.assertEqual(
                 observed["mesh"]["weight_name"],
                 "output_face_refinement_weight_crop.png",
+            )
+            cropped_face_metadata_path = (
+                output_root
+                / payload["job_id"]
+                / payload["face_refinement"]["metadata_file"]
+            )
+            cropped_face_metadata = json.loads(
+                cropped_face_metadata_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                cropped_face_metadata["weight_file"],
+                "output_face_refinement_weight_crop.png",
+            )
+            self.assertEqual(
+                cropped_face_metadata["source_aligned_selection_crop"]["crop_size"],
+                [56, 46],
+            )
+            self.assertEqual(
+                cropped_face_metadata["full_source_metadata_file"],
+                "output_face_refinement_metadata.json",
             )
             self.assertEqual(payload["selection_mode"], "source-depth-isolate")
             self.assertEqual(

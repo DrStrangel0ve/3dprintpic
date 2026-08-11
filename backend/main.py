@@ -1930,6 +1930,15 @@ def crop_face_refinement_artifacts(
         "crop_bbox_xyxy": list(crop_box),
         "crop_size": [int(value) for value in selection_crop["crop_size"]],
     }
+    original_metadata_file = face_refinement.get("metadata_file")
+    if original_metadata_file:
+        cropped["full_source_metadata_file"] = str(original_metadata_file)
+    cropped_metadata_path = output_dir / "output_face_refinement_selection_crop_metadata.json"
+    cropped["metadata_file"] = cropped_metadata_path.name
+    cropped_metadata_path.write_text(
+        json.dumps(cropped, indent=2) + "\n",
+        encoding="utf-8",
+    )
     return cropped
 
 
