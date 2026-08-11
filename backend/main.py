@@ -1833,6 +1833,75 @@ def crop_selection_artifacts(
     }
 
 
+def crop_depth_to_selection_artifacts(
+    depth_path: str | Path,
+    selection_crop: dict,
+    output_path: Path,
+) -> dict:
+    depth = np.load(depth_path).astype(np.float32)
+    if depth.ndim != 2:
+        raise ValueError(f"Selection depth must be a 2D array, got shape {depth.shape}")
+
+    source_width, source_height = (int(value) for value in selection_crop["source_size"])
+    left, top, right, bottom = (
+        int(value) for value in selection_crop["crop_bbox_xyxy"]
+    )
+    if source_width <= 0 or source_height <= 0:
+        raise ValueError("Selection source dimensions must be positive")
+
+    depth_height, depth_width = depth.shape
+    depth_left = max(0, min(depth_width - 1, int(np.floor(left * depth_width / source_width))))
+    depth_top = max(0, min(depth_height - 1, int(np.floor(top * depth_height / source_height))))
+    depth_right = max(
+        depth_left + 1,
+        min(depth_width, int(np.ceil(right * depth_width / source_width))),
+    )
+    depth_bottom = max(
+        depth_top + 1,
+        min(depth_height, int(np.ceil(bottom * depth_height / source_height))),
+    )
+    cropped_depth = depth[depth_top:depth_bottom, depth_left:depth_right]
+
+    crop_width, crop_height = (int(value) for value in selection_crop["crop_size"])
+    resampled = cropped_depth.shape != (crop_height, crop_width)
+    if resampled:
+        finite = np.isfinite(cropped_depth)
+        if not np.any(finite):
+            raise ValueError("Selection depth crop has no finite samples")
+        fill_value = float(np.median(cropped_depth[finite]))
+        resize_values = np.where(finite, cropped_depth, fill_value).astype(np.float32)
+        cropped_depth = np.asarray(
+            Image.fromarray(resize_values, mode="F").resize(
+                (crop_width, crop_height),
+                Image.Resampling.BILINEAR,
+            ),
+            dtype=np.float32,
+        )
+        if not np.all(finite):
+            resized_finite = np.asarray(
+                Image.fromarray(finite.astype(np.uint8) * 255, mode="L").resize(
+                    (crop_width, crop_height),
+                    Image.Resampling.NEAREST,
+                )
+            ) > 0
+            cropped_depth = np.where(resized_finite, cropped_depth, np.nan)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(output_path, cropped_depth.astype(np.float32, copy=False))
+    return {
+        "depth_path": output_path,
+        "source_depth_size": [int(depth_width), int(depth_height)],
+        "source_depth_crop_bbox_xyxy": [
+            int(depth_left),
+            int(depth_top),
+            int(depth_right),
+            int(depth_bottom),
+        ],
+        "output_depth_size": [int(cropped_depth.shape[1]), int(cropped_depth.shape[0])],
+        "resampled_to_source_crop": bool(resampled),
+    }
+
+
 def get_runtime_info() -> dict:
     try:
         import torch
@@ -2346,10 +2415,14 @@ async def process_image(
                 ),
             )
         resolved_selection_mode = str(selection_mode or "context").strip().lower()
-        if resolved_selection_mode not in {"context", "isolate"}:
+        isolated_selection_modes = {"isolate", "source-depth-isolate"}
+        if resolved_selection_mode not in {"context", *isolated_selection_modes}:
             raise HTTPException(
                 status_code=400,
-                detail="Selection mode must be either context or isolate",
+                detail=(
+                    "Selection mode must be context, isolate, or "
+                    "source-depth-isolate"
+                ),
             )
         if selection_job is None and resolved_selection_mode != "context":
             raise HTTPException(
@@ -2377,14 +2450,18 @@ async def process_image(
             except Exception as exc:
                 raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
         selection_crop = None
-        if selection_job and resolved_selection_mode == "isolate":
+        if selection_job and resolved_selection_mode in isolated_selection_modes:
             selection_crop = crop_selection_artifacts(
                 selection_job["source_path"],
                 selection_job["selected_path"],
                 selection_job["mask_path"],
                 job_dir,
             )
-            image_input_path = str(selection_crop["selected_path"])
+            image_input_path = str(
+                selection_crop["selected_path"]
+                if resolved_selection_mode == "isolate"
+                else selection_job["source_path"]
+            )
         else:
             image_input_path = (
                 str(selection_job["source_path"])
@@ -2401,8 +2478,8 @@ async def process_image(
             device,
         )
         image_for_depth = image_input_path
-        # Context selections keep the original scene for depth and face geometry.
-        # The selected artifact is only an isolated preview/input for isolate mode.
+        # Context and source-depth-isolate preserve the full photograph for depth.
+        # Legacy isolate intentionally estimates depth from the edited crop.
         depth_inference_source = image_for_depth
         face_refinement_source = image_for_depth
         face_detection_source = None
@@ -2432,6 +2509,19 @@ async def process_image(
             with open(depth_metadata_path, encoding="utf-8") as depth_metadata_file:
                 depth_metadata = json.load(depth_metadata_file)
         effective_depth_model = depth_metadata.get("effective_model") or selected_model
+
+        source_depth_crop = None
+        if selection_crop is not None and resolved_selection_mode == "source-depth-isolate":
+            stage_started = time.perf_counter()
+            source_depth_crop = crop_depth_to_selection_artifacts(
+                depth_data_path,
+                selection_crop,
+                job_dir / "output_depth_data_source_crop.npy",
+            )
+            depth_data_path = str(source_depth_crop["depth_path"])
+            face_refinement_source = str(selection_crop["source_path"])
+            record_timing("selection_depth_crop_seconds", stage_started)
+
         stage_started = time.perf_counter()
 
         def infer_face_depth(crop_path: Path, face_output_dir: Path):
@@ -2464,7 +2554,7 @@ async def process_image(
         depth_metadata["face_refinement"] = face_refinement
         selection_depth_context = {"enabled": False, "reason": "not_requested"}
         effective_selection_background_depth_ratio = selection_background_depth_ratio
-        if selection_job is not None and resolved_selection_mode == "isolate":
+        if selection_job is not None and resolved_selection_mode in isolated_selection_modes:
             stage_started = time.perf_counter()
             with Image.open(selection_region_mask_path) as selection_mask_image:
                 selection_mask = np.asarray(selection_mask_image.convert("L")) > 0
@@ -2480,17 +2570,29 @@ async def process_image(
                 np.float32,
                 copy=False,
             )
-            isolated_depth_path = job_dir / "output_depth_data_selected_isolate.npy"
+            isolated_depth_path = job_dir / (
+                "output_depth_data_selected_source_isolate.npy"
+                if resolved_selection_mode == "source-depth-isolate"
+                else "output_depth_data_selected_isolate.npy"
+            )
             np.save(isolated_depth_path, isolated_depth)
             depth_data_path = str(isolated_depth_path)
             effective_selection_background_depth_ratio = 0.0
             selection_depth_context = {
                 "enabled": True,
-                "method": "crop_first_isolated_selection_v1",
+                "method": (
+                    "full_source_depth_then_isolated_crop_v1"
+                    if resolved_selection_mode == "source-depth-isolate"
+                    else "crop_first_isolated_selection_v1"
+                ),
                 "selection_job_id": selection_job["job_id"],
                 "selection_mask": output_relative_path(selection_region_mask_path),
                 "depth_file": isolated_depth_path.name,
-                "depth_source": "selection_edited_image",
+                "depth_source": (
+                    "selection_original_source"
+                    if resolved_selection_mode == "source-depth-isolate"
+                    else "selection_edited_image"
+                ),
                 "depth_source_file": output_relative_path(depth_inference_source),
                 "background_depth_ratio": 0.0,
                 "mask_pixels": int(np.count_nonzero(selection_mask)),
@@ -2501,6 +2603,12 @@ async def process_image(
                     if key not in {"source_path", "selected_path", "mask_path"}
                 },
             }
+            if source_depth_crop is not None:
+                selection_depth_context["source_depth_crop"] = {
+                    key: value
+                    for key, value in source_depth_crop.items()
+                    if key != "depth_path"
+                }
             record_timing("selection_depth_context_seconds", stage_started)
         elif selection_job is not None:
             stage_started = time.perf_counter()
@@ -2604,6 +2712,12 @@ async def process_image(
             bool(selection_subject_lock)
             or not bool(selection_depth_context.get("enabled", False))
         )
+        mesh_source_image = (
+            str(selection_crop["source_path"])
+            if selection_crop is not None
+            and resolved_selection_mode == "source-depth-isolate"
+            else depth_inference_source
+        )
         relief_postprocess = depth_data_to_3d_model(
             depth_data_path,
             output_stl_path=str(stl_path),
@@ -2615,7 +2729,7 @@ async def process_image(
             relief_gamma=relief_gamma,
             detail_boost=detail_boost,
             background_detail_boost=background_detail_boost,
-            source_image=depth_inference_source,
+            source_image=mesh_source_image,
             background_photo_detail_mm=background_photo_detail_mm,
             trim_top_background=effective_trim_top_background,
             feature_weight_mask=(
@@ -2644,7 +2758,9 @@ async def process_image(
                 else None
             ),
             selection_region_mask=(
-                None if resolved_selection_mode == "isolate" else selection_region_mask_path
+                None
+                if resolved_selection_mode in isolated_selection_modes
+                else selection_region_mask_path
             ),
             selection_background_depth_ratio=effective_selection_background_depth_ratio,
             selection_subject_lock=selection_subject_lock,

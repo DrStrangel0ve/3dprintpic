@@ -868,6 +868,169 @@ class MainStlContractTest(unittest.TestCase):
             self.assertEqual(payload["selection_crop"]["crop_size"], [56, 46])
             self.assertTrue(payload["depth_data"].endswith("output_depth_data_selected_isolate.npy"))
 
+    def test_process_image_source_depth_isolate_crops_full_source_depth_before_mesh(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "output"
+            mask_dir = output_root / "selection" / "fixture"
+            mask_dir.mkdir(parents=True)
+            mask_array = np.zeros((60, 80), dtype=np.uint8)
+            mask_array[15:45, 20:60] = 255
+            Image.fromarray(mask_array, mode="L").save(mask_dir / "selection_mask.png")
+            observed = {"depth_size": None, "face": None, "mesh": None}
+
+            def fake_depth_data(image_path, output_dir, **_kwargs):
+                with Image.open(image_path) as image:
+                    observed["depth_size"] = image.size
+                depth_path = Path(output_dir) / "output_depth_data.npy"
+                np.save(
+                    depth_path,
+                    np.linspace(0.0, 1.0, 40 * 30)
+                    .reshape(30, 40)
+                    .astype(np.float32),
+                )
+                (Path(output_dir) / "output_depth_metadata.json").write_text(
+                    json.dumps(
+                        {
+                            "effective_model": "fixture-depth",
+                            "relief_value_transform": "linear",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                return str(depth_path)
+
+            def fake_face_refinement(image_path, depth_path, _output, **kwargs):
+                with Image.open(image_path) as image:
+                    image_size = image.size
+                observed["face"] = {
+                    "image_size": image_size,
+                    "depth_shape": np.load(depth_path).shape,
+                    "roi": Path(kwargs["detection_roi_mask"]).name,
+                }
+                return depth_path, {
+                    "mode": "auto",
+                    "applied": False,
+                    "detected_faces": 0,
+                    "refined_faces": 0,
+                    "faces": [],
+                }
+
+            def fake_depth_to_model(depth_path, output_stl_path, **kwargs):
+                depth = np.load(depth_path)
+                with Image.open(kwargs["source_image"]) as source_image:
+                    source_size = source_image.size
+                observed["mesh"] = {
+                    "shape": depth.shape,
+                    "finite_ratio": float(np.mean(np.isfinite(depth))),
+                    "source_size": source_size,
+                    "selection_region_mask": kwargs["selection_region_mask"],
+                    "selection_background_depth_ratio": kwargs[
+                        "selection_background_depth_ratio"
+                    ],
+                }
+                Path(output_stl_path).write_bytes(b"solid fixture\nendsolid fixture\n")
+                return {
+                    "surface_grid_transform": {
+                        "emitted_shape": [int(depth.shape[0]), int(depth.shape[1])]
+                    }
+                }
+
+            with (
+                patch.object(main_module, "OUTPUT_DIR", output_root),
+                patch.object(
+                    main_module,
+                    "process_image_get_depth_data",
+                    side_effect=fake_depth_data,
+                ),
+                patch.object(
+                    main_module,
+                    "refine_depth_for_faces",
+                    side_effect=fake_face_refinement,
+                ),
+                patch.object(
+                    main_module,
+                    "depth_data_to_3d_model",
+                    side_effect=fake_depth_to_model,
+                ),
+                patch.object(
+                    main_module,
+                    "stl_diagnostics",
+                    return_value={
+                        "stl_is_watertight": True,
+                        "stl_passes_hard_checks": True,
+                        "stl_failed_checks": [],
+                    },
+                ),
+            ):
+                client = TestClient(main_module.app)
+                compose_response = client.post(
+                    "/selection/compose",
+                    files={
+                        "file": (
+                            "source.png",
+                            self.png_bytes(size=(80, 60), color=(30, 50, 70)),
+                            "image/png",
+                        )
+                    },
+                    data={
+                        "mask_paths_json": json.dumps(
+                            ["selection/fixture/selection_mask.png"]
+                        )
+                    },
+                )
+                self.assertEqual(compose_response.status_code, 200, compose_response.text)
+                response = client.post(
+                    "/process_image",
+                    files={
+                        "file": (
+                            "selected.png",
+                            self.png_bytes(size=(80, 60)),
+                            "image/png",
+                        )
+                    },
+                    data={
+                        "selection_job_id": compose_response.json()["job_id"],
+                        "selection_mode": "source-depth-isolate",
+                        "target_dimension": "-1",
+                    },
+                )
+
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(observed["depth_size"], (80, 60))
+            self.assertEqual(observed["face"]["image_size"], (56, 46))
+            self.assertEqual(observed["face"]["depth_shape"], (46, 56))
+            self.assertEqual(observed["face"]["roi"], "selection_mask_crop.png")
+            self.assertEqual(observed["mesh"]["shape"], (46, 56))
+            self.assertEqual(observed["mesh"]["source_size"], (56, 46))
+            self.assertLess(observed["mesh"]["finite_ratio"], 0.6)
+            self.assertIsNone(observed["mesh"]["selection_region_mask"])
+            self.assertEqual(observed["mesh"]["selection_background_depth_ratio"], 0.0)
+            self.assertEqual(payload["selection_mode"], "source-depth-isolate")
+            self.assertEqual(
+                payload["selection_depth_context"]["method"],
+                "full_source_depth_then_isolated_crop_v1",
+            )
+            self.assertEqual(
+                payload["selection_depth_context"]["depth_source"],
+                "selection_original_source",
+            )
+            self.assertEqual(payload["selection_crop"]["crop_size"], [56, 46])
+            self.assertEqual(
+                payload["selection_depth_context"]["source_depth_crop"]["source_depth_size"],
+                [40, 30],
+            )
+            self.assertTrue(
+                payload["selection_depth_context"]["source_depth_crop"][
+                    "resampled_to_source_crop"
+                ]
+            )
+            self.assertTrue(
+                payload["depth_data"].endswith(
+                    "output_depth_data_selected_source_isolate.npy"
+                )
+            )
+
     def test_process_image_normalizes_exif_orientation_and_skips_completion(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_root = Path(temp_dir) / "output"
