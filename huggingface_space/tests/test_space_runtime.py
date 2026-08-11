@@ -123,9 +123,10 @@ class SpaceRuntimeTests(unittest.TestCase):
             self.assertGreater(state["region_count"], 0)
             self.assertEqual(set(state["region_instances"].values()), {0})
             self.assertEqual(
-                state["selection_precompute"]["packed_masks"].shape,
-                (1, 12, 3),
+                len(state["selection_precompute"]["compressed_masks"]),
+                1,
             )
+            self.assertGreater(state["selection_precompute"]["compressed_bytes"], 0)
             self.assertNotIn("image", state["selection_precompute"])
             compute.assert_called_once()
             release.assert_called_once()
@@ -135,9 +136,10 @@ class SpaceRuntimeTests(unittest.TestCase):
             image_path = Path(temp_dir) / "photo.png"
             image = Image.new("RGB", (16, 10), "white")
             image.save(image_path)
-            masks = np.zeros((2, 10, 16), dtype=bool)
-            masks[0, 2:9, 3:14] = True
-            masks[1, 0, 0] = True
+            masks = np.zeros((3, 10, 16), dtype=bool)
+            masks[0, 0, 0] = True
+            masks[1, 0, 1] = True
+            masks[2, 2:9, 3:14] = True
             with (
                 patch.dict(os.environ, {"HF_TOKEN": "test-token"}, clear=False),
                 patch.object(
@@ -145,8 +147,8 @@ class SpaceRuntimeTests(unittest.TestCase):
                     "compute_sam3_selection_instances",
                     return_value=(
                         masks,
-                        np.asarray([0.95, 0.1], dtype=np.float32),
-                        ["person", "artifact"],
+                        np.asarray([0.1, 0.1, 0.95], dtype=np.float32),
+                        ["artifact-a", "artifact-b", "person"],
                         space_runtime.SAM3_MODEL,
                     ),
                 ),
@@ -180,6 +182,29 @@ class SpaceRuntimeTests(unittest.TestCase):
             self.assertEqual(result, {"job_id": "selected"})
             global_cache.assert_not_called()
             self.assertEqual(save.call_args.kwargs["labels"], ["person"])
+
+    def test_inline_precompute_enforces_compressed_payload_bound(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "photo.png"
+            Image.new("RGB", (32, 32), "white").save(image_path)
+            masks = np.ones((1, 32, 32), dtype=bool)
+            with (
+                patch.dict(os.environ, {"HF_TOKEN": "test-token"}, clear=False),
+                patch.object(
+                    space_runtime.backend_main,
+                    "compute_sam3_selection_instances",
+                    return_value=(
+                        masks,
+                        np.asarray([0.95], dtype=np.float32),
+                        ["person"],
+                        space_runtime.SAM3_MODEL,
+                    ),
+                ),
+                patch.object(space_runtime, "release_gpu_models"),
+                patch.object(space_runtime, "SAM3_PRECOMPUTE_MAX_COMPRESSED_BYTES", 1),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "too large to cache safely"):
+                    space_runtime.prepare_object_selection(image_path)
 
     def test_hover_cache_discards_source_pixels_and_expires_old_entries(self):
         old_id = "hover-old-test"

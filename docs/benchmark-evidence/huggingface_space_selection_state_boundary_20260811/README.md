@@ -20,6 +20,9 @@ never existed in its process.
 - Return a versioned, pickle-safe packed-mask payload through `gr.State`.
 - Include only SAM 3 instances represented by the score-resolved hover map.
 - Keep source RGB pixels out of session state.
+- Compress each represented bit-packed mask independently and enforce hard
+  source-pixel, instance-count, and compressed-byte bounds.
+- Set Gradio's state TTL so payloads are actually evicted after 20 minutes.
 - Validate schema, age, model ID, dimensions, packed shape, and label count
   before materializing a selection.
 - Preserve the old process-local lookup only as a compatibility fallback.
@@ -29,4 +32,5 @@ never existed in its process.
 The focused regression pickles and unpickles the complete preparation state to
 simulate the ZeroGPU worker/main-process boundary, makes the global lookup fail
 if called, and verifies that the exact highlighted person mask is selected
-without another model invocation.
+without another model invocation. Additional contracts cover non-contiguous
+instance remapping, the compressed-payload limit, and Gradio TTL configuration.

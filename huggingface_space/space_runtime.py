@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zlib
 from pathlib import Path
 from threading import Lock
 from uuid import uuid4
@@ -42,6 +43,9 @@ SAM3_HOVER_MAP_MAX_DIMENSION = 1024
 SAM3_HOVER_MAP_VERSION = 1
 SAM3_PRECOMPUTE_STATE_VERSION = 2
 SAM3_PRECOMPUTE_TTL_SECONDS = 20 * 60
+SAM3_PRECOMPUTE_MAX_SOURCE_PIXELS = 40_000_000
+SAM3_PRECOMPUTE_MAX_MASKS = 256
+SAM3_PRECOMPUTE_MAX_COMPRESSED_BYTES = 32 * 1024 * 1024
 
 
 def _run_git(*args: str, cwd: Path | None = None) -> str:
@@ -427,14 +431,26 @@ def prepare_object_selection(image_path: str | Path | None) -> tuple[str, dict]:
     used_instance_indices = sorted(
         {int(metadata["instance_index"]) for metadata in regions.values()}
     )
+    if image.width * image.height > SAM3_PRECOMPUTE_MAX_SOURCE_PIXELS:
+        raise RuntimeError("The uploaded image is too large for cached object selection")
+    if len(used_instance_indices) > SAM3_PRECOMPUTE_MAX_MASKS:
+        raise RuntimeError("SAM 3 found too many objects to cache safely")
     compact_instance_indices = {
         instance_index: compact_index
         for compact_index, instance_index in enumerate(used_instance_indices)
     }
-    packed_masks = np.packbits(
-        np.asarray(masks, dtype=bool)[used_instance_indices],
-        axis=2,
-    )
+    compressed_masks: list[bytes] = []
+    compressed_bytes = 0
+    for instance_index in used_instance_indices:
+        packed_mask = np.packbits(
+            np.asarray(masks[instance_index], dtype=bool),
+            axis=1,
+        )
+        payload = zlib.compress(packed_mask.tobytes(order="C"), level=6)
+        compressed_bytes += len(payload)
+        if compressed_bytes > SAM3_PRECOMPUTE_MAX_COMPRESSED_BYTES:
+            raise RuntimeError("The SAM 3 object map is too large to cache safely")
+        compressed_masks.append(payload)
     precompute_id = uuid4().hex
     manifest = {
         "version": SAM3_HOVER_MAP_VERSION,
@@ -462,7 +478,8 @@ def prepare_object_selection(image_path: str | Path | None) -> tuple[str, dict]:
         # process-local globals disappear when the worker exits.
         "selection_precompute": {
             "kind": "sam3-hover-session-v2",
-            "packed_masks": packed_masks,
+            "compressed_masks": compressed_masks,
+            "compressed_bytes": compressed_bytes,
             "mask_width": image.width,
             "labels": [str(labels[index]) for index in used_instance_indices],
             "model_id": resolved_model,
@@ -487,21 +504,32 @@ def _inline_selection_precompute(precompute_state: dict) -> dict | None:
         raise ValueError("The cached SAM 3 object map has invalid dimensions")
     width, height = (int(image_size[0]), int(image_size[1]))
     mask_width = int(cached.get("mask_width", 0))
-    packed_masks = np.asarray(cached.get("packed_masks"), dtype=np.uint8)
+    compressed_masks = cached.get("compressed_masks")
     labels = cached.get("labels") or []
     expected_bytes = (width + 7) // 8
+    valid_compressed_masks = isinstance(compressed_masks, (list, tuple)) and all(
+        isinstance(payload, bytes) for payload in compressed_masks
+    )
+    compressed_bytes = (
+        sum(len(payload) for payload in compressed_masks)
+        if valid_compressed_masks
+        else SAM3_PRECOMPUTE_MAX_COMPRESSED_BYTES + 1
+    )
     if (
         width <= 0
         or height <= 0
+        or width * height > SAM3_PRECOMPUTE_MAX_SOURCE_PIXELS
         or mask_width != width
-        or packed_masks.ndim != 3
-        or packed_masks.shape[1:] != (height, expected_bytes)
-        or len(labels) != len(packed_masks)
+        or not valid_compressed_masks
+        or len(compressed_masks) > SAM3_PRECOMPUTE_MAX_MASKS
+        or compressed_bytes > SAM3_PRECOMPUTE_MAX_COMPRESSED_BYTES
+        or len(labels) != len(compressed_masks)
         or str(cached.get("model_id")) != SAM3_MODEL
     ):
         raise ValueError("The cached SAM 3 object map is inconsistent")
     return {
-        "packed_masks": packed_masks,
+        "compressed_masks": list(compressed_masks),
+        "packed_row_bytes": expected_bytes,
         "mask_width": mask_width,
         "labels": [str(label) for label in labels],
         "model_id": str(cached["model_id"]),
@@ -543,12 +571,30 @@ def select_precomputed_object(
         instance_index = int(region_instances[str(int(region_id))])
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("The highlighted SAM 3 region is no longer available") from exc
-    packed_masks = cached["packed_masks"]
-    if not 0 <= instance_index < len(packed_masks):
+    mask_count = (
+        len(cached["compressed_masks"])
+        if "compressed_masks" in cached
+        else len(cached.get("packed_masks", []))
+    )
+    if not 0 <= instance_index < mask_count:
         raise ValueError("The highlighted SAM 3 region has an invalid instance index")
     width, height = cached["image_size"]
+    if "compressed_masks" in cached:
+        try:
+            raw_mask = zlib.decompress(cached["compressed_masks"][instance_index])
+        except zlib.error as exc:
+            raise ValueError("The cached SAM 3 object mask is corrupt") from exc
+        expected_size = height * int(cached["packed_row_bytes"])
+        if len(raw_mask) != expected_size:
+            raise ValueError("The cached SAM 3 object mask has an invalid size")
+        packed_mask = np.frombuffer(raw_mask, dtype=np.uint8).reshape(
+            height,
+            int(cached["packed_row_bytes"]),
+        )
+    else:
+        packed_mask = cached["packed_masks"][instance_index]
     candidate = np.unpackbits(
-        packed_masks[instance_index],
+        packed_mask,
         axis=1,
         count=int(cached["mask_width"]),
     ).astype(bool)

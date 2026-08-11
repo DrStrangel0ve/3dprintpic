@@ -69,6 +69,20 @@ class SpaceUiTests(unittest.TestCase):
         self.assertIn('event.target.closest("button, input', app.SELECTION_HOVER_JS)
         self.assertNotIn("fetch(", app.SELECTION_HOVER_JS)
 
+    def test_packed_mask_state_has_real_ttl(self):
+        state_components = [
+            component
+            for component in app.demo.get_config_file().get("components", [])
+            if component.get("type") == "state"
+        ]
+        ttl_states = [
+            component
+            for component in state_components
+            if component.get("props", {}).get("time_to_live")
+            == app.SAM3_PRECOMPUTE_TTL_SECONDS
+        ]
+        self.assertEqual(len(ttl_states), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -68,12 +68,13 @@ two-minute daily quota and should sign in before using the mesh workflow.
 The hover map is capped at a 1024-pixel long edge, uses score-resolved connected
 regions, and is encoded as a lossless 24-bit PNG. It contains only region IDs,
 labels, scores, and pixel counts. The original photo remains in Gradio's normal
-temporary upload path. Only masks represented in the hover map are bit-packed
-into versioned per-visitor `gr.State`; no source RGB pixels are copied into that
-state. This explicit state handoff is required because ZeroGPU GPU workers are
-forked processes and their process-local globals disappear after inference.
-Packed state expires after 20 minutes; the browser tint is generated locally
-from the ID map.
+temporary upload path. Only masks represented in the hover map are bit-packed,
+individually compressed, and placed into versioned per-visitor `gr.State`; no
+source RGB pixels are copied into that state. This explicit state handoff is
+required because ZeroGPU GPU workers are forked processes and their
+process-local globals disappear after inference. Source size, instance count,
+and compressed bytes are hard-bounded. Gradio evicts packed state after 20
+minutes; the browser tint is generated locally from the ID map.
 Clicking a highlighted region materializes the exact cached SAM 3 mask into the
 existing selection job without rerunning the model or invoking its tracker.
 

@@ -33,6 +33,7 @@ try:
         DEPTH_MODEL,
         PROJECT_REVISION,
         SAM3_MODEL,
+        SAM3_PRECOMPUTE_TTL_SECONDS,
         TRIPOSG_MODEL_REVISION,
         cleanup_expired_outputs,
         generate_diorama,
@@ -47,6 +48,7 @@ except ImportError:  # Hugging Face runs app.py from the Space repository root.
         DEPTH_MODEL,
         PROJECT_REVISION,
         SAM3_MODEL,
+        SAM3_PRECOMPUTE_TTL_SECONDS,
         TRIPOSG_MODEL_REVISION,
         cleanup_expired_outputs,
         generate_diorama,
@@ -468,7 +470,7 @@ def _generate_full_mesh_ui(image, scope, selection, max_dimension, seed):
 
 def _selection_controls(prefix: str, *, selection_required: bool = False):
     selection_state = gr.State(None)
-    precompute_state = gr.State(None)
+    precompute_state = gr.State(None, time_to_live=SAM3_PRECOMPUTE_TTL_SECONDS)
     scope = gr.Radio(
         choices=["Select object"] if selection_required else ["Full scene", "Select object"],
         value="Select object" if selection_required else "Full scene",
