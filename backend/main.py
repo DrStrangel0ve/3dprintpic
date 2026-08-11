@@ -1850,29 +1850,16 @@ def crop_depth_to_selection_artifacts(
         raise ValueError("Selection source dimensions must be positive")
 
     depth_height, depth_width = depth.shape
-    depth_left = max(0, min(depth_width - 1, int(np.floor(left * depth_width / source_width))))
-    depth_top = max(0, min(depth_height - 1, int(np.floor(top * depth_height / source_height))))
-    depth_right = max(
-        depth_left + 1,
-        min(depth_width, int(np.ceil(right * depth_width / source_width))),
-    )
-    depth_bottom = max(
-        depth_top + 1,
-        min(depth_height, int(np.ceil(bottom * depth_height / source_height))),
-    )
-    cropped_depth = depth[depth_top:depth_bottom, depth_left:depth_right]
-
-    crop_width, crop_height = (int(value) for value in selection_crop["crop_size"])
-    resampled = cropped_depth.shape != (crop_height, crop_width)
+    resampled = depth.shape != (source_height, source_width)
     if resampled:
-        finite = np.isfinite(cropped_depth)
+        finite = np.isfinite(depth)
         if not np.any(finite):
-            raise ValueError("Selection depth crop has no finite samples")
-        fill_value = float(np.median(cropped_depth[finite]))
-        resize_values = np.where(finite, cropped_depth, fill_value).astype(np.float32)
-        cropped_depth = np.asarray(
+            raise ValueError("Selection depth has no finite samples")
+        fill_value = float(np.median(depth[finite]))
+        resize_values = np.where(finite, depth, fill_value).astype(np.float32)
+        depth = np.asarray(
             Image.fromarray(resize_values, mode="F").resize(
-                (crop_width, crop_height),
+                (source_width, source_height),
                 Image.Resampling.BILINEAR,
             ),
             dtype=np.float32,
@@ -1880,26 +1867,70 @@ def crop_depth_to_selection_artifacts(
         if not np.all(finite):
             resized_finite = np.asarray(
                 Image.fromarray(finite.astype(np.uint8) * 255, mode="L").resize(
-                    (crop_width, crop_height),
+                    (source_width, source_height),
                     Image.Resampling.NEAREST,
                 )
             ) > 0
-            cropped_depth = np.where(resized_finite, cropped_depth, np.nan)
+            depth = np.where(resized_finite, depth, np.nan)
+
+    cropped_depth = depth[top:bottom, left:right]
+    crop_width, crop_height = (int(value) for value in selection_crop["crop_size"])
+    if cropped_depth.shape != (crop_height, crop_width):
+        raise ValueError(
+            "Selection depth crop does not match source crop: "
+            f"{cropped_depth.shape} != {(crop_height, crop_width)}"
+        )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(output_path, cropped_depth.astype(np.float32, copy=False))
     return {
         "depth_path": output_path,
         "source_depth_size": [int(depth_width), int(depth_height)],
-        "source_depth_crop_bbox_xyxy": [
-            int(depth_left),
-            int(depth_top),
-            int(depth_right),
-            int(depth_bottom),
-        ],
+        "aligned_source_depth_size": [int(source_width), int(source_height)],
+        "source_depth_crop_bbox_xyxy": [left, top, right, bottom],
         "output_depth_size": [int(cropped_depth.shape[1]), int(cropped_depth.shape[0])],
         "resampled_to_source_crop": bool(resampled),
     }
+
+
+def crop_face_refinement_artifacts(
+    face_refinement: dict,
+    selection_crop: dict,
+    output_dir: Path,
+) -> dict:
+    if not face_refinement.get("applied"):
+        return face_refinement
+
+    source_width, source_height = (int(value) for value in selection_crop["source_size"])
+    crop_box = tuple(int(value) for value in selection_crop["crop_bbox_xyxy"])
+    cropped = dict(face_refinement)
+    artifact_specs = {
+        "weight_file": ("output_face_refinement_weight_crop.png", Image.Resampling.BILINEAR),
+        "region_file": ("output_face_refinement_region_crop.png", Image.Resampling.NEAREST),
+        "occlusion_file": (
+            "output_face_refinement_occlusion_crop.png",
+            Image.Resampling.BILINEAR,
+        ),
+    }
+    for metadata_key, (output_name, resampling) in artifact_specs.items():
+        artifact_name = face_refinement.get(metadata_key)
+        if not artifact_name:
+            raise ValueError(f"Applied face refinement is missing {metadata_key}")
+        artifact_path = output_dir / str(artifact_name)
+        with Image.open(artifact_path) as artifact_image:
+            artifact = artifact_image.convert("L")
+            if artifact.size != (source_width, source_height):
+                artifact = artifact.resize((source_width, source_height), resampling)
+            artifact = artifact.crop(crop_box)
+            output_path = output_dir / output_name
+            artifact.save(output_path)
+        cropped[metadata_key] = output_name
+    cropped["source_aligned_selection_crop"] = {
+        "source_size": [source_width, source_height],
+        "crop_bbox_xyxy": list(crop_box),
+        "crop_size": [int(value) for value in selection_crop["crop_size"]],
+    }
+    return cropped
 
 
 def get_runtime_info() -> dict:
@@ -2485,7 +2516,7 @@ async def process_image(
         face_detection_source = None
         if selection_job is not None:
             face_detection_source = selection_job["face_detection_path"]
-            if selection_crop is not None:
+            if selection_crop is not None and resolved_selection_mode == "isolate":
                 face_detection_crop_path = job_dir / "selection_face_detection_crop.png"
                 with Image.open(face_detection_source) as detection_image:
                     detection_image.crop(
@@ -2509,19 +2540,6 @@ async def process_image(
             with open(depth_metadata_path, encoding="utf-8") as depth_metadata_file:
                 depth_metadata = json.load(depth_metadata_file)
         effective_depth_model = depth_metadata.get("effective_model") or selected_model
-
-        source_depth_crop = None
-        if selection_crop is not None and resolved_selection_mode == "source-depth-isolate":
-            stage_started = time.perf_counter()
-            source_depth_crop = crop_depth_to_selection_artifacts(
-                depth_data_path,
-                selection_crop,
-                job_dir / "output_depth_data_source_crop.npy",
-            )
-            depth_data_path = str(source_depth_crop["depth_path"])
-            face_refinement_source = str(selection_crop["source_path"])
-            record_timing("selection_depth_crop_seconds", stage_started)
-
         stage_started = time.perf_counter()
 
         def infer_face_depth(crop_path: Path, face_output_dir: Path):
@@ -2535,7 +2553,7 @@ async def process_image(
 
         selection_region_mask_path = (
             selection_crop["mask_path"]
-            if selection_crop
+            if selection_crop is not None and resolved_selection_mode == "isolate"
             else (selection_job["mask_path"] if selection_job is not None else None)
         )
         depth_data_path, face_refinement = refine_depth_for_faces(
@@ -2551,6 +2569,24 @@ async def process_image(
             detection_image_path=face_detection_source,
         )
         record_timing("face_refinement_seconds", stage_started)
+
+        source_depth_crop = None
+        if selection_crop is not None and resolved_selection_mode == "source-depth-isolate":
+            stage_started = time.perf_counter()
+            source_depth_crop = crop_depth_to_selection_artifacts(
+                depth_data_path,
+                selection_crop,
+                job_dir / "output_depth_data_source_crop.npy",
+            )
+            depth_data_path = str(source_depth_crop["depth_path"])
+            face_refinement = crop_face_refinement_artifacts(
+                face_refinement,
+                selection_crop,
+                job_dir,
+            )
+            selection_region_mask_path = selection_crop["mask_path"]
+            record_timing("selection_depth_crop_seconds", stage_started)
+
         depth_metadata["face_refinement"] = face_refinement
         selection_depth_context = {"enabled": False, "reason": "not_requested"}
         effective_selection_background_depth_ratio = selection_background_depth_ratio

@@ -874,20 +874,21 @@ class MainStlContractTest(unittest.TestCase):
             mask_dir = output_root / "selection" / "fixture"
             mask_dir.mkdir(parents=True)
             mask_array = np.zeros((60, 80), dtype=np.uint8)
-            mask_array[15:45, 20:60] = 255
+            mask_array[15:45, 20:38] = 255
+            mask_array[28:45, 38:60] = 255
             Image.fromarray(mask_array, mode="L").save(mask_dir / "selection_mask.png")
             observed = {"depth_size": None, "face": None, "mesh": None}
+            full_depth = np.linspace(0.0, 1.0, 40 * 30).reshape(30, 40).astype(np.float32)
+            face_weight = np.tile(np.linspace(0, 255, 40, dtype=np.uint8), (30, 1))
+            face_region = np.zeros((30, 40), dtype=np.uint8)
+            face_region[7:24, 11:31] = 255
+            face_occlusion = np.flip(face_weight, axis=1).copy()
 
             def fake_depth_data(image_path, output_dir, **_kwargs):
                 with Image.open(image_path) as image:
                     observed["depth_size"] = image.size
                 depth_path = Path(output_dir) / "output_depth_data.npy"
-                np.save(
-                    depth_path,
-                    np.linspace(0.0, 1.0, 40 * 30)
-                    .reshape(30, 40)
-                    .astype(np.float32),
-                )
+                np.save(depth_path, full_depth)
                 (Path(output_dir) / "output_depth_metadata.json").write_text(
                     json.dumps(
                         {
@@ -902,18 +903,37 @@ class MainStlContractTest(unittest.TestCase):
             def fake_face_refinement(image_path, depth_path, _output, **kwargs):
                 with Image.open(image_path) as image:
                     image_size = image.size
+                with Image.open(kwargs["detection_image_path"]) as detection_image:
+                    detection_size = detection_image.size
+                Image.fromarray(face_weight, mode="L").save(
+                    Path(_output) / "output_face_refinement_weight.png"
+                )
+                Image.fromarray(face_region, mode="L").save(
+                    Path(_output) / "output_face_refinement_region.png"
+                )
+                Image.fromarray(face_occlusion, mode="L").save(
+                    Path(_output) / "output_face_refinement_occlusion.png"
+                )
                 observed["face"] = {
                     "image_size": image_size,
                     "depth_shape": np.load(depth_path).shape,
                     "roi": Path(kwargs["detection_roi_mask"]).name,
+                    "detection_size": detection_size,
                 }
                 return depth_path, {
                     "mode": "auto",
-                    "applied": False,
-                    "detected_faces": 0,
-                    "refined_faces": 0,
+                    "applied": True,
+                    "detected_faces": 1,
+                    "refined_faces": 1,
                     "faces": [],
+                    "weight_file": "output_face_refinement_weight.png",
+                    "region_file": "output_face_refinement_region.png",
+                    "occlusion_file": "output_face_refinement_occlusion.png",
                 }
+
+            def load_luma(path):
+                with Image.open(path) as image:
+                    return np.asarray(image.convert("L")).copy()
 
             def fake_depth_to_model(depth_path, output_stl_path, **kwargs):
                 depth = np.load(depth_path)
@@ -921,12 +941,16 @@ class MainStlContractTest(unittest.TestCase):
                     source_size = source_image.size
                 observed["mesh"] = {
                     "shape": depth.shape,
-                    "finite_ratio": float(np.mean(np.isfinite(depth))),
+                    "depth": depth,
                     "source_size": source_size,
                     "selection_region_mask": kwargs["selection_region_mask"],
                     "selection_background_depth_ratio": kwargs[
                         "selection_background_depth_ratio"
                     ],
+                    "weight": load_luma(kwargs["feature_weight_mask"]),
+                    "region": load_luma(kwargs["face_region_mask"]),
+                    "occlusion": load_luma(kwargs["feature_exclusion_mask"]),
+                    "weight_name": Path(kwargs["feature_weight_mask"]).name,
                 }
                 Path(output_stl_path).write_bytes(b"solid fixture\nendsolid fixture\n")
                 return {
@@ -998,14 +1022,59 @@ class MainStlContractTest(unittest.TestCase):
             self.assertEqual(response.status_code, 200, response.text)
             payload = response.json()
             self.assertEqual(observed["depth_size"], (80, 60))
-            self.assertEqual(observed["face"]["image_size"], (56, 46))
-            self.assertEqual(observed["face"]["depth_shape"], (46, 56))
-            self.assertEqual(observed["face"]["roi"], "selection_mask_crop.png")
+            self.assertEqual(observed["face"]["image_size"], (80, 60))
+            self.assertEqual(observed["face"]["depth_shape"], (30, 40))
+            self.assertEqual(observed["face"]["roi"], "selection_mask.png")
+            self.assertEqual(observed["face"]["detection_size"], (80, 60))
             self.assertEqual(observed["mesh"]["shape"], (46, 56))
             self.assertEqual(observed["mesh"]["source_size"], (56, 46))
-            self.assertLess(observed["mesh"]["finite_ratio"], 0.6)
             self.assertIsNone(observed["mesh"]["selection_region_mask"])
             self.assertEqual(observed["mesh"]["selection_background_depth_ratio"], 0.0)
+
+            expected_selection = mask_array[7:53, 12:68] > 0
+            self.assertTrue(
+                np.array_equal(np.isfinite(observed["mesh"]["depth"]), expected_selection)
+            )
+            aligned_depth = np.asarray(
+                Image.fromarray(full_depth, mode="F").resize(
+                    (80, 60),
+                    Image.Resampling.BILINEAR,
+                ),
+                dtype=np.float32,
+            )
+            np.testing.assert_allclose(
+                observed["mesh"]["depth"][expected_selection],
+                aligned_depth[7:53, 12:68][expected_selection],
+                rtol=0.0,
+                atol=1e-6,
+            )
+
+            expected_face_artifacts = {
+                "weight": np.asarray(
+                    Image.fromarray(face_weight, mode="L").resize(
+                        (80, 60), Image.Resampling.BILINEAR
+                    )
+                )[7:53, 12:68],
+                "region": np.asarray(
+                    Image.fromarray(face_region, mode="L").resize(
+                        (80, 60), Image.Resampling.NEAREST
+                    )
+                )[7:53, 12:68],
+                "occlusion": np.asarray(
+                    Image.fromarray(face_occlusion, mode="L").resize(
+                        (80, 60), Image.Resampling.BILINEAR
+                    )
+                )[7:53, 12:68],
+            }
+            for artifact_name, expected_artifact in expected_face_artifacts.items():
+                self.assertTrue(
+                    np.array_equal(observed["mesh"][artifact_name], expected_artifact),
+                    artifact_name,
+                )
+            self.assertEqual(
+                observed["mesh"]["weight_name"],
+                "output_face_refinement_weight_crop.png",
+            )
             self.assertEqual(payload["selection_mode"], "source-depth-isolate")
             self.assertEqual(
                 payload["selection_depth_context"]["method"],
@@ -1019,6 +1088,12 @@ class MainStlContractTest(unittest.TestCase):
             self.assertEqual(
                 payload["selection_depth_context"]["source_depth_crop"]["source_depth_size"],
                 [40, 30],
+            )
+            self.assertEqual(
+                payload["selection_depth_context"]["source_depth_crop"][
+                    "aligned_source_depth_size"
+                ],
+                [80, 60],
             )
             self.assertTrue(
                 payload["selection_depth_context"]["source_depth_crop"][
