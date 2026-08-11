@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import pickle
 import tempfile
 import unittest
 from pathlib import Path
@@ -108,23 +109,77 @@ class SpaceRuntimeTests(unittest.TestCase):
                         space_runtime.SAM3_MODEL,
                     ),
                 ) as compute,
-                patch.object(
-                    space_runtime.backend_main,
-                    "cache_sam3_precompute",
-                    return_value="cached-selection",
-                ) as cache,
                 patch.object(space_runtime.backend_main, "release_selection_models") as release,
             ):
                 manifest_json, state = space_runtime.prepare_object_selection(image_path)
             manifest = json.loads(manifest_json)
             self.assertEqual(manifest["version"], space_runtime.SAM3_HOVER_MAP_VERSION)
             self.assertTrue(manifest["hit_map"].startswith("data:image/png;base64,"))
-            self.assertEqual(state["precompute_id"], "cached-selection")
+            self.assertEqual(len(state["precompute_id"]), 32)
+            self.assertEqual(
+                state["state_version"],
+                space_runtime.SAM3_PRECOMPUTE_STATE_VERSION,
+            )
             self.assertGreater(state["region_count"], 0)
             self.assertEqual(set(state["region_instances"].values()), {0})
+            self.assertEqual(
+                state["selection_precompute"]["packed_masks"].shape,
+                (1, 12, 3),
+            )
+            self.assertNotIn("image", state["selection_precompute"])
             compute.assert_called_once()
-            cache.assert_called_once()
             release.assert_called_once()
+
+    def test_inline_click_survives_zero_gpu_worker_boundary(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "photo.png"
+            image = Image.new("RGB", (16, 10), "white")
+            image.save(image_path)
+            masks = np.zeros((2, 10, 16), dtype=bool)
+            masks[0, 2:9, 3:14] = True
+            masks[1, 0, 0] = True
+            with (
+                patch.dict(os.environ, {"HF_TOKEN": "test-token"}, clear=False),
+                patch.object(
+                    space_runtime.backend_main,
+                    "compute_sam3_selection_instances",
+                    return_value=(
+                        masks,
+                        np.asarray([0.95, 0.1], dtype=np.float32),
+                        ["person", "artifact"],
+                        space_runtime.SAM3_MODEL,
+                    ),
+                ),
+                patch.object(space_runtime, "release_gpu_models"),
+            ):
+                _manifest, worker_state = space_runtime.prepare_object_selection(image_path)
+            main_process_state = pickle.loads(pickle.dumps(worker_state))
+            person_region = next(
+                region_id
+                for region_id, instance_index in main_process_state["region_instances"].items()
+                if instance_index == 0
+            )
+            with (
+                patch.object(
+                    space_runtime.backend_main,
+                    "get_selection_precompute",
+                ) as global_cache,
+                patch.object(
+                    space_runtime,
+                    "_save_selection_job",
+                    return_value={"job_id": "selected"},
+                ) as save,
+            ):
+                result = space_runtime.select_precomputed_object(
+                    image_path,
+                    main_process_state,
+                    0.5,
+                    0.5,
+                    int(person_region),
+                )
+            self.assertEqual(result, {"job_id": "selected"})
+            global_cache.assert_not_called()
+            self.assertEqual(save.call_args.kwargs["labels"], ["person"])
 
     def test_hover_cache_discards_source_pixels_and_expires_old_entries(self):
         old_id = "hover-old-test"

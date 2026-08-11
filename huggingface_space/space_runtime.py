@@ -40,6 +40,7 @@ _TRIPOSG_LOCK = Lock()
 
 SAM3_HOVER_MAP_MAX_DIMENSION = 1024
 SAM3_HOVER_MAP_VERSION = 1
+SAM3_PRECOMPUTE_STATE_VERSION = 2
 SAM3_PRECOMPUTE_TTL_SECONDS = 20 * 60
 
 
@@ -405,14 +406,6 @@ def prepare_object_selection(image_path: str | Path | None) -> tuple[str, dict]:
         )
         if resolved_model != SAM3_MODEL:
             raise RuntimeError("SAM 3 did not produce verified selection instances")
-        precompute_id = backend_main.cache_sam3_precompute(
-            image,
-            masks,
-            scores,
-            labels,
-            resolved_model,
-        )
-        _discard_precompute_source_pixels(precompute_id)
     finally:
         release_gpu_models()
 
@@ -431,6 +424,18 @@ def prepare_object_selection(image_path: str | Path | None) -> tuple[str, dict]:
         }
         for region_id, metadata in regions.items()
     }
+    used_instance_indices = sorted(
+        {int(metadata["instance_index"]) for metadata in regions.values()}
+    )
+    compact_instance_indices = {
+        instance_index: compact_index
+        for compact_index, instance_index in enumerate(used_instance_indices)
+    }
+    packed_masks = np.packbits(
+        np.asarray(masks, dtype=bool)[used_instance_indices],
+        axis=2,
+    )
+    precompute_id = uuid4().hex
     manifest = {
         "version": SAM3_HOVER_MAP_VERSION,
         "width": hover_size[0],
@@ -441,18 +446,67 @@ def prepare_object_selection(image_path: str | Path | None) -> tuple[str, dict]:
         "regions": public_regions,
     }
     state = {
+        "state_version": SAM3_PRECOMPUTE_STATE_VERSION,
         "precompute_id": precompute_id,
         "source_fingerprint": source_fingerprint,
         "image_size": [image.width, image.height],
         "hover_size": [hover_size[0], hover_size[1]],
         "region_count": len(regions),
         "region_instances": {
-            region_id: metadata["instance_index"]
+            region_id: compact_instance_indices[int(metadata["instance_index"])]
             for region_id, metadata in regions.items()
         },
         "model": resolved_model,
+        # ZeroGPU executes GPU-decorated functions in forked workers. Returning
+        # packed masks in gr.State is what carries them back to the app process;
+        # process-local globals disappear when the worker exits.
+        "selection_precompute": {
+            "kind": "sam3-hover-session-v2",
+            "packed_masks": packed_masks,
+            "mask_width": image.width,
+            "labels": [str(labels[index]) for index in used_instance_indices],
+            "model_id": resolved_model,
+            "image_size": [image.width, image.height],
+            "created_at_epoch": time.time(),
+        },
     }
     return json.dumps(manifest, separators=(",", ":")), state
+
+
+def _inline_selection_precompute(precompute_state: dict) -> dict | None:
+    cached = precompute_state.get("selection_precompute")
+    if not isinstance(cached, dict):
+        return None
+    if int(precompute_state.get("state_version", 0)) != SAM3_PRECOMPUTE_STATE_VERSION:
+        raise ValueError("The object map uses an unsupported session format; refresh it")
+    created_at = float(cached.get("created_at_epoch", 0.0))
+    if not np.isfinite(created_at) or time.time() - created_at > SAM3_PRECOMPUTE_TTL_SECONDS:
+        raise ValueError("The object map expired; wait for SAM 3 to refresh it")
+    image_size = cached.get("image_size") or []
+    if len(image_size) != 2:
+        raise ValueError("The cached SAM 3 object map has invalid dimensions")
+    width, height = (int(image_size[0]), int(image_size[1]))
+    mask_width = int(cached.get("mask_width", 0))
+    packed_masks = np.asarray(cached.get("packed_masks"), dtype=np.uint8)
+    labels = cached.get("labels") or []
+    expected_bytes = (width + 7) // 8
+    if (
+        width <= 0
+        or height <= 0
+        or mask_width != width
+        or packed_masks.ndim != 3
+        or packed_masks.shape[1:] != (height, expected_bytes)
+        or len(labels) != len(packed_masks)
+        or str(cached.get("model_id")) != SAM3_MODEL
+    ):
+        raise ValueError("The cached SAM 3 object map is inconsistent")
+    return {
+        "packed_masks": packed_masks,
+        "mask_width": mask_width,
+        "labels": [str(label) for label in labels],
+        "model_id": str(cached["model_id"]),
+        "image_size": (width, height),
+    }
 
 
 def select_precomputed_object(
@@ -464,7 +518,10 @@ def select_precomputed_object(
 ) -> dict:
     if not image_path:
         raise ValueError("Upload a photo before selecting an object")
-    if not precompute_state or not precompute_state.get("precompute_id"):
+    if not precompute_state or not (
+        precompute_state.get("selection_precompute")
+        or precompute_state.get("precompute_id")
+    ):
         raise ValueError("Wait for SAM 3 to finish finding objects")
     coordinates = np.asarray([normalized_x, normalized_y], dtype=np.float64)
     if not np.all(np.isfinite(coordinates)):
@@ -477,8 +534,10 @@ def select_precomputed_object(
     fingerprint = backend_main.selection_source_fingerprint(image)
     if fingerprint != precompute_state.get("source_fingerprint"):
         raise ValueError("The uploaded image changed; wait for SAM 3 to refresh the object map")
-    cleanup_expired_selection_precomputes()
-    cached = backend_main.get_selection_precompute(str(precompute_state["precompute_id"]))
+    cached = _inline_selection_precompute(precompute_state)
+    if cached is None:
+        cleanup_expired_selection_precomputes()
+        cached = backend_main.get_selection_precompute(str(precompute_state["precompute_id"]))
     region_instances = precompute_state.get("region_instances") or {}
     try:
         instance_index = int(region_instances[str(int(region_id))])
