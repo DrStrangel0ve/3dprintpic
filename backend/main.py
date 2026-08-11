@@ -1932,6 +1932,12 @@ def crop_face_refinement_artifacts(
     }
     original_metadata_file = face_refinement.get("metadata_file")
     if original_metadata_file:
+        original_metadata_path = output_dir / str(original_metadata_file)
+        if not original_metadata_path.is_file():
+            raise ValueError(
+                "Applied face refinement metadata file is missing: "
+                f"{original_metadata_file}"
+            )
         cropped["full_source_metadata_file"] = str(original_metadata_file)
     cropped_metadata_path = output_dir / "output_face_refinement_selection_crop_metadata.json"
     cropped["metadata_file"] = cropped_metadata_path.name

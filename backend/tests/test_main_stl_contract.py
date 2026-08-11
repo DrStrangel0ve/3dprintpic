@@ -914,6 +914,10 @@ class MainStlContractTest(unittest.TestCase):
                 Image.fromarray(face_occlusion, mode="L").save(
                     Path(_output) / "output_face_refinement_occlusion.png"
                 )
+                (Path(_output) / "output_face_refinement_metadata.json").write_text(
+                    json.dumps({"scope": "full-source"}),
+                    encoding="utf-8",
+                )
                 observed["face"] = {
                     "image_size": image_size,
                     "depth_shape": np.load(depth_path).shape,
@@ -1096,6 +1100,14 @@ class MainStlContractTest(unittest.TestCase):
                 cropped_face_metadata["full_source_metadata_file"],
                 "output_face_refinement_metadata.json",
             )
+            full_source_face_metadata = json.loads(
+                (
+                    output_root
+                    / payload["job_id"]
+                    / cropped_face_metadata["full_source_metadata_file"]
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(full_source_face_metadata["scope"], "full-source")
             self.assertEqual(payload["selection_mode"], "source-depth-isolate")
             self.assertEqual(
                 payload["selection_depth_context"]["method"],
