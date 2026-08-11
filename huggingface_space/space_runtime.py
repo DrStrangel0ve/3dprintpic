@@ -21,7 +21,7 @@ from PIL import Image, ImageOps
 
 
 PROJECT_REPOSITORY = "https://github.com/DrStrangel0ve/3dprintpic.git"
-PROJECT_REVISION = "4db91d5a5fe94e2680d8d2eb3bd71effeed57f50"
+PROJECT_REVISION = "15a67b92b5870df4a4cbc353b3d9b8a9c98582ef"
 TRIPOSG_REPOSITORY = "https://github.com/VAST-AI-Research/TripoSG.git"
 TRIPOSG_SOURCE_REVISION = "fc5c40990181e2a756c4e0b1c2f4d6b5202faf8c"
 TRIPOSG_MODEL_REVISION = "2c1c516d22d58db486a058d98d31bb6177344e06"

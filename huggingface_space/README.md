@@ -68,12 +68,13 @@ The neutral preview is not used for depth estimation.
 
 For printable reliefs, `Select object` uses `source-depth-isolate`: Depth
 Anything V2 sees the complete original photograph, preserving the same scene
-context used by the local frontend. The resulting depth is mapped to the selected
-bounds, aligned with the unedited source crop for face preservation, and every
-unselected sample is replaced by a non-finite value before mesh construction.
-The cropped original RGB image supplies photo-detail features on that same grid.
-This keeps local-quality depth cues while ensuring scenery cannot enter the
-selected-object STL. The Background depth control remains exclusive to `Full scene`.
+context used by the local frontend. Face preservation also runs on that complete
+source/depth pair. The refined depth and face feature masks are then aligned to
+source coordinates, cropped to the selected bounds, and every unselected depth
+sample is replaced by a non-finite value before mesh construction. The cropped
+original RGB image supplies photo-detail features on that same grid. This keeps
+local-quality depth cues while ensuring scenery cannot enter the selected-object
+STL. The Background depth control remains exclusive to `Full scene`.
 Relief and diorama request 110
 seconds, and a full TripoSG mesh requests 150 seconds. The
 full-mesh reservation was reduced after a live ZeroGPU smoke showed that the
