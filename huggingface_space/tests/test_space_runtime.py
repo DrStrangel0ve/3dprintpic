@@ -174,6 +174,12 @@ class SpaceRuntimeTests(unittest.TestCase):
         ):
             space_runtime._require_face_native_runtime("posix")
 
+    def test_apt_packages_manifest_is_lf_only(self):
+        packages = (space_runtime.SPACE_DIR / "packages.txt").read_bytes()
+
+        self.assertNotIn(b"\r", packages)
+        self.assertIn(b"libgles2\n", packages)
+
     def test_sam3_selection_fails_closed_without_owner_token(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             image_path = Path(temp_dir) / "photo.png"
