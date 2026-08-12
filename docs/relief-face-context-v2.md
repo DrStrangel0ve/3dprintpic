@@ -32,7 +32,10 @@ The implementation follows the useful common ground in current monocular geometr
    then apply exact-mask emission. A bounded backing-height connector joins
    detached selected groups, and a column-grounded backing foundation extends
    their lower silhouette to one flat bottom rail. This keeps upper sky empty
-   while preventing unsupported floating buildings and side scenery.
+   while preventing unsupported floating buildings and side scenery. A final
+   eight-connected exterior flood then fills only empty regions enclosed by
+   the printable silhouette at backing height. Border-connected skyline stays
+   open, and export fails closed if any enclosed void survives.
 8. A selection-specific screened gradient solve compresses large internal terraces while retaining moderate selected-object gradients. Its calibrated screened data weight is `2.0`, and recoverable local gradients retain 90% of their source amplitude. Tiny nonmetric fragments are excluded from the selection metric, while every detected face still fails closed if it cannot be measured.
 9. When faces and other selected subjects coexist, both solvers run. The object solve is feathered around the protected head region and is accepted only if every face still clears correlation and RMS-retention gates.
 10. Curvature telemetry uses finite values or `null` plus an explicit flat-reference violation, so a rejected candidate cannot turn a valid fallback STL into a JSON serialization failure.

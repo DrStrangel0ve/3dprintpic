@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "run_name": "relief_closed_hole_fill_20260813",
+  "method": "full_scene_depth_grounded_closed_hole_free_selection_emission_v3",
+  "implementation_revision": "4e04d502e1c222a121e3f54a52c2980ce2cf2257",
+  "private_artifacts_published": false,
+  "selection": {
+    "selection_pixels": 68751,
+    "retained_pixels": 68751,
+    "removed_selected_pixels": 0,
+    "retained_selection_ratio": 1.0,
+    "unsupported_selected_mesh_pixels": 0
+  },
+  "closed_hole_fill": {
+    "connectivity": 8,
+    "enclosed_component_count": 20,
+    "enclosed_hole_pixels": 5570,
+    "largest_enclosed_hole_pixels": 3015,
+    "fill_height_mm": 2.4,
+    "closed_hole_pixels_after": 0
+  },
+  "surface_comparison": {
+    "common_surface_pixels": 122744,
+    "max_common_surface_delta_mm": 0.0,
+    "new_backing_pixels": 5570,
+    "new_backing_min_mm": 2.4000000953674316,
+    "new_backing_max_mm": 2.4000000953674316
+  },
+  "mesh": {
+    "vertices": 256628,
+    "faces": 513252,
+    "watertight": true,
+    "winding_consistent": true,
+    "component_count": 1,
+    "bytes": 25662684,
+    "sha256": "a2269290395e307023ef52965f75eab4fe3246f45eb4a90d613cc368d2bedd28"
+  },
+  "validation": {
+    "tests_passed": 191,
+    "subtests_passed": 29,
+    "warnings": 1,
+    "warning_scope": "existing pydantic protected namespace warning"
+  }
+}

@@ -147,7 +147,9 @@ backend relief route as the local frontend. Relief generation uses the same
 Depth Anything V2 Large model, SAM 3 subject-lock context, 256 mm detail basis,
 scale-independent sampling, face guards, background controls, and
 depth-supported skyline trimming. Selected reliefs additionally use the same
-exact-mask, bounded connector, and column-grounded backing final-emission gate.
+exact-mask, bounded connector, column-grounded backing, and exterior-flood
+closed-hole fill at backing height. Border-connected skyline openings remain
+open, while enclosed voids are rejected if any survive final emission.
 For equal controls, the Space and local app therefore execute the same
 `backend/pic_to_3d.py` implementation instead of maintaining separate mesh
 algorithms.
