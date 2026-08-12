@@ -2284,8 +2284,6 @@ def _top_silhouette_mask(
                 finite = np.isfinite(depth)
                 top_rows = max(2, min(8, depth.shape[0]))
                 top_reference_mask = finite[:top_rows]
-                if protected is not None:
-                    top_reference_mask &= ~protected[:top_rows]
                 top_samples = depth[:top_rows][top_reference_mask]
                 finite_samples = depth[finite]
                 if top_samples.size >= max(16, depth.shape[1] // 4) and finite_samples.size:
@@ -2344,12 +2342,6 @@ def _top_silhouette_mask(
                     "supported": False,
                     "reason": "depth_not_2d",
                 }
-
-    if protected is not None and np.any(protected):
-        content |= maximum_filter(
-            protected.astype(np.uint8),
-            size=(1, 3),
-        ) > 0
 
     has_content = np.any(content, axis=0)
     if not np.any(has_content):

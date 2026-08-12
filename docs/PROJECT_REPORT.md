@@ -133,10 +133,10 @@ transparent sources; missing or ambiguous depth fails closed to the structural
 or complete-rectangle path. The mask is applied only at final mesh emission,
 after depth shaping, smoothing, face guards, and background constraints.
 
-On the exact private 2,048 x 1,536 replay, v3 removed `0.357076` of the upper
+On the exact private 2,048 x 1,536 replay, v3 removed `0.359029` of the upper
 grid versus `0.276123` for v2. It removed zero selected or face pixels and all
-`126,404/126,404` retained Z samples matched an untrimmed current-build control
-bit-for-bit. The resulting 505,612-face STL remained one watertight, manifold,
+`126,020/126,020` retained Z samples matched an untrimmed current-build control
+bit-for-bit. The resulting 504,076-face STL remained one watertight, manifold,
 winding-consistent positive volume with zero degenerate or non-manifold faces.
 Private pixels and derived geometry remain local. Aggregate evidence is under
 [`benchmark-evidence/relief_depth_supported_skyline_20260813`](benchmark-evidence/relief_depth_supported_skyline_20260813);

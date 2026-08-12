@@ -1419,6 +1419,37 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertTrue(stats["protected_region_used"])
         self.assertLessEqual(int(np.argmax(source_silhouette[:, 47])), 3)
 
+    def test_top_silhouette_selection_changes_only_protected_columns(self):
+        height, width = 72, 96
+        source = np.full((height, width, 3), (28, 35, 48), dtype=np.uint8)
+        source[40:, :] = (44, 31, 22)
+        depth = np.full((height, width), 0.15, dtype=np.float32)
+        depth[40:, :] = 0.72
+        protected = np.zeros((height, width), dtype=bool)
+        protected[3:, 47] = True
+
+        baseline, _ = _top_silhouette_mask(
+            source,
+            source.shape[:2],
+            padding_px=0,
+            depth_values=depth,
+        )
+        selected, _ = _top_silhouette_mask(
+            source,
+            source.shape[:2],
+            padding_px=0,
+            depth_values=depth,
+            protected_region_mask=protected,
+        )
+        baseline_source = np.flip(baseline, axis=1)
+        selected_source = np.flip(selected, axis=1)
+
+        np.testing.assert_array_equal(
+            selected_source[:, np.arange(width) != 47],
+            baseline_source[:, np.arange(width) != 47],
+        )
+        self.assertTrue(np.all(selected_source[protected]))
+
     def test_top_silhouette_changes_only_final_mesh_coverage(self):
         height, width = 36, 48
         yy, xx = np.indices((height, width), dtype=np.float32)

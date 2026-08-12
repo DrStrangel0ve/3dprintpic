@@ -15,7 +15,7 @@ piece of mesh around the tower.
 The v3 path:
 
 1. computes the same Lab/Scharr structural boundaries as v2;
-2. estimates the top-connected depth background from unselected top pixels;
+2. estimates the top-connected depth background from the top image band;
 3. requires sustained depth departure beneath a candidate boundary;
 4. permits mixed structural/depth evidence only at the actual leading edge;
 5. treats every selected pixel as a hard silhouette constraint;
@@ -35,23 +35,24 @@ V2 Large inference, 384 x 512 relief grid, 10 mm relief height, 2.4 mm base,
 
 | Measurement | Structural v2 | Depth-supported v3 |
 | --- | ---: | ---: |
-| Upper area removed | 0.276123 | 0.357076 |
-| Finite surface ratio | 0.723877 | 0.642924 |
-| STL faces | 569,276 | 505,612 |
-| STL bytes | 28,463,884 | 25,280,684 |
+| Upper area removed | 0.276123 | 0.359029 |
+| Finite surface ratio | 0.723877 | 0.640971 |
+| STL faces | 569,276 | 504,076 |
+| STL bytes | 28,463,884 | 25,203,884 |
 
 Matched v3 trimmed/untrimmed controls additionally passed:
 
 - depth tensors bit-identical;
-- `126,404/126,404` retained surface samples bit-identical;
+- `126,020/126,020` retained surface samples bit-identical;
 - zero selected pixels removed and all retained selected Z samples exact;
 - zero face pixels removed and all retained face Z samples exact;
+- reference-surface coverage exactly matched emitted-surface coverage;
 - one watertight, manifold, winding-consistent positive-volume component;
 - zero non-manifold edges and zero degenerate faces; and
 - 76.0 x 56.9628 x 12.4 mm final bounding box.
 
 The v3 STL SHA-256 is
-`714b074f9b3659a5a06a3ad7adc6085ec032ffd790046ff56fa449d1abfc2ef1`.
+`328fcc962a5988e4a58c15a1391faf6a71808b408425ae8fee0602bcdfc42cb8`.
 
 ## Regression coverage
 
