@@ -872,10 +872,15 @@ def generate_relief(
             if isinstance(selection_emission, dict)
             else None
         )
+        enclosed_hole_fill = (
+            selection_emission.get("enclosed_hole_fill")
+            if isinstance(selection_emission, dict)
+            else None
+        )
         if not isinstance(selection_emission, dict) or not (
             selection_emission.get("enabled") is True
             and selection_emission.get("method")
-            == "full_scene_depth_grounded_selection_emission_v2"
+            == "full_scene_depth_grounded_closed_hole_free_selection_emission_v3"
             and selection_emission.get("retained_unselected_pixels") == 0
             and selection_emission.get("removed_selected_pixels") == 0
             and selection_emission.get("unsupported_selected_mesh_pixels") == 0
@@ -889,6 +894,11 @@ def generate_relief(
             and backing_connector.get("accepted") is True
             and backing_connector.get("within_bridge_budget") is True
             and backing_connector.get("unsupported_selected_mesh_pixels") == 0
+            and isinstance(enclosed_hole_fill, dict)
+            and enclosed_hole_fill.get("accepted") is True
+            and enclosed_hole_fill.get("method")
+            == "exterior_flood_enclosed_hole_fill_v1"
+            and selection_emission.get("closed_hole_pixels_after") == 0
         ):
             raise RuntimeError(
                 "Selected relief failed exact bounded-emission validation"

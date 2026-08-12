@@ -424,7 +424,7 @@ class SpaceRuntimeTests(unittest.TestCase):
                 "relief_postprocess": {
                     "selection_emission": {
                         "enabled": True,
-                        "method": "full_scene_depth_grounded_selection_emission_v2",
+                        "method": "full_scene_depth_grounded_closed_hole_free_selection_emission_v3",
                         "retained_unselected_pixels": 0,
                         "removed_selected_pixels": 0,
                         "unsupported_selected_mesh_pixels": 0,
@@ -439,6 +439,11 @@ class SpaceRuntimeTests(unittest.TestCase):
                             "within_bridge_budget": True,
                             "unsupported_selected_mesh_pixels": 0,
                         },
+                        "enclosed_hole_fill": {
+                            "accepted": True,
+                            "method": "exterior_flood_enclosed_hole_fill_v1",
+                        },
+                        "closed_hole_pixels_after": 0,
                     }
                 },
             }
@@ -705,10 +710,13 @@ class SpaceRuntimeTests(unittest.TestCase):
             self.assertEqual(emission["retained_selection_ratio"], 1.0)
             self.assertEqual(
                 emission["backing_foundation_pixels"]
-                + emission["backing_connector_pixels"],
+                + emission["backing_connector_pixels"]
+                + emission["enclosed_hole_fill_pixels"],
                 int(np.count_nonzero(backing_only)),
             )
             self.assertTrue(emission["backing_foundation"]["accepted"])
+            self.assertTrue(emission["enclosed_hole_fill"]["accepted"])
+            self.assertEqual(emission["closed_hole_pixels_after"], 0)
             self.assertEqual(emission["unsupported_selected_mesh_pixels"], 0)
             self.assertTrue(selected_mesh.is_watertight)
             self.assertTrue(selected_mesh.is_winding_consistent)

@@ -37,6 +37,7 @@ from backend.pic_to_3d import (
     _depth_processor_output_size,
     _limit_positive_relief_slope,
     _minimal_component_connector_mask,
+    _selection_enclosed_hole_fill_mask,
     _selection_grounded_backing_mask,
     _prepare_relief_for_printing,
     _relax_selection_attachment_conflicts,
@@ -55,6 +56,25 @@ from backend.pic_to_3d import (
 
 
 class ReliefStlControlsTest(unittest.TestCase):
+    def test_enclosed_hole_fill_preserves_border_connected_sky(self):
+        surface = np.zeros((20, 24), dtype=bool)
+        surface[3:17, 3:21] = True
+        surface[6:10, 7:11] = False
+        surface[6:9, 15:18] = False
+        surface[5, 14] = False
+        surface[4, 13] = False
+        surface[3, 12] = False
+
+        fill, stats = _selection_enclosed_hole_fill_mask(surface)
+
+        self.assertTrue(np.all(fill[6:10, 7:11]))
+        self.assertFalse(np.any(fill[6:9, 15:18]))
+        self.assertFalse(fill[5, 14])
+        self.assertEqual(stats["connectivity"], 8)
+        self.assertEqual(stats["enclosed_component_count"], 1)
+        self.assertEqual(stats["enclosed_hole_pixels"], 16)
+        self.assertTrue(stats["accepted"])
+
     def test_selection_backing_fills_only_below_lowest_selected_pixel(self):
         selected = np.zeros((24, 32), dtype=bool)
         selected[4:10, 2:9] = True
@@ -3162,7 +3182,7 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertTrue(emission["enabled"])
         self.assertEqual(
             emission["method"],
-            "full_scene_depth_grounded_selection_emission_v2",
+            "full_scene_depth_grounded_closed_hole_free_selection_emission_v3",
         )
         self.assertEqual(emission["retained_unselected_pixels"], 0)
         self.assertEqual(emission["removed_selected_pixels"], 0)
@@ -3170,9 +3190,12 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertGreater(emission["backing_foundation_pixels"], 0)
         self.assertEqual(
             emission["backing_foundation_pixels"]
-            + emission["backing_connector_pixels"],
+            + emission["backing_connector_pixels"]
+            + emission["enclosed_hole_fill_pixels"],
             np.count_nonzero(backing_only),
         )
+        self.assertTrue(emission["enclosed_hole_fill"]["accepted"])
+        self.assertEqual(emission["closed_hole_pixels_after"], 0)
         self.assertEqual(emission["unsupported_selected_mesh_pixels"], 0)
         self.assertEqual(
             emission["backing_connector"]["component_count_after"],

@@ -608,7 +608,7 @@ class MainStlContractTest(unittest.TestCase):
                     "selection_subject_lock": kwargs["selection_subject_lock"],
                     "selection_emission": {
                         "enabled": kwargs["selection_emission_only"],
-                        "method": "full_scene_depth_grounded_selection_emission_v2",
+                        "method": "full_scene_depth_grounded_closed_hole_free_selection_emission_v3",
                         "retained_unselected_pixels": 0,
                         "removed_selected_pixels": 0,
                         "unsupported_selected_mesh_pixels": 0,
@@ -617,6 +617,11 @@ class MainStlContractTest(unittest.TestCase):
                             "accepted": True,
                             "method": "column_grounded_backing_foundation_v1",
                         },
+                        "enclosed_hole_fill": {
+                            "accepted": True,
+                            "method": "exterior_flood_enclosed_hole_fill_v1",
+                        },
+                        "closed_hole_pixels_after": 0,
                     },
                     "selection_gradient_compression": {
                         "enabled": False,

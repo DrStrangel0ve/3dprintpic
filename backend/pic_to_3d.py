@@ -3584,6 +3584,47 @@ def _selection_grounded_backing_mask(
     return foundation, stats
 
 
+def _selection_enclosed_hole_fill_mask(surface_mask):
+    """Return empty pixels enclosed by the final printable silhouette."""
+    surface = np.asarray(surface_mask, dtype=bool)
+    empty = ~surface
+    empty_components, component_count = label(
+        empty,
+        structure=np.ones((3, 3), dtype=np.uint8),
+    )
+    border_labels = np.unique(
+        np.concatenate(
+            (
+                empty_components[0, :],
+                empty_components[-1, :],
+                empty_components[:, 0],
+                empty_components[:, -1],
+            )
+        )
+    )
+    exterior = np.isin(empty_components, border_labels) & empty
+    enclosed = empty & ~exterior
+    enclosed_labels = np.unique(empty_components[enclosed])
+    enclosed_labels = enclosed_labels[enclosed_labels != 0]
+    component_sizes = [
+        int(np.count_nonzero(empty_components == component_label))
+        for component_label in enclosed_labels
+    ]
+    stats = {
+        "enabled": bool(np.any(enclosed)),
+        "method": "exterior_flood_enclosed_hole_fill_v1",
+        "accepted": True,
+        "connectivity": 8,
+        "empty_component_count": int(component_count),
+        "enclosed_component_count": int(enclosed_labels.size),
+        "enclosed_hole_pixels": int(np.count_nonzero(enclosed)),
+        "largest_enclosed_hole_pixels": int(max(component_sizes, default=0)),
+        "exterior_background_pixels": int(np.count_nonzero(exterior)),
+        "bounded_to_emitted_silhouette": True,
+    }
+    return enclosed, stats
+
+
 def _minimal_component_connector_mask(
     surface_mask,
     *,
@@ -7912,6 +7953,7 @@ def depth_data_to_3d_model(
     }
     selection_backing_foundation_mask = np.zeros(z.shape, dtype=bool)
     selection_backing_connector_mask = np.zeros(z.shape, dtype=bool)
+    selection_enclosed_hole_fill_mask = np.zeros(z.shape, dtype=bool)
     if selection_emission_only:
         selected_emission_mask = _resize_binary_mask(selected_region, z.shape)
         finite_surface_mask = np.isfinite(z)
@@ -7952,8 +7994,23 @@ def depth_data_to_3d_model(
             np.count_nonzero(connector_mask)
         )
         selection_backing_foundation_mask = foundation_mask
-        backing_only_mask = foundation_mask | connector_mask
+        prefill_silhouette_mask = selected_output_mask | foundation_mask | connector_mask
+        enclosed_hole_fill_mask, enclosed_hole_fill_stats = (
+            _selection_enclosed_hole_fill_mask(prefill_silhouette_mask)
+        )
+        selection_enclosed_hole_fill_mask = enclosed_hole_fill_mask
+        backing_only_mask = (
+            foundation_mask | connector_mask | enclosed_hole_fill_mask
+        )
         top_silhouette_mask = selected_output_mask | backing_only_mask
+        remaining_holes, _remaining_hole_stats = (
+            _selection_enclosed_hole_fill_mask(top_silhouette_mask)
+        )
+        closed_hole_pixels_after = int(np.count_nonzero(remaining_holes))
+        if closed_hole_pixels_after:
+            raise ValueError(
+                "Selected relief retained enclosed holes after final silhouette fill"
+            )
         if np.any(backing_only_mask):
             z = np.where(backing_only_mask, backing_thickness_mm, z)
         emitted_support = _mesh_vertex_support_mask(top_silhouette_mask)
@@ -7966,7 +8023,7 @@ def depth_data_to_3d_model(
             )
         selection_emission_stats = {
             "enabled": True,
-            "method": "full_scene_depth_grounded_selection_emission_v2",
+            "method": "full_scene_depth_grounded_closed_hole_free_selection_emission_v3",
             "application_stage": "final_mesh_emission",
             "candidate_pixels": int(np.count_nonzero(candidate_mask)),
             "selection_pixels": int(np.count_nonzero(selected_emission_mask)),
@@ -7980,6 +8037,7 @@ def depth_data_to_3d_model(
                     & ~selected_emission_mask
                     & ~foundation_mask
                     & ~connector_mask
+                    & ~enclosed_hole_fill_mask
                 )
             ),
             "backing_foundation_pixels": int(
@@ -7990,6 +8048,12 @@ def depth_data_to_3d_model(
             "backing_connector_pixels": int(np.count_nonzero(connector_mask)),
             "backing_connector_height_mm": float(backing_thickness_mm),
             "backing_connector": connector_stats,
+            "enclosed_hole_fill_pixels": int(
+                np.count_nonzero(enclosed_hole_fill_mask)
+            ),
+            "enclosed_hole_fill_height_mm": float(backing_thickness_mm),
+            "enclosed_hole_fill": enclosed_hole_fill_stats,
+            "closed_hole_pixels_after": closed_hole_pixels_after,
             "retained_selection_ratio": float(
                 np.count_nonzero(retained_mask)
                 / max(np.count_nonzero(selected_emission_mask), 1)
@@ -8067,7 +8131,9 @@ def depth_data_to_3d_model(
     z = z[top:bottom, left:right]
     mask = mask[top:bottom, left:right]
     emitted_reference_surface = np.where(
-        selection_backing_foundation_mask | selection_backing_connector_mask,
+        selection_backing_foundation_mask
+        | selection_backing_connector_mask
+        | selection_enclosed_hole_fill_mask,
         backing_thickness_mm,
         unstabilized_scene,
     )
