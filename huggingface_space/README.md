@@ -66,15 +66,18 @@ one reusable selected image. The preview panel shows that isolated image on a
 neutral background; the green overlay is retained only as a diagnostic artifact.
 The neutral preview is not used for depth estimation.
 
-For printable reliefs, `Select object` uses `source-depth-isolate`: Depth
-Anything V2 sees the complete original photograph, preserving the same scene
-context used by the local frontend. Face preservation also runs on that complete
-source/depth pair. The refined depth and face feature masks are then aligned to
-source coordinates, cropped to the selected bounds, and every unselected depth
-sample is replaced by a non-finite value before mesh construction. The cropped
-original RGB image supplies photo-detail features on that same grid. This keeps
-local-quality depth cues while ensuring scenery cannot enter the selected-object
-STL. The Background depth control remains exclusive to `Full scene`.
+For printable reliefs, `Select object` now uses the exact local frontend
+contract: `selection_mode=context` with `selection_subject_lock=true`. Depth
+Anything V2 and face preservation both see the complete original photograph.
+The selection protects the chosen subject while the same full, finite depth
+grid proceeds into the rectangular relief mesher. No depth sample is changed to
+`NaN`, no selected-only crop is substituted, and the background remains at the
+chosen depth ratio. This prevents mask-shaped through-holes while preserving the
+local face, background, attachment, and watertight-shell behavior.
+The Mesh detail menu also mirrors the local Bambu Lab P1S production presets:
+`1.5x`/384, `2x`/512, `3x`/768, and capped `4x`/900 samples. The Space sends the
+same printer bounds, nozzle, feature-width, scale, and mesh-multiplier fields as
+the local request.
 Before Depth Anything V2 performs its model-native reduction, relief requests
 apply bounded scale-aware sharpening to source luminance at strength `0.35`.
 The radius follows the source-to-model reduction ratio, chroma is unchanged, and

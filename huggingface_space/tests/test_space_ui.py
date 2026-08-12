@@ -27,10 +27,19 @@ class SpaceUiTests(unittest.TestCase):
         detail_components = [
             component
             for component in app.demo.get_config_file().get("components", [])
-            if component.get("props", {}).get("label") == "Surface detail"
+            if component.get("props", {}).get("label") == "Mesh detail"
         ]
         self.assertEqual(len(detail_components), 1)
-        self.assertEqual(detail_components[0]["props"]["value"], 520)
+        self.assertEqual(detail_components[0]["props"]["value"], 512)
+        self.assertEqual(
+            detail_components[0]["props"]["choices"],
+            [
+                ("1.5x (384 samples)", 384),
+                ("2x (512 samples)", 512),
+                ("3x (768 samples)", 768),
+                ("4x (900 samples, capped)", 900),
+            ],
+        )
 
     def test_zero_gpu_runtime_uses_writable_xet_cache_and_free_tier_mesh_window(self):
         self.assertEqual(os.environ["HF_XET_CACHE"], str(app.HF_XET_CACHE_DIR))

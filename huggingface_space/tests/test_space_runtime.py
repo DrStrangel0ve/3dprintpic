@@ -355,7 +355,7 @@ class SpaceRuntimeTests(unittest.TestCase):
             compute.assert_not_called()
             self.assertEqual(save.call_args.kwargs["model_status"], "sam3-concept-precomputed-point")
 
-    def test_relief_route_isolates_selected_objects(self):
+    def test_relief_route_matches_local_selected_context(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             image_path = Path(temp_dir) / "photo.png"
             Image.new("RGB", (200, 100), "white").save(image_path)
@@ -374,8 +374,13 @@ class SpaceRuntimeTests(unittest.TestCase):
                 "stl_model": f"{job_id}/output_model.stl",
                 "diagnostics": f"{job_id}/diagnostics.json",
                 "stl_diagnostics": {"is_watertight": True, "component_count": 1},
-                "selection_mode": "source-depth-isolate",
-                "selection_crop": {"crop_size": [80, 100]},
+                "selection_mode": "context",
+                "selection_subject_lock": True,
+                "selection_crop": None,
+                "selection_depth_context": {
+                    "method": "full_scene_subject_locked_background_v1",
+                    "subject_surface_locked": True,
+                },
             }
             with (
                 patch.object(space_runtime, "release_gpu_models"),
@@ -392,14 +397,24 @@ class SpaceRuntimeTests(unittest.TestCase):
                     selection,
                     128,
                     30,
-                    320,
+                    512,
                     0.65,
                 )
             request_data = post.call_args.kwargs["data"]
             self.assertEqual(request_data["completion_mode"], "none")
-            self.assertEqual(request_data["selection_mode"], "source-depth-isolate")
-            self.assertEqual(request_data["selection_subject_lock"], "false")
-            self.assertEqual(request_data["selection_background_depth_ratio"], "0.0")
+            self.assertEqual(request_data["selection_mode"], "context")
+            self.assertEqual(request_data["selection_subject_lock"], "true")
+            self.assertEqual(request_data["selection_background_depth_ratio"], "0.65")
+            self.assertEqual(request_data["device"], "auto")
+            self.assertEqual(request_data["invert"], "false")
+            self.assertEqual(request_data["target_dimension"], "512")
+            self.assertEqual(request_data["mesh_resolution_multiplier"], "2.0")
+            self.assertEqual(request_data["printer_profile"], "Bambu Lab P1S")
+            self.assertEqual(request_data["printer_max_x_mm"], "256")
+            self.assertEqual(request_data["printer_max_y_mm"], "256")
+            self.assertEqual(request_data["printer_max_z_mm"], "256")
+            self.assertEqual(request_data["printer_clearance_mm"], "0")
+            self.assertEqual(request_data["print_scale_percent"], "50.0")
             self.assertEqual(request_data["sigma"], "0.35")
             self.assertEqual(request_data["detail_boost"], "0.8")
             self.assertEqual(request_data["depth_downsample_sharpening"], "0.35")
@@ -409,22 +424,41 @@ class SpaceRuntimeTests(unittest.TestCase):
             self.assertEqual(request_data["depth_model"], "/models/depth-v2")
             self.assertEqual(
                 result[3]["summary"]["dimensions_mm"],
-                {"x": 102.4, "y": 128.0, "z": 30.0},
+                {"x": 128.0, "y": 64.0, "z": 30.0},
             )
             self.assertEqual(
                 result[3]["summary"]["scope"],
-                "selected-objects-source-depth-isolated",
+                "selected-objects-local-context",
             )
             self.assertEqual(
                 result[3]["summary"]["selection_mode"],
-                "source-depth-isolate",
+                "context",
+            )
+            self.assertEqual(
+                result[3]["summary"]["local_relief_parity"],
+                "full-scene-subject-lock-v1",
             )
             self.assertFalse(result[3]["summary"]["inpainting"])
+
+    def test_relief_route_rejects_nonlocal_mesh_detail_budget(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "photo.png"
+            Image.new("RGB", (200, 100), "white").save(image_path)
+            with self.assertRaisesRegex(ValueError, "local frontend production preset"):
+                space_runtime.generate_relief(
+                    image_path,
+                    "Full scene",
+                    None,
+                    128,
+                    20,
+                    520,
+                    0.65,
+                )
 
     def test_model_and_source_revisions_are_immutable(self):
         self.assertEqual(
             space_runtime.PROJECT_REVISION,
-            "15a67b92b5870df4a4cbc353b3d9b8a9c98582ef",
+            "cdc8f72edb08841e3f36e0e7451be5d10ac30b14",
         )
         self.assertEqual(
             space_runtime.TRIPOSG_SOURCE_REVISION,

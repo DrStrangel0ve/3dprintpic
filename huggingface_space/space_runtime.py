@@ -46,6 +46,12 @@ SAM3_PRECOMPUTE_TTL_SECONDS = 20 * 60
 SAM3_PRECOMPUTE_MAX_SOURCE_PIXELS = 40_000_000
 SAM3_PRECOMPUTE_MAX_MASKS = 256
 SAM3_PRECOMPUTE_MAX_COMPRESSED_BYTES = 32 * 1024 * 1024
+LOCAL_RELIEF_DETAIL_MULTIPLIERS = {
+    384: 1.5,
+    512: 2.0,
+    768: 3.0,
+    900: 4.0,
+}
 
 
 def _run_git(*args: str, cwd: Path | None = None) -> str:
@@ -740,22 +746,35 @@ def generate_relief(
     selected = str(scope).lower().startswith("select")
     if selected and not selection:
         raise ValueError("Click the object in the image before generating the selected-object relief")
+    detail_samples = int(detail_samples)
+    if detail_samples not in LOCAL_RELIEF_DETAIL_MULTIPLIERS:
+        raise ValueError("Mesh detail must match a local frontend production preset")
+    mesh_resolution_multiplier = LOCAL_RELIEF_DETAIL_MULTIPLIERS[detail_samples]
     x_mm, y_mm = image_dimensions_mm(image_path, long_edge_mm)
     depth_model_source = _depth_model_source()
     data = {
-        "selection_mode": "source-depth-isolate" if selected else "context",
-        "selection_subject_lock": "false",
+        # Keep this request contract aligned with the local Next.js frontend.
+        # Selection identifies the protected subject; it does not remove depth
+        # samples or change the rectangular relief topology.
+        "selection_mode": "context",
+        "selection_subject_lock": "true" if selected else "false",
         "depth_provider": "transformers",
         "depth_model": depth_model_source,
-        "device": "cuda",
+        "device": "auto",
         "depth_downsample_sharpening": "0.35",
         "target_dimension": str(int(detail_samples)),
         "z_scale": str(float(relief_height_mm)),
         "max_xy_size": str(max(x_mm, y_mm)),
+        "invert": "false",
         "relief_polarity": "raised-print",
-        "selection_background_depth_ratio": (
-            "0.0" if selected else str(float(background_depth_ratio))
-        ),
+        "mesh_resolution_multiplier": str(mesh_resolution_multiplier),
+        "printer_profile": "Bambu Lab P1S",
+        "printer_max_x_mm": "256",
+        "printer_max_y_mm": "256",
+        "printer_max_z_mm": "256",
+        "printer_clearance_mm": "0",
+        "print_scale_percent": str(float(long_edge_mm) / 256.0 * 100.0),
+        "selection_background_depth_ratio": str(float(background_depth_ratio)),
         "sigma": "0.35",
         "detail_boost": "0.8",
         "printable_feature_depth_mm": "0.4",
@@ -789,6 +808,17 @@ def generate_relief(
     if response.status_code != 200:
         raise _response_error(response)
     result = response.json()
+    if result.get("selection_mode") != data["selection_mode"]:
+        raise RuntimeError("Relief backend did not honor the local frontend selection mode")
+    if selected:
+        selection_context = result.get("selection_depth_context")
+        if not isinstance(selection_context, dict) or not (
+            selection_context.get("method") == "full_scene_subject_locked_background_v1"
+            and selection_context.get("subject_surface_locked") is True
+            and result.get("selection_subject_lock") is True
+            and result.get("selection_crop") is None
+        ):
+            raise RuntimeError("Selected relief did not preserve the local full-scene subject-lock contract")
     selection_crop = result.get("selection_crop") if selected else None
     crop_size = selection_crop.get("crop_size") if isinstance(selection_crop, dict) else None
     if (
@@ -808,8 +838,9 @@ def generate_relief(
     diagnostics = result.get("stl_diagnostics", {})
     summary = _diagnostic_summary(diagnostics, model=DEPTH_MODEL)
     summary["dimensions_mm"] = {"x": x_mm, "y": y_mm, "z": float(relief_height_mm)}
-    summary["scope"] = "selected-objects-source-depth-isolated" if selected else "full-scene"
+    summary["scope"] = "selected-objects-local-context" if selected else "full-scene"
     summary["selection_mode"] = result.get("selection_mode", data["selection_mode"])
+    summary["local_relief_parity"] = "full-scene-subject-lock-v1"
     summary["inpainting"] = False
     return (
         _safe_file(stl_path),

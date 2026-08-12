@@ -2648,6 +2648,8 @@ class ReliefStlControlsTest(unittest.TestCase):
             whole_surface[subject_interior],
         )
         self.assertTrue(postprocess["selection_subject_lock"])
+        self.assertTrue(np.isfinite(selected_surface).all())
+        self.assertEqual(selected_surface.shape, whole_surface.shape)
         self.assertEqual(
             postprocess["selection_gradient_compression"]["reason"],
             "subject_surface_locked",
