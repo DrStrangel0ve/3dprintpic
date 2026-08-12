@@ -60,3 +60,30 @@ Focused fixtures cover strong cloud edges above architecture, a selected
 one-pixel spire, smooth cloud gradients, multiple roof heights, top-entering
 objects, transparent cutouts, uniform fail-closed input, exact retained-height
 parity against an untrimmed run, and watertight irregular-outline emission.
+
+## Hugging Face parity deployment
+
+The final backend implementation is GitHub revision
+`824c4552a238aa44ac3693cfb62be07f66ecec91`. The Space wrapper is repository
+revision `8b64b51` and sends the same 256 mm `detail_basis_mm` used by the local
+frontend. A flattened external preflight cloned the pinned revision outside the
+working tree and matched local, clean-clone, and Space-runtime
+`backend/pic_to_3d.py` at normalized SHA-256
+`0bbaf26edd425123faf90f5aef3e7de925a617a0c36dc6b637809d4244f4d5fa`.
+
+Hugging Face Space commit
+`8a182b85d433b8a1c2d1a9ccee274a779e692f50` deployed the five flattened Space
+files atomically against the previous parent revision. Post-deployment checks
+confirmed:
+
+- runtime stage `RUNNING` on `zero-a10g`;
+- all five deployed files byte-for-byte equal to the tested local payload;
+- live runtime pin `824c4552a238aa44ac3693cfb62be07f66ecec91`;
+- live 256 mm detail-basis request contract;
+- visible browser footer `Project 824c4552`; and
+- zero browser console errors.
+
+Final validation passed 1,191 backend tests plus 129 subtests and all 28 Space
+runtime/UI tests. The two backend warnings are pre-existing third-party
+Starlette and trimesh warnings; the Space test process also reports existing
+Pydantic/asyncio warnings without failures.

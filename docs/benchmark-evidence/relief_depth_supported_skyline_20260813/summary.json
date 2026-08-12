@@ -42,5 +42,23 @@
     "depth_tensor_committed": false,
     "surface_tensor_committed": false,
     "stl_committed": false
+  },
+  "validation": {
+    "backend_tests_passed": 1191,
+    "backend_subtests_passed": 129,
+    "space_tests_passed": 28
+  },
+  "deployment": {
+    "backend_revision": "824c4552a238aa44ac3693cfb62be07f66ecec91",
+    "space_wrapper_revision": "8b64b51",
+    "space_commit": "8a182b85d433b8a1c2d1a9ccee274a779e692f50",
+    "space_stage": "RUNNING",
+    "space_hardware": "zero-a10g",
+    "pic_to_3d_normalized_sha256": "0bbaf26edd425123faf90f5aef3e7de925a617a0c36dc6b637809d4244f4d5fa",
+    "flattened_payload_files_identical": 5,
+    "flattened_payload_file_count": 5,
+    "detail_basis_mm": 256.0,
+    "visible_footer_revision": "824c4552",
+    "browser_console_error_count": 0
   }
 }
