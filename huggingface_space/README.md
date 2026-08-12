@@ -71,8 +71,8 @@ contract. Browser uploads are normalized once to lossless PNG, and both the
 complete-scene pass and every face-crop pass run Depth Anything V2 Large in
 deterministic FP32. The Space preflights checksum-pinned MediaPipe, YuNet, and
 GNM face assets in a writable runtime cache, and verifies that Debian's
-`libgles2` runtime can load before MediaPipe starts. Any result containing a
-detected face, including a full-scene relief, is not published unless every
+`libgles2` and `libegl1` runtimes can load before MediaPipe starts. Any
+face-bearing result, including a full-scene relief, is not published unless every
 face used 468-or-more MediaPipe landmarks and its crop records deterministic
 FP32 depth. The final JSON report exposes the verified asset hashes, native
 library, scene precision, face-crop precision, detector names, and landmark

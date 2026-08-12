@@ -153,20 +153,32 @@ class SpaceRuntimeTests(unittest.TestCase):
             }
         }
 
-        with self.assertRaisesRegex(RuntimeError, "MediaPipe 468\\+"):
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "detector diagnostics: mediapipe:OSError:libGLESv2",
+        ):
             space_runtime._require_face_parity(result, None)
 
-    def test_face_native_runtime_preflight_loads_gles(self):
+    def test_face_native_runtime_preflight_loads_gles_and_egl(self):
         with (
-            patch("ctypes.util.find_library", return_value="libGLESv2.so.2"),
+            patch(
+                "ctypes.util.find_library",
+                side_effect=["libGLESv2.so.2", "libEGL.so.1"],
+            ),
             patch("ctypes.CDLL") as load_library,
         ):
             libraries = space_runtime._require_face_native_runtime("posix")
 
-        self.assertEqual(libraries, {"glesv2": "libGLESv2.so.2"})
-        load_library.assert_called_once_with("libGLESv2.so.2")
+        self.assertEqual(
+            libraries,
+            {"glesv2": "libGLESv2.so.2", "egl": "libEGL.so.1"},
+        )
+        self.assertEqual(
+            [call.args[0] for call in load_library.call_args_list],
+            ["libGLESv2.so.2", "libEGL.so.1"],
+        )
 
-    def test_face_native_runtime_preflight_names_required_package(self):
+    def test_face_native_runtime_preflight_names_required_gles_package(self):
         with (
             patch("ctypes.util.find_library", return_value=None),
             patch("ctypes.CDLL", side_effect=OSError("missing")),
@@ -174,10 +186,22 @@ class SpaceRuntimeTests(unittest.TestCase):
         ):
             space_runtime._require_face_native_runtime("posix")
 
+    def test_face_native_runtime_preflight_names_required_egl_package(self):
+        with (
+            patch(
+                "ctypes.util.find_library",
+                side_effect=["libGLESv2.so.2", "libEGL.so.1"],
+            ),
+            patch("ctypes.CDLL", side_effect=[None, OSError("missing")]),
+            self.assertRaisesRegex(RuntimeError, "libegl1"),
+        ):
+            space_runtime._require_face_native_runtime("posix")
+
     def test_apt_packages_manifest_is_lf_only(self):
         packages = (space_runtime.SPACE_DIR / "packages.txt").read_bytes()
 
         self.assertNotIn(b"\r", packages)
+        self.assertIn(b"libegl1\n", packages)
         self.assertIn(b"libgles2\n", packages)
 
     def test_sam3_selection_fails_closed_without_owner_token(self):

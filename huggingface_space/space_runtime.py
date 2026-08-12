@@ -222,15 +222,22 @@ def _require_face_native_runtime(platform_name: str | None = None) -> dict[str, 
     import ctypes
     import ctypes.util
 
-    library = ctypes.util.find_library("GLESv2") or "libGLESv2.so.2"
-    try:
-        ctypes.CDLL(library)
-    except OSError as exc:
-        raise RuntimeError(
-            "Face parity native runtime preflight failed: libGLESv2.so.2 is "
-            "unavailable; install the Debian libgles2 package"
-        ) from exc
-    return {"glesv2": library}
+    required = (
+        ("glesv2", "GLESv2", "libGLESv2.so.2", "libgles2"),
+        ("egl", "EGL", "libEGL.so.1", "libegl1"),
+    )
+    libraries = {}
+    for key, lookup_name, soname, package in required:
+        library = ctypes.util.find_library(lookup_name) or soname
+        try:
+            ctypes.CDLL(library)
+        except OSError as exc:
+            raise RuntimeError(
+                f"Face parity native runtime preflight failed: {soname} is "
+                f"unavailable; install the Debian {package} package"
+            ) from exc
+        libraries[key] = library
+    return libraries
 
 
 def ensure_face_assets() -> dict:
@@ -390,8 +397,12 @@ def _require_face_parity(result: dict, selection: dict | None) -> dict:
     if detector_errors:
         failures.append("a face detector reported an error")
     if failures:
+        diagnostics = (
+            "; detector diagnostics: " + " | ".join(detector_errors)
+            if detector_errors else ""
+        )
         raise RuntimeError(
-            "Hosted face parity check failed: " + "; ".join(failures)
+            "Hosted face parity check failed: " + "; ".join(failures) + diagnostics
         )
     summary["status"] = "verified"
     return summary

@@ -42,8 +42,8 @@ The production relief contract now requires:
 3. Deterministic FP32 CUDA inference for the complete source and every face
    crop, with TF32 disabled and highest FP32 matmul precision selected.
 4. Checksum-verified MediaPipe, YuNet, and GNM assets in an explicit writable
-   runtime cache, plus a loadable `libGLESv2.so.2` supplied by Debian's
-   `libgles2` package.
+   runtime cache, plus loadable `libGLESv2.so.2` and `libEGL.so.1` supplied
+   by Debian's `libgles2` and `libegl1` packages.
 5. A fail-closed hosted parity audit for every face-bearing result, including
    full-scene reliefs: every detected face must be refined with at least 468
    MediaPipe landmarks and deterministic FP32 crop depth.
@@ -63,6 +63,12 @@ landmark faces, and therefore omitted the local 478-landmark shape prior.
 The model files and checksums were all correct; the missing Linux shared
 library was the causal deployment difference. The new native preflight and
 full-scene face gate encode this exact failure as a regression contract.
+
+After installing GLES, the fail-closed gate blocked a second live result before
+publication because MediaPipe still could not initialize. Direct `DT_NEEDED`
+inspection of the pinned official `mediapipe==0.10.35` Linux wheel showed that
+`libmediapipe.so` links to both GLESv2 and EGL. The deployment therefore
+preflights and records both native libraries.
 
 ## Local 3080 Ti validation
 
