@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import trimesh
 from PIL import Image
 
 from huggingface_space import space_runtime
@@ -36,6 +37,19 @@ class SpaceRuntimeTests(unittest.TestCase):
             image_path = Path(temp_dir) / "portrait.png"
             Image.new("RGB", (150, 300), "white").save(image_path)
             self.assertEqual(space_runtime.image_dimensions_mm(image_path, 120), (60.0, 120.0))
+
+    def test_local_relief_dimensions_match_default_printer_scale(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "landscape.png"
+            Image.new("RGB", (400, 200), "white").save(image_path)
+            self.assertEqual(
+                space_runtime.local_relief_dimensions_mm(image_path, 100),
+                (256.0, 128.0),
+            )
+            self.assertEqual(
+                space_runtime.local_relief_dimensions_mm(image_path, 50),
+                (128.0, 64.0),
+            )
 
     def test_diagnostic_summary_maps_prefixed_stl_contract(self):
         diagnostics = {
@@ -368,7 +382,9 @@ class SpaceRuntimeTests(unittest.TestCase):
             Image.new("L", (16, 8), 128).save(preview_path)
             diagnostics_path = job_dir / "diagnostics.json"
             diagnostics_path.write_text("{}", encoding="utf-8")
-            selection = {"job_id": "b" * 32}
+            selected_path = Path(temp_dir) / "selected.png"
+            Image.new("RGB", (200, 100), "gray").save(selected_path)
+            selection = {"job_id": "b" * 32, "selected": str(selected_path)}
             payload = {
                 "job_id": job_id,
                 "stl_model": f"{job_id}/output_model.stl",
@@ -395,16 +411,58 @@ class SpaceRuntimeTests(unittest.TestCase):
                     image_path,
                     "Select object",
                     selection,
-                    128,
+                    50,
                     30,
                     512,
-                    0.65,
                 )
             request_data = post.call_args.kwargs["data"]
-            self.assertEqual(request_data["completion_mode"], "none")
+            self.assertEqual(
+                set(request_data),
+                {
+                    "selection_mode",
+                    "selection_subject_lock",
+                    "selection_job_id",
+                    "depth_provider",
+                    "depth_model",
+                    "device",
+                    "depth_downsample_sharpening",
+                    "target_dimension",
+                    "z_scale",
+                    "max_xy_size",
+                    "invert",
+                    "relief_polarity",
+                    "mesh_resolution_multiplier",
+                    "printer_profile",
+                    "printer_max_x_mm",
+                    "printer_max_y_mm",
+                    "printer_max_z_mm",
+                    "printer_clearance_mm",
+                    "print_scale_percent",
+                    "sigma",
+                    "detail_boost",
+                    "printable_feature_depth_mm",
+                    "feature_bridge_depth_mm",
+                    "background_detail_boost",
+                    "background_photo_detail_mm",
+                    "trim_top_background",
+                    "relief_gamma",
+                    "base_border_px",
+                    "detail_radius",
+                    "low_percentile",
+                    "high_percentile",
+                    "max_relief_slope",
+                    "nozzle_diameter_mm",
+                    "minimum_feature_mm",
+                    "face_refinement_mode",
+                    "face_detail_strength",
+                    "face_feather_ratio",
+                    "face_max_correction_ratio",
+                },
+            )
+            self.assertNotIn("completion_mode", request_data)
+            self.assertNotIn("selection_background_depth_ratio", request_data)
             self.assertEqual(request_data["selection_mode"], "context")
             self.assertEqual(request_data["selection_subject_lock"], "true")
-            self.assertEqual(request_data["selection_background_depth_ratio"], "0.65")
             self.assertEqual(request_data["device"], "auto")
             self.assertEqual(request_data["invert"], "false")
             self.assertEqual(request_data["target_dimension"], "512")
@@ -422,6 +480,7 @@ class SpaceRuntimeTests(unittest.TestCase):
             self.assertEqual(request_data["face_detail_strength"], "1.0")
             self.assertEqual(request_data["selection_job_id"], selection["job_id"])
             self.assertEqual(request_data["depth_model"], "/models/depth-v2")
+            self.assertEqual(post.call_args.kwargs["files"]["file"][0], "selected.png")
             self.assertEqual(
                 result[3]["summary"]["dimensions_mm"],
                 {"x": 128.0, "y": 64.0, "z": 30.0},
@@ -449,11 +508,120 @@ class SpaceRuntimeTests(unittest.TestCase):
                     image_path,
                     "Full scene",
                     None,
-                    128,
+                    50,
                     20,
                     520,
-                    0.65,
                 )
+
+    def test_selected_relief_matches_local_full_scene_topology_end_to_end(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output_dir = root / "output"
+            image_path = root / "photo.png"
+            rows, columns = np.indices((24, 32), dtype=np.uint8)
+            rgb = np.stack(
+                [
+                    40 + columns * 4,
+                    50 + rows * 5,
+                    70 + ((rows.astype(np.uint16) + columns) % 80).astype(np.uint8),
+                ],
+                axis=-1,
+            )
+            image = Image.fromarray(rgb, mode="RGB")
+            image.save(image_path)
+            mask_values = np.zeros((24, 32), dtype=np.uint8)
+            mask_values[5:22, 7:26] = 255
+            mask = Image.fromarray(mask_values, mode="L")
+
+            def fake_depth_data(input_path, output_dir, **_kwargs):
+                with Image.open(input_path) as source:
+                    width, height = source.size
+                yy, xx = np.indices((height, width), dtype=np.float32)
+                depth = 0.12 + 0.006 * yy + 0.009 * xx
+                depth_path = Path(output_dir) / "output_depth_data.npy"
+                np.save(depth_path, depth.astype(np.float32))
+                Image.fromarray(
+                    np.clip(depth / np.max(depth) * 255.0, 0, 255).astype(np.uint8),
+                    mode="L",
+                ).save(Path(output_dir) / "output_depth_preview.png")
+                (Path(output_dir) / "output_depth_metadata.json").write_text(
+                    json.dumps(
+                        {
+                            "effective_model": "depth-anything/Depth-Anything-V2-Large-hf",
+                            "relief_value_transform": "linear",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                return str(depth_path)
+
+            def fake_face_refinement(_image_path, depth_path, _output_dir, **_kwargs):
+                return depth_path, {
+                    "mode": "auto",
+                    "applied": False,
+                    "detected_faces": 0,
+                    "refined_faces": 0,
+                    "faces": [],
+                }
+
+            with (
+                patch.object(space_runtime, "OUTPUT_DIR", output_dir),
+                patch.object(space_runtime.backend_main, "OUTPUT_DIR", output_dir),
+                patch.object(space_runtime, "release_gpu_models"),
+                patch.object(space_runtime, "_depth_model_source", return_value="depth-anything/Depth-Anything-V2-Large-hf"),
+                patch.object(
+                    space_runtime.backend_main,
+                    "process_image_get_depth_data",
+                    side_effect=fake_depth_data,
+                ),
+                patch.object(
+                    space_runtime.backend_main,
+                    "refine_depth_for_faces",
+                    side_effect=fake_face_refinement,
+                ),
+                patch.object(space_runtime.backend_main, "RELIEF_MIN_DETAIL_DIMENSION", 32),
+                patch.object(space_runtime.backend_main, "RELIEF_MAX_DETAIL_DIMENSION", 64),
+            ):
+                selection = space_runtime._save_selection_job(
+                    image_path,
+                    image,
+                    mask,
+                    resolved_model=space_runtime.SAM3_MODEL,
+                    model_status="sam3-concept-precomputed-point",
+                    labels=["person"],
+                )
+                selected_result = space_runtime.generate_relief(
+                    image_path,
+                    "Select object",
+                    selection,
+                    50,
+                    10,
+                    384,
+                )
+                full_result = space_runtime.generate_relief(
+                    image_path,
+                    "Full scene",
+                    None,
+                    50,
+                    10,
+                    384,
+                )
+
+            selected_job_dir = Path(selected_result[3]["full_report"]).parent
+            full_job_dir = Path(full_result[3]["full_report"]).parent
+            selected_surface = np.load(selected_job_dir / "output_surface.npy")
+            full_surface = np.load(full_job_dir / "output_surface.npy")
+            selected_mesh = trimesh.load_mesh(selected_result[0], force="mesh")
+            full_mesh = trimesh.load_mesh(full_result[0], force="mesh")
+
+            self.assertEqual(selected_surface.shape, full_surface.shape)
+            np.testing.assert_array_equal(
+                np.isfinite(selected_surface),
+                np.isfinite(full_surface),
+            )
+            self.assertEqual(len(selected_mesh.faces), len(full_mesh.faces))
+            self.assertTrue(selected_mesh.is_watertight)
+            self.assertTrue(selected_mesh.is_winding_consistent)
 
     def test_model_and_source_revisions_are_immutable(self):
         self.assertEqual(

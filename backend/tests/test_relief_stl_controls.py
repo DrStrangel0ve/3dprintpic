@@ -2609,6 +2609,7 @@ class ReliefStlControlsTest(unittest.TestCase):
                 "sigma": 0.35,
                 "relief_gamma": 1.0,
                 "detail_boost": 0.0,
+                "trim_top_background": True,
                 "low_percentile": 0.0,
                 "high_percentile": 100.0,
                 "base_border_px": 1,
@@ -2648,8 +2649,11 @@ class ReliefStlControlsTest(unittest.TestCase):
             whole_surface[subject_interior],
         )
         self.assertTrue(postprocess["selection_subject_lock"])
-        self.assertTrue(np.isfinite(selected_surface).all())
         self.assertEqual(selected_surface.shape, whole_surface.shape)
+        np.testing.assert_array_equal(
+            np.isfinite(selected_surface),
+            np.isfinite(whole_surface),
+        )
         self.assertEqual(
             postprocess["selection_gradient_compression"]["reason"],
             "subject_surface_locked",

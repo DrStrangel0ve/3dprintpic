@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
 process.env.NEXT_DIST_DIR = process.env.NEXT_DIST_DIR || '.next-playwright';
+const playwrightPort = Number(process.env.PLAYWRIGHT_PORT || 3100);
+const playwrightBaseUrl = `http://127.0.0.1:${playwrightPort}`;
 
 export default defineConfig({
   testDir: './tests',
@@ -9,7 +11,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',
   use: {
-    baseURL: 'http://127.0.0.1:3100',
+    baseURL: playwrightBaseUrl,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
@@ -20,8 +22,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev -- --hostname 127.0.0.1 --port 3100',
-    url: 'http://127.0.0.1:3100',
+    command: `npm run dev -- --hostname 127.0.0.1 --port ${playwrightPort}`,
+    url: playwrightBaseUrl,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

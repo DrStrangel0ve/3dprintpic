@@ -41,6 +41,18 @@ class SpaceUiTests(unittest.TestCase):
             ],
         )
 
+    def test_relief_defaults_match_local_physical_profile(self):
+        components = app.demo.get_config_file().get("components", [])
+        values_by_label = {
+            component.get("props", {}).get("label"): component.get("props", {}).get("value")
+            for component in components
+        }
+        self.assertEqual(values_by_label["Print size (%)"], 100)
+        self.assertEqual(values_by_label["Relief height Z (mm)"], 10)
+        self.assertEqual(values_by_label["X width (mm)"], 256)
+        self.assertEqual(values_by_label["Y height (mm)"], 256)
+        self.assertNotIn("Background depth", values_by_label)
+
     def test_zero_gpu_runtime_uses_writable_xet_cache_and_free_tier_mesh_window(self):
         self.assertEqual(os.environ["HF_XET_CACHE"], str(app.HF_XET_CACHE_DIR))
         self.assertTrue(app.HF_XET_CACHE_DIR.is_dir())

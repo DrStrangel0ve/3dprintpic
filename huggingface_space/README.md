@@ -70,14 +70,18 @@ For printable reliefs, `Select object` now uses the exact local frontend
 contract: `selection_mode=context` with `selection_subject_lock=true`. Depth
 Anything V2 and face preservation both see the complete original photograph.
 The selection protects the chosen subject while the same full, finite depth
-grid proceeds into the rectangular relief mesher. No depth sample is changed to
-`NaN`, no selected-only crop is substituted, and the background remains at the
-chosen depth ratio. This prevents mask-shaped through-holes while preserving the
-local face, background, attachment, and watertight-shell behavior.
+grid proceeds into the rectangular relief mesher. The selection mask does not
+change any sample to `NaN`, no selected-only crop is substituted, and the
+background remains at the backend's local `0.65` depth default. The normal local
+top-edge trim still applies identically in both modes. This prevents mask-shaped
+through-holes while preserving the local face, background, attachment, and
+watertight-shell behavior.
 The Mesh detail menu also mirrors the local Bambu Lab P1S production presets:
 `1.5x`/384, `2x`/512, `3x`/768, and capped `4x`/900 samples. The Space sends the
 same printer bounds, nozzle, feature-width, scale, and mesh-multiplier fields as
-the local request.
+the local request. Its untouched physical defaults now match local as well:
+100% of the 256 mm printer edge and 10 mm relief height. Print size uses the
+same 10-100% range in 5% steps.
 Before Depth Anything V2 performs its model-native reduction, relief requests
 apply bounded scale-aware sharpening to source luminance at strength `0.35`.
 The radius follows the source-to-model reduction ratio, chroma is unchanged, and

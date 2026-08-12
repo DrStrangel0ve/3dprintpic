@@ -39,7 +39,7 @@ try:
         generate_diorama,
         generate_full_mesh,
         generate_relief,
-        image_dimensions_mm,
+        local_relief_dimensions_mm,
         prepare_object_selection,
         select_precomputed_objects,
     )
@@ -54,7 +54,7 @@ except ImportError:  # Hugging Face runs app.py from the Space repository root.
         generate_diorama,
         generate_full_mesh,
         generate_relief,
-        image_dimensions_mm,
+        local_relief_dimensions_mm,
         prepare_object_selection,
         select_precomputed_objects,
     )
@@ -448,8 +448,8 @@ SELECTION_HOVER_JS = r"""
 }
 """
 
-def _dimensions(image_path, long_edge_mm):
-    return image_dimensions_mm(image_path, long_edge_mm)
+def _dimensions(image_path, print_scale_percent):
+    return local_relief_dimensions_mm(image_path, print_scale_percent)
 
 
 def _reset_selection(image_path, scope):
@@ -518,17 +518,16 @@ def _invalidate_hover_selection(precompute_state, event_json):
 
 
 @spaces.GPU(duration=110)
-def _generate_relief_ui(image, scope, selection, long_edge, relief_height, samples, background_ratio):
+def _generate_relief_ui(image, scope, selection, print_scale, relief_height, samples):
     try:
         cleanup_expired_outputs()
         return generate_relief(
             image,
             scope,
             selection,
-            long_edge,
+            print_scale,
             relief_height,
             int(samples),
-            background_ratio,
         )
     except Exception as exc:
         raise gr.Error(str(exc)) from exc
@@ -722,11 +721,11 @@ with gr.Blocks(
                 with gr.Column(scale=6, elem_classes="tool-panel"):
                     relief_image, relief_scope, relief_selection = _selection_controls("relief")
                 with gr.Column(scale=4, elem_classes="tool-panel"):
-                    long_edge = gr.Slider(48, 240, value=128, step=1, label="Long edge (mm)")
+                    print_scale = gr.Slider(10, 100, value=100, step=5, label="Print size (%)")
                     with gr.Row():
-                        x_size = gr.Number(value=128, label="X width (mm)", interactive=False)
-                        y_size = gr.Number(value=128, label="Y height (mm)", interactive=False)
-                    relief_height = gr.Slider(2, 40, value=20, step=1, label="Relief height Z (mm)")
+                        x_size = gr.Number(value=256, label="X width (mm)", interactive=False)
+                        y_size = gr.Number(value=256, label="Y height (mm)", interactive=False)
+                    relief_height = gr.Slider(2, 40, value=10, step=1, label="Relief height Z (mm)")
                     detail_samples = gr.Dropdown(
                         choices=[
                             ("1.5x (384 samples)", 384),
@@ -736,13 +735,6 @@ with gr.Blocks(
                         ],
                         value=512,
                         label="Mesh detail",
-                    )
-                    background_ratio = gr.Slider(
-                        0.35,
-                        0.85,
-                        value=0.65,
-                        step=0.05,
-                        label="Background depth",
                     )
                     relief_generate = gr.Button("Generate relief", variant="primary", elem_classes="primary-button")
                     gr.Markdown(f"Depth: `{DEPTH_MODEL}` | Selection: `{SAM3_MODEL}`", elem_classes="model-note")
@@ -755,13 +747,13 @@ with gr.Blocks(
 
             relief_image.change(
                 _dimensions,
-                inputs=[relief_image, long_edge],
+                inputs=[relief_image, print_scale],
                 outputs=[x_size, y_size],
                 show_progress="hidden",
             )
-            long_edge.change(
+            print_scale.change(
                 _dimensions,
-                inputs=[relief_image, long_edge],
+                inputs=[relief_image, print_scale],
                 outputs=[x_size, y_size],
                 show_progress="hidden",
             )
@@ -771,10 +763,9 @@ with gr.Blocks(
                     relief_image,
                     relief_scope,
                     relief_selection,
-                    long_edge,
+                    print_scale,
                     relief_height,
                     detail_samples,
-                    background_ratio,
                 ],
                 outputs=[relief_model, relief_file, relief_preview, relief_diagnostics],
                 concurrency_id="gpu-work",

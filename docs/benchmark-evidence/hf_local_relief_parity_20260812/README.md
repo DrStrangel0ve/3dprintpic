@@ -23,11 +23,11 @@ that control geometry:
 |---|---:|
 | `selection_mode` | `context` |
 | `selection_subject_lock` | `true` |
-| `selection_background_depth_ratio` | the visible Background depth value (`0.65` default) |
+| `selection_background_depth_ratio` | not submitted; shared backend default `0.65` |
 | `device` | `auto` |
 | `invert` | `false` |
 | `relief_polarity` | `raised-print` |
-| `completion_mode` | `none` |
+| `completion_mode` | not submitted; shared backend default `none` |
 | `mesh_resolution_multiplier` | local preset (`2.0` default) |
 | `printer_profile` | `Bambu Lab P1S` |
 | `printer_max_x/y/z_mm` | `256/256/256` |
@@ -45,16 +45,24 @@ The hosted mesh-detail control is restricted to the local production choices:
 900 (`4x`). Unknown budgets fail closed instead of creating a hosted-only
 profile.
 
+The Space's physical controls also use the local defaults and domains: 100% of
+the 256 mm Bambu P1S edge, 10 mm relief height, and print-scale steps of 5%
+between 10% and 100%. The hosted-only Background depth slider was removed; both
+clients now rely on the same backend default.
+
 The Space wrapper fails closed if the backend reports a different mode, a
 selection crop, a disabled subject lock, or any context method other than
 `full_scene_subject_locked_background_v1`.
 
 ## Regression gates
 
-- The Space request test checks context mode, subject lock, background depth,
-  device, polarity/inversion, full-image dimensions, and summary provenance.
-- The backend subject-lock fixture requires the selected surface to remain
-  finite at every grid sample and to retain the whole-scene surface shape.
+- The Space request test checks the exact local multipart field set, context
+  mode, subject lock, inherited background-depth default, device,
+  polarity/inversion, full-image dimensions, and summary provenance.
+- The backend subject-lock fixture enables production top-background trimming,
+  requires the selected surface to retain the whole-scene surface shape, and
+  requires its finite/non-finite topology mask to match the full-scene output
+  exactly. Selection therefore cannot introduce any new interior void.
 - The existing fixture also requires exact subject-interior agreement with the
   unselected full-scene surface plus a watertight, consistently wound STL.
 

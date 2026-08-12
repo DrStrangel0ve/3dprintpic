@@ -202,6 +202,7 @@ test('selected relief sends the selected preview and atomic compose job', async 
   expect(processMultipartBody).toContain('name="selection_mode"');
   expect(processMultipartBody).toContain('context');
   expect(processMultipartBody).not.toContain('name="completion_mode"');
+  expect(processMultipartBody).not.toContain('name="selection_background_depth_ratio"');
   expect(processMultipartBody).not.toContain('isolate');
   expect(processMultipartBody).toContain('name="selection_subject_lock"');
   expect(processMultipartBody).toContain('true');

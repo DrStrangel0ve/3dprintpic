@@ -52,6 +52,7 @@ LOCAL_RELIEF_DETAIL_MULTIPLIERS = {
     768: 3.0,
     900: 4.0,
 }
+LOCAL_RELIEF_PRINTER_EDGE_MM = 256
 
 
 def _run_git(*args: str, cwd: Path | None = None) -> str:
@@ -130,6 +131,17 @@ def image_dimensions_mm(image_path: str | Path | None, long_edge_mm: float) -> t
         width, height = ImageOps.exif_transpose(image).size
     scale = float(long_edge_mm) / float(max(width, height, 1))
     return round(width * scale, 2), round(height * scale, 2)
+
+
+def local_relief_dimensions_mm(
+    image_path: str | Path | None,
+    print_scale_percent: float,
+) -> tuple[float, float]:
+    scale_percent = float(print_scale_percent)
+    if scale_percent < 10.0 or scale_percent > 100.0 or scale_percent % 5.0 != 0.0:
+        raise ValueError("Print size must match the local 10-100% production scale")
+    long_edge_mm = int(LOCAL_RELIEF_PRINTER_EDGE_MM * scale_percent / 100.0)
+    return image_dimensions_mm(image_path, long_edge_mm)
 
 
 def _safe_file(path: Path) -> str:
@@ -736,10 +748,9 @@ def generate_relief(
     image_path: str | Path | None,
     scope: str,
     selection: dict | None,
-    long_edge_mm: float,
+    print_scale_percent: float,
     relief_height_mm: float,
     detail_samples: int,
-    background_depth_ratio: float,
 ) -> tuple[str, str, str, dict]:
     if not image_path:
         raise ValueError("Upload a photo before generating a relief")
@@ -750,7 +761,7 @@ def generate_relief(
     if detail_samples not in LOCAL_RELIEF_DETAIL_MULTIPLIERS:
         raise ValueError("Mesh detail must match a local frontend production preset")
     mesh_resolution_multiplier = LOCAL_RELIEF_DETAIL_MULTIPLIERS[detail_samples]
-    x_mm, y_mm = image_dimensions_mm(image_path, long_edge_mm)
+    x_mm, y_mm = local_relief_dimensions_mm(image_path, print_scale_percent)
     depth_model_source = _depth_model_source()
     data = {
         # Keep this request contract aligned with the local Next.js frontend.
@@ -769,12 +780,11 @@ def generate_relief(
         "relief_polarity": "raised-print",
         "mesh_resolution_multiplier": str(mesh_resolution_multiplier),
         "printer_profile": "Bambu Lab P1S",
-        "printer_max_x_mm": "256",
-        "printer_max_y_mm": "256",
-        "printer_max_z_mm": "256",
+        "printer_max_x_mm": str(LOCAL_RELIEF_PRINTER_EDGE_MM),
+        "printer_max_y_mm": str(LOCAL_RELIEF_PRINTER_EDGE_MM),
+        "printer_max_z_mm": str(LOCAL_RELIEF_PRINTER_EDGE_MM),
         "printer_clearance_mm": "0",
-        "print_scale_percent": str(float(long_edge_mm) / 256.0 * 100.0),
-        "selection_background_depth_ratio": str(float(background_depth_ratio)),
+        "print_scale_percent": str(float(print_scale_percent)),
         "sigma": "0.35",
         "detail_boost": "0.8",
         "printable_feature_depth_mm": "0.4",
@@ -790,7 +800,6 @@ def generate_relief(
         "max_relief_slope": "2.0",
         "nozzle_diameter_mm": "0.4",
         "minimum_feature_mm": "0.8",
-        "completion_mode": "none",
         "face_refinement_mode": "auto",
         "face_detail_strength": "1.0",
         "face_feather_ratio": "0.20",
@@ -799,10 +808,11 @@ def generate_relief(
     if selected:
         data["selection_job_id"] = selection["job_id"]
     release_gpu_models()
-    with open(image_path, "rb") as image_file:
+    request_image_path = (selection.get("selected") or image_path) if selected else image_path
+    with open(request_image_path, "rb") as image_file:
         response = BACKEND_CLIENT.post(
             "/process_image",
-            files={"file": (Path(image_path).name, image_file, "image/png")},
+            files={"file": (Path(request_image_path).name, image_file, "image/png")},
             data=data,
         )
     if response.status_code != 200:
