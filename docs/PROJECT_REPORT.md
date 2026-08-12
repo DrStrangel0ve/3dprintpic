@@ -123,16 +123,24 @@ because a tiny physical print cannot reproduce every retained sub-nozzle
 sample. See
 [relief-scale-independent-sampling.md](relief-scale-independent-sampling.md).
 
-The default `Trim empty sky` pass no longer uses a single top-band RGB color.
-That method retained cloud and night-sky gradients as tall, nearly blank STL
-slabs. The replacement smooths sensor-scale variation in Lab space, detects
-supported structural boundaries, preserves objects entering through the top
-edge, interpolates only columns without a trustworthy boundary, and uses alpha
-directly for transparent sources. On the exact local failure replay it increased
-the intentionally removed upper area from `0.119349` to approximately `0.276`
-while preserving the clock tower, hotel roofs, all three people, and foreground.
-Uniform or otherwise boundary-free inputs fail closed to the full rectangle.
-Aggregate replay evidence is under
+The default `Trim empty sky` pass no longer treats every strong image edge as
+the skyline. The structural v2 detector fixed the original single-color mask,
+but a difficult night photo showed that high-contrast clouds could still form
+a broad blank slab around a narrow clock tower. The production v3 detector
+requires sustained depth departure below an image boundary and treats the SAM
+selection as a hard preservation constraint. Alpha remains authoritative for
+transparent sources; missing or ambiguous depth fails closed to the structural
+or complete-rectangle path. The mask is applied only at final mesh emission,
+after depth shaping, smoothing, face guards, and background constraints.
+
+On the exact private 2,048 x 1,536 replay, v3 removed `0.357076` of the upper
+grid versus `0.276123` for v2. It removed zero selected or face pixels and all
+`126,404/126,404` retained Z samples matched an untrimmed current-build control
+bit-for-bit. The resulting 505,612-face STL remained one watertight, manifold,
+winding-consistent positive volume with zero degenerate or non-manifold faces.
+Private pixels and derived geometry remain local. Aggregate evidence is under
+[`benchmark-evidence/relief_depth_supported_skyline_20260813`](benchmark-evidence/relief_depth_supported_skyline_20260813);
+the earlier v2 record remains under
 [`benchmark-evidence/relief_structural_skyline_20260812`](benchmark-evidence/relief_structural_skyline_20260812).
 
 ### Scene diorama

@@ -1367,6 +1367,113 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertGreaterEqual(int(np.median(skyline_rows[88:112])), 27)
         self.assertLessEqual(int(np.median(skyline_rows[88:112])), 31)
 
+    def test_top_silhouette_requires_sustained_depth_below_cloud_edges(self):
+        height, width = 80, 120
+        source = np.full((height, width, 3), (32, 40, 54), dtype=np.uint8)
+        source[12:15, :] = (112, 116, 120)
+        source[44:, :38] = (42, 28, 20)
+        source[8:, 52:66] = (126, 78, 34)
+        source[31:, 84:] = (14, 36, 90)
+        depth = np.full((height, width), 0.12, dtype=np.float32)
+        depth[44:, :38] = 0.64
+        depth[8:, 52:66] = 0.82
+        depth[31:, 84:] = 0.71
+
+        silhouette, stats = _top_silhouette_mask(
+            source,
+            source.shape[:2],
+            padding_px=0,
+            depth_values=depth,
+        )
+        skyline_rows = np.argmax(np.flip(silhouette, axis=1), axis=0)
+
+        self.assertTrue(stats["enabled"])
+        self.assertEqual(stats["method"], "depth_supported_structural_skyline_v3")
+        self.assertTrue(stats["depth_evidence"]["supported"])
+        self.assertGreaterEqual(int(np.median(skyline_rows[5:32])), 43)
+        self.assertLessEqual(int(np.median(skyline_rows[5:32])), 45)
+        self.assertLessEqual(int(np.median(skyline_rows[55:63])), 8)
+        self.assertGreaterEqual(int(np.median(skyline_rows[90:114])), 30)
+
+    def test_top_silhouette_never_removes_selected_spire_pixels(self):
+        height, width = 72, 96
+        source = np.full((height, width, 3), (28, 35, 48), dtype=np.uint8)
+        source[40:, :] = (44, 31, 22)
+        protected = np.zeros((height, width), dtype=bool)
+        protected[3:, 47] = True
+        depth = np.full((height, width), 0.15, dtype=np.float32)
+        depth[40:, :] = 0.72
+
+        silhouette, stats = _top_silhouette_mask(
+            source,
+            source.shape[:2],
+            padding_px=0,
+            depth_values=depth,
+            protected_region_mask=protected,
+        )
+        source_silhouette = np.flip(silhouette, axis=1)
+
+        self.assertTrue(np.all(source_silhouette[protected]))
+        self.assertEqual(stats["protected_removed_pixels"], 0)
+        self.assertEqual(stats["protected_column_count"], 1)
+        self.assertTrue(stats["protected_region_used"])
+        self.assertLessEqual(int(np.argmax(source_silhouette[:, 47])), 3)
+
+    def test_top_silhouette_changes_only_final_mesh_coverage(self):
+        height, width = 36, 48
+        yy, xx = np.indices((height, width), dtype=np.float32)
+        depth = 0.12 + 0.008 * yy + 0.004 * xx
+        source = np.full((height, width, 3), (30, 39, 52), dtype=np.uint8)
+        source[15:, :18] = (65, 42, 24)
+        source[5:, 22:29] = (132, 78, 34)
+        source[20:, 34:] = (18, 40, 88)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            depth_path = root / "depth.npy"
+            source_path = root / "source.png"
+            trimmed_surface_path = root / "trimmed.npy"
+            rectangular_surface_path = root / "rectangular.npy"
+            np.save(depth_path, depth)
+            Image.fromarray(source).save(source_path)
+            trimmed_stats = depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=root / "trimmed.stl",
+                target_dimension=-1,
+                z_scale=10.0,
+                max_xy_size=48.0,
+                source_image=source_path,
+                trim_top_background=True,
+                surface_output_path=trimmed_surface_path,
+                base_thickness_mm=2.4,
+            )
+            depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=root / "rectangular.stl",
+                target_dimension=-1,
+                z_scale=10.0,
+                max_xy_size=48.0,
+                source_image=source_path,
+                trim_top_background=False,
+                surface_output_path=rectangular_surface_path,
+                base_thickness_mm=2.4,
+            )
+
+            trimmed = np.load(trimmed_surface_path)
+            rectangular = np.load(rectangular_surface_path)
+            top, left, bottom, right = trimmed_stats["surface_grid_transform"][
+                "crop_bbox_rc"
+            ]
+            rectangular_crop = rectangular[top:bottom, left:right]
+            common = np.isfinite(trimmed) & np.isfinite(rectangular_crop)
+
+            self.assertGreater(np.count_nonzero(~np.isfinite(trimmed)), 0)
+            np.testing.assert_array_equal(trimmed[common], rectangular_crop[common])
+            self.assertEqual(
+                trimmed_stats["top_silhouette"]["application_stage"],
+                "final_mesh_emission",
+            )
+
     def test_top_silhouette_uses_alpha_without_color_guessing(self):
         source = np.zeros((30, 40, 4), dtype=np.uint8)
         source[..., :3] = (220, 30, 180)

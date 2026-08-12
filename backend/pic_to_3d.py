@@ -2172,8 +2172,29 @@ def _inject_photo_relief_detail(
     }
 
 
-def _top_silhouette_mask(source_image, target_shape, padding_px=1):
-    """Keep everything below the first structural boundary in each column."""
+def _forward_mask_support(mask, vertical_px, horizontal_px):
+    """Measure mask support below each pixel without moving its leading edge."""
+    vertical_px = max(1, int(vertical_px))
+    horizontal_px = max(1, int(horizontal_px))
+    kernel = np.ones((vertical_px, horizontal_px), dtype=np.float32)
+    kernel /= float(kernel.size)
+    return cv2.filter2D(
+        np.asarray(mask, dtype=np.float32),
+        cv2.CV_32F,
+        kernel,
+        anchor=(horizontal_px // 2, 0),
+        borderType=cv2.BORDER_CONSTANT,
+    )
+
+
+def _top_silhouette_mask(
+    source_image,
+    target_shape,
+    padding_px=1,
+    depth_values=None,
+    protected_region_mask=None,
+):
+    """Keep everything below the first depth-supported boundary in each column."""
     full_mask = np.ones((int(target_shape[0]), int(target_shape[1])), dtype=bool)
     if source_image is None:
         return full_mask, {"enabled": False, "reason": "no_source_image"}
@@ -2204,6 +2225,13 @@ def _top_silhouette_mask(source_image, target_shape, padding_px=1):
     uses_alpha = bool(np.any(alpha < 0.95))
     gradient_threshold = None
     top_entry_threshold = None
+    depth_stats = {
+        "supported": False,
+        "reason": "source_alpha" if uses_alpha else "not_provided",
+    }
+    protected = None
+    if protected_region_mask is not None:
+        protected = _resize_binary_mask(protected_region_mask, full_mask.shape)
     if uses_alpha:
         content = maximum_filter(
             (alpha >= 0.05).astype(np.uint8),
@@ -2233,7 +2261,7 @@ def _top_silhouette_mask(source_image, target_shape, padding_px=1):
             structural = component_sizes[component_labels] >= 3
             structural[component_labels == 0] = False
 
-        content = maximum_filter(
+        structural_content = maximum_filter(
             structural.astype(np.uint8),
             size=(1, 3),
         ) > 0
@@ -2241,12 +2269,87 @@ def _top_silhouette_mask(source_image, target_shape, padding_px=1):
         top_background = np.median(top_lab.reshape(-1, 3), axis=0)
         top_entry_threshold = 25.0
         top_distance = np.max(np.abs(lab[0] - top_background), axis=1)
-        content[0] |= maximum_filter(
+        structural_content[0] |= maximum_filter(
             (top_distance >= top_entry_threshold).astype(np.uint8),
             size=3,
         ) > 0
+        content = structural_content
         boundary_interior_offset = 1
         method = "structural_boundary_skyline_v2"
+
+        if depth_values is not None:
+            depth = np.squeeze(np.asarray(depth_values, dtype=np.float32))
+            if depth.ndim == 2:
+                depth = _resize_nan_aware(depth, full_mask.shape)
+                finite = np.isfinite(depth)
+                top_rows = max(2, min(8, depth.shape[0]))
+                top_reference_mask = finite[:top_rows]
+                if protected is not None:
+                    top_reference_mask &= ~protected[:top_rows]
+                top_samples = depth[:top_rows][top_reference_mask]
+                finite_samples = depth[finite]
+                if top_samples.size >= max(16, depth.shape[1] // 4) and finite_samples.size:
+                    depth_p01, depth_p99 = np.percentile(finite_samples, [1.0, 99.0])
+                    depth_span = float(depth_p99 - depth_p01)
+                    top_background = float(np.median(top_samples))
+                    top_mad = float(np.median(np.abs(top_samples - top_background)))
+                    depth_tolerance = max(
+                        depth_span * 0.02,
+                        top_mad * 6.0,
+                        np.finfo(np.float32).eps * max(abs(top_background), 1.0) * 32.0,
+                    )
+                    if np.isfinite(depth_span) and depth_span > depth_tolerance:
+                        filled_depth = np.where(finite, depth, top_background)
+                        filled_depth = cv2.GaussianBlur(filled_depth, (0, 0), 0.6)
+                        depth_departure = finite & (
+                            np.abs(filled_depth - top_background) > depth_tolerance
+                        )
+                        depth_support = _forward_mask_support(depth_departure, 12, 3)
+                        structural_support = _forward_mask_support(structural, 14, 5)
+                        content = depth_departure & (depth_support >= 0.18)
+                        content |= structural_content & (depth_support >= 0.08) & (
+                            structural_support >= 0.055
+                        )
+                        method = "depth_supported_structural_skyline_v3"
+                        depth_stats = {
+                            "supported": True,
+                            "reason": None,
+                            "top_background_value": top_background,
+                            "top_background_mad": top_mad,
+                            "depth_p01": float(depth_p01),
+                            "depth_p99": float(depth_p99),
+                            "depth_span": depth_span,
+                            "departure_tolerance": float(depth_tolerance),
+                            "sustained_support_threshold": 0.18,
+                            "mixed_depth_support_threshold": 0.08,
+                            "mixed_structural_support_threshold": 0.055,
+                            "forward_depth_window": [12, 3],
+                            "forward_structural_window": [14, 5],
+                        }
+                    else:
+                        depth_stats = {
+                            "supported": False,
+                            "reason": "insufficient_depth_span",
+                            "depth_span": depth_span,
+                            "departure_tolerance": float(depth_tolerance),
+                        }
+                else:
+                    depth_stats = {
+                        "supported": False,
+                        "reason": "insufficient_top_reference_samples",
+                        "top_reference_samples": int(top_samples.size),
+                    }
+            else:
+                depth_stats = {
+                    "supported": False,
+                    "reason": "depth_not_2d",
+                }
+
+    if protected is not None and np.any(protected):
+        content |= maximum_filter(
+            protected.astype(np.uint8),
+            size=(1, 3),
+        ) > 0
 
     has_content = np.any(content, axis=0)
     if not np.any(has_content):
@@ -2276,9 +2379,24 @@ def _top_silhouette_mask(source_image, target_shape, padding_px=1):
         np.rint(first_content).astype(np.int32) + boundary_interior_offset
     )
     first_content = np.maximum(0, first_content - max(0, int(padding_px)))
+    protected_column_count = 0
+    if protected is not None:
+        protected_columns = np.any(protected, axis=0)
+        protected_column_count = int(np.count_nonzero(protected_columns))
+        if protected_column_count:
+            protected_first = np.argmax(protected, axis=0)
+            first_content[protected_columns] = np.minimum(
+                first_content[protected_columns],
+                protected_first[protected_columns],
+            )
     rows = np.arange(full_mask.shape[0])[:, None]
-    silhouette = rows >= first_content[None, :]
-    silhouette = np.flip(silhouette, axis=1)
+    source_silhouette = rows >= first_content[None, :]
+    protected_removed_pixels = (
+        int(np.count_nonzero(protected & ~source_silhouette))
+        if protected is not None
+        else 0
+    )
+    silhouette = np.flip(source_silhouette, axis=1)
     removed = ~silhouette
     return silhouette, {
         "enabled": bool(np.any(removed)),
@@ -2292,6 +2410,10 @@ def _top_silhouette_mask(source_image, target_shape, padding_px=1):
         "source_alpha_used": uses_alpha,
         "structural_gradient_threshold": gradient_threshold,
         "top_entry_color_distance": top_entry_threshold,
+        "depth_evidence": depth_stats,
+        "protected_region_used": protected is not None,
+        "protected_column_count": protected_column_count,
+        "protected_removed_pixels": protected_removed_pixels,
     }
 
 
@@ -6363,6 +6485,23 @@ def depth_data_to_3d_model(
         print("Skipping downsampling as target_dimension is -1")
     target_depth_shape = [int(data.shape[0]), int(data.shape[1])]
 
+    if trim_top_background:
+        top_silhouette_mask, top_silhouette_stats = _top_silhouette_mask(
+            source_image,
+            data.shape,
+            depth_values=data,
+            protected_region_mask=selected_region,
+        )
+    else:
+        top_silhouette_mask = np.ones(data.shape, dtype=bool)
+        top_silhouette_stats = {"enabled": False, "reason": "disabled"}
+    emission_top_silhouette_mask = top_silhouette_mask
+    top_silhouette_stats["application_stage"] = "final_mesh_emission"
+    # Skyline trimming changes the emitted outline only. Keep it out of depth
+    # shaping, smoothing, face guards, and background-cap calculations so every
+    # retained height sample is identical to the corresponding rectangular run.
+    top_silhouette_mask = np.ones(data.shape, dtype=bool)
+
     # Flip the x axis
     data = np.flip(data, axis=1)
     if normalization_reference is not None:
@@ -6377,12 +6516,6 @@ def depth_data_to_3d_model(
     subject_surface_locked = bool(
         selection_subject_lock and selected_region is not None
     )
-    if trim_top_background:
-        top_silhouette_mask, top_silhouette_stats = _top_silhouette_mask(source_image, data.shape)
-    else:
-        top_silhouette_mask = np.ones(data.shape, dtype=bool)
-        top_silhouette_stats = {"enabled": False, "reason": "disabled"}
-
     detail_protection_mask = None
     if region_mask is not None or (
         selected_region is not None and not subject_surface_locked
@@ -6509,6 +6642,10 @@ def depth_data_to_3d_model(
         else None
     )
     top_silhouette_mask = _resize_binary_mask(top_silhouette_mask, relief.shape)
+    emission_top_silhouette_mask = _resize_binary_mask(
+        emission_top_silhouette_mask,
+        relief.shape,
+    )
     relief = np.where(top_silhouette_mask, relief, np.nan)
     relief = _flatten_border(
         relief,
@@ -7373,6 +7510,7 @@ def depth_data_to_3d_model(
 
     # Every finite top-surface sample must stay on or above the backing plate,
     # including exports that disable the optional flattened border.
+    top_silhouette_mask = emission_top_silhouette_mask
     z = np.where(
         top_silhouette_mask,
         np.maximum(z, backing_thickness_mm),
@@ -7444,7 +7582,11 @@ def depth_data_to_3d_model(
     # Crop the data to the bounding box
     z = z[top:bottom, left:right]
     mask = mask[top:bottom, left:right]
-    reference_surface = unstabilized_scene[top:bottom, left:right]
+    reference_surface = np.where(
+        top_silhouette_mask,
+        unstabilized_scene,
+        np.nan,
+    )[top:bottom, left:right]
     surface_grid_transform = {
         "schema_version": 1,
         "input_depth_shape": input_depth_shape,
