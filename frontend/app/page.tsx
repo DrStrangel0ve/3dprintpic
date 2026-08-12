@@ -3217,7 +3217,7 @@ export default function Home() {
                           checked={trimTopBackground}
                           onChange={(event) => setTrimTopBackground(event.target.checked)}
                         />
-                        Skyline top
+                        Trim empty sky
                       </label>
                     </div>
                   </div>

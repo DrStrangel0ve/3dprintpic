@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "date": "2026-08-12",
+  "method": "structural_boundary_skyline_v2",
+  "privacy": {
+    "source_artifacts_published": false,
+    "aggregate_metrics_only": true
+  },
+  "previous": {
+    "removed_area_ratio": 0.11934916178385417,
+    "finite_surface_ratio": 0.8806508382161459,
+    "stl_faces": 692568,
+    "stl_bytes": 34628484
+  },
+  "candidate": {
+    "removed_area_ratio": 0.276123046875,
+    "finite_surface_ratio": 0.723876953125,
+    "stl_faces": 569276,
+    "stl_bytes": 28463884,
+    "face_pixels_removed": 0,
+    "face_z_max_abs_delta_mm": 0.0,
+    "interior_3px_z_max_abs_delta_mm": 9.5367431640625e-7,
+    "interior_5px_z_max_abs_delta_mm": 0.0,
+    "stl_is_watertight": true,
+    "stl_is_manifold": true,
+    "stl_winding_consistent": true,
+    "stl_positive_volume": true,
+    "stl_component_count": 1,
+    "stl_degenerate_face_count": 0
+  },
+  "reduction": {
+    "stl_face_ratio": 0.17802150835730213,
+    "stl_byte_ratio": 0.17802107652185983
+  }
+}

@@ -186,6 +186,7 @@ test('print footprint reports independent X and Y dimensions from the media aspe
     buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="400" height="200" fill="white"/></svg>'),
   });
 
+  await expect(page.getByText('Trim empty sky')).toBeVisible();
   await expect(page.getByTestId('print-size-x')).toHaveText('256.0 mm');
   await expect(page.getByTestId('print-size-y')).toHaveText('128.0 mm');
 

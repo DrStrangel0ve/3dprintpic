@@ -123,6 +123,18 @@ because a tiny physical print cannot reproduce every retained sub-nozzle
 sample. See
 [relief-scale-independent-sampling.md](relief-scale-independent-sampling.md).
 
+The default `Trim empty sky` pass no longer uses a single top-band RGB color.
+That method retained cloud and night-sky gradients as tall, nearly blank STL
+slabs. The replacement smooths sensor-scale variation in Lab space, detects
+supported structural boundaries, preserves objects entering through the top
+edge, interpolates only columns without a trustworthy boundary, and uses alpha
+directly for transparent sources. On the exact local failure replay it increased
+the intentionally removed upper area from `0.119349` to approximately `0.276`
+while preserving the clock tower, hotel roofs, all three people, and foreground.
+Uniform or otherwise boundary-free inputs fail closed to the full rectangle.
+Aggregate replay evidence is under
+[`benchmark-evidence/relief_structural_skyline_20260812`](benchmark-evidence/relief_structural_skyline_20260812).
+
 ### Scene diorama
 
 The scene route keeps a common monocular depth coordinate system for the

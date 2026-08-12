@@ -1336,7 +1336,61 @@ class ReliefStlControlsTest(unittest.TestCase):
         # The helper flips horizontally to match the STL coordinate system.
         skyline_rows = np.argmax(silhouette, axis=0)
         np.testing.assert_array_equal(skyline_rows[:13], np.full(13, 3))
-        np.testing.assert_array_equal(skyline_rows[13:], np.full(11, 7))
+        np.testing.assert_array_equal(skyline_rows[-9:], np.full(9, 7))
+        self.assertTrue(np.all(np.diff(skyline_rows) >= 0))
+        self.assertEqual(stats["method"], "structural_boundary_skyline_v2")
+
+    def test_top_silhouette_ignores_smooth_cloud_gradient_but_keeps_structures(self):
+        height, width = 80, 120
+        yy, xx = np.indices((height, width), dtype=np.float32)
+        sky = np.empty((height, width, 3), dtype=np.float32)
+        sky[..., 0] = 38.0 + 0.18 * yy
+        sky[..., 1] = 46.0 + 0.13 * yy
+        sky[..., 2] = 59.0 + 0.08 * yy
+        cloud = 30.0 * np.exp(-(((xx - 28.0) / 24.0) ** 2 + ((yy - 17.0) / 12.0) ** 2))
+        sky += cloud[..., None]
+        source = np.clip(sky, 0, 255).astype(np.uint8)
+        source[42:, :35] = (35, 28, 24)
+        source[8:, 48:62] = (118, 74, 35)
+        source[30:, 80:] = (12, 34, 86)
+        source[60:, :] = (32, 38, 34)
+
+        silhouette, stats = _top_silhouette_mask(source, source.shape[:2], padding_px=0)
+        skyline_rows = np.argmax(np.flip(silhouette, axis=1), axis=0)
+
+        self.assertTrue(stats["enabled"])
+        self.assertEqual(stats["method"], "structural_boundary_skyline_v2")
+        self.assertGreater(stats["removed_area_ratio"], 0.35)
+        self.assertGreaterEqual(int(np.median(skyline_rows[5:30])), 39)
+        self.assertLessEqual(int(np.median(skyline_rows[5:30])), 43)
+        self.assertLessEqual(int(np.median(skyline_rows[50:60])), 10)
+        self.assertGreaterEqual(int(np.median(skyline_rows[88:112])), 27)
+        self.assertLessEqual(int(np.median(skyline_rows[88:112])), 31)
+
+    def test_top_silhouette_uses_alpha_without_color_guessing(self):
+        source = np.zeros((30, 40, 4), dtype=np.uint8)
+        source[..., :3] = (220, 30, 180)
+        source[12:, 8:32, 3] = 255
+
+        silhouette, stats = _top_silhouette_mask(source, source.shape[:2], padding_px=0)
+        skyline_rows = np.argmax(np.flip(silhouette, axis=1), axis=0)
+
+        self.assertTrue(stats["enabled"])
+        self.assertTrue(stats["source_alpha_used"])
+        self.assertEqual(stats["method"], "alpha_silhouette_v2")
+        np.testing.assert_array_equal(skyline_rows[9:31], np.full(22, 12))
+        self.assertFalse(np.any(silhouette[:, :7]))
+        self.assertFalse(np.any(silhouette[:, 33:]))
+        self.assertEqual(stats["interpolated_column_count"], 0)
+
+    def test_top_silhouette_fails_closed_without_a_structural_boundary(self):
+        source = np.full((30, 40, 3), 90, dtype=np.uint8)
+
+        silhouette, stats = _top_silhouette_mask(source, source.shape[:2], padding_px=0)
+
+        np.testing.assert_array_equal(silhouette, np.ones(source.shape[:2], dtype=bool))
+        self.assertFalse(stats["enabled"])
+        self.assertEqual(stats["reason"], "no_trustworthy_structural_boundary")
 
     def test_weighted_feature_depth_is_signed_bounded_and_masked(self):
         yy, xx = np.indices((48, 48), dtype=np.float32)

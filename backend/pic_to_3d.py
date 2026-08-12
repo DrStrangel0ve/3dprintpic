@@ -2173,7 +2173,7 @@ def _inject_photo_relief_detail(
 
 
 def _top_silhouette_mask(source_image, target_shape, padding_px=1):
-    """Keep everything below the first non-background pixel in each column."""
+    """Keep everything below the first structural boundary in each column."""
     full_mask = np.ones((int(target_shape[0]), int(target_shape[1])), dtype=bool)
     if source_image is None:
         return full_mask, {"enabled": False, "reason": "no_source_image"}
@@ -2195,18 +2195,86 @@ def _top_silhouette_mask(source_image, target_shape, padding_px=1):
         }
 
     image = image.resize((full_mask.shape[1], full_mask.shape[0]), Image.Resampling.LANCZOS)
-    rgba = np.asarray(image, dtype=np.float32) / 255.0
-    rgb = rgba[..., :3]
-    alpha = rgba[..., 3]
-    top_band = rgb[: max(2, min(6, rgb.shape[0])), :, :].reshape(-1, 3)
-    background_color = np.median(top_band, axis=0)
-    color_distance = np.max(np.abs(rgb - background_color), axis=2)
-    background = (alpha < 0.05) | ((color_distance < 0.08) & (alpha > 0.95))
-    content = maximum_filter((~background).astype(np.uint8), size=3) > 0
+    rgba_u8 = np.asarray(image, dtype=np.uint8)
+    rgb_u8 = rgba_u8[..., :3]
+    alpha = rgba_u8[..., 3].astype(np.float32) / 255.0
+    top_band = rgb_u8[: max(2, min(8, rgb_u8.shape[0])), :, :].reshape(-1, 3)
+    background_color = np.median(top_band.astype(np.float32), axis=0) / 255.0
+
+    uses_alpha = bool(np.any(alpha < 0.95))
+    gradient_threshold = None
+    top_entry_threshold = None
+    if uses_alpha:
+        content = maximum_filter(
+            (alpha >= 0.05).astype(np.uint8),
+            size=(1, 3),
+        ) > 0
+        boundary_interior_offset = 0
+        method = "alpha_silhouette_v2"
+    else:
+        # A single sampled sky color turns clouds, night gradients, and uneven
+        # illumination into tall slabs. Structural edges are much more stable:
+        # broad sky changes are smoothed away while roofs, hair, towers, and
+        # horizon boundaries remain strong.
+        lab = cv2.cvtColor(rgb_u8, cv2.COLOR_RGB2LAB).astype(np.float32)
+        lab = cv2.GaussianBlur(lab, (0, 0), 0.6)
+        gradient_x = cv2.Scharr(lab, cv2.CV_32F, 1, 0) / 4080.0
+        gradient_y = cv2.Scharr(lab, cv2.CV_32F, 0, 1) / 4080.0
+        gradient = np.sqrt(np.sum(gradient_x * gradient_x + gradient_y * gradient_y, axis=2))
+        gradient_threshold = 0.065
+        structural = gradient >= gradient_threshold
+
+        component_labels, component_count = label(
+            structural,
+            structure=np.ones((3, 3), dtype=np.uint8),
+        )
+        if component_count:
+            component_sizes = np.bincount(component_labels.ravel())
+            structural = component_sizes[component_labels] >= 3
+            structural[component_labels == 0] = False
+
+        content = maximum_filter(
+            structural.astype(np.uint8),
+            size=(1, 3),
+        ) > 0
+        top_lab = lab[: max(2, min(8, lab.shape[0]))]
+        top_background = np.median(top_lab.reshape(-1, 3), axis=0)
+        top_entry_threshold = 25.0
+        top_distance = np.max(np.abs(lab[0] - top_background), axis=1)
+        content[0] |= maximum_filter(
+            (top_distance >= top_entry_threshold).astype(np.uint8),
+            size=3,
+        ) > 0
+        boundary_interior_offset = 1
+        method = "structural_boundary_skyline_v2"
 
     has_content = np.any(content, axis=0)
-    first_content = np.argmax(content, axis=0)
-    first_content = np.where(has_content, first_content, full_mask.shape[0])
+    if not np.any(has_content):
+        return full_mask, {
+            "enabled": False,
+            "reason": "no_trustworthy_structural_boundary",
+            "method": method,
+            "background_color": [float(value) for value in background_color],
+        }
+
+    first_content = np.argmax(content, axis=0).astype(np.float32)
+    missing_columns = ~has_content
+    interpolated_column_count = 0
+    if uses_alpha:
+        first_content[missing_columns] = full_mask.shape[0]
+    elif np.any(missing_columns):
+        known_columns = np.flatnonzero(has_content)
+        first_content[missing_columns] = np.interp(
+            np.flatnonzero(missing_columns),
+            known_columns,
+            first_content[known_columns],
+        )
+        interpolated_column_count = int(np.count_nonzero(missing_columns))
+    if first_content.size >= 5:
+        first_content = cv2.medianBlur(first_content.reshape(1, -1), 5).reshape(-1)
+    first_content = (
+        np.rint(first_content).astype(np.int32) + boundary_interior_offset
+    )
     first_content = np.maximum(0, first_content - max(0, int(padding_px)))
     rows = np.arange(full_mask.shape[0])[:, None]
     silhouette = rows >= first_content[None, :]
@@ -2214,11 +2282,16 @@ def _top_silhouette_mask(source_image, target_shape, padding_px=1):
     removed = ~silhouette
     return silhouette, {
         "enabled": bool(np.any(removed)),
+        "method": method,
         "background_color": [float(value) for value in background_color],
         "removed_area_ratio": float(np.mean(removed)),
         "skyline_min_row": int(np.min(first_content)),
         "skyline_max_row": int(np.max(first_content)),
         "padding_px": int(max(0, padding_px)),
+        "interpolated_column_count": interpolated_column_count,
+        "source_alpha_used": uses_alpha,
+        "structural_gradient_threshold": gradient_threshold,
+        "top_entry_color_distance": top_entry_threshold,
     }
 
 
