@@ -748,6 +748,7 @@ def generate_relief(
         "depth_provider": "transformers",
         "depth_model": depth_model_source,
         "device": "cuda",
+        "depth_downsample_sharpening": "0.35",
         "target_dimension": str(int(detail_samples)),
         "z_scale": str(float(relief_height_mm)),
         "max_xy_size": str(max(x_mm, y_mm)),

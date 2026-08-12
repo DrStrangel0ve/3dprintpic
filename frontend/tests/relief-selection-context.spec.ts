@@ -205,6 +205,8 @@ test('selected relief sends the selected preview and atomic compose job', async 
   expect(processMultipartBody).not.toContain('isolate');
   expect(processMultipartBody).toContain('name="selection_subject_lock"');
   expect(processMultipartBody).toContain('true');
+  expect(processMultipartBody).toContain('name="depth_downsample_sharpening"');
+  expect(processMultipartBody).toContain('0.35');
   expect(processMultipartBody).not.toContain('name="depth_context_file"');
   expect(processMultipartBuffer.includes(selectedPng)).toBe(true);
   expect(processMultipartBuffer.includes(originalPng)).toBe(false);

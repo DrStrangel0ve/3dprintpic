@@ -32,6 +32,8 @@ from backend.pic_to_3d import (
     _guard_face_detail_updates,
     _inject_photo_relief_detail,
     _photo_detail_background_gate,
+    _prepare_depth_downsample_input,
+    _depth_processor_output_size,
     _limit_positive_relief_slope,
     _prepare_relief_for_printing,
     _relax_selection_attachment_conflicts,
@@ -50,6 +52,76 @@ from backend.pic_to_3d import (
 
 
 class ReliefStlControlsTest(unittest.TestCase):
+    def test_depth_processor_output_size_matches_aspect_preserving_dpt_resize(self):
+        source = Image.new("RGB", (3840, 2160), (80, 120, 160))
+        processor = SimpleNamespace(
+            do_resize=True,
+            size={"width": 518, "height": 518},
+            keep_aspect_ratio=True,
+            ensure_multiple_of=14,
+        )
+
+        self.assertEqual(
+            _depth_processor_output_size(source, processor),
+            (924, 518),
+        )
+
+    def test_depth_input_sharpening_preserves_edges_through_model_resize(self):
+        width = 1024
+        x = np.arange(width, dtype=np.float32)
+        signal = 127.0 + 54.0 * np.sin(2.0 * np.pi * x / 18.0)
+        values = np.repeat(signal[None, :, None], width, axis=0)
+        values = np.repeat(values, 3, axis=2).clip(0, 255).astype(np.uint8)
+        source = Image.fromarray(values, mode="RGB")
+        processor = SimpleNamespace(
+            do_resize=True,
+            size={"width": 128, "height": 128},
+            keep_aspect_ratio=True,
+            ensure_multiple_of=1,
+        )
+
+        prepared, metadata = _prepare_depth_downsample_input(
+            source,
+            processor,
+            sharpening=0.35,
+        )
+        baseline = np.asarray(
+            source.resize((128, 128), Image.Resampling.BICUBIC).convert("L"),
+            dtype=np.float32,
+        )
+        sharpened = np.asarray(
+            prepared.resize((128, 128), Image.Resampling.BICUBIC).convert("L"),
+            dtype=np.float32,
+        )
+        baseline_gradient = float(np.mean(np.abs(np.diff(baseline, axis=1))))
+        sharpened_gradient = float(np.mean(np.abs(np.diff(sharpened, axis=1))))
+
+        self.assertTrue(metadata["enabled"])
+        self.assertEqual(
+            metadata["method"],
+            "scale_aware_luminance_unsharp_before_model_resize_v1",
+        )
+        self.assertAlmostEqual(metadata["downsample_scale"], 8.0)
+        self.assertGreater(sharpened_gradient, baseline_gradient * 1.05)
+
+    def test_depth_input_sharpening_is_bounded_and_skips_small_images(self):
+        source = Image.new("RGB", (96, 64), (80, 120, 160))
+        processor = SimpleNamespace(
+            do_resize=True,
+            size={"width": 518, "height": 518},
+        )
+
+        prepared, metadata = _prepare_depth_downsample_input(
+            source,
+            processor,
+            sharpening=4.0,
+        )
+
+        np.testing.assert_array_equal(np.asarray(prepared), np.asarray(source))
+        self.assertFalse(metadata["enabled"])
+        self.assertEqual(metadata["reason"], "input_not_downsampled")
+        self.assertEqual(metadata["strength"], 1.0)
+
     def test_modern_selection_inpaint_never_conditions_on_removed_pixels(self):
         rows, cols = np.indices((32, 48))
         source_values = np.zeros((32, 48, 3), dtype=np.uint8)
@@ -1015,6 +1087,7 @@ class ReliefStlControlsTest(unittest.TestCase):
                     "apple/DepthPro-hf",
                     "cpu",
                     "Depth Pro unavailable",
+                    downsample_sharpening=0.35,
                 )
 
         self.assertEqual(result, "depth.npy")
@@ -1025,6 +1098,7 @@ class ReliefStlControlsTest(unittest.TestCase):
             device="cpu",
             requested_model_name="apple/DepthPro-hf",
             fallback_reason="Depth Pro unavailable",
+            downsample_sharpening=0.35,
         )
 
     def test_depth_fallback_rejects_recursive_fallback_model(self):

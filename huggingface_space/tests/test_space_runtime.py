@@ -402,6 +402,7 @@ class SpaceRuntimeTests(unittest.TestCase):
             self.assertEqual(request_data["selection_background_depth_ratio"], "0.0")
             self.assertEqual(request_data["sigma"], "0.35")
             self.assertEqual(request_data["detail_boost"], "0.8")
+            self.assertEqual(request_data["depth_downsample_sharpening"], "0.35")
             self.assertEqual(request_data["printable_feature_depth_mm"], "0.4")
             self.assertEqual(request_data["face_detail_strength"], "1.0")
             self.assertEqual(request_data["selection_job_id"], selection["job_id"])

@@ -2277,6 +2277,10 @@ export default function Home() {
         formData.append('depth_provider', 'transformers');
         formData.append('depth_model', depthModel);
         formData.append('device', 'auto');
+        formData.append(
+          'depth_downsample_sharpening',
+          depthModel.toLowerCase().includes('depth-anything-v2') ? '0.35' : '0',
+        );
         formData.append('target_dimension', String(reliefTargetDimension));
         formData.append('z_scale', String(effectiveReliefHeight));
         formData.append('max_xy_size', String(printVolume.target_dimension_mm));

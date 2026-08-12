@@ -156,11 +156,13 @@ class MainStlContractTest(unittest.TestCase):
     def test_process_image_emits_output_model_and_diagnostics_json(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_root = Path(temp_dir) / "output"
+            observed_sharpening = []
 
             def fake_complete_image(input_path, **_kwargs):
                 return input_path, None
 
-            def fake_depth_data(_image_path, output_dir, **_kwargs):
+            def fake_depth_data(_image_path, output_dir, **kwargs):
+                observed_sharpening.append(kwargs["downsample_sharpening"])
                 depth_path = Path(output_dir) / "output_depth_data.npy"
                 rows, cols = np.indices((24, 32), dtype=np.float32)
                 np.save(depth_path, 0.1 + 0.01 * rows + 0.02 * cols)
@@ -177,6 +179,7 @@ class MainStlContractTest(unittest.TestCase):
                     files={"file": ("relief.png", self.png_bytes(), "image/png")},
                     data={
                         "target_dimension": "80",
+                        "depth_downsample_sharpening": "0.35",
                         "z_scale": "10",
                         "max_xy_size": "40",
                         "invert": "false",
@@ -207,6 +210,7 @@ class MainStlContractTest(unittest.TestCase):
                 self.assertRegex(provenance["revision"], r"^[a-f0-9]{40}$")
                 self.assertIn(provenance["clean"], (True, False))
                 self.assertEqual(payload["requested_target_dimension"], 80)
+                self.assertEqual(observed_sharpening, [0.35])
                 self.assertEqual(payload["target_dimension"], 512)
                 self.assertAlmostEqual(payload["relief_sample_pitch_mm"], 40 / 511)
                 self.assertTrue(payload["size_aware_detail"]["applied"])
@@ -298,6 +302,31 @@ class MainStlContractTest(unittest.TestCase):
                     data={"background_photo_detail_mm": invalid},
                 )
                 self.assertEqual(response.status_code, 422, response.text)
+
+    def test_process_image_rejects_invalid_depth_downsample_sharpening_before_work(self):
+        client = TestClient(main_module.app)
+        for invalid in ("nan", "inf", "-inf", "-0.01", "1.01"):
+            with self.subTest(invalid=invalid):
+                response = client.post(
+                    "/process_image",
+                    files={"file": ("invalid.png", self.png_bytes(), "image/png")},
+                    data={"depth_downsample_sharpening": invalid},
+                )
+                self.assertEqual(response.status_code, 422, response.text)
+
+    def test_process_image_rejects_sharpening_for_provider_managed_resize(self):
+        client = TestClient(main_module.app)
+        response = client.post(
+            "/process_image",
+            files={"file": ("invalid.png", self.png_bytes(), "image/png")},
+            data={
+                "depth_model": "depth-anything/DA3-LARGE",
+                "depth_downsample_sharpening": "0.35",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("only by Depth Anything V2", response.json()["detail"])
 
     def test_process_image_uses_original_selection_source_for_context_image_stages(self):
         with tempfile.TemporaryDirectory() as temp_dir:

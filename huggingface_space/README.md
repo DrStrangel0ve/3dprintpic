@@ -75,6 +75,13 @@ sample is replaced by a non-finite value before mesh construction. The cropped
 original RGB image supplies photo-detail features on that same grid. This keeps
 local-quality depth cues while ensuring scenery cannot enter the selected-object
 STL. The Background depth control remains exclusive to `Full scene`.
+Before Depth Anything V2 performs its model-native reduction, relief requests
+apply bounded scale-aware sharpening to source luminance at strength `0.35`.
+The radius follows the source-to-model reduction ratio, chroma is unchanged, and
+the step is skipped for images that are not reduced. This protects edges from
+the nominal 518-pixel DPT resize (with aspect ratio and patch multiples
+preserved) without adding a second unsharp pass to the relief or altering the
+original RGB used for selection and photo-detail recovery.
 Relief and diorama request 110
 seconds, and a full TripoSG mesh requests 150 seconds. The
 full-mesh reservation was reduced after a live ZeroGPU smoke showed that the

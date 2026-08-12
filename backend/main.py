@@ -244,6 +244,13 @@ def relief_invert_for_model(model_id: str | None, relief_polarity: str, requeste
     return far_is_high if relief_polarity == "raised-print" else not far_is_high
 
 
+def depth_downsample_sharpening_supported(provider: str | None, model_id: str | None) -> bool:
+    return str(provider or "").strip().lower() in {
+        "depth-anything-v2",
+        "transformers",
+    } and "depth-anything-v2" in str(model_id or "").strip().lower()
+
+
 def _positive_float(value: float | None) -> float | None:
     try:
         number = float(value)
@@ -2390,6 +2397,7 @@ async def process_image(
     depth_provider: str = Form(DEFAULT_DEPTH_PROVIDER),
     depth_model: str | None = Form(None),
     device: str = Form("auto"),
+    depth_downsample_sharpening: float = Form(0.0, ge=0.0, le=1.0),
     target_dimension: int = Form(300),
     z_scale: float = Form(10),
     max_xy_size: float | None = Form(None),
@@ -2517,6 +2525,17 @@ async def process_image(
 
         # Process the image and get depth data
         selected_model = depth_model or DEFAULT_DEPTH_MODEL
+        if depth_downsample_sharpening > 0 and not depth_downsample_sharpening_supported(
+            depth_provider,
+            selected_model,
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Depth downsample sharpening is supported only by "
+                    "Depth Anything V2 transformer models"
+                ),
+            )
         logger.info(
             "Processing image to get depth data with provider=%s model=%s device=%s",
             depth_provider,
@@ -2546,6 +2565,7 @@ async def process_image(
             provider=depth_provider,
             model_name=selected_model,
             device=device,
+            downsample_sharpening=depth_downsample_sharpening,
         )
         record_timing("depth_seconds", stage_started)
         logger.info(f"Depth data saved as: {depth_data_path}")
@@ -2564,6 +2584,7 @@ async def process_image(
                 provider=depth_provider,
                 model_name=effective_depth_model,
                 device=device,
+                downsample_sharpening=depth_downsample_sharpening,
             )
 
         selection_region_mask_path = (

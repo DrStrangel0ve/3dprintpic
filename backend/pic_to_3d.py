@@ -42,6 +42,7 @@ _DEPTH_PIPELINE_CACHE = {}
 _INPAINT_PIPELINE_CACHE = {}
 DEPTHPRO_MODEL_ID = "apple/DepthPro-hf"
 DEFAULT_DEPTH_FALLBACK_MODEL = "depth-anything/Depth-Anything-V2-Large-hf"
+MAX_DEPTH_DOWNSAMPLE_SHARPENING = 1.0
 RELIEF_VALUE_TRANSFORM_LINEAR = "linear"
 RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH = "inverse-depth"
 RELIEF_VALUE_TRANSFORMS = {
@@ -78,6 +79,111 @@ def _load_depth_input_image(input_image_path):
 
     with Image.open(input_image_path) as source_image:
         return ImageOps.exif_transpose(source_image).convert("RGB")
+
+
+def _depth_processor_nominal_size(image_processor):
+    size = getattr(image_processor, "size", None)
+    if not isinstance(size, dict) or not bool(getattr(image_processor, "do_resize", True)):
+        return None
+    try:
+        width = int(size.get("width") or size.get("shortest_edge") or 0)
+        height = int(size.get("height") or size.get("shortest_edge") or 0)
+    except (TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def _depth_processor_output_size(image, image_processor):
+    nominal_size = _depth_processor_nominal_size(image_processor)
+    if nominal_size is None:
+        return None
+    target_width, target_height = nominal_size
+    scale_width = target_width / float(image.width)
+    scale_height = target_height / float(image.height)
+    if bool(getattr(image_processor, "keep_aspect_ratio", False)):
+        # Match DPTImageProcessor: choose the scale closest to one, then apply it
+        # to both axes before constraining the result to the patch multiple.
+        if abs(1.0 - scale_width) < abs(1.0 - scale_height):
+            scale_height = scale_width
+        else:
+            scale_width = scale_height
+    try:
+        multiple = int(getattr(image_processor, "ensure_multiple_of", 1) or 1)
+    except (TypeError, ValueError):
+        multiple = 1
+    multiple = max(1, multiple)
+
+    def constrain(value):
+        return max(multiple, int(round(value / multiple)) * multiple)
+
+    return (
+        constrain(scale_width * image.width),
+        constrain(scale_height * image.height),
+    )
+
+
+def _prepare_depth_downsample_input(image, image_processor, sharpening=0.0):
+    """Pre-emphasize source luminance that would otherwise be lost at model resize."""
+    from PIL import Image, ImageFilter
+
+    rgb = image.convert("RGB")
+    try:
+        strength = float(sharpening)
+    except (TypeError, ValueError):
+        strength = 0.0
+    strength = float(np.clip(strength, 0.0, MAX_DEPTH_DOWNSAMPLE_SHARPENING))
+    nominal_size = _depth_processor_nominal_size(image_processor)
+    processor_output_size = _depth_processor_output_size(rgb, image_processor)
+    metadata = {
+        "enabled": False,
+        "method": "scale_aware_luminance_unsharp_before_model_resize_v1",
+        "strength": strength,
+        "source_size": [int(rgb.width), int(rgb.height)],
+        "nominal_model_size": list(nominal_size) if nominal_size is not None else None,
+        "processor_output_size": (
+            list(processor_output_size) if processor_output_size is not None else None
+        ),
+    }
+    if strength <= 0:
+        metadata["reason"] = "disabled"
+        return rgb, metadata
+    if processor_output_size is None:
+        metadata["reason"] = "processor_resize_unknown"
+        return rgb, metadata
+
+    target_width, target_height = processor_output_size
+    downsample_scale = max(
+        rgb.width / float(target_width),
+        rgb.height / float(target_height),
+    )
+    metadata["downsample_scale"] = float(downsample_scale)
+    if downsample_scale <= 1.05:
+        metadata["reason"] = "input_not_downsampled"
+        return rgb, metadata
+
+    # Match the source-space support of the model's resize kernel. Sharpen only
+    # luminance so colorful edges do not acquire chromatic ringing.
+    radius = float(np.clip(0.45 * downsample_scale, 0.75, 6.0))
+    percent = int(round(100.0 * strength))
+    luminance, chroma_blue, chroma_red = rgb.convert("YCbCr").split()
+    sharpened_luminance = luminance.filter(
+        ImageFilter.UnsharpMask(radius=radius, percent=percent, threshold=2)
+    )
+    sharpened = Image.merge(
+        "YCbCr",
+        (sharpened_luminance, chroma_blue, chroma_red),
+    ).convert("RGB")
+    metadata.update(
+        {
+            "enabled": True,
+            "radius_source_px": radius,
+            "percent": percent,
+            "threshold_8bit": 2,
+        }
+    )
+    return sharpened, metadata
 
 MODERN_INPAINT_MODELS = {
     "sdxl-inpaint": {
@@ -893,6 +999,7 @@ def process_image_get_depth_data(
     provider="depth-anything-v2",
     model_name=None,
     device="auto",
+    downsample_sharpening=0.0,
 ):
     if provider in ("depth-anything-v2", "transformers"):
         return process_image_get_depth_data_transformers(
@@ -900,6 +1007,7 @@ def process_image_get_depth_data(
             output_dir=output_dir,
             model_name=model_name or "depth-anything/Depth-Anything-V2-Small-hf",
             device=device,
+            downsample_sharpening=downsample_sharpening,
         )
 
     if provider == "sapiens":
@@ -944,6 +1052,7 @@ def process_image_get_depth_data_transformers(
     device="auto",
     requested_model_name=None,
     fallback_reason=None,
+    downsample_sharpening=0.0,
 ):
     model_name = model_name or "depth-anything/Depth-Anything-V2-Small-hf"
     if is_da3_model(model_name):
@@ -978,6 +1087,7 @@ def process_image_get_depth_data_transformers(
                     "Depth Anything V3 Large failed locally "
                     f"({type(exc).__name__}: {exc}); used verified local fallback instead."
                 ),
+                downsample_sharpening=downsample_sharpening,
             )
     if model_name == DEPTHPRO_MODEL_ID:
         return process_image_get_depth_data_depthpro(
@@ -987,6 +1097,7 @@ def process_image_get_depth_data_transformers(
             device=device,
             requested_model_name=requested_model_name,
             fallback_reason=fallback_reason,
+            downsample_sharpening=downsample_sharpening,
         )
 
     try:
@@ -1023,7 +1134,12 @@ def process_image_get_depth_data_transformers(
 
     depth_pipe = _DEPTH_PIPELINE_CACHE[cache_key]
     image = _load_depth_input_image(input_image_path)
-    result = depth_pipe(image)
+    inference_image, input_sharpening = _prepare_depth_downsample_input(
+        image,
+        depth_pipe.image_processor,
+        sharpening=downsample_sharpening,
+    )
+    result = depth_pipe(inference_image)
 
     predicted_depth = result.get("predicted_depth")
     if predicted_depth is not None:
@@ -1043,6 +1159,7 @@ def process_image_get_depth_data_transformers(
             "fallback_model": model_name if fallback_reason else None,
             "fallback_reason": fallback_reason,
             "relief_value_transform": relief_value_transform,
+            "depth_input_sharpening": input_sharpening,
         },
         normalize_depth=relief_value_transform == RELIEF_VALUE_TRANSFORM_LINEAR,
         preview_value_transform=relief_value_transform,
@@ -1056,6 +1173,7 @@ def process_image_get_depth_data_depthpro(
     device="auto",
     requested_model_name=None,
     fallback_reason=None,
+    downsample_sharpening=0.0,
 ):
     try:
         import torch
@@ -1067,6 +1185,7 @@ def process_image_get_depth_data_depthpro(
             requested_model_name or model_name,
             device,
             f"Apple Depth Pro dependencies are unavailable: {exc}",
+            downsample_sharpening=downsample_sharpening,
         )
 
     if not _hf_model_has_local_weights(model_name):
@@ -1076,6 +1195,7 @@ def process_image_get_depth_data_depthpro(
             requested_model_name or model_name,
             device,
             "Apple Depth Pro weights are not fully cached yet; used verified local fallback instead.",
+            downsample_sharpening=downsample_sharpening,
         )
 
     try:
@@ -1145,10 +1265,19 @@ def process_image_get_depth_data_depthpro(
             requested_model_name or model_name,
             device,
             f"Apple Depth Pro failed locally ({type(exc).__name__}: {exc}); used verified local fallback instead.",
+            downsample_sharpening=downsample_sharpening,
         )
 
 
-def _run_depth_fallback(input_image_path, output_dir, requested_model_name, device, reason):
+def _run_depth_fallback(
+    input_image_path,
+    output_dir,
+    requested_model_name,
+    device,
+    reason,
+    *,
+    downsample_sharpening=0.0,
+):
     fallback_model = os.getenv("DEPTH_FALLBACK_MODEL", DEFAULT_DEPTH_FALLBACK_MODEL)
     if fallback_model == requested_model_name:
         raise RuntimeError(reason)
@@ -1160,6 +1289,7 @@ def _run_depth_fallback(input_image_path, output_dir, requested_model_name, devi
         device=device,
         requested_model_name=requested_model_name,
         fallback_reason=reason,
+        downsample_sharpening=downsample_sharpening,
     )
 
 
