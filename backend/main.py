@@ -298,6 +298,19 @@ def relief_sample_pitch_mm(max_xy_size: float | None, target_dimension: int) -> 
     return physical_xy / float(max(1, target_dimension - 1))
 
 
+def resolve_relief_detail_basis_mm(
+    max_xy_size: float | None,
+    detail_basis_mm: float | None,
+) -> float | None:
+    output_size = _positive_float(max_xy_size)
+    requested_basis = _positive_float(detail_basis_mm)
+    if requested_basis is None:
+        return output_size
+    if output_size is None:
+        return requested_basis
+    return max(output_size, requested_basis)
+
+
 def resolve_minimum_feature_mm(
     nozzle_diameter_mm: float | None,
     requested_minimum_feature_mm: float | None,
@@ -2401,7 +2414,8 @@ async def process_image(
     target_dimension: int = Form(300),
     z_scale: float = Form(10),
     base_thickness_mm: float = Form(2.4, ge=0.4, le=20.0),
-    max_xy_size: float | None = Form(None),
+    max_xy_size: float | None = Form(None, ge=1.0, le=2000.0),
+    detail_basis_mm: float | None = Form(None, ge=1.0, le=2000.0),
     printer_profile: str | None = Form(None),
     printer_max_x_mm: float | None = Form(None),
     printer_max_y_mm: float | None = Form(None),
@@ -2437,6 +2451,11 @@ async def process_image(
     face_max_correction_ratio: float = Form(DEFAULT_FACE_MAX_CORRECTION_RATIO),
 ):
     logger.info(f"Received file: {file.filename}")
+    if detail_basis_mm is not None and max_xy_size is None:
+        raise HTTPException(
+            status_code=400,
+            detail="detail_basis_mm requires max_xy_size for final STL scaling",
+        )
 
     job_id = uuid4().hex
     job_dir = OUTPUT_DIR / job_id
@@ -2711,9 +2730,14 @@ async def process_image(
                 }
             else:
                 context_depth = np.load(depth_data_path).astype(np.float32)
+                effective_detail_basis_mm = resolve_relief_detail_basis_mm(
+                    max_xy_size,
+                    detail_basis_mm,
+                )
                 context_sample_pitch_mm = (
-                    float(max_xy_size) / max(max(context_depth.shape) - 1, 1)
-                    if max_xy_size is not None and float(max_xy_size) > 0
+                    float(effective_detail_basis_mm)
+                    / max(max(context_depth.shape) - 1, 1)
+                    if effective_detail_basis_mm is not None
                     else 1.0
                 )
                 try:
@@ -2777,7 +2801,15 @@ async def process_image(
             printer_clearance_mm=printer_clearance_mm,
             mesh_resolution_multiplier=mesh_resolution_multiplier,
         )
+        effective_detail_basis_mm = resolve_relief_detail_basis_mm(
+            max_xy_size,
+            detail_basis_mm,
+        )
         effective_sample_pitch_mm = relief_sample_pitch_mm(max_xy_size, effective_target_dimension)
+        effective_detail_sample_pitch_mm = relief_sample_pitch_mm(
+            effective_detail_basis_mm,
+            effective_target_dimension,
+        )
         effective_minimum_feature_mm = resolve_minimum_feature_mm(
             nozzle_diameter_mm,
             minimum_feature_mm,
@@ -2804,6 +2836,7 @@ async def process_image(
             z_scale=z_scale,
             base_thickness_mm=base_thickness_mm,
             max_xy_size=max_xy_size,
+            detail_basis_mm=effective_detail_basis_mm,
             invert=effective_invert,
             sigma=sigma,
             relief_gamma=relief_gamma,
@@ -2861,6 +2894,7 @@ async def process_image(
                 "job_id": job_id,
                 "runner": "depth-relief",
                 "artifact_contract": "output_model.stl + diagnostics.json",
+                "relief_postprocess": relief_postprocess,
             }
         )
         record_timing("diagnostics_seconds", stage_started)
@@ -2883,9 +2917,11 @@ async def process_image(
             "target_dimension": effective_target_dimension,
             "requested_target_dimension": requested_target_dimension,
             "relief_sample_pitch_mm": effective_sample_pitch_mm,
+            "detail_sample_pitch_mm": effective_detail_sample_pitch_mm,
             "z_scale": z_scale,
             "base_thickness_mm": base_thickness_mm,
             "max_xy_size": max_xy_size,
+            "detail_basis_mm": effective_detail_basis_mm,
             "printer": {
                 "profile": printer_profile,
                 "max_x_mm": printer_max_x_mm,

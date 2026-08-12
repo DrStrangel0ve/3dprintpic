@@ -163,6 +163,13 @@ test('selected relief sends the selected preview and atomic compose job', async 
           stl_single_component: true,
           stl_passes_hard_checks: true,
           stl_faces: 4,
+          relief_postprocess: {
+            emitted_printability: {
+              supported: true,
+              recognition_first_oversampling: true,
+              slope_limit_passed: false,
+            },
+          },
         },
       }),
     });
@@ -189,7 +196,8 @@ test('selected relief sends the selected preview and atomic compose job', async 
   await page.getByRole('button', { name: 'Apply' }).click();
   await expect(page.getByText('Selection preview', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Run' }).click();
-  await expect(page.getByText('STL ready', { exact: true })).toBeVisible();
+  await expect(page.getByText('STL ready; scale warning', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Full detail is retained at this size/)).toBeVisible();
 
   expect(composeMultipartBody).toContain('name="selection_infill_mode"');
   expect(composeMultipartBody).toContain('none');
@@ -210,6 +218,7 @@ test('selected relief sends the selected preview and atomic compose job', async 
   expect(processMultipartBody).toContain('0.35');
   expect(processMultipartBody).toContain('name="base_thickness_mm"');
   expect(processMultipartBody).toContain('2.4');
+  expect(processMultipartBody).toMatch(/name="detail_basis_mm"\r\n\r\n256\r\n/);
   expect(processMultipartBody).not.toContain('name="depth_context_file"');
   expect(processMultipartBuffer.includes(selectedPng)).toBe(true);
   expect(processMultipartBuffer.includes(originalPng)).toBe(false);

@@ -22,6 +22,7 @@ from backend.pic_to_3d import (
     _align_stabilized_head_to_reference_boundary,
     _attach_face_boundary_to_local_surface,
     _audit_bounded_compression_surface,
+    _audit_emitted_relief_printability,
     _background_relief_preservation_metrics,
     _cap_selection_background_relief,
     _bridge_weighted_face_features,
@@ -1659,6 +1660,68 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertAlmostEqual(stats["mesh_sample_pitch_mm"], 0.4)
         self.assertLess(float(filtered.max()), 1.0)
 
+    def test_print_filter_uses_full_detail_basis_before_final_xy_scaling(self):
+        values = np.tile(np.linspace(0.0, 1.0, 401, dtype=np.float32), (301, 1))
+
+        filtered, stats = _prepare_relief_for_printing(
+            values,
+            max_xy_size=40.0,
+            minimum_feature_mm=0.8,
+            detail_basis_mm=256.0,
+        )
+
+        self.assertEqual(filtered.shape, values.shape)
+        self.assertTrue(stats["enabled"])
+        self.assertFalse(stats["resampled"])
+        self.assertTrue(stats["processed_before_final_xy_scale"])
+        self.assertAlmostEqual(stats["detail_basis_mm"], 256.0)
+        self.assertAlmostEqual(stats["processing_mesh_sample_pitch_mm"], 256.0 / 400.0)
+        self.assertAlmostEqual(stats["mesh_sample_pitch_mm"], 40.0 / 400.0)
+        self.assertAlmostEqual(stats["emitted_mesh_sample_pitch_mm"], 40.0 / 400.0)
+        self.assertAlmostEqual(stats["final_xy_scale_ratio"], 40.0 / 256.0)
+
+    def test_emitted_printability_audits_diagonal_stl_edges(self):
+        values = np.array(
+            [
+                [1.5, 3.0],
+                [0.0, 1.5],
+            ],
+            dtype=np.float32,
+        )
+
+        audit = _audit_emitted_relief_printability(
+            values,
+            sample_pitch_mm=1.0,
+            max_relief_slope=2.0,
+            minimum_feature_mm=0.8,
+            final_xy_scale_ratio=1.0,
+        )
+
+        self.assertFalse(audit["slope_limit_passed"])
+        self.assertEqual(audit["edge_sample_counts"]["cell_diagonal"], 1)
+        self.assertAlmostEqual(audit["slope_max_mm_per_mm"], 3.0 / np.sqrt(2.0))
+
+    def test_emitted_printability_ignores_edges_outside_valid_cells(self):
+        values = np.array(
+            [
+                [0.0, 0.0, 10.0],
+                [0.0, 0.0, np.nan],
+            ],
+            dtype=np.float32,
+        )
+
+        audit = _audit_emitted_relief_printability(
+            values,
+            sample_pitch_mm=1.0,
+            max_relief_slope=2.0,
+            minimum_feature_mm=0.8,
+            final_xy_scale_ratio=1.0,
+        )
+
+        self.assertTrue(audit["slope_limit_passed"])
+        self.assertEqual(audit["slope_violation_edge_count"], 0)
+        self.assertAlmostEqual(audit["slope_max_mm_per_mm"], 0.0)
+
     def test_slope_limiter_caps_narrow_positive_extrusions_in_mm(self):
         values = np.zeros((21, 21), dtype=np.float32)
         values[8:13, 8:13] = 10.0
@@ -3078,6 +3141,70 @@ class ReliefStlControlsTest(unittest.TestCase):
             self.assertLessEqual(extents[2], 12.1)
             self.assertEqual(postprocess["mesh_grid_shape"], [67, 101])
             self.assertAlmostEqual(postprocess["mesh_sample_pitch_mm"], 0.4)
+
+    def test_detail_basis_preserves_heightfield_when_output_xy_is_smaller(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            depth_path = root / "depth.npy"
+            data = np.linspace(0.0, 1.0, 80 * 120, dtype=np.float32).reshape(80, 120)
+            selection = np.zeros(data.shape, dtype=bool)
+            selection[8:72, 12:108] = True
+            data = np.where(selection, data, np.nan)
+            np.save(depth_path, data)
+            large_surface = root / "large.npy"
+            small_surface = root / "small.npy"
+
+            common = {
+                "target_dimension": 120,
+                "z_scale": 12,
+                "invert": False,
+                "sigma": 0,
+                "detail_boost": 0,
+                "base_border_px": 0,
+                "detail_basis_mm": 256.0,
+                "surface_output_path": large_surface,
+            }
+            large = depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(root / "large.stl"),
+                max_xy_size=256.0,
+                **common,
+            )
+            common["surface_output_path"] = small_surface
+            small = depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(root / "small.stl"),
+                max_xy_size=40.0,
+                **common,
+            )
+
+            np.testing.assert_array_equal(np.load(large_surface), np.load(small_surface))
+            self.assertEqual(large["mesh_grid_shape"], small["mesh_grid_shape"])
+            self.assertAlmostEqual(
+                large["processing_mesh_sample_pitch_mm"],
+                small["processing_mesh_sample_pitch_mm"],
+            )
+            self.assertNotAlmostEqual(large["mesh_sample_pitch_mm"], small["mesh_sample_pitch_mm"])
+            self.assertEqual(small["mesh_grid_shape"], [64, 96])
+            self.assertAlmostEqual(small["emitted_mesh_sample_pitch_mm"], 40.0 / 95.0)
+            self.assertTrue(small["processed_before_final_xy_scale"])
+            self.assertTrue(small["emitted_printability"]["recognition_first_oversampling"])
+            expected_scale_ratio = (40.0 / 95.0) / (256.0 / 119.0)
+            self.assertAlmostEqual(small["final_xy_scale_ratio"], expected_scale_ratio)
+            self.assertAlmostEqual(
+                small["emitted_printability"][
+                    "processing_minimum_feature_scaled_to_output_mm"
+                ],
+                0.8 * expected_scale_ratio,
+            )
+
+            large_mesh = mesh.Mesh.from_file(str(root / "large.stl"))
+            small_mesh = mesh.Mesh.from_file(str(root / "small.stl"))
+            large_extents = np.ptp(large_mesh.vectors.reshape(-1, 3), axis=0)
+            small_extents = np.ptp(small_mesh.vectors.reshape(-1, 3), axis=0)
+            self.assertAlmostEqual(max(large_extents[:2]), 256.0, places=4)
+            self.assertAlmostEqual(max(small_extents[:2]), 40.0, places=4)
+            self.assertAlmostEqual(large_extents[2], small_extents[2], places=5)
 
     def test_depth_resize_preserves_near_target_detail_instead_of_stride_halving(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

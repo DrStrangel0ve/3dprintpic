@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import {
   BadgeCheck,
+  AlertTriangle,
   Box,
   Boxes,
   Braces,
@@ -157,6 +158,15 @@ type StlDiagnostics = {
   stl_degenerate_face_count?: number;
   stl_passes_hard_checks?: boolean;
   stl_failed_checks?: string[];
+  relief_postprocess?: {
+    emitted_printability?: {
+      supported?: boolean;
+      recognition_first_oversampling?: boolean;
+      slope_limit_passed?: boolean;
+      processing_minimum_feature_scaled_to_output_mm?: number | null;
+      slope_p99_mm_per_mm?: number | null;
+    };
+  };
 };
 
 type RuntimeInfo = {
@@ -1167,7 +1177,7 @@ export default function Home() {
   );
   const reliefPrintableDimension = Math.min(
     reliefTargetDimension,
-    Math.max(2, Math.floor(printVolume.target_dimension_mm / (minimumFeatureSize / 2)) + 1),
+    Math.max(2, Math.floor(printVolume.max_target_dimension_mm / (minimumFeatureSize / 2)) + 1),
   );
   const reliefSamplePitch = printVolume.target_dimension_mm / Math.max(1, reliefPrintableDimension - 1);
   const sceneDepthSliderMax = Math.max(24, Math.min(160, Math.floor(printVolume.usable_y_mm)));
@@ -2285,6 +2295,7 @@ export default function Home() {
         formData.append('z_scale', String(effectiveReliefHeight));
         formData.append('base_thickness_mm', String(baseThickness));
         formData.append('max_xy_size', String(printVolume.target_dimension_mm));
+        formData.append('detail_basis_mm', String(printVolume.max_target_dimension_mm));
         formData.append('invert', String(reliefInvert));
         formData.append('sigma', String(detailSmoothing));
         formData.append('detail_boost', String(featureBoost));
@@ -2331,9 +2342,12 @@ export default function Home() {
           resolveServiceUrl(backendUrl, rawData.stl_url) ||
           (stlModel ? resolveServiceUrl(backendUrl, `/stl_model/${encodeURIComponent(stlModel)}`) : '');
         if (!stlUrl) throw new Error('Process image did not return an STL artifact.');
+        const diagnostics = isRecord(rawData.stl_diagnostics)
+          ? (rawData.stl_diagnostics as StlDiagnostics)
+          : null;
         setProcessedSTL(stlUrl);
         setDiagnosticsUrl(resolveServiceUrl(backendUrl, rawData.diagnostics_url));
-        setStlDiagnostics(isRecord(rawData.stl_diagnostics) ? (rawData.stl_diagnostics as StlDiagnostics) : null);
+        setStlDiagnostics(diagnostics);
         if (isRecord(rawData.runtime)) {
           setBackendRuntime(rawData.runtime as RuntimeInfo);
           setBackendRuntimeState('ready');
@@ -2341,8 +2355,21 @@ export default function Home() {
         setStageTimings(isRecord(rawData.timings) ? (rawData.timings as StageTimings) : null);
         setDepthRunMetadata(isRecord(rawData.depth_metadata) ? (rawData.depth_metadata as DepthRunMetadata) : null);
         setCompletedPreview(resolveServiceUrl(backendUrl, rawData.completed_image_url) || pipelinePreviewUrl);
-        setRunState('ready');
-        setStatusText('STL ready');
+        const passesHardChecks = diagnostics?.stl_passes_hard_checks !== false;
+        const scaleWarning = Boolean(
+          diagnostics?.relief_postprocess?.emitted_printability?.recognition_first_oversampling,
+        );
+        setRunState(passesHardChecks ? 'ready' : 'blocked');
+        setStatusText(
+          passesHardChecks
+            ? scaleWarning
+              ? 'STL ready; scale warning'
+              : 'STL ready'
+            : 'STL emitted; checks failed',
+        );
+        if (!passesHardChecks) {
+          setError(`Relief STL failed ${failedChecksLabel(diagnostics?.stl_failed_checks)}.`);
+        }
       } catch (runError) {
         setRunState('error');
         setStatusText('Run failed');
@@ -3661,6 +3688,14 @@ export default function Home() {
                     </a>
                   )}
                 </div>
+                {stlDiagnostics.relief_postprocess?.emitted_printability?.recognition_first_oversampling && (
+                  <div className="mb-2 flex gap-2 border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-950">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      Full detail is retained at this size. Some slopes or features are finer than the configured nozzle; verify the result in your slicer.
+                    </span>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   {([
                     ['Watertight', stlDiagnostics.stl_is_watertight],

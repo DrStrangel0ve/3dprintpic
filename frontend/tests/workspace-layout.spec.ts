@@ -192,4 +192,8 @@ test('print footprint reports independent X and Y dimensions from the media aspe
   await page.getByLabel('Print size').fill('50');
   await expect(page.getByTestId('print-size-x')).toHaveText('128.0 mm');
   await expect(page.getByTestId('print-size-y')).toHaveText('64.0 mm');
+  await expect(page.getByText('512 depth / 512 STL samples, 0.25 mm/sample')).toBeVisible();
+
+  await page.getByLabel('Nozzle').fill('0.6');
+  await expect(page.getByText('512 depth / 427 STL samples, 0.30 mm/sample')).toBeVisible();
 });

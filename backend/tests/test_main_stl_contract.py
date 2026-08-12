@@ -137,6 +137,21 @@ class MainStlContractTest(unittest.TestCase):
         self.assertEqual(resolved, 512)
         self.assertAlmostEqual(main_module.relief_sample_pitch_mm(40, resolved), 40 / 511)
 
+    def test_relief_detail_basis_never_shrinks_below_output_size(self):
+        self.assertAlmostEqual(main_module.resolve_relief_detail_basis_mm(40, 256), 256)
+        self.assertAlmostEqual(main_module.resolve_relief_detail_basis_mm(256, 40), 256)
+        self.assertAlmostEqual(main_module.resolve_relief_detail_basis_mm(40, None), 40)
+
+    def test_process_image_rejects_detail_basis_without_output_size(self):
+        response = TestClient(main_module.app).post(
+            "/process_image",
+            files={"file": ("source.png", self.png_bytes(), "image/png")},
+            data={"detail_basis_mm": "256"},
+        )
+
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("requires max_xy_size", response.json()["detail"])
+
     def test_relief_target_dimension_is_capped_for_extreme_custom_printers(self):
         resolved = main_module.resolve_relief_target_dimension(
             200,
@@ -182,6 +197,7 @@ class MainStlContractTest(unittest.TestCase):
                         "depth_downsample_sharpening": "0.35",
                         "z_scale": "10",
                         "max_xy_size": "40",
+                        "detail_basis_mm": "256",
                         "invert": "false",
                         "sigma": "0",
                         "base_border_px": "0",
@@ -213,6 +229,8 @@ class MainStlContractTest(unittest.TestCase):
                 self.assertEqual(observed_sharpening, [0.35])
                 self.assertEqual(payload["target_dimension"], 512)
                 self.assertAlmostEqual(payload["relief_sample_pitch_mm"], 40 / 511)
+                self.assertAlmostEqual(payload["detail_sample_pitch_mm"], 256 / 511)
+                self.assertAlmostEqual(payload["detail_basis_mm"], 256)
                 self.assertTrue(payload["size_aware_detail"]["applied"])
                 self.assertAlmostEqual(payload["minimum_feature_mm"], 1.2)
                 self.assertAlmostEqual(payload["max_relief_slope"], 1.5)
@@ -222,6 +240,9 @@ class MainStlContractTest(unittest.TestCase):
                     2.4,
                 )
                 self.assertTrue(payload["relief_postprocess"]["enabled"])
+                self.assertTrue(
+                    payload["relief_postprocess"]["processed_before_final_xy_scale"]
+                )
                 self.assertTrue(
                     payload["relief_postprocess"]["reference_surface"]["emitted"]
                 )
@@ -242,6 +263,10 @@ class MainStlContractTest(unittest.TestCase):
                 diagnostics = diagnostics_response.json()
                 self.assertEqual(diagnostics["job_id"], payload["job_id"])
                 self.assertTrue(diagnostics["stl_positive_volume"])
+                self.assertEqual(
+                    diagnostics["relief_postprocess"],
+                    payload["relief_postprocess"],
+                )
                 metadata = json.loads((output_root / payload["job_id"] / "metadata.json").read_text(encoding="utf-8"))
                 self.assertEqual(metadata["target_dimension"], payload["target_dimension"])
                 self.assertEqual(metadata["requested_target_dimension"], payload["requested_target_dimension"])

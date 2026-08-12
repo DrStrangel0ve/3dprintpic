@@ -110,6 +110,19 @@ are under
 [`benchmark-evidence/cc0_live_api_face_background_30mm_n3`](benchmark-evidence/cc0_live_api_face_background_30mm_n3)
 and the surrounding face/background evidence bundles.
 
+Print scale is now independent of relief calculation resolution. The route
+processes filtering, background context, face protection, and geometry guards
+on `detail_basis_mm`, then applies `max_xy_size` only to emitted X/Y
+coordinates. A measured 30% private group-photo replay retained the exact
+`384 x 512` Z field from the accepted 256 mm run (`0.0 mm` maximum delta,
+`0.0` RMSE, correlation `1.0`) while exporting a 76 mm footprint. All three
+face components passed detail retention and the STL remained one watertight,
+manifold component with zero degenerates. Private pixels and derived geometry
+remain local. Post-scale slope and feature telemetry is reported separately
+because a tiny physical print cannot reproduce every retained sub-nozzle
+sample. See
+[relief-scale-independent-sampling.md](relief-scale-independent-sampling.md).
+
 ### Scene diorama
 
 The scene route keeps a common monocular depth coordinate system for the

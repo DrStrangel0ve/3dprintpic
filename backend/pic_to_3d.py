@@ -3279,15 +3279,66 @@ def _physical_sample_pitch_mm(shape, max_xy_size):
     return physical_size / float(coordinate_max)
 
 
-def _prepare_relief_for_printing(values, max_xy_size, minimum_feature_mm):
+def _resolve_detail_basis_mm(max_xy_size, detail_basis_mm):
+    def positive_size(value):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not np.isfinite(number) or number <= 0:
+            return None
+        return number
+
+    output_size = positive_size(max_xy_size)
+    requested_basis = positive_size(detail_basis_mm)
+    if requested_basis is None:
+        return output_size
+    if output_size is None:
+        return requested_basis
+    return max(output_size, requested_basis)
+
+
+def _prepare_relief_for_printing(
+    values,
+    max_xy_size,
+    minimum_feature_mm,
+    detail_basis_mm=None,
+):
     input_shape = tuple(int(value) for value in values.shape)
-    input_pitch_mm = _physical_sample_pitch_mm(input_shape, max_xy_size)
+    resolved_detail_basis_mm = _resolve_detail_basis_mm(
+        max_xy_size,
+        detail_basis_mm,
+    )
+    input_pitch_mm = _physical_sample_pitch_mm(
+        input_shape,
+        resolved_detail_basis_mm,
+    )
+    emitted_input_pitch_mm = _physical_sample_pitch_mm(input_shape, max_xy_size)
+    xy_scale_ratio = (
+        float(max_xy_size) / float(resolved_detail_basis_mm)
+        if emitted_input_pitch_mm is not None
+        and resolved_detail_basis_mm is not None
+        else None
+    )
     stats = {
+        "sampling_schema_version": 2,
         "enabled": False,
         "input_shape": list(input_shape),
         "mesh_grid_shape": list(input_shape),
-        "input_sample_pitch_mm": input_pitch_mm,
-        "mesh_sample_pitch_mm": input_pitch_mm,
+        "input_sample_pitch_mm": emitted_input_pitch_mm,
+        "mesh_sample_pitch_mm": emitted_input_pitch_mm,
+        "processing_input_sample_pitch_mm": input_pitch_mm,
+        "processing_mesh_sample_pitch_mm": input_pitch_mm,
+        "emitted_input_sample_pitch_mm": emitted_input_pitch_mm,
+        "emitted_mesh_sample_pitch_mm": emitted_input_pitch_mm,
+        "detail_basis_mm": resolved_detail_basis_mm,
+        "output_max_xy_size_mm": (
+            float(max_xy_size) if emitted_input_pitch_mm is not None else None
+        ),
+        "final_xy_scale_ratio": xy_scale_ratio,
+        "processed_before_final_xy_scale": bool(
+            xy_scale_ratio is not None and not np.isclose(xy_scale_ratio, 1.0)
+        ),
         "minimum_feature_mm": None,
         "filter_sigma_px": 0.0,
         "resampled": False,
@@ -3313,7 +3364,10 @@ def _prepare_relief_for_printing(values, max_xy_size, minimum_feature_mm):
     # avoiding triangles far denser than the nozzle can reproduce.
     target_pitch_mm = feature_mm / 2.0
     max_dimension = max(input_shape)
-    printable_dimension = max(2, int(np.floor(float(max_xy_size) / target_pitch_mm)) + 1)
+    printable_dimension = max(
+        2,
+        int(np.floor(float(resolved_detail_basis_mm) / target_pitch_mm)) + 1,
+    )
     output_dimension = min(max_dimension, printable_dimension)
     target_shape = _target_shape_for_max_dimension(input_shape, output_dimension)
     if target_shape != input_shape:
@@ -3321,8 +3375,157 @@ def _prepare_relief_for_printing(values, max_xy_size, minimum_feature_mm):
         stats["resampled"] = True
 
     stats["mesh_grid_shape"] = [int(filtered.shape[0]), int(filtered.shape[1])]
-    stats["mesh_sample_pitch_mm"] = _physical_sample_pitch_mm(filtered.shape, max_xy_size)
+    stats["processing_mesh_sample_pitch_mm"] = _physical_sample_pitch_mm(
+        filtered.shape,
+        resolved_detail_basis_mm,
+    )
+    emitted_mesh_sample_pitch_mm = _physical_sample_pitch_mm(
+        filtered.shape,
+        max_xy_size,
+    )
+    stats["mesh_sample_pitch_mm"] = emitted_mesh_sample_pitch_mm
+    stats["emitted_mesh_sample_pitch_mm"] = emitted_mesh_sample_pitch_mm
     return filtered, stats
+
+
+def _audit_emitted_relief_printability(
+    values,
+    *,
+    sample_pitch_mm,
+    max_relief_slope,
+    minimum_feature_mm,
+    final_xy_scale_ratio,
+):
+    try:
+        pitch_mm = float(sample_pitch_mm)
+        max_slope = float(max_relief_slope)
+    except (TypeError, ValueError):
+        return {
+            "supported": False,
+            "reason": "missing_physical_output_pitch",
+        }
+    if (
+        not np.isfinite(pitch_mm)
+        or pitch_mm <= 0
+        or not np.isfinite(max_slope)
+        or max_slope <= 0
+    ):
+        return {
+            "supported": False,
+            "reason": "invalid_physical_output_controls",
+        }
+
+    surface = np.asarray(values, dtype=np.float64)
+    if surface.ndim != 2:
+        return {
+            "supported": False,
+            "reason": "surface_must_be_2d",
+        }
+    finite = np.isfinite(surface)
+    valid_cells = (
+        finite[:-1, :-1]
+        & finite[1:, :-1]
+        & finite[:-1, 1:]
+        & finite[1:, 1:]
+    )
+    horizontal_edges = np.zeros(
+        (surface.shape[0], max(surface.shape[1] - 1, 0)),
+        dtype=bool,
+    )
+    vertical_edges = np.zeros(
+        (max(surface.shape[0] - 1, 0), surface.shape[1]),
+        dtype=bool,
+    )
+    if valid_cells.size:
+        horizontal_edges[:-1, :] |= valid_cells
+        horizontal_edges[1:, :] |= valid_cells
+        vertical_edges[:, :-1] |= valid_cells
+        vertical_edges[:, 1:] |= valid_cells
+    edge_slopes = []
+    edge_sample_counts = {}
+    for edge_kind, first, second, emitted_edges, edge_length_mm in (
+        (
+            "horizontal",
+            surface[:, :-1],
+            surface[:, 1:],
+            horizontal_edges,
+            pitch_mm,
+        ),
+        (
+            "vertical",
+            surface[:-1, :],
+            surface[1:, :],
+            vertical_edges,
+            pitch_mm,
+        ),
+        (
+            "cell_diagonal",
+            surface[1:, :-1],
+            surface[:-1, 1:],
+            valid_cells,
+            pitch_mm * np.sqrt(2.0),
+        ),
+    ):
+        edge_sample_counts[edge_kind] = int(np.count_nonzero(emitted_edges))
+        if np.any(emitted_edges):
+            edge_slopes.append(
+                np.abs(second[emitted_edges] - first[emitted_edges])
+                / float(edge_length_mm)
+            )
+    slopes = (
+        np.concatenate(edge_slopes)
+        if edge_slopes
+        else np.empty(0, dtype=np.float64)
+    )
+    violation_count = int(np.count_nonzero(slopes > max_slope + 1e-6))
+    try:
+        scale_ratio = float(final_xy_scale_ratio)
+    except (TypeError, ValueError):
+        scale_ratio = 1.0
+    if not np.isfinite(scale_ratio) or scale_ratio <= 0:
+        scale_ratio = 1.0
+    try:
+        processing_minimum_feature_mm = float(minimum_feature_mm)
+    except (TypeError, ValueError):
+        processing_minimum_feature_mm = None
+    if (
+        processing_minimum_feature_mm is not None
+        and not np.isfinite(processing_minimum_feature_mm)
+    ):
+        processing_minimum_feature_mm = None
+    scaled_minimum_feature_mm = (
+        processing_minimum_feature_mm * scale_ratio
+        if processing_minimum_feature_mm is not None
+        else None
+    )
+    return {
+        "supported": True,
+        "method": "post_xy_scale_surface_edge_audit_v1",
+        "edge_model": "valid_cell_horizontal_vertical_and_diagonal_top_edges",
+        "sample_pitch_mm": pitch_mm,
+        "edge_samples": int(slopes.size),
+        "edge_sample_counts": edge_sample_counts,
+        "configured_max_slope_mm_per_mm": max_slope,
+        "slope_p95_mm_per_mm": (
+            float(np.percentile(slopes, 95.0)) if slopes.size else 0.0
+        ),
+        "slope_p99_mm_per_mm": (
+            float(np.percentile(slopes, 99.0)) if slopes.size else 0.0
+        ),
+        "slope_max_mm_per_mm": float(np.max(slopes, initial=0.0)),
+        "slope_violation_edge_count": violation_count,
+        "slope_violation_edge_ratio": (
+            float(violation_count / slopes.size) if slopes.size else 0.0
+        ),
+        "slope_limit_passed": violation_count == 0,
+        "processing_minimum_feature_mm": processing_minimum_feature_mm,
+        "processing_minimum_feature_scaled_to_output_mm": (
+            scaled_minimum_feature_mm
+        ),
+        "final_xy_scale_ratio": scale_ratio,
+        "physical_feature_limit_preserved": bool(scale_ratio >= 1.0 - 1e-6),
+        "recognition_first_oversampling": bool(scale_ratio < 1.0 - 1e-6),
+    }
 
 
 def _structural_relief_edge_barriers(values, max_step, structural_region_mask=None):
@@ -5980,6 +6183,7 @@ def depth_data_to_3d_model(
     invert=False,
     sigma=0.6,
     max_xy_size=None,
+    detail_basis_mm=None,
     relief_gamma=0.75,
     detail_boost=0.8,
     detail_radius=2.0,
@@ -6007,6 +6211,13 @@ def depth_data_to_3d_model(
     normalization_reference_depth=None,
     base_thickness_mm=0.01,
 ):
+    if detail_basis_mm is not None:
+        requested_detail_basis_mm = _resolve_detail_basis_mm(None, detail_basis_mm)
+        output_size_mm = _resolve_detail_basis_mm(max_xy_size, None)
+        if requested_detail_basis_mm is None:
+            raise ValueError("detail_basis_mm must be a finite positive number")
+        if output_size_mm is None:
+            raise ValueError("detail_basis_mm requires a finite positive max_xy_size")
     try:
         backing_thickness_mm = float(base_thickness_mm)
     except (TypeError, ValueError) as exc:
@@ -6145,8 +6356,12 @@ def depth_data_to_3d_model(
         else 0.0
     )
     photo_detail_halo_mm = BACKGROUND_PHOTO_DETAIL_PROTECTION_HALO_MM
-    input_sample_pitch_mm, photo_detail_halo_px = _photo_detail_sampling(
+    resolved_detail_basis_mm = _resolve_detail_basis_mm(
         max_xy_size,
+        detail_basis_mm,
+    )
+    input_sample_pitch_mm, photo_detail_halo_px = _photo_detail_sampling(
+        resolved_detail_basis_mm,
         relief.shape,
         photo_detail_halo_mm,
     )
@@ -6192,10 +6407,17 @@ def depth_data_to_3d_model(
         relief,
         max_xy_size=max_xy_size,
         minimum_feature_mm=minimum_feature_mm,
+        detail_basis_mm=resolved_detail_basis_mm,
     )
     mesh_shape_before_crop = [int(relief.shape[0]), int(relief.shape[1])]
-    gradient_sample_pitch_mm = print_filter_stats["mesh_sample_pitch_mm"]
-    gradient_sample_pitch_source = "physical_size"
+    gradient_sample_pitch_mm = print_filter_stats[
+        "processing_mesh_sample_pitch_mm"
+    ]
+    gradient_sample_pitch_source = (
+        "detail_basis_before_final_xy_scale"
+        if print_filter_stats["processed_before_final_xy_scale"]
+        else "physical_size"
+    )
     if gradient_sample_pitch_mm is None and max_xy_size is None:
         # Without an explicit physical footprint, STL X/Y coordinates are the
         # integer grid coordinates below, so adjacent samples are one unit apart.
@@ -6826,7 +7048,7 @@ def depth_data_to_3d_model(
             z,
             region_mask,
             max_separation_mm=feature_bridge_depth_mm,
-            sample_pitch_mm=print_filter_stats["mesh_sample_pitch_mm"],
+            sample_pitch_mm=gradient_sample_pitch_mm,
         )
         accepted_face_surface = z.copy()
         z, printable_feature_stats = _enhance_weighted_relief_features(
@@ -6844,7 +7066,7 @@ def depth_data_to_3d_model(
         )
         try:
             configured_feature_step = (
-                float(print_filter_stats["mesh_sample_pitch_mm"])
+                float(gradient_sample_pitch_mm)
                 * float(max_relief_slope)
             )
         except (TypeError, ValueError):
@@ -6857,7 +7079,7 @@ def depth_data_to_3d_model(
         z = np.where(top_silhouette_mask, z, np.nan)
         z, slope_limit_stats = _limit_positive_relief_slope(
             z,
-            sample_pitch_mm=print_filter_stats["mesh_sample_pitch_mm"],
+            sample_pitch_mm=gradient_sample_pitch_mm,
             max_slope_mm_per_mm=max_relief_slope,
             structural_region_mask=region_mask,
         )
@@ -7160,7 +7382,52 @@ def depth_data_to_3d_model(
         "emitted_shape": [int(z.shape[0]), int(z.shape[1])],
         "mask_interpolation": "nearest",
         "base_thickness_mm": backing_thickness_mm,
+        "detail_basis_mm": resolved_detail_basis_mm,
+        "output_max_xy_size_mm": print_filter_stats["output_max_xy_size_mm"],
     }
+    emitted_mesh_sample_pitch_mm = _physical_sample_pitch_mm(
+        z.shape,
+        max_xy_size,
+    )
+    processing_mesh_sample_pitch_mm = print_filter_stats[
+        "processing_mesh_sample_pitch_mm"
+    ]
+    final_xy_scale_ratio = (
+        emitted_mesh_sample_pitch_mm / processing_mesh_sample_pitch_mm
+        if emitted_mesh_sample_pitch_mm is not None
+        and processing_mesh_sample_pitch_mm is not None
+        else None
+    )
+    print_filter_stats["requested_xy_scale_ratio"] = print_filter_stats[
+        "final_xy_scale_ratio"
+    ]
+    print_filter_stats["final_xy_scale_ratio"] = final_xy_scale_ratio
+    print_filter_stats["processed_before_final_xy_scale"] = bool(
+        final_xy_scale_ratio is not None
+        and not np.isclose(final_xy_scale_ratio, 1.0)
+    )
+    print_filter_stats["mesh_sample_pitch_mm"] = emitted_mesh_sample_pitch_mm
+    print_filter_stats["emitted_mesh_sample_pitch_mm"] = emitted_mesh_sample_pitch_mm
+    surface_grid_transform.update(
+        {
+            "requested_xy_scale_ratio": print_filter_stats[
+                "requested_xy_scale_ratio"
+            ],
+            "final_xy_scale_ratio": final_xy_scale_ratio,
+            "processed_before_final_xy_scale": print_filter_stats[
+                "processed_before_final_xy_scale"
+            ],
+            "processing_mesh_sample_pitch_mm": processing_mesh_sample_pitch_mm,
+            "emitted_mesh_sample_pitch_mm": emitted_mesh_sample_pitch_mm,
+        }
+    )
+    emitted_printability_stats = _audit_emitted_relief_printability(
+        z,
+        sample_pitch_mm=emitted_mesh_sample_pitch_mm,
+        max_relief_slope=max_relief_slope,
+        minimum_feature_mm=minimum_feature_mm,
+        final_xy_scale_ratio=final_xy_scale_ratio,
+    )
     if surface_output_path is not None:
         surface_output_path = os.fspath(surface_output_path)
         os.makedirs(os.path.dirname(surface_output_path) or ".", exist_ok=True)
@@ -7314,6 +7581,7 @@ def depth_data_to_3d_model(
         "face_boundary_alignment": face_boundary_alignment_stats,
         "face_surface_protection": face_surface_protection_stats,
         "surface_grid_transform": surface_grid_transform,
+        "emitted_printability": emitted_printability_stats,
         "backing_plate": {
             "thickness_mm": backing_thickness_mm,
             "bottom_z_mm": 0.0,
