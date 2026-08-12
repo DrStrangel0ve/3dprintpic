@@ -129,6 +129,51 @@ class SpaceRuntimeTests(unittest.TestCase):
                 {"labels": ["person"]},
             )
 
+    def test_full_scene_detected_face_fails_closed_without_mediapipe(self):
+        result = {
+            "face_refinement": {
+                "applied": True,
+                "detected_faces": 1,
+                "refined_faces": 1,
+                "detector_errors": [
+                    "mediapipe:OSError:libGLESv2.so.2: cannot open shared object file"
+                ],
+                "faces": [
+                    {
+                        "status": "refined",
+                        "detector": "opencv-yunet-2023mar",
+                        "landmark_count": 0,
+                        "depth_inference": {
+                            "requested_precision": "float32",
+                            "effective_precision": "float32",
+                            "deterministic_cuda": True,
+                        },
+                    }
+                ],
+            }
+        }
+
+        with self.assertRaisesRegex(RuntimeError, "MediaPipe 468\\+"):
+            space_runtime._require_face_parity(result, None)
+
+    def test_face_native_runtime_preflight_loads_gles(self):
+        with (
+            patch("ctypes.util.find_library", return_value="libGLESv2.so.2"),
+            patch("ctypes.CDLL") as load_library,
+        ):
+            libraries = space_runtime._require_face_native_runtime("posix")
+
+        self.assertEqual(libraries, {"glesv2": "libGLESv2.so.2"})
+        load_library.assert_called_once_with("libGLESv2.so.2")
+
+    def test_face_native_runtime_preflight_names_required_package(self):
+        with (
+            patch("ctypes.util.find_library", return_value=None),
+            patch("ctypes.CDLL", side_effect=OSError("missing")),
+            self.assertRaisesRegex(RuntimeError, "libgles2"),
+        ):
+            space_runtime._require_face_native_runtime("posix")
+
     def test_sam3_selection_fails_closed_without_owner_token(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             image_path = Path(temp_dir) / "photo.png"

@@ -214,6 +214,25 @@ def _diagnostic_summary(diagnostics: dict, *, model: str) -> dict:
     summary["stl_failed_checks"] = [name for name, passed in hard_checks.items() if not passed]
     return summary
 
+def _require_face_native_runtime(platform_name: str | None = None) -> dict[str, str]:
+    platform_name = os.name if platform_name is None else platform_name
+    if platform_name == "nt":
+        return {}
+
+    import ctypes
+    import ctypes.util
+
+    library = ctypes.util.find_library("GLESv2") or "libGLESv2.so.2"
+    try:
+        ctypes.CDLL(library)
+    except OSError as exc:
+        raise RuntimeError(
+            "Face parity native runtime preflight failed: libGLESv2.so.2 is "
+            "unavailable; install the Debian libgles2 package"
+        ) from exc
+    return {"glesv2": library}
+
+
 def ensure_face_assets() -> dict:
     global _FACE_ASSET_STATUS
     if _FACE_ASSET_STATUS is not None:
@@ -222,6 +241,7 @@ def ensure_face_assets() -> dict:
         if _FACE_ASSET_STATUS is not None:
             return json.loads(json.dumps(_FACE_ASSET_STATUS))
         try:
+            native_libraries = _require_face_native_runtime()
             resolved = {
                 "mediapipe_face_landmarker": (
                     backend_face_refinement._resolve_face_landmarker_model(),
@@ -247,6 +267,7 @@ def ensure_face_assets() -> dict:
         _FACE_ASSET_STATUS = {
             "verified": True,
             "cache": "writable-runtime-assets",
+            "native_libraries": native_libraries,
             "assets": {
                 name: {
                     "filename": path.name,
@@ -293,7 +314,7 @@ def _require_deterministic_depth_parity(result: dict) -> dict:
 
 
 def _require_face_parity(result: dict, selection: dict | None) -> dict:
-    required = _selection_requests_person(selection)
+    selected_person_required = _selection_requests_person(selection)
     face_refinement = result.get("face_refinement")
     if not isinstance(face_refinement, dict):
         face_refinement = {}
@@ -324,7 +345,7 @@ def _require_face_parity(result: dict, selection: dict | None) -> dict:
         else []
     )
     summary = {
-        "required_for_selected_person": required,
+        "required_for_selected_person": selected_person_required,
         "applied": face_refinement.get("applied") is True,
         "detected_faces": int(face_refinement.get("detected_faces") or 0),
         "refined_faces": int(face_refinement.get("refined_faces") or 0),
@@ -345,7 +366,11 @@ def _require_face_parity(result: dict, selection: dict | None) -> dict:
         ),
         "detector_errors": detector_errors,
     }
-    if not required:
+    face_parity_required = (
+        selected_person_required or summary["detected_faces"] > 0
+    )
+    summary["required"] = face_parity_required
+    if not face_parity_required:
         summary["status"] = "observed"
         return summary
 

@@ -70,13 +70,16 @@ For printable reliefs, `Select object` now uses the exact local frontend
 contract. Browser uploads are normalized once to lossless PNG, and both the
 complete-scene pass and every face-crop pass run Depth Anything V2 Large in
 deterministic FP32. The Space preflights checksum-pinned MediaPipe, YuNet, and
-GNM face assets in a writable runtime cache. A selected-person result is not
-published unless every detected face used 468-or-more MediaPipe landmarks and
-its face crop records deterministic FP32 depth. The final JSON report exposes
-the verified asset hashes, scene precision, face-crop precision, detector
-names, and landmark counts. This intentionally trades some ZeroGPU runtime for
-the same recognizable high-relief faces produced locally; a missing asset or
-degraded fallback becomes a visible error instead of a lower-quality STL.
+GNM face assets in a writable runtime cache, and verifies that Debian's
+`libgles2` runtime can load before MediaPipe starts. Any result containing a
+detected face, including a full-scene relief, is not published unless every
+face used 468-or-more MediaPipe landmarks and its crop records deterministic
+FP32 depth. The final JSON report exposes the verified asset hashes, native
+library, scene precision, face-crop precision, detector names, and landmark
+counts. This intentionally trades some ZeroGPU runtime for the same
+recognizable high-relief faces produced locally; a missing asset, native
+library, or degraded fallback becomes a visible error instead of a
+lower-quality STL.
 
 Selected reliefs use `selection_mode=context` with
 `selection_subject_lock=true`. Depth

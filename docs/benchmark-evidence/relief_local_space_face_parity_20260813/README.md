@@ -42,10 +42,27 @@ The production relief contract now requires:
 3. Deterministic FP32 CUDA inference for the complete source and every face
    crop, with TF32 disabled and highest FP32 matmul precision selected.
 4. Checksum-verified MediaPipe, YuNet, and GNM assets in an explicit writable
-   runtime cache.
-5. A fail-closed hosted parity audit for selected people: every detected face
-   must be refined with at least 468 MediaPipe landmarks and deterministic
-   FP32 crop depth.
+   runtime cache, plus a loadable `libGLESv2.so.2` supplied by Debian's
+   `libgles2` package.
+5. A fail-closed hosted parity audit for every face-bearing result, including
+   full-scene reliefs: every detected face must be refined with at least 468
+   MediaPipe landmarks and deterministic FP32 crop depth.
+
+## First live deployment probe
+
+Space commit `466c5bd26cffd1bf7f2c8324ba6ad81f89c5a409` completed the same
+public 30 mm run in 103.164 seconds and emitted a clean, one-component,
+watertight STL with 176,876 faces and a 32.7567 mm Z extent. Scene inference
+correctly reported deterministic FP32, but face telemetry exposed the
+remaining hosted-only defect:
+
+`mediapipe:OSError:libGLESv2.so.2: cannot open shared object file`
+
+The Space silently used `opencv-yunet-2023mar`, emitted zero MediaPipe
+landmark faces, and therefore omitted the local 478-landmark shape prior.
+The model files and checksums were all correct; the missing Linux shared
+library was the causal deployment difference. The new native preflight and
+full-scene face gate encode this exact failure as a regression contract.
 
 ## Local 3080 Ti validation
 
