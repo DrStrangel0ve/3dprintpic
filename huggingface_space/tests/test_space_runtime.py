@@ -74,6 +74,61 @@ class SpaceRuntimeTests(unittest.TestCase):
         self.assertEqual(summary["bbox_extents"], [64.0, 40.0, 10.0])
         self.assertEqual(summary["face_count"], 1200)
 
+    def test_depth_parity_requires_deterministic_float32(self):
+        result = {
+            "requested_depth_inference_precision": "float32",
+            "depth_inference_precision": "float32",
+            "depth_metadata": {"deterministic_cuda": True},
+        }
+
+        self.assertEqual(
+            space_runtime._require_deterministic_depth_parity(result)["status"],
+            "verified",
+        )
+        result["depth_metadata"]["deterministic_cuda"] = False
+        with self.assertRaisesRegex(RuntimeError, "deterministic CUDA"):
+            space_runtime._require_deterministic_depth_parity(result)
+
+    def test_selected_person_face_parity_requires_landmarks_and_fp32_crops(self):
+        result = {
+            "face_refinement": {
+                "applied": True,
+                "detected_faces": 1,
+                "refined_faces": 1,
+                "detector_errors": [],
+                "faces": [
+                    {
+                        "status": "refined",
+                        "detector": "yunet-guided:mediapipe-face-landmarker",
+                        "landmark_count": 478,
+                        "landmark_shape_prior": {"enabled": True},
+                        "depth_inference": {
+                            "requested_precision": "float32",
+                            "effective_precision": "float32",
+                            "deterministic_cuda": True,
+                        },
+                    }
+                ],
+            }
+        }
+
+        summary = space_runtime._require_face_parity(
+            result,
+            {"labels": ["person"]},
+        )
+        self.assertEqual(summary["status"], "verified")
+        self.assertEqual(summary["mediapipe_landmark_faces"], 1)
+        self.assertEqual(summary["deterministic_fp32_depth_faces"], 1)
+
+        result["face_refinement"]["faces"][0]["depth_inference"][
+            "effective_precision"
+        ] = "float16"
+        with self.assertRaisesRegex(RuntimeError, "every face crop"):
+            space_runtime._require_face_parity(
+                result,
+                {"labels": ["person"]},
+            )
+
     def test_sam3_selection_fails_closed_without_owner_token(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             image_path = Path(temp_dir) / "photo.png"
@@ -406,12 +461,38 @@ class SpaceRuntimeTests(unittest.TestCase):
             diagnostics_path.write_text("{}", encoding="utf-8")
             selected_path = Path(temp_dir) / "selected.png"
             Image.new("RGB", (200, 100), "gray").save(selected_path)
-            selection = {"job_id": "b" * 32, "selected": str(selected_path)}
+            selection = {
+                "job_id": "b" * 32,
+                "selected": str(selected_path),
+                "labels": ["person"],
+            }
             payload = {
                 "job_id": job_id,
                 "stl_model": f"{job_id}/output_model.stl",
                 "diagnostics": f"{job_id}/diagnostics.json",
                 "stl_diagnostics": {"is_watertight": True, "component_count": 1},
+                "requested_depth_inference_precision": "float32",
+                "depth_inference_precision": "float32",
+                "depth_metadata": {"deterministic_cuda": True},
+                "face_refinement": {
+                    "applied": True,
+                    "detected_faces": 1,
+                    "refined_faces": 1,
+                    "detector_errors": [],
+                    "faces": [
+                        {
+                            "status": "refined",
+                            "detector": "yunet-guided:mediapipe-face-landmarker",
+                            "landmark_count": 478,
+                            "landmark_shape_prior": {"enabled": True},
+                            "depth_inference": {
+                                "requested_precision": "float32",
+                                "effective_precision": "float32",
+                                "deterministic_cuda": True,
+                            },
+                        }
+                    ],
+                },
                 "selection_mode": "context",
                 "selection_subject_lock": True,
                 "selection_emission_only": True,
@@ -449,6 +530,11 @@ class SpaceRuntimeTests(unittest.TestCase):
             }
             with (
                 patch.object(space_runtime, "release_gpu_models"),
+                patch.object(
+                    space_runtime,
+                    "ensure_face_assets",
+                    return_value={"verified": True, "assets": {}},
+                ),
                 patch.object(space_runtime, "_depth_model_source", return_value="/models/depth-v2"),
                 patch.object(
                     space_runtime.BACKEND_CLIENT,
@@ -477,6 +563,7 @@ class SpaceRuntimeTests(unittest.TestCase):
                     "depth_model",
                     "device",
                     "depth_downsample_sharpening",
+                    "depth_inference_precision",
                     "target_dimension",
                     "z_scale",
                     "base_thickness_mm",
@@ -532,7 +619,9 @@ class SpaceRuntimeTests(unittest.TestCase):
             self.assertEqual(request_data["sigma"], "0.35")
             self.assertEqual(request_data["detail_boost"], "0.8")
             self.assertEqual(request_data["depth_downsample_sharpening"], "0.35")
+            self.assertEqual(request_data["depth_inference_precision"], "float32")
             self.assertEqual(request_data["printable_feature_depth_mm"], "0.4")
+            self.assertEqual(request_data["face_refinement_mode"], "auto")
             self.assertEqual(request_data["face_detail_strength"], "1.0")
             self.assertEqual(request_data["selection_job_id"], selection["job_id"])
             self.assertEqual(request_data["depth_model"], "/models/depth-v2")
@@ -553,8 +642,11 @@ class SpaceRuntimeTests(unittest.TestCase):
             )
             self.assertEqual(
                 result[3]["summary"]["local_relief_parity"],
-                "full-source-depth-grounded-selection-v2",
+                "full-source-deterministic-fp32-face-parity-v3",
             )
+            self.assertEqual(result[3]["summary"]["depth_parity"]["status"], "verified")
+            self.assertEqual(result[3]["summary"]["face_refinement"]["status"], "verified")
+            self.assertTrue(result[3]["summary"]["face_assets"]["verified"])
             self.assertFalse(result[3]["summary"]["inpainting"])
 
     def test_relief_route_rejects_nonlocal_mesh_detail_budget(self):
@@ -608,25 +700,46 @@ class SpaceRuntimeTests(unittest.TestCase):
                         {
                             "effective_model": "depth-anything/Depth-Anything-V2-Large-hf",
                             "relief_value_transform": "linear",
+                            "requested_inference_precision": "float32",
+                            "effective_inference_precision": "float32",
+                            "deterministic_cuda": True,
                         }
                     ),
                     encoding="utf-8",
                 )
                 return str(depth_path)
 
-            def fake_face_refinement(_image_path, depth_path, _output_dir, **_kwargs):
+            def fake_face_refinement(_image_path, depth_path, _output_dir, **kwargs):
                 return depth_path, {
-                    "mode": "auto",
-                    "applied": False,
-                    "detected_faces": 0,
-                    "refined_faces": 0,
-                    "faces": [],
+                    "mode": kwargs["mode"],
+                    "applied": True,
+                    "detected_faces": 1,
+                    "refined_faces": 1,
+                    "detector_errors": [],
+                    "faces": [
+                        {
+                            "status": "refined",
+                            "detector": "yunet-guided:mediapipe-face-landmarker",
+                            "landmark_count": 478,
+                            "landmark_shape_prior": {"enabled": True},
+                            "depth_inference": {
+                                "requested_precision": "float32",
+                                "effective_precision": "float32",
+                                "deterministic_cuda": True,
+                            },
+                        }
+                    ],
                 }
 
             with (
                 patch.object(space_runtime, "OUTPUT_DIR", output_dir),
                 patch.object(space_runtime.backend_main, "OUTPUT_DIR", output_dir),
                 patch.object(space_runtime, "release_gpu_models"),
+                patch.object(
+                    space_runtime,
+                    "ensure_face_assets",
+                    return_value={"verified": True, "assets": {}},
+                ),
                 patch.object(space_runtime, "_depth_model_source", return_value="depth-anything/Depth-Anything-V2-Large-hf"),
                 patch.object(
                     space_runtime.backend_main,

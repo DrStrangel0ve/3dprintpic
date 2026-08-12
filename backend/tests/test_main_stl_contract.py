@@ -83,6 +83,26 @@ class MainStlContractTest(unittest.TestCase):
             "linear",
         )
 
+    def test_depth_inference_precision_aliases_and_validation(self):
+        self.assertEqual(
+            main_module.normalize_depth_inference_precision("fp32"),
+            "float32",
+        )
+        self.assertEqual(
+            main_module.normalize_depth_inference_precision("half"),
+            "float16",
+        )
+        with self.assertRaisesRegex(ValueError, "Depth inference precision"):
+            main_module.normalize_depth_inference_precision("float64")
+
+        response = TestClient(main_module.app).post(
+            "/process_image",
+            files={"file": ("source.png", self.png_bytes(), "image/png")},
+            data={"depth_inference_precision": "float64"},
+        )
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("Depth inference precision", response.json()["detail"])
+
     def test_models_catalog_does_not_expose_image_completion(self):
         response = TestClient(main_module.app).get("/models")
 
@@ -172,12 +192,14 @@ class MainStlContractTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_root = Path(temp_dir) / "output"
             observed_sharpening = []
+            observed_precision = []
 
             def fake_complete_image(input_path, **_kwargs):
                 return input_path, None
 
             def fake_depth_data(_image_path, output_dir, **kwargs):
                 observed_sharpening.append(kwargs["downsample_sharpening"])
+                observed_precision.append(kwargs["inference_precision"])
                 depth_path = Path(output_dir) / "output_depth_data.npy"
                 rows, cols = np.indices((24, 32), dtype=np.float32)
                 np.save(depth_path, 0.1 + 0.01 * rows + 0.02 * cols)
@@ -195,6 +217,7 @@ class MainStlContractTest(unittest.TestCase):
                     data={
                         "target_dimension": "80",
                         "depth_downsample_sharpening": "0.35",
+                        "depth_inference_precision": "float32",
                         "z_scale": "10",
                         "max_xy_size": "40",
                         "detail_basis_mm": "256",
@@ -227,6 +250,7 @@ class MainStlContractTest(unittest.TestCase):
                 self.assertIn(provenance["clean"], (True, False))
                 self.assertEqual(payload["requested_target_dimension"], 80)
                 self.assertEqual(observed_sharpening, [0.35])
+                self.assertEqual(observed_precision, ["float32"])
                 self.assertEqual(payload["target_dimension"], 512)
                 self.assertAlmostEqual(payload["relief_sample_pitch_mm"], 40 / 511)
                 self.assertAlmostEqual(payload["detail_sample_pitch_mm"], 256 / 511)

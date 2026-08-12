@@ -29,6 +29,7 @@ try:
         release_depth_pipelines,
         release_inpaint_pipelines,
         relief_value_transform_for_model,
+        normalize_depth_inference_precision,
     )
     from .face_depth_refinement import (
         DEFAULT_FACE_DETAIL_STRENGTH,
@@ -48,6 +49,7 @@ except ImportError:  # pragma: no cover - supports running uvicorn from backend/
         release_depth_pipelines,
         release_inpaint_pipelines,
         relief_value_transform_for_model,
+        normalize_depth_inference_precision,
     )
     from face_depth_refinement import (
         DEFAULT_FACE_DETAIL_STRENGTH,
@@ -2412,6 +2414,7 @@ async def process_image(
     depth_model: str | None = Form(None),
     device: str = Form("auto"),
     depth_downsample_sharpening: float = Form(0.0, ge=0.0, le=1.0),
+    depth_inference_precision: str = Form("auto"),
     target_dimension: int = Form(300),
     z_scale: float = Form(10),
     base_thickness_mm: float = Form(2.4, ge=0.4, le=20.0),
@@ -2452,6 +2455,12 @@ async def process_image(
     face_max_correction_ratio: float = Form(DEFAULT_FACE_MAX_CORRECTION_RATIO),
 ):
     logger.info(f"Received file: {file.filename}")
+    try:
+        normalized_depth_inference_precision = normalize_depth_inference_precision(
+            depth_inference_precision
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if detail_basis_mm is not None and max_xy_size is None:
         raise HTTPException(
             status_code=400,
@@ -2611,6 +2620,7 @@ async def process_image(
             model_name=selected_model,
             device=device,
             downsample_sharpening=depth_downsample_sharpening,
+            inference_precision=normalized_depth_inference_precision,
         )
         record_timing("depth_seconds", stage_started)
         logger.info(f"Depth data saved as: {depth_data_path}")
@@ -2630,6 +2640,7 @@ async def process_image(
                 model_name=effective_depth_model,
                 device=device,
                 downsample_sharpening=depth_downsample_sharpening,
+                inference_precision=normalized_depth_inference_precision,
             )
 
         selection_region_mask_path = (
@@ -2962,6 +2973,8 @@ async def process_image(
             "depth_fallback_reason": depth_metadata.get("fallback_reason"),
             "depth_metadata": depth_metadata,
             "device": device,
+            "requested_depth_inference_precision": normalized_depth_inference_precision,
+            "depth_inference_precision": depth_metadata.get("effective_inference_precision"),
             "target_dimension": effective_target_dimension,
             "requested_target_dimension": requested_target_dimension,
             "relief_sample_pitch_mm": effective_sample_pitch_mm,

@@ -1270,6 +1270,7 @@ class ReliefStlControlsTest(unittest.TestCase):
             requested_model_name="apple/DepthPro-hf",
             fallback_reason="Depth Pro unavailable",
             downsample_sharpening=0.35,
+            inference_precision="auto",
         )
 
     def test_depth_fallback_rejects_recursive_fallback_model(self):

@@ -67,7 +67,19 @@ neutral background; the green overlay is retained only as a diagnostic artifact.
 The neutral preview is not used for depth estimation.
 
 For printable reliefs, `Select object` now uses the exact local frontend
-contract: `selection_mode=context` with `selection_subject_lock=true`. Depth
+contract. Browser uploads are normalized once to lossless PNG, and both the
+complete-scene pass and every face-crop pass run Depth Anything V2 Large in
+deterministic FP32. The Space preflights checksum-pinned MediaPipe, YuNet, and
+GNM face assets in a writable runtime cache. A selected-person result is not
+published unless every detected face used 468-or-more MediaPipe landmarks and
+its face crop records deterministic FP32 depth. The final JSON report exposes
+the verified asset hashes, scene precision, face-crop precision, detector
+names, and landmark counts. This intentionally trades some ZeroGPU runtime for
+the same recognizable high-relief faces produced locally; a missing asset or
+degraded fallback becomes a visible error instead of a lower-quality STL.
+
+Selected reliefs use `selection_mode=context` with
+`selection_subject_lock=true`. Depth
 Anything V2 and face preservation both see the complete original photograph.
 The complete finite depth grid proceeds through the same local face,
 background, detail, and skyline stages. Only at final mesh emission is it
@@ -87,7 +99,7 @@ The Mesh detail menu also mirrors the local Bambu Lab P1S production presets:
 `1.5x`/384, `2x`/512, `3x`/768, and capped `4x`/900 samples. The Space sends the
 same printer bounds, nozzle, feature-width, scale, and mesh-multiplier fields as
 the local request. Its untouched physical defaults now match local as well:
-100% of the 256 mm printer edge, 10 mm relief height, and a 2.4 mm flat backing
+100% of the 256 mm printer edge, 30 mm relief height, and a 2.4 mm flat backing
 plate. Print size uses the same 10-100% range in 5% steps. The backing thickness
 replaces the legacy 0.01 mm numerical buffer that could appear as a thin wedge
 in viewers; it does not change the relative front-surface relief.

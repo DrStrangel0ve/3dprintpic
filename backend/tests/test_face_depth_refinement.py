@@ -1,5 +1,6 @@
 import hashlib
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -85,6 +86,11 @@ class FaceDepthRefinementTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             home = Path(temp_dir)
             with (
+                patch.dict(
+                    face_module.os.environ,
+                    {"THREEDPRINTPIC_ASSET_CACHE_DIR": ""},
+                    clear=False,
+                ),
                 patch.object(face_module.Path, "home", return_value=home),
                 patch.object(
                     face_module.urllib.request,
@@ -111,6 +117,11 @@ class FaceDepthRefinementTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             home = Path(temp_dir)
             with (
+                patch.dict(
+                    face_module.os.environ,
+                    {"THREEDPRINTPIC_ASSET_CACHE_DIR": ""},
+                    clear=False,
+                ),
                 patch.object(face_module.Path, "home", return_value=home),
                 patch.object(
                     face_module.urllib.request,
@@ -136,6 +147,33 @@ class FaceDepthRefinementTest(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual(first.read_bytes(), payload)
             self.assertEqual(download.call_count, 1)
+
+    def test_verified_model_uses_explicit_writable_asset_cache(self):
+        payload = b"runtime cached model"
+        expected_sha256 = hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_dir = Path(temp_dir) / "assets"
+            with (
+                patch.dict(
+                    face_module.os.environ,
+                    {"THREEDPRINTPIC_ASSET_CACHE_DIR": str(cache_dir)},
+                    clear=False,
+                ),
+                patch.object(
+                    face_module.urllib.request,
+                    "urlopen",
+                    return_value=io.BytesIO(payload),
+                ),
+            ):
+                resolved = _resolve_verified_model(
+                    environment_name="UNSET_TEST_FACE_MODEL",
+                    cache_name="test-model.bin",
+                    url="https://example.invalid/test-model.bin",
+                    expected_sha256=expected_sha256,
+                    maximum_bytes=1024,
+                )
+
+        self.assertEqual(resolved, cache_dir / "test-model.bin")
 
     def test_verified_model_rejects_unverified_configured_override_without_path_leak(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -971,6 +1009,17 @@ class FaceDepthRefinementTest(unittest.TestCase):
                 values += gaussian_peak((height, width), (height * 0.58, width * 0.50), 4.0, 0.12)
                 output_path = Path(output_dir) / "output_depth_data.npy"
                 np.save(output_path, values.astype(np.float32))
+                (Path(output_dir) / "output_depth_metadata.json").write_text(
+                    json.dumps(
+                        {
+                            "requested_inference_precision": "float32",
+                            "effective_inference_precision": "float32",
+                            "deterministic_cuda": True,
+                            "effective_model": "test/depth-model",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
                 return output_path
 
             refined_path, metadata = refine_depth_for_faces(
@@ -990,6 +1039,15 @@ class FaceDepthRefinementTest(unittest.TestCase):
             self.assertEqual(metadata["refined_faces"], 1)
             self.assertEqual(metadata["eyewear_deoccluded_faces"], 0)
             self.assertEqual(metadata["faces"][0]["landmark_count"], 478)
+            self.assertEqual(
+                metadata["faces"][0]["depth_inference"],
+                {
+                    "requested_precision": "float32",
+                    "effective_precision": "float32",
+                    "deterministic_cuda": True,
+                    "effective_model": "test/depth-model",
+                },
+            )
             self.assertEqual(metadata["part_mask_faces"], 1)
             self.assertEqual(tuple(metadata["part_names"]), FACE_PART_NAMES)
             self.assertTrue(metadata["faces"][0]["part_masks"]["complete"])

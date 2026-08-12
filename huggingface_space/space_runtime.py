@@ -35,9 +35,12 @@ RUNTIME_ROOT = Path(os.getenv("THREEDPRINTPIC_RUNTIME_DIR", Path(tempfile.gettem
 OUTPUT_DIR = RUNTIME_ROOT / "output"
 SOURCE_DIR = RUNTIME_ROOT / "source"
 TRIPOSG_DIR = RUNTIME_ROOT / "TripoSG"
+ASSET_DIR = RUNTIME_ROOT / "assets"
 
 _SOURCE_LOCK = Lock()
 _TRIPOSG_LOCK = Lock()
+_FACE_ASSET_LOCK = Lock()
+_FACE_ASSET_STATUS = None
 
 SAM3_HOVER_MAP_MAX_DIMENSION = 1024
 SAM3_HOVER_MAP_VERSION = 1
@@ -110,13 +113,17 @@ if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+ASSET_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("OUTPUT_DIR", str(OUTPUT_DIR))
 os.environ.setdefault("DEPTH_PROVIDER", "transformers")
 os.environ.setdefault("DEPTH_MODEL", DEPTH_MODEL)
 os.environ.setdefault("SELECTION_ALLOW_MODEL_DOWNLOAD", "1")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("THREEDPRINTPIC_ASSET_CACHE_DIR", str(ASSET_DIR))
 
 from backend import main as backend_main  # noqa: E402
+from backend import face_depth_refinement as backend_face_refinement  # noqa: E402
+from backend import gnm_face_foundation as backend_gnm_face  # noqa: E402
 from backend.benchmark.direct_mesh import (  # noqa: E402
     convert_mesh_to_stl,
     postprocess_mesh_for_stl,
@@ -205,6 +212,163 @@ def _diagnostic_summary(diagnostics: dict, *, model: str) -> dict:
     }
     summary["stl_passes_hard_checks"] = all(hard_checks.values())
     summary["stl_failed_checks"] = [name for name, passed in hard_checks.items() if not passed]
+    return summary
+
+def ensure_face_assets() -> dict:
+    global _FACE_ASSET_STATUS
+    if _FACE_ASSET_STATUS is not None:
+        return json.loads(json.dumps(_FACE_ASSET_STATUS))
+    with _FACE_ASSET_LOCK:
+        if _FACE_ASSET_STATUS is not None:
+            return json.loads(json.dumps(_FACE_ASSET_STATUS))
+        try:
+            resolved = {
+                "mediapipe_face_landmarker": (
+                    backend_face_refinement._resolve_face_landmarker_model(),
+                    backend_face_refinement.FACE_LANDMARKER_MODEL_SHA256,
+                ),
+                "yunet_face_detector": (
+                    backend_face_refinement._resolve_yunet_model(),
+                    backend_face_refinement.YUNET_MODEL_SHA256,
+                ),
+                "gnm_head_model": (
+                    backend_gnm_face.resolve_gnm_model(),
+                    backend_gnm_face.GNM_MODEL_SHA256,
+                ),
+                "gnm_head_landmarks": (
+                    backend_gnm_face.resolve_gnm_landmarks(),
+                    backend_gnm_face.GNM_LANDMARKS_SHA256,
+                ),
+            }
+        except Exception as exc:
+            raise RuntimeError(
+                f"Face parity asset preflight failed: {type(exc).__name__}: {exc}"
+            ) from exc
+        _FACE_ASSET_STATUS = {
+            "verified": True,
+            "cache": "writable-runtime-assets",
+            "assets": {
+                name: {
+                    "filename": path.name,
+                    "bytes": int(path.stat().st_size),
+                    "sha256": sha256,
+                }
+                for name, (path, sha256) in resolved.items()
+            },
+        }
+        return json.loads(json.dumps(_FACE_ASSET_STATUS))
+
+
+def _selection_requests_person(selection: dict | None) -> bool:
+    if not isinstance(selection, dict):
+        return False
+    labels = selection.get("labels")
+    if not isinstance(labels, (list, tuple)):
+        return False
+    return any(str(label).strip().casefold() == "person" for label in labels)
+
+
+def _require_deterministic_depth_parity(result: dict) -> dict:
+    depth_metadata = result.get("depth_metadata")
+    if not isinstance(depth_metadata, dict):
+        depth_metadata = {}
+    summary = {
+        "requested_precision": result.get("requested_depth_inference_precision"),
+        "effective_precision": result.get("depth_inference_precision"),
+        "deterministic_cuda": depth_metadata.get("deterministic_cuda"),
+    }
+    failures = []
+    if summary["requested_precision"] != "float32":
+        failures.append("requested precision was not float32")
+    if summary["effective_precision"] != "float32":
+        failures.append("effective precision was not float32")
+    if summary["deterministic_cuda"] is not True:
+        failures.append("deterministic CUDA was not active")
+    if failures:
+        raise RuntimeError(
+            "Hosted depth parity check failed: " + "; ".join(failures)
+        )
+    summary["status"] = "verified"
+    return summary
+
+
+def _require_face_parity(result: dict, selection: dict | None) -> dict:
+    required = _selection_requests_person(selection)
+    face_refinement = result.get("face_refinement")
+    if not isinstance(face_refinement, dict):
+        face_refinement = {}
+    faces = face_refinement.get("faces")
+    faces = list(faces) if isinstance(faces, list) else []
+    refined_faces = [
+        face for face in faces
+        if isinstance(face, dict) and face.get("status") == "refined"
+    ]
+    mediapipe_faces = [
+        face
+        for face in refined_faces
+        if "mediapipe-face-landmarker" in str(face.get("detector") or "")
+        and int(face.get("landmark_count") or 0) >= 468
+    ]
+    deterministic_depth_faces = [
+        face
+        for face in refined_faces
+        if isinstance(face.get("depth_inference"), dict)
+        and face["depth_inference"].get("requested_precision") == "float32"
+        and face["depth_inference"].get("effective_precision") == "float32"
+        and face["depth_inference"].get("deterministic_cuda") is True
+    ]
+    detector_errors = face_refinement.get("detector_errors")
+    detector_errors = (
+        list(detector_errors)
+        if isinstance(detector_errors, list)
+        else []
+    )
+    summary = {
+        "required_for_selected_person": required,
+        "applied": face_refinement.get("applied") is True,
+        "detected_faces": int(face_refinement.get("detected_faces") or 0),
+        "refined_faces": int(face_refinement.get("refined_faces") or 0),
+        "mediapipe_landmark_faces": len(mediapipe_faces),
+        "deterministic_fp32_depth_faces": len(deterministic_depth_faces),
+        "landmark_shape_prior_faces": sum(
+            1
+            for face in refined_faces
+            if isinstance(face.get("landmark_shape_prior"), dict)
+            and face["landmark_shape_prior"].get("enabled") is True
+        ),
+        "detectors": sorted(
+            {
+                str(face.get("detector"))
+                for face in refined_faces
+                if face.get("detector")
+            }
+        ),
+        "detector_errors": detector_errors,
+    }
+    if not required:
+        summary["status"] = "observed"
+        return summary
+
+    failures = []
+    if not summary["applied"]:
+        failures.append("face refinement was not applied")
+    if summary["detected_faces"] < 1:
+        failures.append("no selected face was detected")
+    if summary["refined_faces"] != summary["detected_faces"]:
+        failures.append("not every detected face was refined")
+    if len(refined_faces) != summary["refined_faces"]:
+        failures.append("refined-face telemetry was incomplete")
+    if summary["mediapipe_landmark_faces"] != summary["refined_faces"]:
+        failures.append("MediaPipe 468+ landmark guidance was not used for every face")
+    if summary["deterministic_fp32_depth_faces"] != summary["refined_faces"]:
+        failures.append("deterministic FP32 depth was not used for every face crop")
+    if detector_errors:
+        failures.append("a face detector reported an error")
+    if failures:
+        raise RuntimeError(
+            "Hosted face parity check failed: " + "; ".join(failures)
+        )
+    summary["status"] = "verified"
     return summary
 
 
@@ -744,6 +908,14 @@ def release_gpu_models() -> None:
         backend_main.release_selection_models()
     except Exception:
         pass
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
 
 
 def _depth_model_source() -> str:
@@ -754,18 +926,6 @@ def _depth_model_source() -> str:
         revision=DEPTH_MODEL_REVISION,
         token=os.getenv("HF_TOKEN") or None,
     )
-    try:
-        backend_main.release_depth_pipelines()
-    except Exception:
-        pass
-    gc.collect()
-    try:
-        import torch
-
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except Exception:
-        pass
 
 
 def generate_relief(
@@ -787,6 +947,7 @@ def generate_relief(
         raise ValueError("Mesh detail must match a local frontend production preset")
     mesh_resolution_multiplier = LOCAL_RELIEF_DETAIL_MULTIPLIERS[detail_samples]
     x_mm, y_mm = local_relief_dimensions_mm(image_path, print_scale_percent)
+    face_assets = ensure_face_assets()
     depth_model_source = _depth_model_source()
     data = {
         # Keep this request contract aligned with the local Next.js frontend.
@@ -799,6 +960,7 @@ def generate_relief(
         "depth_model": depth_model_source,
         "device": "auto",
         "depth_downsample_sharpening": "0.35",
+        "depth_inference_precision": "float32",
         "target_dimension": str(int(detail_samples)),
         "z_scale": str(float(relief_height_mm)),
         "base_thickness_mm": str(float(base_thickness_mm)),
@@ -846,6 +1008,8 @@ def generate_relief(
     if response.status_code != 200:
         raise _response_error(response)
     result = response.json()
+    depth_parity = _require_deterministic_depth_parity(result)
+    face_parity = _require_face_parity(result, selection)
     if result.get("selection_mode") != data["selection_mode"]:
         raise RuntimeError("Relief backend did not honor the local frontend selection mode")
     if selected:
@@ -920,7 +1084,12 @@ def generate_relief(
     summary["base_thickness_mm"] = float(base_thickness_mm)
     summary["scope"] = "selected-objects-full-source-depth" if selected else "full-scene"
     summary["selection_mode"] = result.get("selection_mode", data["selection_mode"])
-    summary["local_relief_parity"] = "full-source-depth-grounded-selection-v2"
+    summary["local_relief_parity"] = (
+        "full-source-deterministic-fp32-face-parity-v3"
+    )
+    summary["depth_parity"] = depth_parity
+    summary["face_refinement"] = face_parity
+    summary["face_assets"] = face_assets
     summary["inpainting"] = False
     return (
         _safe_file(stl_path),

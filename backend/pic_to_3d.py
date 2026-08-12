@@ -43,6 +43,16 @@ _INPAINT_PIPELINE_CACHE = {}
 DEPTHPRO_MODEL_ID = "apple/DepthPro-hf"
 DEFAULT_DEPTH_FALLBACK_MODEL = "depth-anything/Depth-Anything-V2-Large-hf"
 MAX_DEPTH_DOWNSAMPLE_SHARPENING = 1.0
+DEPTH_INFERENCE_PRECISION_AUTO = "auto"
+DEPTH_INFERENCE_PRECISION_FLOAT16 = "float16"
+DEPTH_INFERENCE_PRECISION_FLOAT32 = "float32"
+DEPTH_INFERENCE_PRECISIONS = frozenset(
+    {
+        DEPTH_INFERENCE_PRECISION_AUTO,
+        DEPTH_INFERENCE_PRECISION_FLOAT16,
+        DEPTH_INFERENCE_PRECISION_FLOAT32,
+    }
+)
 RELIEF_VALUE_TRANSFORM_LINEAR = "linear"
 RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH = "inverse-depth"
 RELIEF_VALUE_TRANSFORMS = {
@@ -81,6 +91,34 @@ def _load_depth_input_image(input_image_path):
 
     with Image.open(input_image_path) as source_image:
         return ImageOps.exif_transpose(source_image).convert("RGB")
+
+
+def normalize_depth_inference_precision(value):
+    normalized = str(value or DEPTH_INFERENCE_PRECISION_AUTO).strip().lower()
+    aliases = {
+        "fp16": DEPTH_INFERENCE_PRECISION_FLOAT16,
+        "half": DEPTH_INFERENCE_PRECISION_FLOAT16,
+        "fp32": DEPTH_INFERENCE_PRECISION_FLOAT32,
+        "full": DEPTH_INFERENCE_PRECISION_FLOAT32,
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in DEPTH_INFERENCE_PRECISIONS:
+        supported = ", ".join(sorted(DEPTH_INFERENCE_PRECISIONS))
+        raise ValueError(f"Depth inference precision must be one of: {supported}")
+    return normalized
+
+
+def _configure_depth_cuda_determinism(torch):
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    if not torch.cuda.is_available():
+        return
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    if hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision("highest")
+    torch.use_deterministic_algorithms(True, warn_only=True)
 
 
 def _depth_processor_nominal_size(image_processor):
@@ -1002,6 +1040,7 @@ def process_image_get_depth_data(
     model_name=None,
     device="auto",
     downsample_sharpening=0.0,
+    inference_precision=DEPTH_INFERENCE_PRECISION_AUTO,
 ):
     if provider in ("depth-anything-v2", "transformers"):
         return process_image_get_depth_data_transformers(
@@ -1010,6 +1049,7 @@ def process_image_get_depth_data(
             model_name=model_name or "depth-anything/Depth-Anything-V2-Small-hf",
             device=device,
             downsample_sharpening=downsample_sharpening,
+            inference_precision=inference_precision,
         )
 
     if provider == "sapiens":
@@ -1055,6 +1095,7 @@ def process_image_get_depth_data_transformers(
     requested_model_name=None,
     fallback_reason=None,
     downsample_sharpening=0.0,
+    inference_precision=DEPTH_INFERENCE_PRECISION_AUTO,
 ):
     model_name = model_name or "depth-anything/Depth-Anything-V2-Small-hf"
     if is_da3_model(model_name):
@@ -1090,6 +1131,7 @@ def process_image_get_depth_data_transformers(
                     f"({type(exc).__name__}: {exc}); used verified local fallback instead."
                 ),
                 downsample_sharpening=downsample_sharpening,
+                inference_precision=inference_precision,
             )
     if model_name == DEPTHPRO_MODEL_ID:
         return process_image_get_depth_data_depthpro(
@@ -1102,6 +1144,7 @@ def process_image_get_depth_data_transformers(
             downsample_sharpening=downsample_sharpening,
         )
 
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     try:
         import torch
         import transformers
@@ -1125,13 +1168,27 @@ def process_image_get_depth_data_transformers(
     else:
         pipeline_device = device
 
-    cache_key = (model_name, pipeline_device)
+    requested_precision = normalize_depth_inference_precision(inference_precision)
+    if pipeline_device == -1:
+        effective_precision = DEPTH_INFERENCE_PRECISION_FLOAT32
+    elif requested_precision == DEPTH_INFERENCE_PRECISION_AUTO:
+        effective_precision = DEPTH_INFERENCE_PRECISION_FLOAT16
+    else:
+        effective_precision = requested_precision
+    if effective_precision == DEPTH_INFERENCE_PRECISION_FLOAT32:
+        _configure_depth_cuda_determinism(torch)
+
+    cache_key = (model_name, pipeline_device, effective_precision)
     if cache_key not in _DEPTH_PIPELINE_CACHE:
         pipe_kwargs = {"model": model_name, "device": pipeline_device}
         if pipeline_device != -1:
             transformers_major = int(transformers.__version__.split(".", 1)[0])
             dtype_arg = "dtype" if transformers_major >= 5 else "torch_dtype"
-            pipe_kwargs[dtype_arg] = torch.float16
+            pipe_kwargs[dtype_arg] = (
+                torch.float32
+                if effective_precision == DEPTH_INFERENCE_PRECISION_FLOAT32
+                else torch.float16
+            )
         _DEPTH_PIPELINE_CACHE[cache_key] = pipeline("depth-estimation", **pipe_kwargs)
 
     depth_pipe = _DEPTH_PIPELINE_CACHE[cache_key]
@@ -1162,6 +1219,12 @@ def process_image_get_depth_data_transformers(
             "fallback_reason": fallback_reason,
             "relief_value_transform": relief_value_transform,
             "depth_input_sharpening": input_sharpening,
+            "requested_inference_precision": requested_precision,
+            "effective_inference_precision": effective_precision,
+            "deterministic_cuda": bool(
+                pipeline_device != -1
+                and effective_precision == DEPTH_INFERENCE_PRECISION_FLOAT32
+            ),
         },
         normalize_depth=relief_value_transform == RELIEF_VALUE_TRANSFORM_LINEAR,
         preview_value_transform=relief_value_transform,
@@ -1279,6 +1342,7 @@ def _run_depth_fallback(
     reason,
     *,
     downsample_sharpening=0.0,
+    inference_precision=DEPTH_INFERENCE_PRECISION_AUTO,
 ):
     fallback_model = os.getenv("DEPTH_FALLBACK_MODEL", DEFAULT_DEPTH_FALLBACK_MODEL)
     if fallback_model == requested_model_name:
@@ -1292,6 +1356,7 @@ def _run_depth_fallback(
         requested_model_name=requested_model_name,
         fallback_reason=reason,
         downsample_sharpening=downsample_sharpening,
+        inference_precision=inference_precision,
     )
 
 

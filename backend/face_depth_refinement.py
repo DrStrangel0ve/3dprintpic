@@ -328,7 +328,15 @@ def _resolve_verified_model(
             )
         return configured_path
 
-    cache_path = Path.home() / ".cache" / "3dprintpic" / cache_name
+    configured_cache = str(
+        os.getenv("THREEDPRINTPIC_ASSET_CACHE_DIR") or ""
+    ).strip()
+    cache_dir = (
+        Path(configured_cache).expanduser()
+        if configured_cache
+        else Path.home() / ".cache" / "3dprintpic"
+    )
+    cache_path = cache_dir / cache_name
     if cache_path.is_file() and _sha256_file(cache_path) == expected_sha256:
         return cache_path
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2706,6 +2714,23 @@ def refine_depth_for_faces(
             face_output_dir = artifact_dir / f"face_{index:02d}_depth"
             face_output_dir.mkdir(parents=True, exist_ok=True)
             local_depth_path = Path(infer_depth(crop_path, face_output_dir))
+            face_depth_metadata_path = face_output_dir / "output_depth_metadata.json"
+            face_depth_metadata = {}
+            if face_depth_metadata_path.is_file():
+                with face_depth_metadata_path.open(encoding="utf-8") as metadata_file:
+                    face_depth_metadata = json.load(metadata_file)
+            face_record["depth_inference"] = {
+                "requested_precision": face_depth_metadata.get(
+                    "requested_inference_precision"
+                ),
+                "effective_precision": face_depth_metadata.get(
+                    "effective_inference_precision"
+                ),
+                "deterministic_cuda": face_depth_metadata.get(
+                    "deterministic_cuda"
+                ),
+                "effective_model": face_depth_metadata.get("effective_model"),
+            }
             local_depth = np.squeeze(np.load(local_depth_path)).astype(np.float32)
 
             dx0 = int(round(x0 * depth_width / image_width))

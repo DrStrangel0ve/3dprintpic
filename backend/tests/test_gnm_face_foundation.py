@@ -1,3 +1,5 @@
+import hashlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -66,6 +68,33 @@ class GNMFaceFoundationTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(RuntimeError, "checksum mismatch"):
                     gnm.resolve_gnm_model()
+
+    def test_asset_resolver_uses_explicit_writable_cache(self):
+        payload = b"runtime cached gnm asset"
+        expected_sha256 = hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_dir = Path(temp_dir) / "assets"
+            with (
+                patch.dict(
+                    gnm.os.environ,
+                    {"THREEDPRINTPIC_ASSET_CACHE_DIR": str(cache_dir)},
+                    clear=False,
+                ),
+                patch.object(
+                    gnm.urllib.request,
+                    "urlopen",
+                    return_value=io.BytesIO(payload),
+                ),
+            ):
+                resolved = gnm._resolve_verified_asset(
+                    environment_name="UNSET_TEST_GNM_ASSET",
+                    cache_name="test-asset.bin",
+                    url="https://example.invalid/test-asset.bin",
+                    expected_sha256=expected_sha256,
+                    maximum_bytes=1024,
+                )
+
+        self.assertEqual(resolved, cache_dir / "test-asset.bin")
 
     def test_rasterizer_selects_frontmost_triangle(self):
         vertices = np.asarray(

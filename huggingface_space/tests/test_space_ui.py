@@ -48,11 +48,23 @@ class SpaceUiTests(unittest.TestCase):
             for component in components
         }
         self.assertEqual(values_by_label["Print size (%)"], 100)
-        self.assertEqual(values_by_label["Relief height Z (mm)"], 10)
+        self.assertEqual(values_by_label["Relief height Z (mm)"], 30)
         self.assertEqual(values_by_label["Base thickness (mm)"], 2.4)
         self.assertEqual(values_by_label["X width (mm)"], 256)
         self.assertEqual(values_by_label["Y height (mm)"], 256)
         self.assertNotIn("Background depth", values_by_label)
+
+    def test_photo_inputs_use_lossless_png_handoff(self):
+        photo_components = [
+            component
+            for component in app.demo.get_config_file().get("components", [])
+            if component.get("props", {}).get("label") == "Photo"
+        ]
+
+        self.assertEqual(len(photo_components), 3)
+        self.assertTrue(
+            all(component["props"].get("format") == "png" for component in photo_components)
+        )
 
     def test_zero_gpu_runtime_uses_writable_xet_cache_and_free_tier_mesh_window(self):
         self.assertEqual(os.environ["HF_XET_CACHE"], str(app.HF_XET_CACHE_DIR))

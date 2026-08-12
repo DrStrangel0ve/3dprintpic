@@ -2292,6 +2292,7 @@ export default function Home() {
           'depth_downsample_sharpening',
           depthModel.toLowerCase().includes('depth-anything-v2') ? '0.35' : '0',
         );
+        formData.append('depth_inference_precision', 'float32');
         formData.append('target_dimension', String(reliefTargetDimension));
         formData.append('z_scale', String(effectiveReliefHeight));
         formData.append('base_thickness_mm', String(baseThickness));

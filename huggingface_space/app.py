@@ -567,6 +567,7 @@ def _selection_controls(prefix: str, *, selection_required: bool = False):
     source = gr.Image(
         type="filepath",
         image_mode="RGB",
+        format="png",
         sources=["upload", "webcam", "clipboard"],
         label="Photo",
         height=430,
@@ -727,7 +728,7 @@ with gr.Blocks(
                     with gr.Row():
                         x_size = gr.Number(value=256, label="X width (mm)", interactive=False)
                         y_size = gr.Number(value=256, label="Y height (mm)", interactive=False)
-                    relief_height = gr.Slider(2, 40, value=10, step=1, label="Relief height Z (mm)")
+                    relief_height = gr.Slider(2, 40, value=30, step=1, label="Relief height Z (mm)")
                     base_thickness = gr.Slider(
                         1,
                         8,
