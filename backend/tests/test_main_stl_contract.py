@@ -358,6 +358,7 @@ class MainStlContractTest(unittest.TestCase):
             inferred_pixels = []
             refined_pixels = []
             refinement_detection_sources = []
+            refinement_detection_modes = []
             mesh_source_pixels = []
             refinement_roi_masks = []
 
@@ -405,6 +406,9 @@ class MainStlContractTest(unittest.TestCase):
                 refinement_roi_masks.append(Path(_kwargs["detection_roi_mask"]))
                 refinement_detection_sources.append(
                     Path(_kwargs["detection_image_path"])
+                )
+                refinement_detection_modes.append(
+                    _kwargs["detection_image_mode"]
                 )
                 return depth, no_faces
 
@@ -497,9 +501,10 @@ class MainStlContractTest(unittest.TestCase):
                     output_root
                     / "selection"
                     / selection_job_id
-                    / "selected_image.png"
+                    / "source.png"
                 ],
             )
+            self.assertEqual(refinement_detection_modes, ["selection-source"])
             self.assertTrue(payload["selection_depth_context"]["enabled"])
             self.assertEqual(payload["selection_depth_context"]["selection_job_id"], selection_job_id)
             self.assertEqual(

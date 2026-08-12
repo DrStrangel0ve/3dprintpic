@@ -2550,7 +2550,10 @@ async def process_image(
         face_refinement_source = image_for_depth
         face_detection_source = None
         if selection_job is not None:
-            face_detection_source = selection_job["face_detection_path"]
+            # Detect on the untouched photograph, then constrain accepted face
+            # regions with the composed selection mask. Cutout backgrounds can
+            # clip hair, ears, or shoulders before the face crop is inferred.
+            face_detection_source = selection_job["source_path"]
             if selection_crop is not None and resolved_selection_mode == "isolate":
                 face_detection_crop_path = job_dir / "selection_face_detection_crop.png"
                 with Image.open(face_detection_source) as detection_image:
@@ -2604,6 +2607,9 @@ async def process_image(
             max_correction_ratio=face_max_correction_ratio,
             detection_roi_mask=selection_region_mask_path,
             detection_image_path=face_detection_source,
+            detection_image_mode=(
+                "selection-source" if face_detection_source is not None else None
+            ),
         )
         record_timing("face_refinement_seconds", stage_started)
 

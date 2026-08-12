@@ -106,6 +106,8 @@ DETECTOR_MODEL_PATH_ENVIRONMENT_NAMES = (
 DEFAULT_MIN_FACE_PIXELS = 96
 MIN_FACE_PIXELS_FLOOR = 48
 MIN_FACE_IMAGE_RATIO = 0.25
+SELECTION_FACE_COMPLETION_MINIMUM_RATIO = 5.0 / 6.0
+SELECTION_FACE_MINIMUM_OVERLAP_RATIO = 0.50
 SELECTION_ROI_DETECTION_DIMENSION = 384
 SELECTION_ROI_PADDING_RATIO = 0.45
 SELECTION_ROI_MINIMUM_COVERAGE = 0.001
@@ -646,6 +648,55 @@ def _effective_min_face_pixels(image_shape, requested: int) -> int:
         int(round(short_edge * MIN_FACE_IMAGE_RATIO)),
     )
     return max(1, min(int(requested), adaptive_cap))
+
+
+def _face_region_selection_overlap(region: dict, roi_mask: np.ndarray) -> float:
+    face_mask = np.asarray(region.get("face_mask"), dtype=np.uint8)
+    selected = np.asarray(roi_mask, dtype=bool)
+    if face_mask.shape != selected.shape:
+        return 0.0
+    face = face_mask > 0
+    face_pixels = int(np.count_nonzero(face))
+    if face_pixels <= 0:
+        return 0.0
+    return float(np.count_nonzero(face & selected) / face_pixels)
+
+
+def _face_region_iou(left: dict, right: dict) -> float:
+    lx0, ly0, lx1, ly1 = (float(value) for value in left["bbox"])
+    rx0, ry0, rx1, ry1 = (float(value) for value in right["bbox"])
+    intersection = max(0.0, min(lx1, rx1) - max(lx0, rx0)) * max(
+        0.0,
+        min(ly1, ry1) - max(ly0, ry0),
+    )
+    left_area = max(0.0, lx1 - lx0) * max(0.0, ly1 - ly0)
+    right_area = max(0.0, rx1 - rx0) * max(0.0, ry1 - ry0)
+    union = left_area + right_area - intersection
+    return float(intersection / union) if union > 0.0 else 0.0
+
+
+def _merge_selected_face_regions(
+    regions: list[dict],
+    candidates: list[dict],
+    roi_mask: np.ndarray,
+    *,
+    max_faces: int,
+) -> tuple[list[dict], int]:
+    merged = list(regions)
+    accepted = 0
+    for candidate in candidates:
+        overlap = _face_region_selection_overlap(candidate, roi_mask)
+        if overlap < SELECTION_FACE_MINIMUM_OVERLAP_RATIO:
+            continue
+        candidate = dict(candidate)
+        candidate["selection_overlap_ratio"] = overlap
+        if any(_face_region_iou(candidate, existing) >= 0.50 for existing in merged):
+            continue
+        merged.append(candidate)
+        accepted += 1
+        if len(merged) >= max(1, int(max_faces)):
+            break
+    return merged, accepted
 
 
 def _yunet_keypoints_are_face_like(
@@ -2358,6 +2409,7 @@ def refine_depth_for_faces(
     detector: Callable[[np.ndarray], tuple[list[dict], list[str]] | list[dict]] | None = None,
     detection_roi_mask: str | Path | np.ndarray | None = None,
     detection_image_path: str | Path | None = None,
+    detection_image_mode: str | None = None,
     infer_surface_residual: Callable | None = None,
     enable_gnm_foundation: bool = True,
 ) -> tuple[str, dict]:
@@ -2411,7 +2463,9 @@ def refine_depth_for_faces(
             if candidate_detection_rgb.shape != image_rgb.shape:
                 raise ValueError("detection image does not align with refinement image")
             detection_rgb = candidate_detection_rgb
-            metadata["detection_image"] = {"mode": "selection-neutral-cutout"}
+            metadata["detection_image"] = {
+                "mode": str(detection_image_mode or "separate-detection-image")
+            }
         except Exception as exc:
             metadata["detection_image"] = {
                 "mode": "refinement-image-fallback",
@@ -2498,27 +2552,93 @@ def refine_depth_for_faces(
     else:
         regions, detector_errors = detection_result, []
     metadata["detector_errors"] = [str(error) for error in detector_errors]
-    if not regions and roi_mask is not None:
+    if roi_mask is not None:
+        initial_candidates = list(regions)
+        regions, initial_selected_faces = _merge_selected_face_regions(
+            [],
+            initial_candidates,
+            roi_mask,
+            max_faces=max_faces,
+        )
+        metadata["selection_roi_detection"].update(
+            {
+                "full_frame_candidates": int(len(initial_candidates)),
+                "full_frame_selected_faces": int(initial_selected_faces),
+            }
+        )
+
+    if (
+        roi_mask is not None
+        and detector is None
+        and len(regions) < max(1, int(max_faces))
+        and effective_min_face_pixels > MIN_FACE_PIXELS_FLOOR
+    ):
+        relaxed_minimum = max(
+            MIN_FACE_PIXELS_FLOOR,
+            int(
+                round(
+                    effective_min_face_pixels
+                    * SELECTION_FACE_COMPLETION_MINIMUM_RATIO
+                )
+            ),
+        )
+        relaxed_result = run_detector(detection_rgb, max_faces, relaxed_minimum)
+        if isinstance(relaxed_result, tuple):
+            relaxed_regions, relaxed_errors = relaxed_result
+        else:
+            relaxed_regions, relaxed_errors = relaxed_result, []
+        metadata["detector_errors"].extend(
+            f"selection-completion:{error}" for error in relaxed_errors
+        )
+        regions, relaxed_accepted = _merge_selected_face_regions(
+            regions,
+            list(relaxed_regions),
+            roi_mask,
+            max_faces=max_faces,
+        )
+        metadata["selection_roi_detection"]["full_frame_relaxed_completion"] = {
+            "enabled": True,
+            "requested_minimum_face_pixels": int(effective_min_face_pixels),
+            "effective_minimum_face_pixels": int(relaxed_minimum),
+            "candidate_faces": int(len(relaxed_regions)),
+            "accepted_missing_faces": int(relaxed_accepted),
+        }
+
+    if len(regions) < max(1, int(max_faces)) and roi_mask is not None:
         try:
             roi_kwargs = {
                 "max_faces": max_faces,
                 "min_face_pixels": min_face_pixels,
                 "detector": run_detector,
-                "allow_selection_detail_fallback": mode == "auto",
+                "allow_selection_detail_fallback": mode == "auto" and not regions,
             }
             if request_face_blendshapes:
                 roi_kwargs["output_face_blendshapes"] = True
             if request_facial_transformation_matrixes:
                 roi_kwargs["output_facial_transformation_matrixes"] = True
-            regions, roi_errors, roi_stats = detect_face_regions_in_roi(
+            roi_regions, roi_errors, roi_stats = detect_face_regions_in_roi(
                 detection_rgb,
                 roi_mask,
                 **roi_kwargs,
             )
             metadata["detector_errors"].extend(str(error) for error in roi_errors)
-            metadata["selection_roi_detection"] = roi_stats
-            metadata["selection_detail_fallback_regions"] = int(
+            fallback_regions = int(
                 roi_stats.get("selection_detail_fallback_regions", 0)
+            )
+            regions, roi_accepted = _merge_selected_face_regions(
+                regions,
+                list(roi_regions),
+                roi_mask,
+                max_faces=max_faces,
+            )
+            metadata["selection_roi_detection"].update(
+                {
+                    "component_pass": roi_stats,
+                    "component_pass_accepted_faces": int(roi_accepted),
+                }
+            )
+            metadata["selection_detail_fallback_regions"] = int(
+                fallback_regions
             )
         except Exception as exc:
             metadata["selection_roi_detection"] = {

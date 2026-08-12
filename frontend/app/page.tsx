@@ -1021,7 +1021,7 @@ export default function Home() {
   const [selectedFrameCount, setSelectedFrameCount] = useState(12);
   const [frameStep, setFrameStep] = useState(8);
   const [depthModel, setDepthModel] = useState(PRODUCTION_DEPTH_MODEL);
-  const [depthScale, setDepthScale] = useState(10);
+  const [depthScale, setDepthScale] = useState(30);
   const [baseThickness, setBaseThickness] = useState(2.4);
   const [sceneDepth, setSceneDepth] = useState(64);
   const [sceneSubjectDepth, setSceneSubjectDepth] = useState(12);

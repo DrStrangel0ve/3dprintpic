@@ -1093,7 +1093,98 @@ class FaceDepthRefinementTest(unittest.TestCase):
         self.assertEqual(crop_pixels, [(20, 40, 60)])
         self.assertEqual(
             metadata["detection_image"]["mode"],
-            "selection-neutral-cutout",
+            "separate-detection-image",
+        )
+
+    def test_selection_completion_recovers_missing_faces_without_leaving_roi(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = root / "group.png"
+            depth_path = root / "depth.npy"
+            image_shape = (384, 512, 3)
+            Image.fromarray(np.full(image_shape, 180, dtype=np.uint8)).save(image_path)
+            yy, xx = np.indices((96, 128), dtype=np.float32)
+            np.save(depth_path, 0.2 + 0.001 * xx + 0.0005 * yy)
+
+            selected_boxes = [
+                (60, 110, 140, 220),
+                (190, 100, 270, 215),
+                (320, 105, 400, 220),
+            ]
+            outside_box = (10, 10, 75, 90)
+
+            def region(box, name):
+                face_mask, feature_mask = face_masks_from_box(image_shape, box)
+                return {
+                    "bbox": list(box),
+                    "face_mask": face_mask,
+                    "feature_mask": feature_mask,
+                    "detector": name,
+                }
+
+            selected_regions = [
+                region(box, f"selected-{index}")
+                for index, box in enumerate(selected_boxes)
+            ]
+            outside_region = region(outside_box, "outside-selection")
+            roi_mask = np.zeros(image_shape[:2], dtype=np.uint8)
+            for selected_region in selected_regions:
+                roi_mask[selected_region["face_mask"] > 0] = 255
+
+            observed_minimums = []
+
+            def fake_detector(_image, *, max_faces, min_face_pixels, **_kwargs):
+                observed_minimums.append(int(min_face_pixels))
+                if min_face_pixels >= 96:
+                    return [selected_regions[0], outside_region], []
+                return [selected_regions[0], outside_region, *selected_regions[1:]], []
+
+            def infer_depth(crop_path, output_dir):
+                crop = Image.open(crop_path)
+                crop_y, crop_x = np.indices(
+                    (crop.height, crop.width),
+                    dtype=np.float32,
+                )
+                values = 0.4 + 0.002 * crop_x + 0.001 * crop_y
+                output_path = Path(output_dir) / "output_depth_data.npy"
+                np.save(output_path, values.astype(np.float32))
+                return output_path
+
+            with patch.object(
+                face_module,
+                "detect_face_regions",
+                side_effect=fake_detector,
+            ):
+                _refined_path, metadata = refine_depth_for_faces(
+                    image_path,
+                    depth_path,
+                    root,
+                    infer_depth=infer_depth,
+                    mode="on",
+                    detection_roi_mask=roi_mask,
+                    enable_gnm_foundation=False,
+                )
+
+        self.assertEqual(observed_minimums, [96, 80])
+        self.assertTrue(metadata["applied"])
+        self.assertEqual(metadata["detected_faces"], 3)
+        self.assertEqual(metadata["refined_faces"], 3)
+        self.assertNotIn(
+            "outside-selection",
+            [face["detector"] for face in metadata["faces"]],
+        )
+        selection_stats = metadata["selection_roi_detection"]
+        self.assertEqual(selection_stats["full_frame_candidates"], 2)
+        self.assertEqual(selection_stats["full_frame_selected_faces"], 1)
+        self.assertEqual(
+            selection_stats["full_frame_relaxed_completion"],
+            {
+                "enabled": True,
+                "requested_minimum_face_pixels": 96,
+                "effective_minimum_face_pixels": 80,
+                "candidate_faces": 4,
+                "accepted_missing_faces": 2,
+            },
         )
 
     def test_selected_component_detail_fallback_refines_without_landmark_prior(self):
