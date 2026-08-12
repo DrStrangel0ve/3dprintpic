@@ -453,6 +453,7 @@ class SpaceRuntimeTests(unittest.TestCase):
                     "z_scale",
                     "base_thickness_mm",
                     "max_xy_size",
+                    "detail_basis_mm",
                     "invert",
                     "relief_polarity",
                     "mesh_resolution_multiplier",
@@ -491,6 +492,7 @@ class SpaceRuntimeTests(unittest.TestCase):
             self.assertEqual(request_data["invert"], "false")
             self.assertEqual(request_data["target_dimension"], "512")
             self.assertEqual(request_data["base_thickness_mm"], "2.4")
+            self.assertEqual(request_data["detail_basis_mm"], "256")
             self.assertEqual(request_data["mesh_resolution_multiplier"], "2.0")
             self.assertEqual(request_data["printer_profile"], "Bambu Lab P1S")
             self.assertEqual(request_data["printer_max_x_mm"], "256")
@@ -645,18 +647,21 @@ class SpaceRuntimeTests(unittest.TestCase):
             full_mesh = trimesh.load_mesh(full_result[0], force="mesh")
 
             self.assertEqual(selected_surface.shape, full_surface.shape)
-            np.testing.assert_array_equal(
-                np.isfinite(selected_surface),
-                np.isfinite(full_surface),
+            selected_coverage = np.isfinite(selected_surface)
+            full_coverage = np.isfinite(full_surface)
+            emitted_selection = np.flip(mask_values > 0, axis=1)
+            self.assertTrue(np.all(selected_coverage[full_coverage]))
+            self.assertFalse(
+                np.any((selected_coverage & ~full_coverage) & ~emitted_selection)
             )
-            self.assertEqual(len(selected_mesh.faces), len(full_mesh.faces))
+            self.assertGreaterEqual(len(selected_mesh.faces), len(full_mesh.faces))
             self.assertTrue(selected_mesh.is_watertight)
             self.assertTrue(selected_mesh.is_winding_consistent)
 
     def test_model_and_source_revisions_are_immutable(self):
         self.assertEqual(
             space_runtime.PROJECT_REVISION,
-            "b349d28e54af70acc1b36290d840ec9fbd2a1bff",
+            "824c4552a238aa44ac3693cfb62be07f66ecec91",
         )
         self.assertEqual(
             space_runtime.TRIPOSG_SOURCE_REVISION,

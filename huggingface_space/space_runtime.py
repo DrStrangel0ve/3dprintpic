@@ -21,7 +21,7 @@ from PIL import Image, ImageOps
 
 
 PROJECT_REPOSITORY = "https://github.com/DrStrangel0ve/3dprintpic.git"
-PROJECT_REVISION = "b349d28e54af70acc1b36290d840ec9fbd2a1bff"
+PROJECT_REVISION = "824c4552a238aa44ac3693cfb62be07f66ecec91"
 TRIPOSG_REPOSITORY = "https://github.com/VAST-AI-Research/TripoSG.git"
 TRIPOSG_SOURCE_REVISION = "fc5c40990181e2a756c4e0b1c2f4d6b5202faf8c"
 TRIPOSG_MODEL_REVISION = "2c1c516d22d58db486a058d98d31bb6177344e06"
@@ -802,6 +802,7 @@ def generate_relief(
         "z_scale": str(float(relief_height_mm)),
         "base_thickness_mm": str(float(base_thickness_mm)),
         "max_xy_size": str(max(x_mm, y_mm)),
+        "detail_basis_mm": str(LOCAL_RELIEF_PRINTER_EDGE_MM),
         "invert": "false",
         "relief_polarity": "raised-print",
         "mesh_resolution_multiplier": str(mesh_resolution_multiplier),

@@ -133,6 +133,16 @@ files. They are not committed, persisted in a dataset, used for training, or
 sent to an image-completion service. Temporary generation directories expire
 automatically.
 
+## Local parity
+
+The Space clones one immutable 3dprintpic GitHub revision and calls the same
+backend relief route as the local frontend. Relief generation uses the same
+Depth Anything V2 Large model, SAM 3 subject-lock context, 256 mm detail basis,
+scale-independent sampling, face guards, background controls, and
+depth-supported emission-only skyline trimming. For equal controls, the Space
+and local app therefore execute the same `backend/pic_to_3d.py` implementation
+instead of maintaining separate mesh algorithms.
+
 ## Licenses
 
 The application is intentionally free and non-commercial. Depth Anything V2
