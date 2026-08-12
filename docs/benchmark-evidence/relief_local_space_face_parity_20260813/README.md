@@ -96,5 +96,29 @@ hashes are:
 | `output_surface.npy` | `90efb9aaf02545f2ad71ed410f0eab40cf6c55c9e1d7afea7426259bc5515675` |
 | `metadata.json` | `388c083faee19a0d648e47a90d89fed663bce7ba68cd7d180175816b2efc5544` |
 
-The deployment gate requires a fresh hosted result with the same scene and
-face-crop FP32 telemetry before declaring Space parity complete.
+## Final live parity result
+
+Space commit `25e56f5a340ef422e140dad796fa3de1153b09b3` passed the same
+checksum-pinned 30 mm request in 215.854 seconds. It used deterministic FP32
+for scene and face-crop depth, refined one MediaPipe face with the landmark
+shape prior, reported no detector errors, and verified GLESv2 plus EGL.
+
+The final STL has 176,816 faces, one watertight manifold component, zero
+degenerates, and the exact local bounding box:
+`76 x 67.3568649 x 32.7977180 mm`.
+
+The local and hosted binary STLs are both 8,840,884 bytes and have identical
+face topology and bounds. Different CUDA architectures change only
+sub-micrometre floating-point tails:
+
+| Comparison | MAE | P95 | Maximum |
+| --- | ---: | ---: | ---: |
+| All vertex coordinates | 0.0000029 mm | 0.0000191 mm | 0.0005569 mm |
+| Z inside the MediaPipe face box | 0.0000231 mm | 0.0000877 mm | 0.0005569 mm |
+
+No vertex differs by 0.001 mm or more. The hosted artifact SHA256 is
+`fe916d9720f5c63ebe4d3bb7ae8bf1fc7b5995c5ff0a6390515e5c858fc8f4bb`;
+the local SHA256 remains
+`1183e386f817f92bc1af9f445773dfc00bc42f7203cf556c939d65d77d5424d2`.
+This passes the deployment gate far below printable-feature resolution.
+Machine-readable measurements are in `final_live_parity.json`.

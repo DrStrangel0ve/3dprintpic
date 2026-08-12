@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "source": {
+    "license_class": "CC0 privacy-safe generated portrait",
+    "sha256": "368b04492a8b73d749e14646fae757331705ee3b095df19df6ae4851846ff973"
+  },
+  "request": {
+    "scope": "full-scene",
+    "print_scale_percent": 30.0,
+    "relief_height_mm": 30.0,
+    "base_thickness_mm": 2.4,
+    "detail_samples": 512
+  },
+  "revisions": {
+    "backend_pin": "481aedec2788843b52be374b6a2c85df9571864d",
+    "github_implementation": "1ea20ffbd802192cce1106b1ec1e81e4675bbb79",
+    "space": "25e56f5a340ef422e140dad796fa3de1153b09b3"
+  },
+  "live_run": {
+    "elapsed_seconds": 215.85444808006287,
+    "depth_precision": "float32",
+    "deterministic_cuda": true,
+    "face_refinement_status": "verified",
+    "detected_faces": 1,
+    "refined_faces": 1,
+    "mediapipe_landmark_faces": 1,
+    "landmark_shape_prior_faces": 1,
+    "deterministic_fp32_depth_faces": 1,
+    "detectors": [
+      "mediapipe-face-landmarker"
+    ],
+    "detector_errors": [],
+    "native_libraries": {
+      "glesv2": "libGLESv2.so.2",
+      "egl": "libEGL.so.1"
+    }
+  },
+  "stl": {
+    "bytes": 8840884,
+    "face_count": 176816,
+    "vertex_count": 88410,
+    "bbox_extents_mm": [
+      76.0,
+      67.35686492919922,
+      32.7977180480957
+    ],
+    "watertight": true,
+    "manifold": true,
+    "single_component": true,
+    "degenerate_face_count": 0,
+    "local_sha256": "1183e386f817f92bc1af9f445773dfc00bc42f7203cf556c939d65d77d5424d2",
+    "hosted_sha256": "fe916d9720f5c63ebe4d3bb7ae8bf1fc7b5995c5ff0a6390515e5c858fc8f4bb"
+  },
+  "local_hosted_comparison": {
+    "faces_equal": true,
+    "bounds_equal": true,
+    "coordinate_mae_mm": 0.000002884812459269777,
+    "coordinate_p95_mm": 0.000019073486328125,
+    "coordinate_max_mm": 0.00055694580078125,
+    "z_mae_mm": 0.000008654437377809332,
+    "z_p95_mm": 0.000035762786865234375,
+    "face_bbox_pixels": [92, 74, 162, 157],
+    "face_matched_front_vertices": 34860,
+    "face_z_mae_mm": 0.00002314375517905887,
+    "face_z_p95_mm": 0.000087738037109375,
+    "face_z_max_mm": 0.00055694580078125,
+    "vertices_over_0_001_mm": 0
+  },
+  "decision": "pass"
+}
