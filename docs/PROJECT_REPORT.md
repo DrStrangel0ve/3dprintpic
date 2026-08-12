@@ -90,6 +90,11 @@ component. Face handling is deliberately bounded: it cannot alter pixels
 outside the face/subject support or silently violate attachment and height
 constraints.
 
+The production backing is a user-controlled flat plate (`2.4 mm` by default),
+not the legacy `0.01 mm` numerical buffer. It translates the approved front
+surface without changing its relief span or gradients and closes on an exact
+`Z=0` print plane.
+
 The 30 mm production path preserves:
 
 - face height and six named facial-part measurements;

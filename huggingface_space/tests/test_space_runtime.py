@@ -413,6 +413,7 @@ class SpaceRuntimeTests(unittest.TestCase):
                     selection,
                     50,
                     30,
+                    2.4,
                     512,
                 )
             request_data = post.call_args.kwargs["data"]
@@ -428,6 +429,7 @@ class SpaceRuntimeTests(unittest.TestCase):
                     "depth_downsample_sharpening",
                     "target_dimension",
                     "z_scale",
+                    "base_thickness_mm",
                     "max_xy_size",
                     "invert",
                     "relief_polarity",
@@ -466,6 +468,7 @@ class SpaceRuntimeTests(unittest.TestCase):
             self.assertEqual(request_data["device"], "auto")
             self.assertEqual(request_data["invert"], "false")
             self.assertEqual(request_data["target_dimension"], "512")
+            self.assertEqual(request_data["base_thickness_mm"], "2.4")
             self.assertEqual(request_data["mesh_resolution_multiplier"], "2.0")
             self.assertEqual(request_data["printer_profile"], "Bambu Lab P1S")
             self.assertEqual(request_data["printer_max_x_mm"], "256")
@@ -483,8 +486,10 @@ class SpaceRuntimeTests(unittest.TestCase):
             self.assertEqual(post.call_args.kwargs["files"]["file"][0], "selected.png")
             self.assertEqual(
                 result[3]["summary"]["dimensions_mm"],
-                {"x": 128.0, "y": 64.0, "z": 30.0},
+                {"x": 128.0, "y": 64.0, "z": 32.4},
             )
+            self.assertEqual(result[3]["summary"]["relief_height_mm"], 30.0)
+            self.assertEqual(result[3]["summary"]["base_thickness_mm"], 2.4)
             self.assertEqual(
                 result[3]["summary"]["scope"],
                 "selected-objects-local-context",
@@ -510,6 +515,7 @@ class SpaceRuntimeTests(unittest.TestCase):
                     None,
                     50,
                     20,
+                    2.4,
                     520,
                 )
 
@@ -596,6 +602,7 @@ class SpaceRuntimeTests(unittest.TestCase):
                     selection,
                     50,
                     10,
+                    2.4,
                     384,
                 )
                 full_result = space_runtime.generate_relief(
@@ -604,6 +611,7 @@ class SpaceRuntimeTests(unittest.TestCase):
                     None,
                     50,
                     10,
+                    2.4,
                     384,
                 )
 

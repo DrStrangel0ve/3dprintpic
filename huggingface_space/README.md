@@ -80,8 +80,10 @@ The Mesh detail menu also mirrors the local Bambu Lab P1S production presets:
 `1.5x`/384, `2x`/512, `3x`/768, and capped `4x`/900 samples. The Space sends the
 same printer bounds, nozzle, feature-width, scale, and mesh-multiplier fields as
 the local request. Its untouched physical defaults now match local as well:
-100% of the 256 mm printer edge and 10 mm relief height. Print size uses the
-same 10-100% range in 5% steps.
+100% of the 256 mm printer edge, 10 mm relief height, and a 2.4 mm flat backing
+plate. Print size uses the same 10-100% range in 5% steps. The backing thickness
+replaces the legacy 0.01 mm numerical buffer that could appear as a thin wedge
+in viewers; it does not change the relative front-surface relief.
 Before Depth Anything V2 performs its model-native reduction, relief requests
 apply bounded scale-aware sharpening to source luminance at strength `0.35`.
 The radius follows the source-to-model reduction ratio, chroma is unchanged, and

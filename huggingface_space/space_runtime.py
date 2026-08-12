@@ -750,6 +750,7 @@ def generate_relief(
     selection: dict | None,
     print_scale_percent: float,
     relief_height_mm: float,
+    base_thickness_mm: float,
     detail_samples: int,
 ) -> tuple[str, str, str, dict]:
     if not image_path:
@@ -775,6 +776,7 @@ def generate_relief(
         "depth_downsample_sharpening": "0.35",
         "target_dimension": str(int(detail_samples)),
         "z_scale": str(float(relief_height_mm)),
+        "base_thickness_mm": str(float(base_thickness_mm)),
         "max_xy_size": str(max(x_mm, y_mm)),
         "invert": "false",
         "relief_polarity": "raised-print",
@@ -829,16 +831,6 @@ def generate_relief(
             and result.get("selection_crop") is None
         ):
             raise RuntimeError("Selected relief did not preserve the local full-scene subject-lock contract")
-    selection_crop = result.get("selection_crop") if selected else None
-    crop_size = selection_crop.get("crop_size") if isinstance(selection_crop, dict) else None
-    if (
-        isinstance(crop_size, (list, tuple))
-        and len(crop_size) == 2
-        and all(float(value) > 0 for value in crop_size)
-    ):
-        crop_scale = float(long_edge_mm) / max(float(crop_size[0]), float(crop_size[1]))
-        x_mm = round(float(crop_size[0]) * crop_scale, 2)
-        y_mm = round(float(crop_size[1]) * crop_scale, 2)
     job_dir = OUTPUT_DIR / result["job_id"]
     stl_path = OUTPUT_DIR / result["stl_model"]
     preview_path = job_dir / "output_relief_preview.png"
@@ -847,7 +839,13 @@ def generate_relief(
     diagnostics_path = OUTPUT_DIR / result["diagnostics"]
     diagnostics = result.get("stl_diagnostics", {})
     summary = _diagnostic_summary(diagnostics, model=DEPTH_MODEL)
-    summary["dimensions_mm"] = {"x": x_mm, "y": y_mm, "z": float(relief_height_mm)}
+    summary["dimensions_mm"] = {
+        "x": x_mm,
+        "y": y_mm,
+        "z": float(relief_height_mm) + float(base_thickness_mm),
+    }
+    summary["relief_height_mm"] = float(relief_height_mm)
+    summary["base_thickness_mm"] = float(base_thickness_mm)
     summary["scope"] = "selected-objects-local-context" if selected else "full-scene"
     summary["selection_mode"] = result.get("selection_mode", data["selection_mode"])
     summary["local_relief_parity"] = "full-scene-subject-lock-v1"

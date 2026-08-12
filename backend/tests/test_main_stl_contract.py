@@ -216,6 +216,11 @@ class MainStlContractTest(unittest.TestCase):
                 self.assertTrue(payload["size_aware_detail"]["applied"])
                 self.assertAlmostEqual(payload["minimum_feature_mm"], 1.2)
                 self.assertAlmostEqual(payload["max_relief_slope"], 1.5)
+                self.assertAlmostEqual(payload["base_thickness_mm"], 2.4)
+                self.assertAlmostEqual(
+                    payload["relief_postprocess"]["backing_plate"]["thickness_mm"],
+                    2.4,
+                )
                 self.assertTrue(payload["relief_postprocess"]["enabled"])
                 self.assertTrue(
                     payload["relief_postprocess"]["reference_surface"]["emitted"]
@@ -311,6 +316,17 @@ class MainStlContractTest(unittest.TestCase):
                     "/process_image",
                     files={"file": ("invalid.png", self.png_bytes(), "image/png")},
                     data={"depth_downsample_sharpening": invalid},
+                )
+                self.assertEqual(response.status_code, 422, response.text)
+
+    def test_process_image_rejects_nonprintable_base_thickness_before_work(self):
+        client = TestClient(main_module.app)
+        for invalid in ("nan", "inf", "-inf", "0", "0.39", "20.01"):
+            with self.subTest(invalid=invalid):
+                response = client.post(
+                    "/process_image",
+                    files={"file": ("invalid.png", self.png_bytes(), "image/png")},
+                    data={"base_thickness_mm": invalid},
                 )
                 self.assertEqual(response.status_code, 422, response.text)
 
@@ -553,6 +569,7 @@ class MainStlContractTest(unittest.TestCase):
                         "selection_background_depth_ratio": kwargs[
                             "selection_background_depth_ratio"
                         ],
+                        "base_thickness_mm": kwargs["base_thickness_mm"],
                     }
                 )
                 Path(output_stl_path).write_bytes(b"solid fixture\nendsolid fixture\n")
@@ -651,6 +668,7 @@ class MainStlContractTest(unittest.TestCase):
                 observed_mesh["selection_background_depth_ratio"],
                 0.65,
             )
+            self.assertEqual(observed_mesh["base_thickness_mm"], 2.4)
             self.assertTrue(payload["selection_subject_lock"])
             self.assertTrue(payload["effective_trim_top_background"])
             self.assertEqual(

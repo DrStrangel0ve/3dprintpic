@@ -6005,7 +6005,15 @@ def depth_data_to_3d_model(
     surface_output_path=None,
     reference_surface_output_path=None,
     normalization_reference_depth=None,
+    base_thickness_mm=0.01,
 ):
+    try:
+        backing_thickness_mm = float(base_thickness_mm)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("base_thickness_mm must be a finite positive number") from exc
+    if not np.isfinite(backing_thickness_mm) or backing_thickness_mm <= 0:
+        raise ValueError("base_thickness_mm must be a finite positive number")
+
     # Load the .npy file
     data = np.load(npy_file).astype(np.float32)
     input_depth_shape = [int(data.shape[0]), int(data.shape[1])]
@@ -6213,25 +6221,27 @@ def depth_data_to_3d_model(
         preserve_mask=preserve_detail_border,
     )
     relief = np.where(top_silhouette_mask, relief, np.nan)
-    z = relief * z_scale
-    
-    # Add a small offset to create buffer
-    z = z + 0.01
+    # Raise the relief above a real, flat backing plate. The legacy exporter
+    # used a 0.01 mm numerical buffer here, which rendered as a paper-thin
+    # wedge and was not a printable backing thickness.
+    z = relief * z_scale + backing_thickness_mm
 
     # Apply a Gaussian filter to smooth the data
     z = _smooth_nan_aware(z, sigma=sigma)
     z = np.where(top_silhouette_mask, z, np.nan)
     if base_border_px:
         z = _flatten_border(
-            np.maximum(z - 0.01, 0.0),
+            np.maximum(z - backing_thickness_mm, 0.0),
             base_border_px,
             preserve_mask=preserve_detail_border,
-        ) + 0.01
+        ) + backing_thickness_mm
         z = np.where(top_silhouette_mask, z, np.nan)
     reference_face_height_mm = 12.0
     face_reference_surface = np.where(
         np.isfinite(z),
-        (z - 0.01) * min(1.0, reference_face_height_mm / max(float(z_scale), 1e-6)) + 0.01,
+        (z - backing_thickness_mm)
+        * min(1.0, reference_face_height_mm / max(float(z_scale), 1e-6))
+        + backing_thickness_mm,
         np.nan,
     )
     head_region_mask, head_region_stats = _expand_face_region_to_depth_connected_head(
@@ -6909,10 +6919,10 @@ def depth_data_to_3d_model(
     z = np.where(top_silhouette_mask, z, np.nan)
     if base_border_px:
         z = _flatten_border(
-            np.maximum(z - 0.01, 0.0),
+            np.maximum(z - backing_thickness_mm, 0.0),
             base_border_px,
             preserve_mask=preserve_detail_border,
-        ) + 0.01
+        ) + backing_thickness_mm
         z = np.where(top_silhouette_mask, z, np.nan)
     background_reference_surface = unstabilized_scene
     selection_background_cap_stats = {
@@ -7066,6 +7076,14 @@ def depth_data_to_3d_model(
         z = restored_background
         background_preservation_stats = fallback_metrics
 
+    # Every finite top-surface sample must stay on or above the backing plate,
+    # including exports that disable the optional flattened border.
+    z = np.where(
+        top_silhouette_mask,
+        np.maximum(z, backing_thickness_mm),
+        np.nan,
+    )
+
     face_appearance_stats = _surface_lighting_agreement_metrics(
         unstabilized_scene,
         z,
@@ -7141,6 +7159,7 @@ def depth_data_to_3d_model(
         "crop_bbox_rc": [int(top), int(left), int(bottom), int(right)],
         "emitted_shape": [int(z.shape[0]), int(z.shape[1])],
         "mask_interpolation": "nearest",
+        "base_thickness_mm": backing_thickness_mm,
     }
     if surface_output_path is not None:
         surface_output_path = os.fspath(surface_output_path)
@@ -7295,6 +7314,12 @@ def depth_data_to_3d_model(
         "face_boundary_alignment": face_boundary_alignment_stats,
         "face_surface_protection": face_surface_protection_stats,
         "surface_grid_transform": surface_grid_transform,
+        "backing_plate": {
+            "thickness_mm": backing_thickness_mm,
+            "bottom_z_mm": 0.0,
+            "top_z_mm": backing_thickness_mm,
+            "method": "flat_backing_plane_v1",
+        },
         "reference_surface": {
             "kind": "pre_high_relief_post_shape_surface",
             "emitted": reference_surface_output_path is not None,

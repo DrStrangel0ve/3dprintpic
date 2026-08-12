@@ -208,6 +208,8 @@ test('selected relief sends the selected preview and atomic compose job', async 
   expect(processMultipartBody).toContain('true');
   expect(processMultipartBody).toContain('name="depth_downsample_sharpening"');
   expect(processMultipartBody).toContain('0.35');
+  expect(processMultipartBody).toContain('name="base_thickness_mm"');
+  expect(processMultipartBody).toContain('2.4');
   expect(processMultipartBody).not.toContain('name="depth_context_file"');
   expect(processMultipartBuffer.includes(selectedPng)).toBe(true);
   expect(processMultipartBuffer.includes(originalPng)).toBe(false);

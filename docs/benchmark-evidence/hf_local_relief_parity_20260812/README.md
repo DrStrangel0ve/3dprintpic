@@ -34,6 +34,7 @@ that control geometry:
 | `printer_clearance_mm` | `0` |
 | `nozzle_diameter_mm` | `0.4` |
 | `minimum_feature_mm` | `0.8` |
+| `base_thickness_mm` | local control (`2.4` default) |
 
 Depth and face refinement operate on the complete original photograph. The
 selection mask remains a subject-protection signal inside the common relief
@@ -46,9 +47,9 @@ The hosted mesh-detail control is restricted to the local production choices:
 profile.
 
 The Space's physical controls also use the local defaults and domains: 100% of
-the 256 mm Bambu P1S edge, 10 mm relief height, and print-scale steps of 5%
-between 10% and 100%. The hosted-only Background depth slider was removed; both
-clients now rely on the same backend default.
+the 256 mm Bambu P1S edge, 10 mm relief height, 2.4 mm backing thickness, and
+print-scale steps of 5% between 10% and 100%. The hosted-only Background depth
+slider was removed; both clients now rely on the same backend default.
 
 The Space wrapper fails closed if the backend reports a different mode, a
 selection crop, a disabled subject lock, or any context method other than

@@ -518,7 +518,7 @@ def _invalidate_hover_selection(precompute_state, event_json):
 
 
 @spaces.GPU(duration=110)
-def _generate_relief_ui(image, scope, selection, print_scale, relief_height, samples):
+def _generate_relief_ui(image, scope, selection, print_scale, relief_height, base_thickness, samples):
     try:
         cleanup_expired_outputs()
         return generate_relief(
@@ -527,6 +527,7 @@ def _generate_relief_ui(image, scope, selection, print_scale, relief_height, sam
             selection,
             print_scale,
             relief_height,
+            base_thickness,
             int(samples),
         )
     except Exception as exc:
@@ -726,6 +727,13 @@ with gr.Blocks(
                         x_size = gr.Number(value=256, label="X width (mm)", interactive=False)
                         y_size = gr.Number(value=256, label="Y height (mm)", interactive=False)
                     relief_height = gr.Slider(2, 40, value=10, step=1, label="Relief height Z (mm)")
+                    base_thickness = gr.Slider(
+                        1,
+                        8,
+                        value=2.4,
+                        step=0.2,
+                        label="Base thickness (mm)",
+                    )
                     detail_samples = gr.Dropdown(
                         choices=[
                             ("1.5x (384 samples)", 384),
@@ -765,6 +773,7 @@ with gr.Blocks(
                     relief_selection,
                     print_scale,
                     relief_height,
+                    base_thickness,
                     detail_samples,
                 ],
                 outputs=[relief_model, relief_file, relief_preview, relief_diagnostics],

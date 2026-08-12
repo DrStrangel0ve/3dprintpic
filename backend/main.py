@@ -2400,6 +2400,7 @@ async def process_image(
     depth_downsample_sharpening: float = Form(0.0, ge=0.0, le=1.0),
     target_dimension: int = Form(300),
     z_scale: float = Form(10),
+    base_thickness_mm: float = Form(2.4, ge=0.4, le=20.0),
     max_xy_size: float | None = Form(None),
     printer_profile: str | None = Form(None),
     printer_max_x_mm: float | None = Form(None),
@@ -2795,6 +2796,7 @@ async def process_image(
             output_stl_path=str(stl_path),
             target_dimension=effective_target_dimension,
             z_scale=z_scale,
+            base_thickness_mm=base_thickness_mm,
             max_xy_size=max_xy_size,
             invert=effective_invert,
             sigma=sigma,
@@ -2876,6 +2878,7 @@ async def process_image(
             "requested_target_dimension": requested_target_dimension,
             "relief_sample_pitch_mm": effective_sample_pitch_mm,
             "z_scale": z_scale,
+            "base_thickness_mm": base_thickness_mm,
             "max_xy_size": max_xy_size,
             "printer": {
                 "profile": printer_profile,

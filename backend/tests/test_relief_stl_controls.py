@@ -2900,6 +2900,77 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertTrue(np.all(flattened[-1, :] == 0))
         self.assertTrue(np.all(flattened[:, -1] == 0))
 
+    def test_explicit_backing_plate_is_flat_and_preserves_relief_shape(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            depth_path = root / "depth.npy"
+            rows, cols = np.indices((12, 16), dtype=np.float32)
+            np.save(depth_path, 0.2 + 0.01 * rows + 0.02 * cols)
+            for base_border_px in (0, 2):
+                with self.subTest(base_border_px=base_border_px):
+                    common = {
+                        "target_dimension": -1,
+                        "z_scale": 10.0,
+                        "max_xy_size": 32.0,
+                        "sigma": 0.0,
+                        "relief_gamma": 1.0,
+                        "detail_boost": 0.0,
+                        "low_percentile": 0.0,
+                        "high_percentile": 100.0,
+                        "base_border_px": base_border_px,
+                    }
+                    legacy_surface_path = root / f"legacy-surface-{base_border_px}.npy"
+                    legacy_stl_path = root / f"legacy-{base_border_px}.stl"
+                    depth_data_to_3d_model(
+                        depth_path,
+                        output_stl_path=str(legacy_stl_path),
+                        surface_output_path=legacy_surface_path,
+                        **common,
+                    )
+                    backed_surface_path = root / f"backed-surface-{base_border_px}.npy"
+                    backed_stl_path = root / f"backed-{base_border_px}.stl"
+                    postprocess = depth_data_to_3d_model(
+                        depth_path,
+                        output_stl_path=str(backed_stl_path),
+                        surface_output_path=backed_surface_path,
+                        base_thickness_mm=2.4,
+                        **common,
+                    )
+                    legacy_surface = np.load(legacy_surface_path)
+                    backed_surface = np.load(backed_surface_path)
+                    legacy_mesh = trimesh.load_mesh(legacy_stl_path, force="mesh")
+                    backed_mesh = trimesh.load_mesh(backed_stl_path, force="mesh")
+
+                    np.testing.assert_allclose(
+                        backed_surface - 2.4,
+                        legacy_surface - 0.01,
+                        atol=2e-6,
+                    )
+                    np.testing.assert_allclose(
+                        backed_mesh.bounds[:, :2],
+                        legacy_mesh.bounds[:, :2],
+                        atol=1e-6,
+                    )
+                    self.assertEqual(len(backed_mesh.faces), len(legacy_mesh.faces))
+                    self.assertAlmostEqual(
+                        float(np.nanmin(backed_surface)),
+                        2.4,
+                        places=5,
+                    )
+                    self.assertAlmostEqual(float(backed_mesh.bounds[0, 2]), 0.0, places=6)
+                    self.assertGreaterEqual(float(backed_mesh.bounds[1, 2]), 2.4)
+                    intermediate_backing = (
+                        (backed_mesh.vertices[:, 2] > 1e-6)
+                        & (backed_mesh.vertices[:, 2] < 2.4 - 1e-6)
+                    )
+                    self.assertFalse(np.any(intermediate_backing))
+                    self.assertTrue(backed_mesh.is_watertight)
+                    self.assertTrue(backed_mesh.is_winding_consistent)
+                    self.assertTrue(backed_mesh.is_volume)
+                    self.assertEqual(postprocess["backing_plate"]["thickness_mm"], 2.4)
+                    self.assertEqual(postprocess["backing_plate"]["bottom_z_mm"], 0.0)
+                    self.assertEqual(postprocess["backing_plate"]["top_z_mm"], 2.4)
+
     def test_positive_context_preserves_cropped_selection_border_only(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

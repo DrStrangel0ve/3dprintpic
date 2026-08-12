@@ -49,6 +49,7 @@ class SpaceUiTests(unittest.TestCase):
         }
         self.assertEqual(values_by_label["Print size (%)"], 100)
         self.assertEqual(values_by_label["Relief height Z (mm)"], 10)
+        self.assertEqual(values_by_label["Base thickness (mm)"], 2.4)
         self.assertEqual(values_by_label["X width (mm)"], 256)
         self.assertEqual(values_by_label["Y height (mm)"], 256)
         self.assertNotIn("Background depth", values_by_label)

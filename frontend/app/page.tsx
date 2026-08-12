@@ -2283,6 +2283,7 @@ export default function Home() {
         );
         formData.append('target_dimension', String(reliefTargetDimension));
         formData.append('z_scale', String(effectiveReliefHeight));
+        formData.append('base_thickness_mm', String(baseThickness));
         formData.append('max_xy_size', String(printVolume.target_dimension_mm));
         formData.append('invert', String(reliefInvert));
         formData.append('sigma', String(detailSmoothing));
