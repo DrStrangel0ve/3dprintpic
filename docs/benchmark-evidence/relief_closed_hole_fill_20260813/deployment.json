@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "verified_date": "2026-08-13",
+  "github": {
+    "repository": "DrStrangel0ve/3dprintpic",
+    "branch": "codex/3d-completion-benchmark-g4",
+    "backend_revision": "4e04d502e1c222a121e3f54a52c2980ce2cf2257",
+    "space_pin_revision": "7ed220e530b05caa76f8fca5a7b6c595831961da",
+    "draft_pr": "https://github.com/DrStrangel0ve/3dprintpic/pull/2"
+  },
+  "huggingface": {
+    "repository": "DrStrangel0ve/3dprintpic",
+    "commit": "385b791f63d95a844a0b3da23335852d32bd89be",
+    "runtime_stage": "RUNNING",
+    "hardware": "zero-a10g",
+    "public_url": "https://drstrangel0ve-3dprintpic.hf.space/",
+    "http_status": 200,
+    "visible_backend_revision": "4e04d502",
+    "workflows_present": [
+      "Printable Relief",
+      "Scene Diorama",
+      "Full Mesh STL"
+    ]
+  },
+  "bundle_byte_parity": {
+    "README.md": "a2e145293fbd1a1902fa1f28d0eec868909ab445d9a2e8f1058f26d204bbdfcb",
+    "app.py": "31059f74d7cca72db52885d08edc91b0da7a41854c6c421b22df399fb21c6a01",
+    "packages.txt": "9c429792330659f67d5e24e40a47fa45d4132bad6191b49e69f893a29687e194",
+    "requirements.txt": "94f947f05e4cb3b8e793608ce6ff93987af95fcd56ec9bce8645ff4bd7132bae",
+    "space_runtime.py": "0212a49f77c88a3de49d556d3451e3c673579f562e90b271f8a54289ddff69db"
+  },
+  "all_bundle_files_identical": true
+}
