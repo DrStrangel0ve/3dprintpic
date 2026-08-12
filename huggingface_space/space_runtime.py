@@ -46,6 +46,10 @@ SAM3_PRECOMPUTE_TTL_SECONDS = 20 * 60
 SAM3_PRECOMPUTE_MAX_SOURCE_PIXELS = 40_000_000
 SAM3_PRECOMPUTE_MAX_MASKS = 256
 SAM3_PRECOMPUTE_MAX_COMPRESSED_BYTES = 32 * 1024 * 1024
+SAM3_HOVER_SPECIFICITY_WEIGHT = 0.20
+SAM3_HOVER_CONTEXT_MIN_COVERAGE = 0.25
+SAM3_HOVER_CONTEXT_LARGE_COVERAGE = 0.55
+SAM3_HOVER_CONTEXT_MIN_BORDER_SIDES = 3
 LOCAL_RELIEF_DETAIL_MULTIPLIERS = {
     384: 1.5,
     512: 2.0,
@@ -370,8 +374,28 @@ def _sam3_hover_region_map(
                 (map_width, map_height),
                 interpolation=cv2.INTER_NEAREST,
             ).astype(bool)
-        update = resized & (score_array[instance_index] > winner_scores)
-        winner_scores[update] = score_array[instance_index]
+        coverage = float(np.mean(resized))
+        border_sides = sum(
+            bool(np.any(edge))
+            for edge in (resized[0, :], resized[-1, :], resized[:, 0], resized[:, -1])
+        )
+        scene_context = bool(
+            str(labels[instance_index]).strip().lower() != "person"
+            and (
+                coverage >= SAM3_HOVER_CONTEXT_LARGE_COVERAGE
+                or (
+                    coverage >= SAM3_HOVER_CONTEXT_MIN_COVERAGE
+                    and border_sides >= SAM3_HOVER_CONTEXT_MIN_BORDER_SIDES
+                )
+            )
+        )
+        if scene_context:
+            continue
+        hit_priority = float(score_array[instance_index]) - (
+            SAM3_HOVER_SPECIFICITY_WEIGHT * coverage
+        )
+        update = resized & (hit_priority > winner_scores)
+        winner_scores[update] = hit_priority
         winners[update] = instance_index
     covered = winners >= 0
 

@@ -105,6 +105,28 @@ class SpaceRuntimeTests(unittest.TestCase):
         self.assertGreaterEqual(len(person_ids), 2)
         self.assertEqual(int(region_ids[0, 0]), 0)
 
+    def test_hover_region_map_rejects_scene_context_and_prefers_specific_objects(self):
+        masks = np.zeros((4, 80, 100), dtype=bool)
+        masks[0, :, :] = True
+        masks[0, 8:76, 18:48] = False
+        masks[0, 28:66, 58:91] = False
+        masks[1, 8:76, 18:48] = True
+        masks[2, 28:66, 58:91] = True
+        masks[3, 5:75, 0:48] = True
+        hover_map, regions, _size = space_runtime._sam3_hover_region_map(
+            masks,
+            np.asarray([0.99, 0.92, 0.90, 0.95], dtype=np.float32),
+            ["building", "person", "furniture", "furniture"],
+            (100, 80),
+        )
+        encoded = np.asarray(hover_map, dtype=np.uint32)
+        region_ids = encoded[..., 0] + (encoded[..., 1] << 8) + (encoded[..., 2] << 16)
+
+        self.assertEqual(int(region_ids[2, 2]), 0)
+        self.assertNotIn("building", {metadata["label"] for metadata in regions.values()})
+        self.assertEqual(regions[str(int(region_ids[20, 30]))]["label"], "person")
+        self.assertEqual(regions[str(int(region_ids[45, 75]))]["label"], "furniture")
+
     def test_prepare_object_selection_runs_sam3_once_and_releases_it(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             image_path = Path(temp_dir) / "photo.png"

@@ -328,6 +328,7 @@ SELECTION_HOVER_JS = r"""
         region_id: regionId,
       });
     }
+    picker.hoveredId = 0;
     picker.renderedSignature = "";
     renderRegions(picker);
     writeSelectionRequest(picker);

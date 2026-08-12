@@ -123,6 +123,7 @@ class SpaceUiTests(unittest.TestCase):
         self.assertIn('event.target.closest("button, input', app.SELECTION_HOVER_JS)
         self.assertIn("selectedRegions: new Map()", app.SELECTION_HOVER_JS)
         self.assertIn("picker.selectedRegions.has(regionId)", app.SELECTION_HOVER_JS)
+        self.assertIn("picker.hoveredId = 0;", app.SELECTION_HOVER_JS)
         self.assertIn("window.__sam3UndoSelection", app.SELECTION_HOVER_JS)
         self.assertIn("window.__sam3ClearSelection", app.SELECTION_HOVER_JS)
         self.assertNotIn("fetch(", app.SELECTION_HOVER_JS)
