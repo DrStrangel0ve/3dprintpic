@@ -76,3 +76,27 @@ unchanged for full-scene reliefs and existing callers.
 Final validation passed 1,196 backend tests plus 129 subtests, all 28 Hugging
 Face runtime/UI tests, and 11 local Playwright tests with one intentional live
 video skip. Frontend lint and TypeScript checks passed with no errors.
+
+## Local and Hugging Face parity
+
+The selected-emission implementation is immutable GitHub revision
+`cbaa459ac672a62c0374946b0ba3a5601a2a407d`; the Space wrapper pin is committed
+at `8095528`. An external preflight copied only the flattened Space wrapper to a
+temporary directory, cloned the pinned GitHub revision, and verified the clean
+checkout at the exact commit. Its backend hashes were:
+
+- `backend/pic_to_3d.py`: `d5c787772e4d759f6971c845c78912e154ff00cbe4e4f567bdad08f1f8e031bd`
+- `backend/main.py`: `4c600ee4f517cd5176ec54a821114d9ecc43bca95b2f175bf63340b0d43cb5d6`
+
+Hugging Face Space commit
+`3fede8b8ac26c32ec1d27b17739c1923f720fd49` deployed the five flattened files
+atomically against parent `8a182b85d433b8a1c2d1a9ccee274a779e692f50`. All five downloaded files were
+byte-for-byte identical to the tested local payload. The Space reached
+`RUNNING` on `zero-a10g`, exposed visible footer revision `cbaa459a`, and had
+zero browser console errors.
+
+The restarted local API used the RTX 3080 Ti and exact wrapper/head revision
+`8095528626734bffc89601d2e3e17ae11f96f895`. A final route-level replay finished
+in 28.241 seconds with the same 68,751 retained and mesh-supported selected
+samples, 57,269 suppressed context samples, 585 backing pixels, 277,376 faces,
+one watertight/manifold component, and zero degenerate faces.

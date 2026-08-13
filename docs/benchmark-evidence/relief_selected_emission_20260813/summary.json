@@ -55,5 +55,33 @@
     "frontend_playwright_tests_skipped": 1,
     "frontend_lint_passed": true,
     "frontend_typecheck_passed": true
+  },
+  "deployment": {
+    "backend_revision": "cbaa459ac672a62c0374946b0ba3a5601a2a407d",
+    "space_wrapper_revision": "8095528626734bffc89601d2e3e17ae11f96f895",
+    "space_commit": "3fede8b8ac26c32ec1d27b17739c1923f720fd49",
+    "space_parent_commit": "8a182b85d433b8a1c2d1a9ccee274a779e692f50",
+    "space_stage": "RUNNING",
+    "space_hardware": "zero-a10g",
+    "deployed_files_identical": 5,
+    "deployed_file_count": 5,
+    "visible_footer_revision": "cbaa459a",
+    "browser_console_error_count": 0,
+    "pic_to_3d_sha256": "d5c787772e4d759f6971c845c78912e154ff00cbe4e4f567bdad08f1f8e031bd",
+    "main_sha256": "4c600ee4f517cd5176ec54a821114d9ecc43bca95b2f175bf63340b0d43cb5d6",
+    "local_api": {
+      "runtime_revision": "8095528626734bffc89601d2e3e17ae11f96f895",
+      "device": "NVIDIA GeForce RTX 3080 Ti",
+      "total_seconds": 28.241,
+      "retained_selected_samples": 68751,
+      "mesh_supported_selected_samples": 68751,
+      "suppressed_context_samples": 57269,
+      "backing_connector_pixels": 585,
+      "stl_faces": 277376,
+      "watertight": true,
+      "manifold": true,
+      "component_count": 1,
+      "degenerate_face_count": 0
+    }
   }
 }
