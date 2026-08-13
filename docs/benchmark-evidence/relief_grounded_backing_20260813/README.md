@@ -76,3 +76,20 @@ tests, and 8 Hugging Face UI tests. The two backend warnings and one UI warning
 are existing dependency deprecation/runtime warnings, not test failures.
 
 Machine-readable aggregate evidence is in `summary.json`.
+
+## Local and Hugging Face parity
+
+The measured backend implementation is immutable GitHub revision
+`6b2c6729b8dd64be5265695c77c915e911d72176`; wrapper revision
+`230012d76c6d57d51e42f144de35d1121e047b39` pins that exact source. A clean
+checkout preflight resolved the pin before deployment. Hugging Face Space commit
+`f1662d38ce77282cc77b2e9824f211f76e337e81` atomically replaced the same five
+wrapper files against parent `3fede8b8ac26c32ec1d27b17739c1923f720fd49`.
+All five downloaded files matched the tested payload byte for byte, and the
+Space reached `RUNNING` on `zero-a10g`.
+
+The restarted local route used the RTX 3080 Ti and wrapper revision `230012d`.
+Its exact live replay completed in 31.762 seconds, retained all 68,751 selected
+samples, emitted 53,408 foundation and 585 connector pixels at 2.4 mm, and
+reproduced the 491,052-face watertight, manifold, single-component STL with zero
+degenerate faces.

@@ -61,10 +61,32 @@
     "space_ui_tests_passed": 8
   },
   "deployment": {
-    "backend_revision": null,
-    "space_wrapper_revision": null,
-    "space_commit": null,
-    "space_stage": null,
-    "visible_footer_revision": null
+    "backend_revision": "6b2c6729b8dd64be5265695c77c915e911d72176",
+    "space_wrapper_revision": "230012d76c6d57d51e42f144de35d1121e047b39",
+    "space_commit": "f1662d38ce77282cc77b2e9824f211f76e337e81",
+    "space_parent_commit": "3fede8b8ac26c32ec1d27b17739c1923f720fd49",
+    "space_stage": "RUNNING",
+    "space_hardware": "zero-a10g",
+    "deployed_files_identical": 5,
+    "deployed_file_count": 5,
+    "visible_footer_revision": "6b2c6729",
+    "local_api": {
+      "runtime_revision": "230012d76c6d57d51e42f144de35d1121e047b39",
+      "device": "NVIDIA GeForce RTX 3080 Ti",
+      "total_seconds": 31.762,
+      "retained_selected_samples": 68751,
+      "removed_selected_samples": 0,
+      "unsupported_selected_mesh_samples": 0,
+      "suppressed_context_samples": 57269,
+      "backing_foundation_pixels": 53408,
+      "backing_connector_pixels": 585,
+      "backing_height_mm": 2.4,
+      "stl_faces": 491052,
+      "watertight": true,
+      "manifold": true,
+      "winding_consistent": true,
+      "component_count": 1,
+      "degenerate_face_count": 0
+    }
   }
 }
