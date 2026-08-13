@@ -867,13 +867,24 @@ def generate_relief(
             if isinstance(selection_emission, dict)
             else None
         )
+        backing_foundation = (
+            selection_emission.get("backing_foundation")
+            if isinstance(selection_emission, dict)
+            else None
+        )
         if not isinstance(selection_emission, dict) or not (
             selection_emission.get("enabled") is True
             and selection_emission.get("method")
-            == "full_scene_depth_selected_mask_emission_v1"
+            == "full_scene_depth_grounded_selection_emission_v2"
             and selection_emission.get("retained_unselected_pixels") == 0
             and selection_emission.get("removed_selected_pixels") == 0
+            and selection_emission.get("unsupported_selected_mesh_pixels") == 0
             and selection_emission.get("retained_selection_ratio") == 1.0
+            and isinstance(backing_foundation, dict)
+            and backing_foundation.get("accepted") is True
+            and backing_foundation.get("method")
+            == "column_grounded_backing_foundation_v1"
+            and backing_foundation.get("bounded_to_selection_bbox") is True
             and isinstance(backing_connector, dict)
             and backing_connector.get("accepted") is True
             and backing_connector.get("within_bridge_budget") is True
@@ -899,7 +910,7 @@ def generate_relief(
     summary["base_thickness_mm"] = float(base_thickness_mm)
     summary["scope"] = "selected-objects-full-source-depth" if selected else "full-scene"
     summary["selection_mode"] = result.get("selection_mode", data["selection_mode"])
-    summary["local_relief_parity"] = "full-source-depth-selected-emission-v1"
+    summary["local_relief_parity"] = "full-source-depth-grounded-selection-v2"
     summary["inpainting"] = False
     return (
         _safe_file(stl_path),

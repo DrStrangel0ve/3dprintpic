@@ -37,6 +37,7 @@ from backend.pic_to_3d import (
     _depth_processor_output_size,
     _limit_positive_relief_slope,
     _minimal_component_connector_mask,
+    _selection_grounded_backing_mask,
     _prepare_relief_for_printing,
     _relax_selection_attachment_conflicts,
     _restore_background_from_reference,
@@ -54,6 +55,33 @@ from backend.pic_to_3d import (
 
 
 class ReliefStlControlsTest(unittest.TestCase):
+    def test_selection_backing_fills_only_below_lowest_selected_pixel(self):
+        selected = np.zeros((24, 32), dtype=bool)
+        selected[4:10, 2:9] = True
+        selected[8:23, 13:19] = True
+        selected[6:14, 24:30] = True
+
+        foundation, stats = _selection_grounded_backing_mask(
+            selected,
+            sample_pitch_mm=0.2,
+            minimum_width_mm=0.8,
+        )
+        expected = np.zeros_like(selected)
+        expected[10:23, 2:9] = True
+        expected[14:23, 24:30] = True
+        expected[19:23, 2:30] = True
+        expected &= ~selected
+
+        np.testing.assert_array_equal(foundation, expected)
+        self.assertTrue(stats["enabled"])
+        self.assertTrue(stats["accepted"])
+        self.assertEqual(stats["bottom_row"], 22)
+        self.assertEqual(stats["active_columns"], 19)
+        self.assertEqual(stats["foundation_pixels"], int(expected.sum()))
+        self.assertEqual(stats["base_rail_height_px"], 4)
+        self.assertFalse(np.any(foundation & selected))
+        self.assertFalse(np.any(foundation[:10, 2:9]))
+
     def test_backing_connector_handles_diagonal_pixel_connection(self):
         selected = np.zeros((24, 32), dtype=bool)
         selected[2:11, 2:11] = True
@@ -142,6 +170,38 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertFalse(stats["accepted"])
         self.assertEqual(stats["reason"], "bridge_budget_exceeded")
         self.assertGreater(stats["bridge_pixels"], stats["bridge_budget_pixels"])
+
+    def test_grounded_backing_fills_below_component_bridge(self):
+        selected = np.zeros((32, 48), dtype=bool)
+        selected[4:24, 3:18] = True
+        selected[10:31, 21:45] = True
+        connector, connector_stats = _minimal_component_connector_mask(
+            selected,
+            sample_pitch_mm=0.2,
+            minimum_width_mm=0.8,
+        )
+        foundation, foundation_stats = _selection_grounded_backing_mask(
+            selected | connector,
+            sample_pitch_mm=0.2,
+            minimum_width_mm=0.8,
+        )
+
+        connector_rows, connector_columns = np.where(connector)
+        self.assertTrue(connector_stats["accepted"])
+        self.assertTrue(foundation_stats["accepted"])
+        self.assertGreater(connector_columns.size, 0)
+        grounded = selected | connector | foundation
+        bottom_row = int(foundation_stats["bottom_row"])
+        for column in np.unique(connector_columns):
+            lowest_connector_row = int(connector_rows[connector_columns == column].max())
+            self.assertTrue(
+                np.all(
+                    grounded[
+                        lowest_connector_row + 1 : bottom_row + 1,
+                        column,
+                    ]
+                )
+            )
 
     def test_depth_processor_output_size_matches_aspect_preserving_dpt_resize(self):
         source = Image.new("RGB", (3840, 2160), (80, 120, 160))
@@ -3018,9 +3078,9 @@ class ReliefStlControlsTest(unittest.TestCase):
             emitted_reference_path = root / "emitted-reference.npy"
             rows, cols = np.indices((48, 72), dtype=np.float32)
             selected = np.zeros((48, 72), dtype=bool)
-            selected[-5:, :] = True
-            selected[9:, 5:24] = True
-            selected[14:, 47:68] = True
+            selected[9:24, 5:24] = True
+            selected[12:, 29:44] = True
+            selected[14:31, 47:68] = True
             selected[:22, 34:39] = True
             depth = 0.08 + 0.0017 * rows + 0.0021 * cols
             depth += selected * (
@@ -3064,25 +3124,35 @@ class ReliefStlControlsTest(unittest.TestCase):
             context_surface = np.load(context_surface_path)
             emitted_surface = np.load(emitted_surface_path)
             emitted_reference = np.load(emitted_reference_path)
-            emitted_selection = np.flip(selected, axis=1)
+            crop_top, crop_left, crop_bottom, crop_right = postprocess[
+                "surface_grid_transform"
+            ]["crop_bbox_rc"]
+            context_surface = context_surface[
+                crop_top:crop_bottom,
+                crop_left:crop_right,
+            ]
+            emitted_selection = np.flip(selected, axis=1)[
+                crop_top:crop_bottom,
+                crop_left:crop_right,
+            ]
             emitted_mesh = trimesh.load_mesh(root / "selected-only.stl", force="mesh")
 
         self.assertEqual(emitted_surface.shape, context_surface.shape)
         emitted_coverage = np.isfinite(emitted_surface)
-        connector = emitted_coverage & ~emitted_selection
+        backing_only = emitted_coverage & ~emitted_selection
         self.assertTrue(np.all(emitted_coverage[emitted_selection]))
         np.testing.assert_array_equal(
             emitted_surface[emitted_selection],
             context_surface[emitted_selection],
         )
-        self.assertTrue(np.any(connector))
+        self.assertTrue(np.any(backing_only))
         np.testing.assert_array_equal(
-            emitted_surface[connector],
-            np.full(np.count_nonzero(connector), 0.01, dtype=np.float32),
+            emitted_surface[backing_only],
+            np.full(np.count_nonzero(backing_only), 0.01, dtype=np.float32),
         )
         np.testing.assert_array_equal(
-            emitted_reference[connector],
-            emitted_surface[connector],
+            emitted_reference[backing_only],
+            emitted_surface[backing_only],
         )
         np.testing.assert_array_equal(
             np.isfinite(emitted_reference),
@@ -3092,15 +3162,18 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertTrue(emission["enabled"])
         self.assertEqual(
             emission["method"],
-            "full_scene_depth_selected_mask_emission_v1",
+            "full_scene_depth_grounded_selection_emission_v2",
         )
         self.assertEqual(emission["retained_unselected_pixels"], 0)
         self.assertEqual(emission["removed_selected_pixels"], 0)
         self.assertEqual(emission["retained_selection_ratio"], 1.0)
+        self.assertGreater(emission["backing_foundation_pixels"], 0)
         self.assertEqual(
-            emission["backing_connector_pixels"],
-            np.count_nonzero(connector),
+            emission["backing_foundation_pixels"]
+            + emission["backing_connector_pixels"],
+            np.count_nonzero(backing_only),
         )
+        self.assertEqual(emission["unsupported_selected_mesh_pixels"], 0)
         self.assertEqual(
             emission["backing_connector"]["component_count_after"],
             1,

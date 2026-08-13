@@ -608,10 +608,15 @@ class MainStlContractTest(unittest.TestCase):
                     "selection_subject_lock": kwargs["selection_subject_lock"],
                     "selection_emission": {
                         "enabled": kwargs["selection_emission_only"],
-                        "method": "full_scene_depth_selected_mask_emission_v1",
+                        "method": "full_scene_depth_grounded_selection_emission_v2",
                         "retained_unselected_pixels": 0,
                         "removed_selected_pixels": 0,
+                        "unsupported_selected_mesh_pixels": 0,
                         "retained_selection_ratio": 1.0,
+                        "backing_foundation": {
+                            "accepted": True,
+                            "method": "column_grounded_backing_foundation_v1",
+                        },
                     },
                     "selection_gradient_compression": {
                         "enabled": False,

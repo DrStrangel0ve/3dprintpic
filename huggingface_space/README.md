@@ -73,13 +73,16 @@ The complete finite depth grid proceeds through the same local face,
 background, detail, and skyline stages. Only at final mesh emission is it
 intersected with the exact composed selection mask. Selected samples retain
 their full-scene Z values; unselected relief-height context is omitted.
-Disconnected selected islands receive only the minimum backing-height support
-needed for one printable component. That support is capped at 10% of selected
-area, selection input is capped at 32 islands, and thin selected edges must
-participate in real mesh cells. Generation fails closed if any selected sample
-is lost, support exceeds its bound, or final topology is not one clean volume.
-This preserves local-quality faces and depth without the broad compressed
-context plateaus produced by the former rectangular output scope.
+Disconnected selected islands first receive a narrow backing-height connector
+capped at 10% of selected area. Each occupied column is then extended from its
+lowest selected or connector sample to a common flat bottom rail, entirely at
+the 2.4 mm backing height. This grounds floating buildings and side scenery
+without restoring relief-height context or filling sky above their lower
+silhouettes. Selection input is capped at 32 islands, and thin selected edges
+must participate in real mesh cells. Generation fails closed if any selected
+sample is lost, the narrow connector exceeds its bound, or final topology is
+not one clean volume. This preserves local-quality faces and depth while
+providing the solid lower foundation expected by the printable outline.
 The Mesh detail menu also mirrors the local Bambu Lab P1S production presets:
 `1.5x`/384, `2x`/512, `3x`/768, and capped `4x`/900 samples. The Space sends the
 same printer bounds, nozzle, feature-width, scale, and mesh-multiplier fields as
@@ -144,9 +147,10 @@ backend relief route as the local frontend. Relief generation uses the same
 Depth Anything V2 Large model, SAM 3 subject-lock context, 256 mm detail basis,
 scale-independent sampling, face guards, background controls, and
 depth-supported skyline trimming. Selected reliefs additionally use the same
-exact-mask, bounded-backing final emission gate. For equal controls, the Space
-and local app therefore execute the same `backend/pic_to_3d.py` implementation
-instead of maintaining separate mesh algorithms.
+exact-mask, bounded connector, and column-grounded backing final-emission gate.
+For equal controls, the Space and local app therefore execute the same
+`backend/pic_to_3d.py` implementation instead of maintaining separate mesh
+algorithms.
 
 ## Licenses
 

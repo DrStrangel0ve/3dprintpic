@@ -28,7 +28,11 @@ The implementation follows the useful common ground in current monocular geometr
 4. `compose_selection_depth_with_context` preserves every selected depth sample exactly. The immediate mask boundary still extends toward a robust base plane at a physical slope derived from relief height, XY pitch, and the configured maximum slope.
 5. Farther from the subject, a low-noise copy of the original scene depth receives a bounded 45% depth budget. A 1.5 mm smoothstep transition and `max(support ramp, context)` composition keep the subject attached while allowing buildings, terrain, and other background layers to remain legible.
 6. The old flat-background result is replayable with `selection_background_depth_ratio=0`; historical evidence is therefore not silently reinterpreted.
-7. Context-selected reliefs use a rectangular base instead of skyline trimming, preventing disconnected vertical slabs.
+7. Context-selected reliefs preserve skyline trimming through depth processing,
+   then apply exact-mask emission. A bounded backing-height connector joins
+   detached selected groups, and a column-grounded backing foundation extends
+   their lower silhouette to one flat bottom rail. This keeps upper sky empty
+   while preventing unsupported floating buildings and side scenery.
 8. A selection-specific screened gradient solve compresses large internal terraces while retaining moderate selected-object gradients. Its calibrated screened data weight is `2.0`, and recoverable local gradients retain 90% of their source amplitude. Tiny nonmetric fragments are excluded from the selection metric, while every detected face still fails closed if it cannot be measured.
 9. When faces and other selected subjects coexist, both solvers run. The object solve is feathered around the protected head region and is accepted only if every face still clears correlation and RMS-retention gates.
 10. Curvature telemetry uses finite values or `null` plus an explicit flat-reference violation, so a rejected candidate cannot turn a valid fallback STL into a JSON serialization failure.

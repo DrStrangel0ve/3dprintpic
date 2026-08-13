@@ -3501,6 +3501,89 @@ def _mesh_vertex_support_mask(surface_mask):
     return supported
 
 
+def _selection_grounded_backing_mask(
+    surface_mask,
+    *,
+    sample_pitch_mm,
+    minimum_width_mm,
+):
+    """Fill beneath selected columns so detached scenery reaches a flat base."""
+    selected = np.asarray(surface_mask, dtype=bool)
+    foundation = np.zeros(selected.shape, dtype=bool)
+    rows, columns = np.where(selected)
+    stats = {
+        "enabled": False,
+        "method": "column_grounded_backing_foundation_v1",
+        "accepted": False,
+        "foundation_pixels": 0,
+        "selection_pixels": int(np.count_nonzero(selected)),
+        "active_columns": 0,
+        "bottom_row": None,
+        "maximum_drop_px": 0,
+        "base_rail_pixels": 0,
+        "base_rail_height_px": 0,
+        "bounded_to_selection_bbox": True,
+    }
+    if rows.size == 0:
+        stats["reason"] = "empty_selection"
+        return foundation, stats
+
+    bottom_row = int(rows.max())
+    active_columns = np.flatnonzero(np.any(selected, axis=0))
+    try:
+        pitch = float(sample_pitch_mm)
+    except (TypeError, ValueError):
+        pitch = 1.0
+    if not np.isfinite(pitch) or pitch <= 0:
+        pitch = 1.0
+    try:
+        width_mm = float(minimum_width_mm)
+    except (TypeError, ValueError):
+        width_mm = pitch
+    if not np.isfinite(width_mm) or width_mm <= 0:
+        width_mm = pitch
+    rail_height_px = max(2, int(np.ceil(width_mm / pitch)))
+    rail_top = max(0, bottom_row - rail_height_px + 1)
+    maximum_drop_px = 0
+    for column in active_columns:
+        selected_rows = np.flatnonzero(selected[:, column])
+        lowest_selected_row = int(selected_rows.max())
+        foundation[lowest_selected_row : bottom_row + 1, column] = True
+        maximum_drop_px = max(
+            maximum_drop_px,
+            bottom_row - lowest_selected_row,
+        )
+    base_rail = np.zeros(selected.shape, dtype=bool)
+    base_rail[
+        rail_top : bottom_row + 1,
+        int(active_columns.min()) : int(active_columns.max()) + 1,
+    ] = True
+    foundation |= base_rail
+    foundation &= ~selected
+
+    foundation_pixels = int(np.count_nonzero(foundation))
+    stats.update(
+        {
+            "enabled": bool(foundation_pixels),
+            "accepted": True,
+            "reason": None,
+            "foundation_pixels": foundation_pixels,
+            "foundation_ratio": float(
+                foundation_pixels / max(stats["selection_pixels"], 1)
+            ),
+            "active_columns": int(active_columns.size),
+            "bottom_row": bottom_row,
+            "maximum_drop_px": int(maximum_drop_px),
+            "base_rail_pixels": int(np.count_nonzero(base_rail & ~selected)),
+            "base_rail_height_px": int(rail_height_px),
+            "base_rail_height_mm": float(rail_height_px * pitch),
+            "sample_pitch_mm": float(pitch),
+            "minimum_width_mm": float(width_mm),
+        }
+    )
+    return foundation, stats
+
+
 def _minimal_component_connector_mask(
     surface_mask,
     *,
@@ -7827,6 +7910,7 @@ def depth_data_to_3d_model(
         "reason": "not_requested",
         "application_stage": "final_mesh_emission",
     }
+    selection_backing_foundation_mask = np.zeros(z.shape, dtype=bool)
     selection_backing_connector_mask = np.zeros(z.shape, dtype=bool)
     if selection_emission_only:
         selected_emission_mask = _resize_binary_mask(selected_region, z.shape)
@@ -7841,12 +7925,13 @@ def depth_data_to_3d_model(
                 "Selected relief lost source-supported pixels before mesh emission"
             )
         selected_output_mask = candidate_mask & selected_emission_mask
+        selection_sample_pitch_mm = _physical_sample_pitch_mm_for_mask(
+            selected_output_mask,
+            max_xy_size,
+        )
         connector_mask, connector_stats = _minimal_component_connector_mask(
             selected_output_mask,
-            sample_pitch_mm=_physical_sample_pitch_mm_for_mask(
-                selected_output_mask,
-                max_xy_size,
-            ),
+            sample_pitch_mm=selection_sample_pitch_mm,
             minimum_width_mm=minimum_feature_mm,
         )
         selection_backing_connector_mask = connector_mask
@@ -7855,25 +7940,53 @@ def depth_data_to_3d_model(
                 "Selected relief could not be emitted with bounded backing supports: "
                 f"{connector_stats.get('reason', 'unknown')}"
             )
-        top_silhouette_mask = selected_output_mask | connector_mask
-        if np.any(connector_mask):
-            z = np.where(connector_mask, backing_thickness_mm, z)
+        foundation_mask, foundation_stats = _selection_grounded_backing_mask(
+            selected_output_mask | connector_mask,
+            sample_pitch_mm=selection_sample_pitch_mm,
+            minimum_width_mm=minimum_feature_mm,
+        )
+        foundation_stats["source_selection_pixels"] = int(
+            np.count_nonzero(selected_output_mask)
+        )
+        foundation_stats["connector_seed_pixels"] = int(
+            np.count_nonzero(connector_mask)
+        )
+        selection_backing_foundation_mask = foundation_mask
+        backing_only_mask = foundation_mask | connector_mask
+        top_silhouette_mask = selected_output_mask | backing_only_mask
+        if np.any(backing_only_mask):
+            z = np.where(backing_only_mask, backing_thickness_mm, z)
+        emitted_support = _mesh_vertex_support_mask(top_silhouette_mask)
+        unsupported_selected_pixels = int(
+            np.count_nonzero(selected_output_mask & ~emitted_support)
+        )
+        if unsupported_selected_pixels:
+            raise ValueError(
+                "Selected relief contains samples without final mesh support"
+            )
         selection_emission_stats = {
             "enabled": True,
-            "method": "full_scene_depth_selected_mask_emission_v1",
+            "method": "full_scene_depth_grounded_selection_emission_v2",
             "application_stage": "final_mesh_emission",
             "candidate_pixels": int(np.count_nonzero(candidate_mask)),
             "selection_pixels": int(np.count_nonzero(selected_emission_mask)),
             "retained_pixels": int(np.count_nonzero(retained_mask)),
             "removed_unselected_pixels": int(np.count_nonzero(removed_mask)),
             "removed_selected_pixels": removed_selected_pixels,
+            "unsupported_selected_mesh_pixels": unsupported_selected_pixels,
             "retained_unselected_pixels": int(
                 np.count_nonzero(
                     top_silhouette_mask
                     & ~selected_emission_mask
+                    & ~foundation_mask
                     & ~connector_mask
                 )
             ),
+            "backing_foundation_pixels": int(
+                np.count_nonzero(foundation_mask)
+            ),
+            "backing_foundation_height_mm": float(backing_thickness_mm),
+            "backing_foundation": foundation_stats,
             "backing_connector_pixels": int(np.count_nonzero(connector_mask)),
             "backing_connector_height_mm": float(backing_thickness_mm),
             "backing_connector": connector_stats,
@@ -7954,7 +8067,7 @@ def depth_data_to_3d_model(
     z = z[top:bottom, left:right]
     mask = mask[top:bottom, left:right]
     emitted_reference_surface = np.where(
-        selection_backing_connector_mask,
+        selection_backing_foundation_mask | selection_backing_connector_mask,
         backing_thickness_mm,
         unstabilized_scene,
     )

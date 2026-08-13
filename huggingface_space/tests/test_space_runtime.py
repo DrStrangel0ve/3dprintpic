@@ -424,10 +424,16 @@ class SpaceRuntimeTests(unittest.TestCase):
                 "relief_postprocess": {
                     "selection_emission": {
                         "enabled": True,
-                        "method": "full_scene_depth_selected_mask_emission_v1",
+                        "method": "full_scene_depth_grounded_selection_emission_v2",
                         "retained_unselected_pixels": 0,
                         "removed_selected_pixels": 0,
+                        "unsupported_selected_mesh_pixels": 0,
                         "retained_selection_ratio": 1.0,
+                        "backing_foundation": {
+                            "accepted": True,
+                            "method": "column_grounded_backing_foundation_v1",
+                            "bounded_to_selection_bbox": True,
+                        },
                         "backing_connector": {
                             "accepted": True,
                             "within_bridge_budget": True,
@@ -542,7 +548,7 @@ class SpaceRuntimeTests(unittest.TestCase):
             )
             self.assertEqual(
                 result[3]["summary"]["local_relief_parity"],
-                "full-source-depth-selected-emission-v1",
+                "full-source-depth-grounded-selection-v2",
             )
             self.assertFalse(result[3]["summary"]["inpainting"])
 
@@ -680,15 +686,30 @@ class SpaceRuntimeTests(unittest.TestCase):
             ]
 
             self.assertEqual(selected_surface.shape, cropped_selection.shape)
-            np.testing.assert_array_equal(selected_coverage, cropped_selection)
+            self.assertTrue(np.all(selected_coverage[cropped_selection]))
             np.testing.assert_array_equal(
-                selected_surface[selected_coverage],
-                cropped_full_surface[selected_coverage],
+                selected_surface[cropped_selection],
+                cropped_full_surface[cropped_selection],
             )
+            backing_only = selected_coverage & ~cropped_selection
+            if np.any(backing_only):
+                np.testing.assert_allclose(
+                    selected_surface[backing_only],
+                    2.4,
+                    rtol=0.0,
+                    atol=1e-6,
+                )
             emission = selected_diagnostics["relief_postprocess"]["selection_emission"]
             self.assertEqual(emission["retained_unselected_pixels"], 0)
             self.assertEqual(emission["removed_selected_pixels"], 0)
             self.assertEqual(emission["retained_selection_ratio"], 1.0)
+            self.assertEqual(
+                emission["backing_foundation_pixels"]
+                + emission["backing_connector_pixels"],
+                int(np.count_nonzero(backing_only)),
+            )
+            self.assertTrue(emission["backing_foundation"]["accepted"])
+            self.assertEqual(emission["unsupported_selected_mesh_pixels"], 0)
             self.assertTrue(selected_mesh.is_watertight)
             self.assertTrue(selected_mesh.is_winding_consistent)
 
