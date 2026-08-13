@@ -26,6 +26,11 @@ class ModelProfilesApiTest(unittest.TestCase):
         self.assertEqual(selected["status"], "recommended")
         self.assertEqual(selected["models"]["image_to_mesh"], "triposg")
         features = selected["production_features"]
+        self.assertEqual(features["photo_object_selection"]["runtime_id"], "sam3-person-aware")
+        self.assertEqual(
+            features["photo_object_selection"]["revision"],
+            "3c879f39826c281e95690f02c7821c4de09afae7",
+        )
         self.assertEqual(
             features["photo_relief_depth"]["runtime_id"],
             "depth-anything/Depth-Anything-V2-Large-hf",
@@ -67,7 +72,7 @@ class ModelProfilesApiTest(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["model_profile"]["id"], DEFAULT_MODEL_PROFILE_ID)
         stages = {stage["id"]: stage["model"]["id"] for stage in payload["stages"]}
-        self.assertEqual(stages["object-selection"], "detr-resnet-50-panoptic")
+        self.assertEqual(stages["object-selection"], "sam3-person-aware")
         self.assertEqual(stages["image-to-mesh"], "triposg")
         self.assertEqual(stages["stl-postprocess"], "trimesh-repair")
 

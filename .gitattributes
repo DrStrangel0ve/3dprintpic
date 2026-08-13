@@ -1,4 +1,6 @@
 # These externally pinned assets are validated by byte-exact SHA256 checks.
+# Hugging Face feeds this file directly to xargs; CR bytes corrupt package names.
+huggingface_space/packages.txt text eol=lf
 backend/benchmark/assets/mediapipe_canonical_face/canonical_face_model.obj -text
 backend/benchmark/assets/mediapipe_canonical_face/LICENSE -text
 backend/benchmark/summarize_cc0_live_relief_context.py -text

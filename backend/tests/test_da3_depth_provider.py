@@ -65,10 +65,19 @@ class DepthAnythingV3ProviderTests(unittest.TestCase):
 
     def test_model_contract_is_pinned(self):
         self.assertTrue(provider.is_da3_model("depth-anything/DA3-LARGE-1.1"))
+        self.assertTrue(provider.is_da3_model("depth-anything/DA3MONO-LARGE"))
         self.assertFalse(provider.is_da3_model("depth-anything/DA3-LARGE"))
         self.assertEqual(
             provider.DA3_LARGE_MODEL_REVISION,
             "0e109ae307c5982f319a67cf6f9f99ccdc0ec97c",
+        )
+        self.assertEqual(
+            provider.DA3_MODEL_SPECS[provider.DA3_LARGE_MODEL_ID]["license"],
+            "CC BY-NC 4.0",
+        )
+        self.assertEqual(
+            provider.DA3_MODEL_SPECS[provider.DA3_MONO_MODEL_ID]["license"],
+            "Apache-2.0",
         )
 
     def test_cuda_request_fails_closed_without_cuda(self):
@@ -130,6 +139,7 @@ class DepthAnythingV3ProviderTests(unittest.TestCase):
         self.assertEqual(model.device, "cuda")
         self.assertEqual(model.calls[0][1]["process_res"], 504)
         self.assertEqual(metadata["depth_value_semantics"], "relative_distance_far_high")
+        self.assertEqual(metadata["license"], "CC BY-NC 4.0")
         self.assertEqual(metadata["peak_vram_gb"], 2.0)
         self.assertEqual(metadata["intrinsics"]["focal_px"], 505.0)
 

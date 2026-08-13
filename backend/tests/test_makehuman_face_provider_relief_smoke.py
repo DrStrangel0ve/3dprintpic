@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+from PIL import Image
 
 from backend.benchmark import run_makehuman_face_provider_relief_smoke as provider_smoke
 
@@ -75,9 +76,17 @@ class MakeHumanFaceProviderReliefSmokeTests(unittest.TestCase):
             "--output-dir",
             "unused",
             "--providers",
-            " depth-anything-v2-large, da3mono-large, da3metric-large ",
+            " depth-anything-v2-large, da3mono-large, da3metric-large, infinidepth, metricanything-student-pointmap, metricanything-student-depthmap ",
             "--scene-profiles",
             " caucasian_female_smile, asian_female_asymmetric ",
+            "--da3-process-resolution",
+            "1008",
+            "--infinidepth-process-resolution",
+            "768",
+            "--infinidepth-query-resolution",
+            "1024",
+            "--metricanything-resolution-level",
+            "8",
         ]
         with patch.object(sys, "argv", argv), patch.object(provider_smoke, "run") as run:
             provider_smoke.main()
@@ -88,11 +97,67 @@ class MakeHumanFaceProviderReliefSmokeTests(unittest.TestCase):
                 provider_smoke.DA2_PROVIDER,
                 provider_smoke.DA3_PROVIDER,
                 provider_smoke.DA3_METRIC_PROVIDER,
+                provider_smoke.INFINIDEPTH_PROVIDER,
+                provider_smoke.METRICANYTHING_PROVIDER,
+                provider_smoke.METRICANYTHING_DEPTHMAP_PROVIDER,
             ),
         )
         self.assertEqual(
             tuple(scene.profile_name for scene in run.call_args.kwargs["scenes"]),
             ("caucasian_female_smile", "asian_female_asymmetric"),
+        )
+        self.assertEqual(run.call_args.kwargs["da3_process_resolution"], 1008)
+        self.assertEqual(run.call_args.kwargs["infinidepth_process_resolution"], 768)
+        self.assertEqual(run.call_args.kwargs["infinidepth_query_resolution"], 1024)
+        self.assertEqual(run.call_args.kwargs["metricanything_resolution_level"], 8)
+
+    def test_cached_infinidepth_uses_near_high_disparity_without_metric_scaler(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            scene_dir = Path(temporary) / "scene"
+            scene_dir.mkdir()
+            source_path = scene_dir / "source.png"
+            Image.new("RGB", (16, 16), "white").save(source_path)
+            exact = np.arange(256, dtype=np.float32).reshape(16, 16)
+            face = np.zeros((16, 16), dtype=bool)
+            face[:, :8] = True
+            scene = {
+                "scene_dir": scene_dir,
+                "source_path": source_path,
+                "source_sha256": "source-hash",
+                "exact_depth": exact,
+                "face_mask": face,
+            }
+            metadata = {
+                "metric_scale_model_used": False,
+                "depth_value_semantics": "relative_disparity_near_high",
+            }
+            with patch.object(
+                provider_smoke,
+                "infer_infinidepth_disparity",
+                return_value=(-exact, metadata),
+            ) as infer:
+                depth, manifest = provider_smoke._infer_cached_provider(
+                    scene,
+                    provider=provider_smoke.INFINIDEPTH_PROVIDER,
+                    device="cpu",
+                    infinidepth_process_resolution=768,
+                    infinidepth_query_resolution=1024,
+                )
+
+        np.testing.assert_array_equal(depth, -exact)
+        infer.assert_called_once_with(
+            source_path,
+            device="cpu",
+            process_long_side=768,
+            query_long_side=1024,
+        )
+        self.assertEqual(manifest["value_transform"], "linear")
+        self.assertEqual(manifest["depth_semantics"], "relative-near-high")
+        self.assertFalse(manifest["provider_metadata"]["metric_scale_model_used"])
+        self.assertTrue(
+            manifest["ordering_diagnostics"][
+                "provider_contract_consistent_across_regions"
+            ]
         )
 
     def test_main_rejects_unknown_or_duplicate_scene_profiles_before_run(self):
@@ -111,6 +176,50 @@ class MakeHumanFaceProviderReliefSmokeTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Unknown or duplicate scene profiles"):
                     provider_smoke.main()
                 run.assert_not_called()
+
+    def test_cached_metricanything_preserves_metric_depth_and_inverse_contract(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            scene_dir = Path(temporary) / "scene"
+            scene_dir.mkdir()
+            source_path = scene_dir / "source.png"
+            Image.new("RGB", (16, 16), "white").save(source_path)
+            exact = np.arange(1, 257, dtype=np.float32).reshape(16, 16)
+            face = np.zeros((16, 16), dtype=bool)
+            face[:, :8] = True
+            metric_depth = exact.copy()
+            scene = {
+                "scene_dir": scene_dir,
+                "source_path": source_path,
+                "source_sha256": "source-hash",
+                "exact_depth": exact,
+                "face_mask": face,
+            }
+            metadata = {
+                "external_scale_model_used": False,
+                "predicted_mask_applied": False,
+            }
+            with patch.object(
+                provider_smoke,
+                "infer_metricanything_depth",
+                return_value=(metric_depth, metadata),
+            ) as infer:
+                depth, manifest = provider_smoke._infer_cached_provider(
+                    scene,
+                    provider=provider_smoke.METRICANYTHING_PROVIDER,
+                    device="cuda",
+                    metricanything_resolution_level=8,
+                )
+
+        np.testing.assert_array_equal(depth, metric_depth)
+        infer.assert_called_once_with(
+            source_path,
+            device="cuda",
+            resolution_level=8,
+        )
+        self.assertEqual(manifest["value_transform"], "inverse-depth")
+        self.assertEqual(manifest["depth_semantics"], "metric-distance-far-high")
+        self.assertFalse(manifest["provider_metadata"]["external_scale_model_used"])
+        self.assertFalse(manifest["provider_metadata"]["predicted_mask_applied"])
 
     def test_run_rejects_duplicate_providers_before_inference(self):
         with self.assertRaisesRegex(ValueError, "Duplicate providers"):
@@ -176,13 +285,14 @@ class MakeHumanFaceProviderReliefSmokeTests(unittest.TestCase):
                     depth, metadata = provider_smoke._infer_da3mono(
                         Path("unused.png"),
                         device="cpu",
+                        process_resolution=756,
                     )
 
                 np.testing.assert_array_equal(
                     depth,
                     np.array([[1.0, 2.0]], dtype=np.float32),
                 )
-                self.assertEqual(model.process_res, 504)
+                self.assertEqual(model.process_res, 756)
                 self.assertEqual(metadata["confidence"]["available"], expected["available"])
                 self.assertFalse(metadata["prediction_is_metric"])
                 self.assertFalse(metadata["intrinsics"]["available"])

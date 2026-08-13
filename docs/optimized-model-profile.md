@@ -20,6 +20,13 @@ an operational adaptation rather than exact benchmark parity.
 | Multiview full mesh | Visual hull | Resolution `32`, grid extent `1.9`, ortho scale `2.0`, one-pixel mask dilation, printable repair. |
 | STL postprocess | Trimesh printable repair | Largest-body cleanup, bounded topology repair, watertight fallback, scaling, and diagnostics. |
 
+On 12 GB local GPUs, the full-mesh runner asks the relief backend to release
+cached selection/depth models before loading TripoSG and serializes concurrent
+TripoSG requests. The August 10 local recovery smoke completed the exact
+50-step profile in `108.263 s` and emitted a 39,210-face watertight, manifold,
+single-component STL with zero degenerates and no hull fallback. See
+[`benchmark-evidence/local_triposg_runtime_3080ti_20260810`](benchmark-evidence/local_triposg_runtime_3080ti_20260810/README.md).
+
 The profile pins TripoSG to
 `VAST-AI/TripoSG@2c1c516d22d58db486a058d98d31bb6177344e06` and its foreground
 model to `briaai/RMBG-1.4@2ceba5a5efaec153162aedea169f76caf9b46cf8`.
@@ -61,6 +68,14 @@ accuracy gain.
 
 ## Models not promoted
 
+- The August 2026 depth audit held DA3MONO-LARGE, InfiniDepth, and both
+  MetricAnything student variants. On the exact 30 mm face row, every modern
+  challenger failed both eyes, the nose, and mouth or worse; none fixed the
+  background correlation gate. Depth Anything V2 Large therefore remains the
+  one production depth model for non-commercial/research use. Its pinned model
+  weights are CC BY-NC 4.0; commercial deployment needs separate permission or
+  a future Apache challenger that passes the same gates. See
+  `docs/benchmark-evidence/sota_depth_challengers_20260810`.
 - Pixal3D is provisional. Its repaired STL passed hard printability checks on
   one object, but selector replay found `1.44x` Chamfer and `1.35x` H95 versus
   TripoSG. A paired 10-object run is required before promotion.
@@ -96,3 +111,4 @@ generated artifacts traceable to the exact model stack and tuning policy.
 - Multiview resolution sweeps: `backend/output/completion-benchmark/experiments/stl_first_visual_hull_local_s0_n10_res{32,36,40}`
 - Pixal3D provisional result: `docs/benchmark-evidence/pixal3d-g4-s40-n1-r4.json`
 - Hunyuan3D recovered run: `backend/output/completion-benchmark/colab_g4/g4_stl_first_hunyuan3d_shape_s40_n10_recovered`
+- Depth-model challenger audit: `docs/benchmark-evidence/sota_depth_challengers_20260810`

@@ -165,7 +165,15 @@ def _resolve_verified_asset(
             )
         return configured_path
 
-    cache_path = Path.home() / ".cache" / "3dprintpic" / cache_name
+    configured_cache = str(
+        os.getenv("THREEDPRINTPIC_ASSET_CACHE_DIR") or ""
+    ).strip()
+    cache_dir = (
+        Path(configured_cache).expanduser()
+        if configured_cache
+        else Path.home() / ".cache" / "3dprintpic"
+    )
+    cache_path = cache_dir / cache_name
     if cache_path.is_file() and _sha256_file(cache_path) == expected_sha256:
         return cache_path
     cache_path.parent.mkdir(parents=True, exist_ok=True)

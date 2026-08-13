@@ -42,6 +42,19 @@ from backend.benchmark.run_relief_visual_sweep import (
     FACE_APPEARANCE_GATES,
     _appearance_checks,
 )
+from backend.infinidepth_provider import (
+    INFINIDEPTH_MODEL_ID,
+    INFINIDEPTH_MODEL_REVISION,
+    infer_infinidepth_disparity,
+)
+from backend.metricanything_depth_provider import (
+    METRICANYTHING_DEPTHMAP_MODEL_ID,
+    METRICANYTHING_DEPTHMAP_MODEL_REVISION,
+    METRICANYTHING_MODEL_ID,
+    METRICANYTHING_MODEL_REVISION,
+    infer_metricanything_depth,
+    infer_metricanything_depthmap,
+)
 from backend.pic_to_3d import (
     DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
     _resize_nan_aware,
@@ -54,7 +67,17 @@ DA2_MODEL_REVISION = "7581137eff8d4e94f6e796d3baea0e9fa79b22d2"
 DA3_MONO_PROVIDER = "da3mono-large"
 DA3_METRIC_PROVIDER = "da3metric-large"
 DA3_PROVIDER = DA3_MONO_PROVIDER
-PROVIDER_NAMES = (DA2_PROVIDER, DA3_MONO_PROVIDER, DA3_METRIC_PROVIDER)
+INFINIDEPTH_PROVIDER = "infinidepth"
+METRICANYTHING_PROVIDER = "metricanything-student-pointmap"
+METRICANYTHING_DEPTHMAP_PROVIDER = "metricanything-student-depthmap"
+PROVIDER_NAMES = (
+    DA2_PROVIDER,
+    DA3_MONO_PROVIDER,
+    DA3_METRIC_PROVIDER,
+    INFINIDEPTH_PROVIDER,
+    METRICANYTHING_PROVIDER,
+    METRICANYTHING_DEPTHMAP_PROVIDER,
+)
 DA3_MODEL_SPECS = {
     DA3_MONO_PROVIDER: {
         "model_id": "depth-anything/DA3MONO-LARGE",
@@ -76,6 +99,8 @@ PREDICTED_SCENES = (DEFAULT_SCENES[0], DEFAULT_SCENES[2])
 PREDICTED_PROVENANCE_PATHS = (
     *PROVENANCE_PATHS,
     "backend/benchmark/run_makehuman_face_provider_relief_smoke.py",
+    "backend/infinidepth_provider.py",
+    "backend/metricanything_depth_provider.py",
 )
 _DA3_MODEL_CACHE: dict[tuple[str, str], object] = {}
 
@@ -196,6 +221,7 @@ def _infer_da3(
     *,
     provider: str,
     device: str,
+    process_resolution: int = 504,
 ) -> tuple[np.ndarray, dict]:
     if provider not in DA3_MODEL_SPECS:
         raise ValueError(f"Unsupported DA3 provider: {provider}")
@@ -227,7 +253,10 @@ def _infer_da3(
     model = _DA3_MODEL_CACHE[cache_key]
     load_seconds = time.perf_counter() - load_started
     inference_started = time.perf_counter()
-    prediction = model.inference([str(source_path)], process_res=504)
+    prediction = model.inference(
+        [str(source_path)],
+        process_res=int(process_resolution),
+    )
     inference_seconds = time.perf_counter() - inference_started
     depth = np.asarray(prediction.depth[0], dtype=np.float32)
     confidence = (
@@ -252,7 +281,7 @@ def _infer_da3(
             if provider == DA3_METRIC_PROVIDER
             else None
         ),
-        "process_res": 504,
+        "process_res": int(process_resolution),
         "model_load_seconds": float(load_seconds),
         "inference_seconds": float(inference_seconds),
     }
@@ -290,8 +319,18 @@ def _infer_da3(
     return depth, metadata
 
 
-def _infer_da3mono(source_path: Path, *, device: str) -> tuple[np.ndarray, dict]:
-    return _infer_da3(source_path, provider=DA3_MONO_PROVIDER, device=device)
+def _infer_da3mono(
+    source_path: Path,
+    *,
+    device: str,
+    process_resolution: int = 504,
+) -> tuple[np.ndarray, dict]:
+    return _infer_da3(
+        source_path,
+        provider=DA3_MONO_PROVIDER,
+        device=device,
+        process_resolution=process_resolution,
+    )
 
 
 def _infer_cached_provider(
@@ -299,6 +338,10 @@ def _infer_cached_provider(
     *,
     provider: str,
     device: str,
+    da3_process_resolution: int = 504,
+    infinidepth_process_resolution: int = 512,
+    infinidepth_query_resolution: int = 512,
+    metricanything_resolution_level: int = 9,
 ) -> tuple[np.ndarray, dict]:
     if provider not in PROVIDER_NAMES:
         raise ValueError(f"Unsupported provider: {provider}")
@@ -346,16 +389,49 @@ def _infer_cached_provider(
         depth_semantics = "relative-near-high"
         model_id = DEPTH_ANYTHING_V2_LARGE
         model_revision = DA2_MODEL_REVISION
-    else:
+    elif provider in DA3_MODEL_SPECS:
         raw_depth, metadata = _infer_da3(
             scene["source_path"],
             provider=provider,
             device=device,
+            process_resolution=da3_process_resolution,
         )
         value_transform = "inverse-depth"
         depth_semantics = DA3_MODEL_SPECS[provider]["depth_semantics"]
         model_id = DA3_MODEL_SPECS[provider]["model_id"]
         model_revision = DA3_MODEL_SPECS[provider]["model_revision"]
+    elif provider == INFINIDEPTH_PROVIDER:
+        raw_depth, metadata = infer_infinidepth_disparity(
+            scene["source_path"],
+            device=device,
+            process_long_side=infinidepth_process_resolution,
+            query_long_side=infinidepth_query_resolution,
+        )
+        value_transform = "linear"
+        depth_semantics = "relative-near-high"
+        model_id = INFINIDEPTH_MODEL_ID
+        model_revision = INFINIDEPTH_MODEL_REVISION
+    elif provider == METRICANYTHING_PROVIDER:
+        raw_depth, metadata = infer_metricanything_depth(
+            scene["source_path"],
+            device=device,
+            resolution_level=metricanything_resolution_level,
+        )
+        value_transform = "inverse-depth"
+        depth_semantics = "metric-distance-far-high"
+        model_id = METRICANYTHING_MODEL_ID
+        model_revision = METRICANYTHING_MODEL_REVISION
+    elif provider == METRICANYTHING_DEPTHMAP_PROVIDER:
+        raw_depth, metadata = infer_metricanything_depthmap(
+            scene["source_path"],
+            device=device,
+        )
+        value_transform = "inverse-depth"
+        depth_semantics = "metric-distance-far-high"
+        model_id = METRICANYTHING_DEPTHMAP_MODEL_ID
+        model_revision = METRICANYTHING_DEPTHMAP_MODEL_REVISION
+    else:  # pragma: no cover - provider validation above keeps this fail-closed.
+        raise ValueError(f"Unsupported provider: {provider}")
     if cuda_device_index is not None:
         with torch.cuda.device(cuda_device_index):
             peak_vram_gb = float(torch.cuda.max_memory_allocated() / (1024**3))
@@ -501,6 +577,10 @@ def run(
     background_depth_ratio: float = DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
     providers: tuple[str, ...] = (DA2_PROVIDER,),
     device: str = "cuda",
+    da3_process_resolution: int = 504,
+    infinidepth_process_resolution: int = 512,
+    infinidepth_query_resolution: int = 512,
+    metricanything_resolution_level: int = 9,
     allow_dirty: bool = False,
     allow_failures: bool = False,
 ) -> dict:
@@ -513,6 +593,14 @@ def run(
         raise ValueError("Duplicate providers are not allowed")
     if not 0 < float(background_depth_ratio) <= 1:
         raise ValueError("Predicted-depth smoke requires a positive background depth ratio")
+    if int(da3_process_resolution) < 196:
+        raise ValueError("DA3 process resolution must be at least 196 pixels")
+    if int(infinidepth_process_resolution) < 256:
+        raise ValueError("InfiniDepth process resolution must be at least 256 pixels")
+    if int(infinidepth_query_resolution) < 256:
+        raise ValueError("InfiniDepth query resolution must be at least 256 pixels")
+    if not 0 <= int(metricanything_resolution_level) <= 9:
+        raise ValueError("MetricAnything resolution level must be between 0 and 9")
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     fixture = load_makehuman_face_fixture(asset_dir)
@@ -535,6 +623,10 @@ def run(
                 scene,
                 provider=provider,
                 device=device,
+                da3_process_resolution=da3_process_resolution,
+                infinidepth_process_resolution=infinidepth_process_resolution,
+                infinidepth_query_resolution=infinidepth_query_resolution,
+                metricanything_resolution_level=metricanything_resolution_level,
             )
             predictions[provider] = (prediction, manifest)
             inference_manifests.append({"scene": spec.__dict__, **manifest})
@@ -636,6 +728,10 @@ def run(
             "crop_size": int(crop_size),
             "physical_size_mm": float(physical_size_mm),
             "background_depth_ratio": float(background_depth_ratio),
+            "da3_process_resolution": int(da3_process_resolution),
+            "infinidepth_process_resolution": int(infinidepth_process_resolution),
+            "infinidepth_query_resolution": int(infinidepth_query_resolution),
+            "metricanything_resolution_level": int(metricanything_resolution_level),
             "expected_rows": expected_rows,
             "completed_rows": len(rows),
         },
@@ -708,6 +804,10 @@ def main() -> None:
         default=DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
     )
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--da3-process-resolution", type=int, default=504)
+    parser.add_argument("--infinidepth-process-resolution", type=int, default=512)
+    parser.add_argument("--infinidepth-query-resolution", type=int, default=512)
+    parser.add_argument("--metricanything-resolution-level", type=int, default=9)
     parser.add_argument("--allow-dirty", action="store_true")
     parser.add_argument("--allow-failures", action="store_true")
     args = parser.parse_args()
@@ -727,6 +827,10 @@ def main() -> None:
         background_depth_ratio=args.background_depth_ratio,
         providers=args.providers,
         device=args.device,
+        da3_process_resolution=args.da3_process_resolution,
+        infinidepth_process_resolution=args.infinidepth_process_resolution,
+        infinidepth_query_resolution=args.infinidepth_query_resolution,
+        metricanything_resolution_level=args.metricanything_resolution_level,
         allow_dirty=args.allow_dirty,
         allow_failures=args.allow_failures,
     )

@@ -22,7 +22,7 @@ import argparse
 try:
     from .face_relief_geometry import align_face_to_scene_gradient_domain
     from .da3_depth_provider import (
-        DA3_LARGE_MODEL_ID,
+        DA3_MODEL_IDS,
         infer_da3_depth,
         is_da3_model,
         release_da3_models,
@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - supports running from backend/
         raise
     from face_relief_geometry import align_face_to_scene_gradient_domain
     from da3_depth_provider import (
-        DA3_LARGE_MODEL_ID,
+        DA3_MODEL_IDS,
         infer_da3_depth,
         is_da3_model,
         release_da3_models,
@@ -42,6 +42,17 @@ _DEPTH_PIPELINE_CACHE = {}
 _INPAINT_PIPELINE_CACHE = {}
 DEPTHPRO_MODEL_ID = "apple/DepthPro-hf"
 DEFAULT_DEPTH_FALLBACK_MODEL = "depth-anything/Depth-Anything-V2-Large-hf"
+MAX_DEPTH_DOWNSAMPLE_SHARPENING = 1.0
+DEPTH_INFERENCE_PRECISION_AUTO = "auto"
+DEPTH_INFERENCE_PRECISION_FLOAT16 = "float16"
+DEPTH_INFERENCE_PRECISION_FLOAT32 = "float32"
+DEPTH_INFERENCE_PRECISIONS = frozenset(
+    {
+        DEPTH_INFERENCE_PRECISION_AUTO,
+        DEPTH_INFERENCE_PRECISION_FLOAT16,
+        DEPTH_INFERENCE_PRECISION_FLOAT32,
+    }
+)
 RELIEF_VALUE_TRANSFORM_LINEAR = "linear"
 RELIEF_VALUE_TRANSFORM_INVERSE_DEPTH = "inverse-depth"
 RELIEF_VALUE_TRANSFORMS = {
@@ -55,12 +66,14 @@ HIGH_RELIEF_FACE_MIN_DETAIL_CORRELATION = 0.85
 HIGH_RELIEF_SELECTION_SCREENING_WEIGHT = 2.0
 HIGH_RELIEF_SELECTION_DETAIL_GRADIENT_RETENTION = 0.9
 DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO = 0.65
+MAX_SELECTION_EMISSION_COMPONENTS = 32
+MAX_SELECTION_BACKING_CONNECTOR_RATIO = 0.10
 NORMALIZATION_REFERENCE_BOUNDARY_PX = 1.0
 NORMALIZATION_REFERENCE_TAPER_PX = 4.0
 METRIC_FAR_HIGH_DEPTH_MODELS = frozenset(
     {
         DEPTHPRO_MODEL_ID,
-        DA3_LARGE_MODEL_ID,
+        *DA3_MODEL_IDS,
         "depth-anything/Depth-Anything-V2-Metric-Indoor-Large-hf",
         "depth-anything/Depth-Anything-V2-Metric-Outdoor-Large-hf",
     }
@@ -78,6 +91,139 @@ def _load_depth_input_image(input_image_path):
 
     with Image.open(input_image_path) as source_image:
         return ImageOps.exif_transpose(source_image).convert("RGB")
+
+
+def normalize_depth_inference_precision(value):
+    normalized = str(value or DEPTH_INFERENCE_PRECISION_AUTO).strip().lower()
+    aliases = {
+        "fp16": DEPTH_INFERENCE_PRECISION_FLOAT16,
+        "half": DEPTH_INFERENCE_PRECISION_FLOAT16,
+        "fp32": DEPTH_INFERENCE_PRECISION_FLOAT32,
+        "full": DEPTH_INFERENCE_PRECISION_FLOAT32,
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in DEPTH_INFERENCE_PRECISIONS:
+        supported = ", ".join(sorted(DEPTH_INFERENCE_PRECISIONS))
+        raise ValueError(f"Depth inference precision must be one of: {supported}")
+    return normalized
+
+
+def _configure_depth_cuda_determinism(torch):
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    if not torch.cuda.is_available():
+        return
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    if hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision("highest")
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
+
+def _depth_processor_nominal_size(image_processor):
+    size = getattr(image_processor, "size", None)
+    if not isinstance(size, dict) or not bool(getattr(image_processor, "do_resize", True)):
+        return None
+    try:
+        width = int(size.get("width") or size.get("shortest_edge") or 0)
+        height = int(size.get("height") or size.get("shortest_edge") or 0)
+    except (TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def _depth_processor_output_size(image, image_processor):
+    nominal_size = _depth_processor_nominal_size(image_processor)
+    if nominal_size is None:
+        return None
+    target_width, target_height = nominal_size
+    scale_width = target_width / float(image.width)
+    scale_height = target_height / float(image.height)
+    if bool(getattr(image_processor, "keep_aspect_ratio", False)):
+        # Match DPTImageProcessor: choose the scale closest to one, then apply it
+        # to both axes before constraining the result to the patch multiple.
+        if abs(1.0 - scale_width) < abs(1.0 - scale_height):
+            scale_height = scale_width
+        else:
+            scale_width = scale_height
+    try:
+        multiple = int(getattr(image_processor, "ensure_multiple_of", 1) or 1)
+    except (TypeError, ValueError):
+        multiple = 1
+    multiple = max(1, multiple)
+
+    def constrain(value):
+        return max(multiple, int(round(value / multiple)) * multiple)
+
+    return (
+        constrain(scale_width * image.width),
+        constrain(scale_height * image.height),
+    )
+
+
+def _prepare_depth_downsample_input(image, image_processor, sharpening=0.0):
+    """Pre-emphasize source luminance that would otherwise be lost at model resize."""
+    from PIL import Image, ImageFilter
+
+    rgb = image.convert("RGB")
+    try:
+        strength = float(sharpening)
+    except (TypeError, ValueError):
+        strength = 0.0
+    strength = float(np.clip(strength, 0.0, MAX_DEPTH_DOWNSAMPLE_SHARPENING))
+    nominal_size = _depth_processor_nominal_size(image_processor)
+    processor_output_size = _depth_processor_output_size(rgb, image_processor)
+    metadata = {
+        "enabled": False,
+        "method": "scale_aware_luminance_unsharp_before_model_resize_v1",
+        "strength": strength,
+        "source_size": [int(rgb.width), int(rgb.height)],
+        "nominal_model_size": list(nominal_size) if nominal_size is not None else None,
+        "processor_output_size": (
+            list(processor_output_size) if processor_output_size is not None else None
+        ),
+    }
+    if strength <= 0:
+        metadata["reason"] = "disabled"
+        return rgb, metadata
+    if processor_output_size is None:
+        metadata["reason"] = "processor_resize_unknown"
+        return rgb, metadata
+
+    target_width, target_height = processor_output_size
+    downsample_scale = max(
+        rgb.width / float(target_width),
+        rgb.height / float(target_height),
+    )
+    metadata["downsample_scale"] = float(downsample_scale)
+    if downsample_scale <= 1.05:
+        metadata["reason"] = "input_not_downsampled"
+        return rgb, metadata
+
+    # Match the source-space support of the model's resize kernel. Sharpen only
+    # luminance so colorful edges do not acquire chromatic ringing.
+    radius = float(np.clip(0.45 * downsample_scale, 0.75, 6.0))
+    percent = int(round(100.0 * strength))
+    luminance, chroma_blue, chroma_red = rgb.convert("YCbCr").split()
+    sharpened_luminance = luminance.filter(
+        ImageFilter.UnsharpMask(radius=radius, percent=percent, threshold=2)
+    )
+    sharpened = Image.merge(
+        "YCbCr",
+        (sharpened_luminance, chroma_blue, chroma_red),
+    ).convert("RGB")
+    metadata.update(
+        {
+            "enabled": True,
+            "radius_source_px": radius,
+            "percent": percent,
+            "threshold_8bit": 2,
+        }
+    )
+    return sharpened, metadata
 
 MODERN_INPAINT_MODELS = {
     "sdxl-inpaint": {
@@ -893,6 +1039,8 @@ def process_image_get_depth_data(
     provider="depth-anything-v2",
     model_name=None,
     device="auto",
+    downsample_sharpening=0.0,
+    inference_precision=DEPTH_INFERENCE_PRECISION_AUTO,
 ):
     if provider in ("depth-anything-v2", "transformers"):
         return process_image_get_depth_data_transformers(
@@ -900,6 +1048,8 @@ def process_image_get_depth_data(
             output_dir=output_dir,
             model_name=model_name or "depth-anything/Depth-Anything-V2-Small-hf",
             device=device,
+            downsample_sharpening=downsample_sharpening,
+            inference_precision=inference_precision,
         )
 
     if provider == "sapiens":
@@ -944,6 +1094,8 @@ def process_image_get_depth_data_transformers(
     device="auto",
     requested_model_name=None,
     fallback_reason=None,
+    downsample_sharpening=0.0,
+    inference_precision=DEPTH_INFERENCE_PRECISION_AUTO,
 ):
     model_name = model_name or "depth-anything/Depth-Anything-V2-Small-hf"
     if is_da3_model(model_name):
@@ -978,6 +1130,8 @@ def process_image_get_depth_data_transformers(
                     "Depth Anything V3 Large failed locally "
                     f"({type(exc).__name__}: {exc}); used verified local fallback instead."
                 ),
+                downsample_sharpening=downsample_sharpening,
+                inference_precision=inference_precision,
             )
     if model_name == DEPTHPRO_MODEL_ID:
         return process_image_get_depth_data_depthpro(
@@ -987,8 +1141,10 @@ def process_image_get_depth_data_transformers(
             device=device,
             requested_model_name=requested_model_name,
             fallback_reason=fallback_reason,
+            downsample_sharpening=downsample_sharpening,
         )
 
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     try:
         import torch
         import transformers
@@ -1012,18 +1168,37 @@ def process_image_get_depth_data_transformers(
     else:
         pipeline_device = device
 
-    cache_key = (model_name, pipeline_device)
+    requested_precision = normalize_depth_inference_precision(inference_precision)
+    if pipeline_device == -1:
+        effective_precision = DEPTH_INFERENCE_PRECISION_FLOAT32
+    elif requested_precision == DEPTH_INFERENCE_PRECISION_AUTO:
+        effective_precision = DEPTH_INFERENCE_PRECISION_FLOAT16
+    else:
+        effective_precision = requested_precision
+    if effective_precision == DEPTH_INFERENCE_PRECISION_FLOAT32:
+        _configure_depth_cuda_determinism(torch)
+
+    cache_key = (model_name, pipeline_device, effective_precision)
     if cache_key not in _DEPTH_PIPELINE_CACHE:
         pipe_kwargs = {"model": model_name, "device": pipeline_device}
         if pipeline_device != -1:
             transformers_major = int(transformers.__version__.split(".", 1)[0])
             dtype_arg = "dtype" if transformers_major >= 5 else "torch_dtype"
-            pipe_kwargs[dtype_arg] = torch.float16
+            pipe_kwargs[dtype_arg] = (
+                torch.float32
+                if effective_precision == DEPTH_INFERENCE_PRECISION_FLOAT32
+                else torch.float16
+            )
         _DEPTH_PIPELINE_CACHE[cache_key] = pipeline("depth-estimation", **pipe_kwargs)
 
     depth_pipe = _DEPTH_PIPELINE_CACHE[cache_key]
     image = _load_depth_input_image(input_image_path)
-    result = depth_pipe(image)
+    inference_image, input_sharpening = _prepare_depth_downsample_input(
+        image,
+        depth_pipe.image_processor,
+        sharpening=downsample_sharpening,
+    )
+    result = depth_pipe(inference_image)
 
     predicted_depth = result.get("predicted_depth")
     if predicted_depth is not None:
@@ -1043,6 +1218,13 @@ def process_image_get_depth_data_transformers(
             "fallback_model": model_name if fallback_reason else None,
             "fallback_reason": fallback_reason,
             "relief_value_transform": relief_value_transform,
+            "depth_input_sharpening": input_sharpening,
+            "requested_inference_precision": requested_precision,
+            "effective_inference_precision": effective_precision,
+            "deterministic_cuda": bool(
+                pipeline_device != -1
+                and effective_precision == DEPTH_INFERENCE_PRECISION_FLOAT32
+            ),
         },
         normalize_depth=relief_value_transform == RELIEF_VALUE_TRANSFORM_LINEAR,
         preview_value_transform=relief_value_transform,
@@ -1056,6 +1238,7 @@ def process_image_get_depth_data_depthpro(
     device="auto",
     requested_model_name=None,
     fallback_reason=None,
+    downsample_sharpening=0.0,
 ):
     try:
         import torch
@@ -1067,6 +1250,7 @@ def process_image_get_depth_data_depthpro(
             requested_model_name or model_name,
             device,
             f"Apple Depth Pro dependencies are unavailable: {exc}",
+            downsample_sharpening=downsample_sharpening,
         )
 
     if not _hf_model_has_local_weights(model_name):
@@ -1076,6 +1260,7 @@ def process_image_get_depth_data_depthpro(
             requested_model_name or model_name,
             device,
             "Apple Depth Pro weights are not fully cached yet; used verified local fallback instead.",
+            downsample_sharpening=downsample_sharpening,
         )
 
     try:
@@ -1145,10 +1330,20 @@ def process_image_get_depth_data_depthpro(
             requested_model_name or model_name,
             device,
             f"Apple Depth Pro failed locally ({type(exc).__name__}: {exc}); used verified local fallback instead.",
+            downsample_sharpening=downsample_sharpening,
         )
 
 
-def _run_depth_fallback(input_image_path, output_dir, requested_model_name, device, reason):
+def _run_depth_fallback(
+    input_image_path,
+    output_dir,
+    requested_model_name,
+    device,
+    reason,
+    *,
+    downsample_sharpening=0.0,
+    inference_precision=DEPTH_INFERENCE_PRECISION_AUTO,
+):
     fallback_model = os.getenv("DEPTH_FALLBACK_MODEL", DEFAULT_DEPTH_FALLBACK_MODEL)
     if fallback_model == requested_model_name:
         raise RuntimeError(reason)
@@ -1160,6 +1355,8 @@ def _run_depth_fallback(input_image_path, output_dir, requested_model_name, devi
         device=device,
         requested_model_name=requested_model_name,
         fallback_reason=reason,
+        downsample_sharpening=downsample_sharpening,
+        inference_precision=inference_precision,
     )
 
 
@@ -2042,8 +2239,29 @@ def _inject_photo_relief_detail(
     }
 
 
-def _top_silhouette_mask(source_image, target_shape, padding_px=1):
-    """Keep everything below the first non-background pixel in each column."""
+def _forward_mask_support(mask, vertical_px, horizontal_px):
+    """Measure mask support below each pixel without moving its leading edge."""
+    vertical_px = max(1, int(vertical_px))
+    horizontal_px = max(1, int(horizontal_px))
+    kernel = np.ones((vertical_px, horizontal_px), dtype=np.float32)
+    kernel /= float(kernel.size)
+    return cv2.filter2D(
+        np.asarray(mask, dtype=np.float32),
+        cv2.CV_32F,
+        kernel,
+        anchor=(horizontal_px // 2, 0),
+        borderType=cv2.BORDER_CONSTANT,
+    )
+
+
+def _top_silhouette_mask(
+    source_image,
+    target_shape,
+    padding_px=1,
+    depth_values=None,
+    protected_region_mask=None,
+):
+    """Keep everything below the first depth-supported boundary in each column."""
     full_mask = np.ones((int(target_shape[0]), int(target_shape[1])), dtype=bool)
     if source_image is None:
         return full_mask, {"enabled": False, "reason": "no_source_image"}
@@ -2065,30 +2283,196 @@ def _top_silhouette_mask(source_image, target_shape, padding_px=1):
         }
 
     image = image.resize((full_mask.shape[1], full_mask.shape[0]), Image.Resampling.LANCZOS)
-    rgba = np.asarray(image, dtype=np.float32) / 255.0
-    rgb = rgba[..., :3]
-    alpha = rgba[..., 3]
-    top_band = rgb[: max(2, min(6, rgb.shape[0])), :, :].reshape(-1, 3)
-    background_color = np.median(top_band, axis=0)
-    color_distance = np.max(np.abs(rgb - background_color), axis=2)
-    background = (alpha < 0.05) | ((color_distance < 0.08) & (alpha > 0.95))
-    content = maximum_filter((~background).astype(np.uint8), size=3) > 0
+    rgba_u8 = np.asarray(image, dtype=np.uint8)
+    rgb_u8 = rgba_u8[..., :3]
+    alpha = rgba_u8[..., 3].astype(np.float32) / 255.0
+    top_band = rgb_u8[: max(2, min(8, rgb_u8.shape[0])), :, :].reshape(-1, 3)
+    background_color = np.median(top_band.astype(np.float32), axis=0) / 255.0
+
+    uses_alpha = bool(np.any(alpha < 0.95))
+    gradient_threshold = None
+    top_entry_threshold = None
+    depth_stats = {
+        "supported": False,
+        "reason": "source_alpha" if uses_alpha else "not_provided",
+    }
+    protected = None
+    if protected_region_mask is not None:
+        protected = _resize_binary_mask(protected_region_mask, full_mask.shape)
+    if uses_alpha:
+        content = maximum_filter(
+            (alpha >= 0.05).astype(np.uint8),
+            size=(1, 3),
+        ) > 0
+        boundary_interior_offset = 0
+        method = "alpha_silhouette_v2"
+    else:
+        # A single sampled sky color turns clouds, night gradients, and uneven
+        # illumination into tall slabs. Structural edges are much more stable:
+        # broad sky changes are smoothed away while roofs, hair, towers, and
+        # horizon boundaries remain strong.
+        lab = cv2.cvtColor(rgb_u8, cv2.COLOR_RGB2LAB).astype(np.float32)
+        lab = cv2.GaussianBlur(lab, (0, 0), 0.6)
+        gradient_x = cv2.Scharr(lab, cv2.CV_32F, 1, 0) / 4080.0
+        gradient_y = cv2.Scharr(lab, cv2.CV_32F, 0, 1) / 4080.0
+        gradient = np.sqrt(np.sum(gradient_x * gradient_x + gradient_y * gradient_y, axis=2))
+        gradient_threshold = 0.065
+        structural = gradient >= gradient_threshold
+
+        component_labels, component_count = label(
+            structural,
+            structure=np.ones((3, 3), dtype=np.uint8),
+        )
+        if component_count:
+            component_sizes = np.bincount(component_labels.ravel())
+            structural = component_sizes[component_labels] >= 3
+            structural[component_labels == 0] = False
+
+        structural_content = maximum_filter(
+            structural.astype(np.uint8),
+            size=(1, 3),
+        ) > 0
+        top_lab = lab[: max(2, min(8, lab.shape[0]))]
+        top_background = np.median(top_lab.reshape(-1, 3), axis=0)
+        top_entry_threshold = 25.0
+        top_distance = np.max(np.abs(lab[0] - top_background), axis=1)
+        structural_content[0] |= maximum_filter(
+            (top_distance >= top_entry_threshold).astype(np.uint8),
+            size=3,
+        ) > 0
+        content = structural_content
+        boundary_interior_offset = 1
+        method = "structural_boundary_skyline_v2"
+
+        if depth_values is not None:
+            depth = np.squeeze(np.asarray(depth_values, dtype=np.float32))
+            if depth.ndim == 2:
+                depth = _resize_nan_aware(depth, full_mask.shape)
+                finite = np.isfinite(depth)
+                top_rows = max(2, min(8, depth.shape[0]))
+                top_reference_mask = finite[:top_rows]
+                top_samples = depth[:top_rows][top_reference_mask]
+                finite_samples = depth[finite]
+                if top_samples.size >= max(16, depth.shape[1] // 4) and finite_samples.size:
+                    depth_p01, depth_p99 = np.percentile(finite_samples, [1.0, 99.0])
+                    depth_span = float(depth_p99 - depth_p01)
+                    top_background = float(np.median(top_samples))
+                    top_mad = float(np.median(np.abs(top_samples - top_background)))
+                    depth_tolerance = max(
+                        depth_span * 0.02,
+                        top_mad * 6.0,
+                        np.finfo(np.float32).eps * max(abs(top_background), 1.0) * 32.0,
+                    )
+                    if np.isfinite(depth_span) and depth_span > depth_tolerance:
+                        filled_depth = np.where(finite, depth, top_background)
+                        filled_depth = cv2.GaussianBlur(filled_depth, (0, 0), 0.6)
+                        depth_departure = finite & (
+                            np.abs(filled_depth - top_background) > depth_tolerance
+                        )
+                        depth_support = _forward_mask_support(depth_departure, 12, 3)
+                        structural_support = _forward_mask_support(structural, 14, 5)
+                        content = depth_departure & (depth_support >= 0.18)
+                        content |= structural_content & (depth_support >= 0.08) & (
+                            structural_support >= 0.055
+                        )
+                        method = "depth_supported_structural_skyline_v3"
+                        depth_stats = {
+                            "supported": True,
+                            "reason": None,
+                            "top_background_value": top_background,
+                            "top_background_mad": top_mad,
+                            "depth_p01": float(depth_p01),
+                            "depth_p99": float(depth_p99),
+                            "depth_span": depth_span,
+                            "departure_tolerance": float(depth_tolerance),
+                            "sustained_support_threshold": 0.18,
+                            "mixed_depth_support_threshold": 0.08,
+                            "mixed_structural_support_threshold": 0.055,
+                            "forward_depth_window": [12, 3],
+                            "forward_structural_window": [14, 5],
+                        }
+                    else:
+                        depth_stats = {
+                            "supported": False,
+                            "reason": "insufficient_depth_span",
+                            "depth_span": depth_span,
+                            "departure_tolerance": float(depth_tolerance),
+                        }
+                else:
+                    depth_stats = {
+                        "supported": False,
+                        "reason": "insufficient_top_reference_samples",
+                        "top_reference_samples": int(top_samples.size),
+                    }
+            else:
+                depth_stats = {
+                    "supported": False,
+                    "reason": "depth_not_2d",
+                }
 
     has_content = np.any(content, axis=0)
-    first_content = np.argmax(content, axis=0)
-    first_content = np.where(has_content, first_content, full_mask.shape[0])
+    if not np.any(has_content):
+        return full_mask, {
+            "enabled": False,
+            "reason": "no_trustworthy_structural_boundary",
+            "method": method,
+            "background_color": [float(value) for value in background_color],
+        }
+
+    first_content = np.argmax(content, axis=0).astype(np.float32)
+    missing_columns = ~has_content
+    interpolated_column_count = 0
+    if uses_alpha:
+        first_content[missing_columns] = full_mask.shape[0]
+    elif np.any(missing_columns):
+        known_columns = np.flatnonzero(has_content)
+        first_content[missing_columns] = np.interp(
+            np.flatnonzero(missing_columns),
+            known_columns,
+            first_content[known_columns],
+        )
+        interpolated_column_count = int(np.count_nonzero(missing_columns))
+    if first_content.size >= 5:
+        first_content = cv2.medianBlur(first_content.reshape(1, -1), 5).reshape(-1)
+    first_content = (
+        np.rint(first_content).astype(np.int32) + boundary_interior_offset
+    )
     first_content = np.maximum(0, first_content - max(0, int(padding_px)))
+    protected_column_count = 0
+    if protected is not None:
+        protected_columns = np.any(protected, axis=0)
+        protected_column_count = int(np.count_nonzero(protected_columns))
+        if protected_column_count:
+            protected_first = np.argmax(protected, axis=0)
+            first_content[protected_columns] = np.minimum(
+                first_content[protected_columns],
+                protected_first[protected_columns],
+            )
     rows = np.arange(full_mask.shape[0])[:, None]
-    silhouette = rows >= first_content[None, :]
-    silhouette = np.flip(silhouette, axis=1)
+    source_silhouette = rows >= first_content[None, :]
+    protected_removed_pixels = (
+        int(np.count_nonzero(protected & ~source_silhouette))
+        if protected is not None
+        else 0
+    )
+    silhouette = np.flip(source_silhouette, axis=1)
     removed = ~silhouette
     return silhouette, {
         "enabled": bool(np.any(removed)),
+        "method": method,
         "background_color": [float(value) for value in background_color],
         "removed_area_ratio": float(np.mean(removed)),
         "skyline_min_row": int(np.min(first_content)),
         "skyline_max_row": int(np.max(first_content)),
         "padding_px": int(max(0, padding_px)),
+        "interpolated_column_count": interpolated_column_count,
+        "source_alpha_used": uses_alpha,
+        "structural_gradient_threshold": gradient_threshold,
+        "top_entry_color_distance": top_entry_threshold,
+        "depth_evidence": depth_stats,
+        "protected_region_used": protected is not None,
+        "protected_column_count": protected_column_count,
+        "protected_removed_pixels": protected_removed_pixels,
     }
 
 
@@ -3149,15 +3533,502 @@ def _physical_sample_pitch_mm(shape, max_xy_size):
     return physical_size / float(coordinate_max)
 
 
-def _prepare_relief_for_printing(values, max_xy_size, minimum_feature_mm):
-    input_shape = tuple(int(value) for value in values.shape)
-    input_pitch_mm = _physical_sample_pitch_mm(input_shape, max_xy_size)
+def _physical_sample_pitch_mm_for_mask(surface_mask, max_xy_size):
+    mask = np.asarray(surface_mask, dtype=bool)
+    rows, columns = np.where(mask)
+    if rows.size == 0:
+        return _physical_sample_pitch_mm(mask.shape, max_xy_size)
+    bbox_shape = (
+        int(rows.max() - rows.min() + 1),
+        int(columns.max() - columns.min() + 1),
+    )
+    return _physical_sample_pitch_mm(bbox_shape, max_xy_size)
+
+
+def _valid_relief_cells(surface_mask):
+    mask = np.asarray(surface_mask, dtype=bool)
+    return (
+        mask[:-1, :-1]
+        & mask[1:, :-1]
+        & mask[:-1, 1:]
+        & mask[1:, 1:]
+    )
+
+
+def _mesh_vertex_support_mask(surface_mask):
+    mask = np.asarray(surface_mask, dtype=bool)
+    supported = np.zeros(mask.shape, dtype=bool)
+    valid_cells = _valid_relief_cells(mask)
+    supported[:-1, :-1] |= valid_cells
+    supported[1:, :-1] |= valid_cells
+    supported[:-1, 1:] |= valid_cells
+    supported[1:, 1:] |= valid_cells
+    return supported
+
+
+def _selection_grounded_backing_mask(
+    surface_mask,
+    *,
+    sample_pitch_mm,
+    minimum_width_mm,
+):
+    """Fill beneath selected columns so detached scenery reaches a flat base."""
+    selected = np.asarray(surface_mask, dtype=bool)
+    foundation = np.zeros(selected.shape, dtype=bool)
+    rows, columns = np.where(selected)
     stats = {
+        "enabled": False,
+        "method": "column_grounded_backing_foundation_v1",
+        "accepted": False,
+        "foundation_pixels": 0,
+        "selection_pixels": int(np.count_nonzero(selected)),
+        "active_columns": 0,
+        "bottom_row": None,
+        "maximum_drop_px": 0,
+        "base_rail_pixels": 0,
+        "base_rail_height_px": 0,
+        "bounded_to_selection_bbox": True,
+    }
+    if rows.size == 0:
+        stats["reason"] = "empty_selection"
+        return foundation, stats
+
+    bottom_row = int(rows.max())
+    active_columns = np.flatnonzero(np.any(selected, axis=0))
+    try:
+        pitch = float(sample_pitch_mm)
+    except (TypeError, ValueError):
+        pitch = 1.0
+    if not np.isfinite(pitch) or pitch <= 0:
+        pitch = 1.0
+    try:
+        width_mm = float(minimum_width_mm)
+    except (TypeError, ValueError):
+        width_mm = pitch
+    if not np.isfinite(width_mm) or width_mm <= 0:
+        width_mm = pitch
+    rail_height_px = max(2, int(np.ceil(width_mm / pitch)))
+    rail_top = max(0, bottom_row - rail_height_px + 1)
+    maximum_drop_px = 0
+    for column in active_columns:
+        selected_rows = np.flatnonzero(selected[:, column])
+        lowest_selected_row = int(selected_rows.max())
+        foundation[lowest_selected_row : bottom_row + 1, column] = True
+        maximum_drop_px = max(
+            maximum_drop_px,
+            bottom_row - lowest_selected_row,
+        )
+    base_rail = np.zeros(selected.shape, dtype=bool)
+    base_rail[
+        rail_top : bottom_row + 1,
+        int(active_columns.min()) : int(active_columns.max()) + 1,
+    ] = True
+    foundation |= base_rail
+    foundation &= ~selected
+
+    foundation_pixels = int(np.count_nonzero(foundation))
+    stats.update(
+        {
+            "enabled": bool(foundation_pixels),
+            "accepted": True,
+            "reason": None,
+            "foundation_pixels": foundation_pixels,
+            "foundation_ratio": float(
+                foundation_pixels / max(stats["selection_pixels"], 1)
+            ),
+            "active_columns": int(active_columns.size),
+            "bottom_row": bottom_row,
+            "maximum_drop_px": int(maximum_drop_px),
+            "base_rail_pixels": int(np.count_nonzero(base_rail & ~selected)),
+            "base_rail_height_px": int(rail_height_px),
+            "base_rail_height_mm": float(rail_height_px * pitch),
+            "sample_pitch_mm": float(pitch),
+            "minimum_width_mm": float(width_mm),
+        }
+    )
+    return foundation, stats
+
+
+def _selection_enclosed_hole_fill_mask(surface_mask):
+    """Return empty pixels enclosed by the final printable silhouette."""
+    surface = np.asarray(surface_mask, dtype=bool)
+    empty = ~surface
+    empty_components, component_count = label(
+        empty,
+        structure=np.ones((3, 3), dtype=np.uint8),
+    )
+    border_labels = np.unique(
+        np.concatenate(
+            (
+                empty_components[0, :],
+                empty_components[-1, :],
+                empty_components[:, 0],
+                empty_components[:, -1],
+            )
+        )
+    )
+    exterior = np.isin(empty_components, border_labels) & empty
+    enclosed = empty & ~exterior
+    enclosed_labels = np.unique(empty_components[enclosed])
+    enclosed_labels = enclosed_labels[enclosed_labels != 0]
+    component_sizes = [
+        int(np.count_nonzero(empty_components == component_label))
+        for component_label in enclosed_labels
+    ]
+    stats = {
+        "enabled": bool(np.any(enclosed)),
+        "method": "exterior_flood_enclosed_hole_fill_v1",
+        "accepted": True,
+        "connectivity": 8,
+        "empty_component_count": int(component_count),
+        "enclosed_component_count": int(enclosed_labels.size),
+        "enclosed_hole_pixels": int(np.count_nonzero(enclosed)),
+        "largest_enclosed_hole_pixels": int(max(component_sizes, default=0)),
+        "exterior_background_pixels": int(np.count_nonzero(exterior)),
+        "bounded_to_emitted_silhouette": True,
+    }
+    return enclosed, stats
+
+
+def _minimal_component_connector_mask(
+    surface_mask,
+    *,
+    sample_pitch_mm,
+    minimum_width_mm,
+):
+    """Connect detached relief islands with narrow backing-only supports."""
+    selected = np.asarray(surface_mask, dtype=bool)
+    components, component_count = label(
+        selected,
+        structure=np.ones((3, 3), dtype=np.uint8),
+    )
+    stats = {
+        "enabled": False,
+        "method": "minimum_spanning_backing_bridge_v1",
+        "component_count_before": int(component_count),
+        "component_count_after": int(component_count),
+        "accepted": False,
+        "bridge_pixels": 0,
+        "bridge_segments": 0,
+        "bridge_length_px": 0.0,
+    }
+    try:
+        pitch = float(sample_pitch_mm)
+    except (TypeError, ValueError):
+        pitch = 1.0
+    if not np.isfinite(pitch) or pitch <= 0:
+        pitch = 1.0
+    try:
+        width_mm = float(minimum_width_mm)
+    except (TypeError, ValueError):
+        width_mm = pitch
+    if not np.isfinite(width_mm) or width_mm <= 0:
+        width_mm = pitch
+    width_px = max(1, int(np.ceil(width_mm / pitch)))
+    selected_pixels = int(np.count_nonzero(selected))
+    bridge_budget_pixels = int(
+        np.floor(selected_pixels * MAX_SELECTION_BACKING_CONNECTOR_RATIO)
+    )
+
+    stats.update(
+        {
+            "selected_pixels": selected_pixels,
+            "maximum_component_count": int(MAX_SELECTION_EMISSION_COMPONENTS),
+            "maximum_bridge_ratio": float(
+                MAX_SELECTION_BACKING_CONNECTOR_RATIO
+            ),
+            "bridge_budget_pixels": bridge_budget_pixels,
+        }
+    )
+    if selected_pixels == 0:
+        stats["reason"] = "empty_selection"
+        return np.zeros(selected.shape, dtype=bool), stats
+    if component_count > MAX_SELECTION_EMISSION_COMPONENTS:
+        stats["reason"] = "component_budget_exceeded"
+        return np.zeros(selected.shape, dtype=bool), stats
+
+    bridge = np.zeros(selected.shape, dtype=bool)
+    segment_lengths = []
+
+    if component_count > 1:
+        component_sizes = np.bincount(
+            components.ravel(),
+            minlength=component_count + 1,
+        )
+        primary_label = int(np.argmax(component_sizes[1:]) + 1)
+        connected = components == primary_label
+        remaining = set(range(1, component_count + 1)) - {primary_label}
+
+        while remaining:
+            distance, nearest = distance_transform_edt(
+                ~connected,
+                return_indices=True,
+            )
+            best = None
+            for component_label in sorted(remaining):
+                component_rows, component_cols = np.where(
+                    components == component_label
+                )
+                if component_rows.size == 0:
+                    continue
+                component_distances = distance[component_rows, component_cols]
+                endpoint_index = int(np.argmin(component_distances))
+                candidate = (
+                    float(component_distances[endpoint_index]),
+                    component_label,
+                    int(component_rows[endpoint_index]),
+                    int(component_cols[endpoint_index]),
+                )
+                if best is None or candidate < best:
+                    best = candidate
+            if best is None:
+                break
+
+            segment_length, component_label, target_row, target_col = best
+            source_row = int(nearest[0, target_row, target_col])
+            source_col = int(nearest[1, target_row, target_col])
+            segment = np.zeros(selected.shape, dtype=np.uint8)
+            cv2.line(
+                segment,
+                (source_col, source_row),
+                (target_col, target_row),
+                color=255,
+                thickness=width_px,
+                lineType=cv2.LINE_8,
+            )
+            segment_mask = segment > 0
+            bridge |= segment_mask & ~selected
+            connected |= segment_mask | (components == component_label)
+            remaining.remove(component_label)
+            segment_lengths.append(segment_length)
+            if np.count_nonzero(bridge) > bridge_budget_pixels:
+                break
+
+    connected_mask = selected | bridge
+    initial_mesh_support = _mesh_vertex_support_mask(connected_mask)
+    initially_unsupported_selected = selected & ~initial_mesh_support
+    if np.any(initially_unsupported_selected):
+        support_patch = (
+            maximum_filter(
+                initially_unsupported_selected.astype(np.uint8),
+                size=3,
+                mode="constant",
+                cval=0,
+            )
+            > 0
+        )
+        bridge |= support_patch & ~selected
+        connected_mask = selected | bridge
+
+    mesh_component_count_after = 0
+    mesh_bridge_segments = 0
+    initial_valid_cells = _valid_relief_cells(connected_mask)
+    _, initial_mesh_component_count = label(
+        initial_valid_cells,
+        structure=np.array(
+            [[0, 1, 0], [1, 1, 1], [0, 1, 0]],
+            dtype=np.uint8,
+        ),
+    )
+    mesh_component_count_before = int(initial_mesh_component_count)
+    max_mesh_bridge_attempts = max(0, int(initial_mesh_component_count) - 1)
+    for _attempt in range(max_mesh_bridge_attempts):
+        valid_cells = _valid_relief_cells(connected_mask)
+        cell_labels, cell_component_count = label(
+            valid_cells,
+            structure=np.array(
+                [[0, 1, 0], [1, 1, 1], [0, 1, 0]],
+                dtype=np.uint8,
+            ),
+        )
+        mesh_component_count_after = int(cell_component_count)
+        if cell_component_count <= 1:
+            break
+
+        cell_sizes = np.bincount(
+            cell_labels.ravel(),
+            minlength=cell_component_count + 1,
+        )
+        primary_cell_label = int(np.argmax(cell_sizes[1:]) + 1)
+
+        def cell_vertices(component_label):
+            rows, columns = np.where(cell_labels == component_label)
+            vertices = np.zeros(connected_mask.shape, dtype=bool)
+            vertices[rows, columns] = True
+            vertices[rows + 1, columns] = True
+            vertices[rows, columns + 1] = True
+            vertices[rows + 1, columns + 1] = True
+            return vertices
+
+        primary_vertices = cell_vertices(primary_cell_label)
+        distance, nearest = distance_transform_edt(
+            ~primary_vertices,
+            return_indices=True,
+        )
+        best = None
+        for cell_label in range(1, cell_component_count + 1):
+            if cell_label == primary_cell_label:
+                continue
+            component_vertices = cell_vertices(cell_label)
+            target_rows, target_cols = np.where(component_vertices)
+            if target_rows.size == 0:
+                continue
+            component_distances = distance[target_rows, target_cols]
+            endpoint_index = int(np.argmin(component_distances))
+            candidate = (
+                float(component_distances[endpoint_index]),
+                int(cell_label),
+                int(target_rows[endpoint_index]),
+                int(target_cols[endpoint_index]),
+            )
+            if best is None or candidate < best:
+                best = candidate
+        if best is None:
+            break
+
+        segment_length, _cell_label, target_row, target_col = best
+        source_row = int(nearest[0, target_row, target_col])
+        source_col = int(nearest[1, target_row, target_col])
+        segment = np.zeros(selected.shape, dtype=np.uint8)
+        cv2.line(
+            segment,
+            (source_col, source_row),
+            (target_col, target_row),
+            color=255,
+            thickness=max(2, width_px),
+            lineType=cv2.LINE_8,
+        )
+        segment_mask = segment > 0
+        new_bridge = segment_mask & ~selected
+        if not np.any(new_bridge & ~bridge):
+            break
+        bridge |= new_bridge
+        connected_mask = selected | bridge
+        segment_lengths.append(segment_length)
+        mesh_bridge_segments += 1
+        if np.count_nonzero(bridge) > bridge_budget_pixels:
+            break
+
+    valid_cells = _valid_relief_cells(connected_mask)
+    _, final_component_count = label(
+        valid_cells,
+        structure=np.array(
+            [[0, 1, 0], [1, 1, 1], [0, 1, 0]],
+            dtype=np.uint8,
+        ),
+    )
+    mesh_component_count_after = int(final_component_count)
+    final_mesh_support = _mesh_vertex_support_mask(connected_mask)
+    unsupported_selected_pixels = int(
+        np.count_nonzero(selected & ~final_mesh_support)
+    )
+    bridge_pixels = int(np.count_nonzero(bridge))
+    bridge_ratio = float(bridge_pixels / max(selected_pixels, 1))
+    within_bridge_budget = bool(bridge_pixels <= bridge_budget_pixels)
+    accepted = bool(
+        final_component_count == 1
+        and unsupported_selected_pixels == 0
+        and within_bridge_budget
+    )
+    if final_component_count != 1:
+        reason = "connection_incomplete"
+    elif unsupported_selected_pixels:
+        reason = "selected_pixels_without_mesh_support"
+    elif not within_bridge_budget:
+        reason = "bridge_budget_exceeded"
+    else:
+        reason = None
+    stats.update(
+        {
+            "enabled": bool(np.any(bridge)),
+            "accepted": accepted,
+            "reason": reason,
+            "component_count_after": int(final_component_count),
+            "pixel_component_count_before": int(component_count),
+            "mesh_component_count_before": int(mesh_component_count_before),
+            "mesh_component_count_after": int(mesh_component_count_after),
+            "bridge_pixels": bridge_pixels,
+            "bridge_ratio": bridge_ratio,
+            "within_bridge_budget": within_bridge_budget,
+            "bridge_segments": int(len(segment_lengths)),
+            "mesh_bridge_segments": int(mesh_bridge_segments),
+            "initially_unsupported_selected_pixels": int(
+                np.count_nonzero(initially_unsupported_selected)
+            ),
+            "unsupported_selected_mesh_pixels": unsupported_selected_pixels,
+            "mesh_supported_selected_pixels": int(
+                selected_pixels - unsupported_selected_pixels
+            ),
+            "bridge_length_px": float(np.sum(segment_lengths)),
+            "bridge_width_px": int(width_px),
+            "bridge_width_mm": float(width_px * pitch),
+            "minimum_width_mm": float(width_mm),
+            "sample_pitch_mm": float(pitch),
+        }
+    )
+    return bridge, stats
+
+
+def _resolve_detail_basis_mm(max_xy_size, detail_basis_mm):
+    def positive_size(value):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not np.isfinite(number) or number <= 0:
+            return None
+        return number
+
+    output_size = positive_size(max_xy_size)
+    requested_basis = positive_size(detail_basis_mm)
+    if requested_basis is None:
+        return output_size
+    if output_size is None:
+        return requested_basis
+    return max(output_size, requested_basis)
+
+
+def _prepare_relief_for_printing(
+    values,
+    max_xy_size,
+    minimum_feature_mm,
+    detail_basis_mm=None,
+):
+    input_shape = tuple(int(value) for value in values.shape)
+    resolved_detail_basis_mm = _resolve_detail_basis_mm(
+        max_xy_size,
+        detail_basis_mm,
+    )
+    input_pitch_mm = _physical_sample_pitch_mm(
+        input_shape,
+        resolved_detail_basis_mm,
+    )
+    emitted_input_pitch_mm = _physical_sample_pitch_mm(input_shape, max_xy_size)
+    xy_scale_ratio = (
+        float(max_xy_size) / float(resolved_detail_basis_mm)
+        if emitted_input_pitch_mm is not None
+        and resolved_detail_basis_mm is not None
+        else None
+    )
+    stats = {
+        "sampling_schema_version": 2,
         "enabled": False,
         "input_shape": list(input_shape),
         "mesh_grid_shape": list(input_shape),
-        "input_sample_pitch_mm": input_pitch_mm,
-        "mesh_sample_pitch_mm": input_pitch_mm,
+        "input_sample_pitch_mm": emitted_input_pitch_mm,
+        "mesh_sample_pitch_mm": emitted_input_pitch_mm,
+        "processing_input_sample_pitch_mm": input_pitch_mm,
+        "processing_mesh_sample_pitch_mm": input_pitch_mm,
+        "emitted_input_sample_pitch_mm": emitted_input_pitch_mm,
+        "emitted_mesh_sample_pitch_mm": emitted_input_pitch_mm,
+        "detail_basis_mm": resolved_detail_basis_mm,
+        "output_max_xy_size_mm": (
+            float(max_xy_size) if emitted_input_pitch_mm is not None else None
+        ),
+        "final_xy_scale_ratio": xy_scale_ratio,
+        "processed_before_final_xy_scale": bool(
+            xy_scale_ratio is not None and not np.isclose(xy_scale_ratio, 1.0)
+        ),
         "minimum_feature_mm": None,
         "filter_sigma_px": 0.0,
         "resampled": False,
@@ -3183,7 +4054,10 @@ def _prepare_relief_for_printing(values, max_xy_size, minimum_feature_mm):
     # avoiding triangles far denser than the nozzle can reproduce.
     target_pitch_mm = feature_mm / 2.0
     max_dimension = max(input_shape)
-    printable_dimension = max(2, int(np.floor(float(max_xy_size) / target_pitch_mm)) + 1)
+    printable_dimension = max(
+        2,
+        int(np.floor(float(resolved_detail_basis_mm) / target_pitch_mm)) + 1,
+    )
     output_dimension = min(max_dimension, printable_dimension)
     target_shape = _target_shape_for_max_dimension(input_shape, output_dimension)
     if target_shape != input_shape:
@@ -3191,8 +4065,157 @@ def _prepare_relief_for_printing(values, max_xy_size, minimum_feature_mm):
         stats["resampled"] = True
 
     stats["mesh_grid_shape"] = [int(filtered.shape[0]), int(filtered.shape[1])]
-    stats["mesh_sample_pitch_mm"] = _physical_sample_pitch_mm(filtered.shape, max_xy_size)
+    stats["processing_mesh_sample_pitch_mm"] = _physical_sample_pitch_mm(
+        filtered.shape,
+        resolved_detail_basis_mm,
+    )
+    emitted_mesh_sample_pitch_mm = _physical_sample_pitch_mm(
+        filtered.shape,
+        max_xy_size,
+    )
+    stats["mesh_sample_pitch_mm"] = emitted_mesh_sample_pitch_mm
+    stats["emitted_mesh_sample_pitch_mm"] = emitted_mesh_sample_pitch_mm
     return filtered, stats
+
+
+def _audit_emitted_relief_printability(
+    values,
+    *,
+    sample_pitch_mm,
+    max_relief_slope,
+    minimum_feature_mm,
+    final_xy_scale_ratio,
+):
+    try:
+        pitch_mm = float(sample_pitch_mm)
+        max_slope = float(max_relief_slope)
+    except (TypeError, ValueError):
+        return {
+            "supported": False,
+            "reason": "missing_physical_output_pitch",
+        }
+    if (
+        not np.isfinite(pitch_mm)
+        or pitch_mm <= 0
+        or not np.isfinite(max_slope)
+        or max_slope <= 0
+    ):
+        return {
+            "supported": False,
+            "reason": "invalid_physical_output_controls",
+        }
+
+    surface = np.asarray(values, dtype=np.float64)
+    if surface.ndim != 2:
+        return {
+            "supported": False,
+            "reason": "surface_must_be_2d",
+        }
+    finite = np.isfinite(surface)
+    valid_cells = (
+        finite[:-1, :-1]
+        & finite[1:, :-1]
+        & finite[:-1, 1:]
+        & finite[1:, 1:]
+    )
+    horizontal_edges = np.zeros(
+        (surface.shape[0], max(surface.shape[1] - 1, 0)),
+        dtype=bool,
+    )
+    vertical_edges = np.zeros(
+        (max(surface.shape[0] - 1, 0), surface.shape[1]),
+        dtype=bool,
+    )
+    if valid_cells.size:
+        horizontal_edges[:-1, :] |= valid_cells
+        horizontal_edges[1:, :] |= valid_cells
+        vertical_edges[:, :-1] |= valid_cells
+        vertical_edges[:, 1:] |= valid_cells
+    edge_slopes = []
+    edge_sample_counts = {}
+    for edge_kind, first, second, emitted_edges, edge_length_mm in (
+        (
+            "horizontal",
+            surface[:, :-1],
+            surface[:, 1:],
+            horizontal_edges,
+            pitch_mm,
+        ),
+        (
+            "vertical",
+            surface[:-1, :],
+            surface[1:, :],
+            vertical_edges,
+            pitch_mm,
+        ),
+        (
+            "cell_diagonal",
+            surface[1:, :-1],
+            surface[:-1, 1:],
+            valid_cells,
+            pitch_mm * np.sqrt(2.0),
+        ),
+    ):
+        edge_sample_counts[edge_kind] = int(np.count_nonzero(emitted_edges))
+        if np.any(emitted_edges):
+            edge_slopes.append(
+                np.abs(second[emitted_edges] - first[emitted_edges])
+                / float(edge_length_mm)
+            )
+    slopes = (
+        np.concatenate(edge_slopes)
+        if edge_slopes
+        else np.empty(0, dtype=np.float64)
+    )
+    violation_count = int(np.count_nonzero(slopes > max_slope + 1e-6))
+    try:
+        scale_ratio = float(final_xy_scale_ratio)
+    except (TypeError, ValueError):
+        scale_ratio = 1.0
+    if not np.isfinite(scale_ratio) or scale_ratio <= 0:
+        scale_ratio = 1.0
+    try:
+        processing_minimum_feature_mm = float(minimum_feature_mm)
+    except (TypeError, ValueError):
+        processing_minimum_feature_mm = None
+    if (
+        processing_minimum_feature_mm is not None
+        and not np.isfinite(processing_minimum_feature_mm)
+    ):
+        processing_minimum_feature_mm = None
+    scaled_minimum_feature_mm = (
+        processing_minimum_feature_mm * scale_ratio
+        if processing_minimum_feature_mm is not None
+        else None
+    )
+    return {
+        "supported": True,
+        "method": "post_xy_scale_surface_edge_audit_v1",
+        "edge_model": "valid_cell_horizontal_vertical_and_diagonal_top_edges",
+        "sample_pitch_mm": pitch_mm,
+        "edge_samples": int(slopes.size),
+        "edge_sample_counts": edge_sample_counts,
+        "configured_max_slope_mm_per_mm": max_slope,
+        "slope_p95_mm_per_mm": (
+            float(np.percentile(slopes, 95.0)) if slopes.size else 0.0
+        ),
+        "slope_p99_mm_per_mm": (
+            float(np.percentile(slopes, 99.0)) if slopes.size else 0.0
+        ),
+        "slope_max_mm_per_mm": float(np.max(slopes, initial=0.0)),
+        "slope_violation_edge_count": violation_count,
+        "slope_violation_edge_ratio": (
+            float(violation_count / slopes.size) if slopes.size else 0.0
+        ),
+        "slope_limit_passed": violation_count == 0,
+        "processing_minimum_feature_mm": processing_minimum_feature_mm,
+        "processing_minimum_feature_scaled_to_output_mm": (
+            scaled_minimum_feature_mm
+        ),
+        "final_xy_scale_ratio": scale_ratio,
+        "physical_feature_limit_preserved": bool(scale_ratio >= 1.0 - 1e-6),
+        "recognition_first_oversampling": bool(scale_ratio < 1.0 - 1e-6),
+    }
 
 
 def _structural_relief_edge_barriers(values, max_step, structural_region_mask=None):
@@ -5850,6 +6873,7 @@ def depth_data_to_3d_model(
     invert=False,
     sigma=0.6,
     max_xy_size=None,
+    detail_basis_mm=None,
     relief_gamma=0.75,
     detail_boost=0.8,
     detail_radius=2.0,
@@ -5864,6 +6888,7 @@ def depth_data_to_3d_model(
     selection_region_mask=None,
     selection_background_depth_ratio=DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
     selection_subject_lock=False,
+    selection_emission_only=False,
     background_detail_boost=1.0,
     source_image=None,
     background_photo_detail_mm=0.0,
@@ -5875,7 +6900,22 @@ def depth_data_to_3d_model(
     surface_output_path=None,
     reference_surface_output_path=None,
     normalization_reference_depth=None,
+    base_thickness_mm=0.01,
 ):
+    if detail_basis_mm is not None:
+        requested_detail_basis_mm = _resolve_detail_basis_mm(None, detail_basis_mm)
+        output_size_mm = _resolve_detail_basis_mm(max_xy_size, None)
+        if requested_detail_basis_mm is None:
+            raise ValueError("detail_basis_mm must be a finite positive number")
+        if output_size_mm is None:
+            raise ValueError("detail_basis_mm requires a finite positive max_xy_size")
+    try:
+        backing_thickness_mm = float(base_thickness_mm)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("base_thickness_mm must be a finite positive number") from exc
+    if not np.isfinite(backing_thickness_mm) or backing_thickness_mm <= 0:
+        raise ValueError("base_thickness_mm must be a finite positive number")
+
     # Load the .npy file
     data = np.load(npy_file).astype(np.float32)
     input_depth_shape = [int(data.shape[0]), int(data.shape[1])]
@@ -5941,6 +6981,23 @@ def depth_data_to_3d_model(
         print("Skipping downsampling as target_dimension is -1")
     target_depth_shape = [int(data.shape[0]), int(data.shape[1])]
 
+    if trim_top_background:
+        top_silhouette_mask, top_silhouette_stats = _top_silhouette_mask(
+            source_image,
+            data.shape,
+            depth_values=data,
+            protected_region_mask=selected_region,
+        )
+    else:
+        top_silhouette_mask = np.ones(data.shape, dtype=bool)
+        top_silhouette_stats = {"enabled": False, "reason": "disabled"}
+    emission_top_silhouette_mask = top_silhouette_mask
+    top_silhouette_stats["application_stage"] = "final_mesh_emission"
+    # Skyline trimming changes the emitted outline only. Keep it out of depth
+    # shaping, smoothing, face guards, and background-cap calculations so every
+    # retained height sample is identical to the corresponding rectangular run.
+    top_silhouette_mask = np.ones(data.shape, dtype=bool)
+
     # Flip the x axis
     data = np.flip(data, axis=1)
     if normalization_reference is not None:
@@ -5955,12 +7012,10 @@ def depth_data_to_3d_model(
     subject_surface_locked = bool(
         selection_subject_lock and selected_region is not None
     )
-    if trim_top_background:
-        top_silhouette_mask, top_silhouette_stats = _top_silhouette_mask(source_image, data.shape)
-    else:
-        top_silhouette_mask = np.ones(data.shape, dtype=bool)
-        top_silhouette_stats = {"enabled": False, "reason": "disabled"}
-
+    if selection_emission_only and selected_region is None:
+        raise ValueError(
+            "selection_emission_only requires a selection_region_mask"
+        )
     detail_protection_mask = None
     if region_mask is not None or (
         selected_region is not None and not subject_surface_locked
@@ -6007,8 +7062,12 @@ def depth_data_to_3d_model(
         else 0.0
     )
     photo_detail_halo_mm = BACKGROUND_PHOTO_DETAIL_PROTECTION_HALO_MM
-    input_sample_pitch_mm, photo_detail_halo_px = _photo_detail_sampling(
+    resolved_detail_basis_mm = _resolve_detail_basis_mm(
         max_xy_size,
+        detail_basis_mm,
+    )
+    input_sample_pitch_mm, photo_detail_halo_px = _photo_detail_sampling(
+        resolved_detail_basis_mm,
         relief.shape,
         photo_detail_halo_mm,
     )
@@ -6054,10 +7113,17 @@ def depth_data_to_3d_model(
         relief,
         max_xy_size=max_xy_size,
         minimum_feature_mm=minimum_feature_mm,
+        detail_basis_mm=resolved_detail_basis_mm,
     )
     mesh_shape_before_crop = [int(relief.shape[0]), int(relief.shape[1])]
-    gradient_sample_pitch_mm = print_filter_stats["mesh_sample_pitch_mm"]
-    gradient_sample_pitch_source = "physical_size"
+    gradient_sample_pitch_mm = print_filter_stats[
+        "processing_mesh_sample_pitch_mm"
+    ]
+    gradient_sample_pitch_source = (
+        "detail_basis_before_final_xy_scale"
+        if print_filter_stats["processed_before_final_xy_scale"]
+        else "physical_size"
+    )
     if gradient_sample_pitch_mm is None and max_xy_size is None:
         # Without an explicit physical footprint, STL X/Y coordinates are the
         # integer grid coordinates below, so adjacent samples are one unit apart.
@@ -6076,6 +7142,10 @@ def depth_data_to_3d_model(
         else None
     )
     top_silhouette_mask = _resize_binary_mask(top_silhouette_mask, relief.shape)
+    emission_top_silhouette_mask = _resize_binary_mask(
+        emission_top_silhouette_mask,
+        relief.shape,
+    )
     relief = np.where(top_silhouette_mask, relief, np.nan)
     relief = _flatten_border(
         relief,
@@ -6083,25 +7153,27 @@ def depth_data_to_3d_model(
         preserve_mask=preserve_detail_border,
     )
     relief = np.where(top_silhouette_mask, relief, np.nan)
-    z = relief * z_scale
-    
-    # Add a small offset to create buffer
-    z = z + 0.01
+    # Raise the relief above a real, flat backing plate. The legacy exporter
+    # used a 0.01 mm numerical buffer here, which rendered as a paper-thin
+    # wedge and was not a printable backing thickness.
+    z = relief * z_scale + backing_thickness_mm
 
     # Apply a Gaussian filter to smooth the data
     z = _smooth_nan_aware(z, sigma=sigma)
     z = np.where(top_silhouette_mask, z, np.nan)
     if base_border_px:
         z = _flatten_border(
-            np.maximum(z - 0.01, 0.0),
+            np.maximum(z - backing_thickness_mm, 0.0),
             base_border_px,
             preserve_mask=preserve_detail_border,
-        ) + 0.01
+        ) + backing_thickness_mm
         z = np.where(top_silhouette_mask, z, np.nan)
     reference_face_height_mm = 12.0
     face_reference_surface = np.where(
         np.isfinite(z),
-        (z - 0.01) * min(1.0, reference_face_height_mm / max(float(z_scale), 1e-6)) + 0.01,
+        (z - backing_thickness_mm)
+        * min(1.0, reference_face_height_mm / max(float(z_scale), 1e-6))
+        + backing_thickness_mm,
         np.nan,
     )
     head_region_mask, head_region_stats = _expand_face_region_to_depth_connected_head(
@@ -6686,7 +7758,7 @@ def depth_data_to_3d_model(
             z,
             region_mask,
             max_separation_mm=feature_bridge_depth_mm,
-            sample_pitch_mm=print_filter_stats["mesh_sample_pitch_mm"],
+            sample_pitch_mm=gradient_sample_pitch_mm,
         )
         accepted_face_surface = z.copy()
         z, printable_feature_stats = _enhance_weighted_relief_features(
@@ -6704,7 +7776,7 @@ def depth_data_to_3d_model(
         )
         try:
             configured_feature_step = (
-                float(print_filter_stats["mesh_sample_pitch_mm"])
+                float(gradient_sample_pitch_mm)
                 * float(max_relief_slope)
             )
         except (TypeError, ValueError):
@@ -6717,7 +7789,7 @@ def depth_data_to_3d_model(
         z = np.where(top_silhouette_mask, z, np.nan)
         z, slope_limit_stats = _limit_positive_relief_slope(
             z,
-            sample_pitch_mm=print_filter_stats["mesh_sample_pitch_mm"],
+            sample_pitch_mm=gradient_sample_pitch_mm,
             max_slope_mm_per_mm=max_relief_slope,
             structural_region_mask=region_mask,
         )
@@ -6779,10 +7851,10 @@ def depth_data_to_3d_model(
     z = np.where(top_silhouette_mask, z, np.nan)
     if base_border_px:
         z = _flatten_border(
-            np.maximum(z - 0.01, 0.0),
+            np.maximum(z - backing_thickness_mm, 0.0),
             base_border_px,
             preserve_mask=preserve_detail_border,
-        ) + 0.01
+        ) + backing_thickness_mm
         z = np.where(top_silhouette_mask, z, np.nan)
     background_reference_surface = unstabilized_scene
     selection_background_cap_stats = {
@@ -6936,6 +8008,128 @@ def depth_data_to_3d_model(
         z = restored_background
         background_preservation_stats = fallback_metrics
 
+    # Every finite top-surface sample must stay on or above the backing plate,
+    # including exports that disable the optional flattened border.
+    top_silhouette_mask = emission_top_silhouette_mask
+    selection_emission_stats = {
+        "enabled": False,
+        "reason": "not_requested",
+        "application_stage": "final_mesh_emission",
+    }
+    selection_backing_foundation_mask = np.zeros(z.shape, dtype=bool)
+    selection_backing_connector_mask = np.zeros(z.shape, dtype=bool)
+    selection_enclosed_hole_fill_mask = np.zeros(z.shape, dtype=bool)
+    if selection_emission_only:
+        selected_emission_mask = _resize_binary_mask(selected_region, z.shape)
+        finite_surface_mask = np.isfinite(z)
+        candidate_mask = finite_surface_mask & top_silhouette_mask
+        retained_mask = candidate_mask & selected_emission_mask
+        removed_mask = candidate_mask & ~selected_emission_mask
+        removed_selected_mask = selected_emission_mask & ~candidate_mask
+        removed_selected_pixels = int(np.count_nonzero(removed_selected_mask))
+        if removed_selected_pixels:
+            raise ValueError(
+                "Selected relief lost source-supported pixels before mesh emission"
+            )
+        selected_output_mask = candidate_mask & selected_emission_mask
+        selection_sample_pitch_mm = _physical_sample_pitch_mm_for_mask(
+            selected_output_mask,
+            max_xy_size,
+        )
+        connector_mask, connector_stats = _minimal_component_connector_mask(
+            selected_output_mask,
+            sample_pitch_mm=selection_sample_pitch_mm,
+            minimum_width_mm=minimum_feature_mm,
+        )
+        selection_backing_connector_mask = connector_mask
+        if connector_stats.get("accepted") is not True:
+            raise ValueError(
+                "Selected relief could not be emitted with bounded backing supports: "
+                f"{connector_stats.get('reason', 'unknown')}"
+            )
+        foundation_mask, foundation_stats = _selection_grounded_backing_mask(
+            selected_output_mask | connector_mask,
+            sample_pitch_mm=selection_sample_pitch_mm,
+            minimum_width_mm=minimum_feature_mm,
+        )
+        foundation_stats["source_selection_pixels"] = int(
+            np.count_nonzero(selected_output_mask)
+        )
+        foundation_stats["connector_seed_pixels"] = int(
+            np.count_nonzero(connector_mask)
+        )
+        selection_backing_foundation_mask = foundation_mask
+        prefill_silhouette_mask = selected_output_mask | foundation_mask | connector_mask
+        enclosed_hole_fill_mask, enclosed_hole_fill_stats = (
+            _selection_enclosed_hole_fill_mask(prefill_silhouette_mask)
+        )
+        selection_enclosed_hole_fill_mask = enclosed_hole_fill_mask
+        backing_only_mask = (
+            foundation_mask | connector_mask | enclosed_hole_fill_mask
+        )
+        top_silhouette_mask = selected_output_mask | backing_only_mask
+        remaining_holes, _remaining_hole_stats = (
+            _selection_enclosed_hole_fill_mask(top_silhouette_mask)
+        )
+        closed_hole_pixels_after = int(np.count_nonzero(remaining_holes))
+        if closed_hole_pixels_after:
+            raise ValueError(
+                "Selected relief retained enclosed holes after final silhouette fill"
+            )
+        if np.any(backing_only_mask):
+            z = np.where(backing_only_mask, backing_thickness_mm, z)
+        emitted_support = _mesh_vertex_support_mask(top_silhouette_mask)
+        unsupported_selected_pixels = int(
+            np.count_nonzero(selected_output_mask & ~emitted_support)
+        )
+        if unsupported_selected_pixels:
+            raise ValueError(
+                "Selected relief contains samples without final mesh support"
+            )
+        selection_emission_stats = {
+            "enabled": True,
+            "method": "full_scene_depth_grounded_closed_hole_free_selection_emission_v3",
+            "application_stage": "final_mesh_emission",
+            "candidate_pixels": int(np.count_nonzero(candidate_mask)),
+            "selection_pixels": int(np.count_nonzero(selected_emission_mask)),
+            "retained_pixels": int(np.count_nonzero(retained_mask)),
+            "removed_unselected_pixels": int(np.count_nonzero(removed_mask)),
+            "removed_selected_pixels": removed_selected_pixels,
+            "unsupported_selected_mesh_pixels": unsupported_selected_pixels,
+            "retained_unselected_pixels": int(
+                np.count_nonzero(
+                    top_silhouette_mask
+                    & ~selected_emission_mask
+                    & ~foundation_mask
+                    & ~connector_mask
+                    & ~enclosed_hole_fill_mask
+                )
+            ),
+            "backing_foundation_pixels": int(
+                np.count_nonzero(foundation_mask)
+            ),
+            "backing_foundation_height_mm": float(backing_thickness_mm),
+            "backing_foundation": foundation_stats,
+            "backing_connector_pixels": int(np.count_nonzero(connector_mask)),
+            "backing_connector_height_mm": float(backing_thickness_mm),
+            "backing_connector": connector_stats,
+            "enclosed_hole_fill_pixels": int(
+                np.count_nonzero(enclosed_hole_fill_mask)
+            ),
+            "enclosed_hole_fill_height_mm": float(backing_thickness_mm),
+            "enclosed_hole_fill": enclosed_hole_fill_stats,
+            "closed_hole_pixels_after": closed_hole_pixels_after,
+            "retained_selection_ratio": float(
+                np.count_nonzero(retained_mask)
+                / max(np.count_nonzero(selected_emission_mask), 1)
+            ),
+        }
+    z = np.where(
+        top_silhouette_mask,
+        np.maximum(z, backing_thickness_mm),
+        np.nan,
+    )
+
     face_appearance_stats = _surface_lighting_agreement_metrics(
         unstabilized_scene,
         z,
@@ -7001,7 +8195,18 @@ def depth_data_to_3d_model(
     # Crop the data to the bounding box
     z = z[top:bottom, left:right]
     mask = mask[top:bottom, left:right]
-    reference_surface = unstabilized_scene[top:bottom, left:right]
+    emitted_reference_surface = np.where(
+        selection_backing_foundation_mask
+        | selection_backing_connector_mask
+        | selection_enclosed_hole_fill_mask,
+        backing_thickness_mm,
+        unstabilized_scene,
+    )
+    reference_surface = np.where(
+        top_silhouette_mask,
+        emitted_reference_surface,
+        np.nan,
+    )[top:bottom, left:right]
     surface_grid_transform = {
         "schema_version": 1,
         "input_depth_shape": input_depth_shape,
@@ -7011,7 +8216,53 @@ def depth_data_to_3d_model(
         "crop_bbox_rc": [int(top), int(left), int(bottom), int(right)],
         "emitted_shape": [int(z.shape[0]), int(z.shape[1])],
         "mask_interpolation": "nearest",
+        "base_thickness_mm": backing_thickness_mm,
+        "detail_basis_mm": resolved_detail_basis_mm,
+        "output_max_xy_size_mm": print_filter_stats["output_max_xy_size_mm"],
     }
+    emitted_mesh_sample_pitch_mm = _physical_sample_pitch_mm(
+        z.shape,
+        max_xy_size,
+    )
+    processing_mesh_sample_pitch_mm = print_filter_stats[
+        "processing_mesh_sample_pitch_mm"
+    ]
+    final_xy_scale_ratio = (
+        emitted_mesh_sample_pitch_mm / processing_mesh_sample_pitch_mm
+        if emitted_mesh_sample_pitch_mm is not None
+        and processing_mesh_sample_pitch_mm is not None
+        else None
+    )
+    print_filter_stats["requested_xy_scale_ratio"] = print_filter_stats[
+        "final_xy_scale_ratio"
+    ]
+    print_filter_stats["final_xy_scale_ratio"] = final_xy_scale_ratio
+    print_filter_stats["processed_before_final_xy_scale"] = bool(
+        final_xy_scale_ratio is not None
+        and not np.isclose(final_xy_scale_ratio, 1.0)
+    )
+    print_filter_stats["mesh_sample_pitch_mm"] = emitted_mesh_sample_pitch_mm
+    print_filter_stats["emitted_mesh_sample_pitch_mm"] = emitted_mesh_sample_pitch_mm
+    surface_grid_transform.update(
+        {
+            "requested_xy_scale_ratio": print_filter_stats[
+                "requested_xy_scale_ratio"
+            ],
+            "final_xy_scale_ratio": final_xy_scale_ratio,
+            "processed_before_final_xy_scale": print_filter_stats[
+                "processed_before_final_xy_scale"
+            ],
+            "processing_mesh_sample_pitch_mm": processing_mesh_sample_pitch_mm,
+            "emitted_mesh_sample_pitch_mm": emitted_mesh_sample_pitch_mm,
+        }
+    )
+    emitted_printability_stats = _audit_emitted_relief_printability(
+        z,
+        sample_pitch_mm=emitted_mesh_sample_pitch_mm,
+        max_relief_slope=max_relief_slope,
+        minimum_feature_mm=minimum_feature_mm,
+        final_xy_scale_ratio=final_xy_scale_ratio,
+    )
     if surface_output_path is not None:
         surface_output_path = os.fspath(surface_output_path)
         os.makedirs(os.path.dirname(surface_output_path) or ".", exist_ok=True)
@@ -7111,6 +8362,7 @@ def depth_data_to_3d_model(
         "background_photo_detail_mm": float(background_photo_detail_mm),
         "background_photo_detail": photo_detail_stats,
         "selection_background_depth_ratio": float(selection_background_depth_ratio),
+        "selection_emission": selection_emission_stats,
         "normalization_reference_depth": {
             "enabled": normalization_reference is not None,
             "method": (
@@ -7165,6 +8417,13 @@ def depth_data_to_3d_model(
         "face_boundary_alignment": face_boundary_alignment_stats,
         "face_surface_protection": face_surface_protection_stats,
         "surface_grid_transform": surface_grid_transform,
+        "emitted_printability": emitted_printability_stats,
+        "backing_plate": {
+            "thickness_mm": backing_thickness_mm,
+            "bottom_z_mm": 0.0,
+            "top_z_mm": backing_thickness_mm,
+            "method": "flat_backing_plane_v1",
+        },
         "reference_surface": {
             "kind": "pre_high_relief_post_shape_surface",
             "emitted": reference_surface_output_path is not None,

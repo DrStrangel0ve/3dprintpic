@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "date": "2026-08-09",
+  "privacy": "aggregate-only-private-source-not-published",
+  "hardware": "NVIDIA GeForce RTX 3080 Ti 12 GiB",
+  "models": {
+    "tiny": {
+      "id": "facebook/sam2.1-hiera-tiny",
+      "revision": "de431c4043854a71d8101e17995dfe596bf101a5",
+      "warm_inference_seconds_min": 0.026,
+      "warm_inference_seconds_max": 0.032,
+      "peak_allocated_gib": 0.275,
+      "face_shirt_iou": [0.9878116, 0.9674784, 0.9627698]
+    },
+    "large": {
+      "id": "facebook/sam2.1-hiera-large",
+      "revision": "665f8e2ad61cf5f53d65644ff27c8ee525124610",
+      "warm_inference_seconds_min": 0.056,
+      "warm_inference_seconds_max": 0.075,
+      "peak_allocated_gib": 0.700,
+      "face_shirt_iou": [0.9947204, 0.9968866, 0.980053]
+    }
+  },
+  "live_api_smoke": {
+    "model_status": "sam2-point-prompt",
+    "full_person_mask_coverage": 0.1636828125,
+    "cold_request_seconds": 11.847,
+    "warm_request_seconds": 0.746,
+    "compose_seconds": 0.537
+  },
+  "flat_base_audit": {
+    "underside_z_span_mm": 0.0,
+    "top_border_z_span_mm": 0.0
+  },
+  "decision": "promote-sam2.1-hiera-large-for-still-photo-selection"
+}

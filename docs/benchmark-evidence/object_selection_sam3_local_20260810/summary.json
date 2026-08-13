@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "run_id": "object_selection_sam3_local_20260810",
+  "decision": "promote",
+  "feature": "still-image object selection",
+  "runtime_id": "sam3-person-aware",
+  "model": {
+    "repo_id": "facebook/sam3",
+    "revision": "3c879f39826c281e95690f02c7821c4de09afae7",
+    "weight_file": "model.safetensors",
+    "weight_bytes": 3439938512,
+    "weight_sha256": "6d06f0a5f84e435071fe6603e61d0b4cc7b40e0d39d487cfd4d67d8cc11cc14a",
+    "license": "SAM License",
+    "weights_redistributed": false,
+    "locally_finetuned": false
+  },
+  "environment": {
+    "gpu": "NVIDIA GeForce RTX 3080 Ti",
+    "gpu_vram_gib": 12,
+    "python": "3.11.8",
+    "pytorch": "2.11.0+cu128",
+    "transformers": "5.13.0"
+  },
+  "private_evaluation": {
+    "source_count": 1,
+    "source_width": 2048,
+    "source_height": 1536,
+    "source_fingerprint_sha256": "538facbc084ca1d5f99831d1e16577fcf00a6ded9ea6b925899c9e38ed445114",
+    "person_count": 3,
+    "face_torso_prompt_pairs": 3,
+    "source_pixels_published": false,
+    "masks_published": false,
+    "prompt_coordinates_published": false
+  },
+  "production_policy": {
+    "concepts": [
+      "person",
+      "building",
+      "vehicle",
+      "animal",
+      "plant",
+      "furniture"
+    ],
+    "detection_threshold": 0.3,
+    "mask_threshold": 0.2,
+    "person_min_coverage": 0.002,
+    "other_concept_min_coverage": 0.0005,
+    "max_coverage": 0.65,
+    "max_enclosed_hole_image_ratio": 0.001,
+    "fallback": "Sam3TrackerModel from the same checkpoint",
+    "rgb_inpainting": false
+  },
+  "face_torso_iou": {
+    "sam2_1_hiera_large": [0.1146469394, 0.0874580106, 0.0714661448],
+    "sam3_tracker": [0.0, 0.084773197, 0.0684343527],
+    "sam3_person_concept": [1.0, 1.0, 1.0]
+  },
+  "selection_coverage": {
+    "sam3_three_person_union": 0.1707865397,
+    "old_composed_selection": 0.215581576,
+    "iou_with_old_selection": 0.785134758,
+    "sam3_union_missing_from_old_fraction": 0.0050051373,
+    "old_selection_outside_sam3_union_fraction": 0.2117520766
+  },
+  "open_vocabulary_smoke": {
+    "tower": {"concept": "building", "coverage": 0.0394614538},
+    "right_hotel": {"concept": "building", "coverage": 0.0494588216},
+    "car": {"concept": "vehicle", "coverage": 0.0026931763},
+    "generic_object_prompt_useful": false
+  },
+  "runtime": {
+    "cold_six_concept_precompute_seconds_runs": [26.0678125, 29.521, 35.91, 24.417],
+    "latest_cold_six_concept_precompute_seconds": 24.417,
+    "first_concept_inference_seconds": 1.6652078,
+    "subsequent_concept_inference_seconds_range": [0.2208447, 0.2434234],
+    "packed_cached_click_seconds_range": [0.027, 0.039],
+    "latest_live_responsive_health_probes": {"passed": 48, "attempted": 48},
+    "peak_allocated_vram_gib": 1.9653215,
+    "retained_candidate_count": 63,
+    "packed_candidate_cache_mib": 23.625
+  }
+}

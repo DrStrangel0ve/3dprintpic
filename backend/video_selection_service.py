@@ -8,7 +8,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from threading import Lock
 from types import SimpleNamespace
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from dotenv import load_dotenv
@@ -90,6 +93,7 @@ load_dotenv()
 
 app = FastAPI(title="3D Print Pic Video and Selection Planner")
 OUTPUT_DIR = Path(os.getenv("VIDEO_OUTPUT_DIR", "./output/video-selection-runs")).resolve()
+IMAGE_TO_MESH_RUN_LOCK = Lock()
 SINGLE_IMAGE_PROVIDERS = tuple(
     provider
     for provider in PROVIDERS
@@ -257,6 +261,44 @@ def stl_gate_result(diagnostics: dict) -> tuple[bool, list[str]]:
 
 def run_provider_job(args):
     return run_provider(args)
+
+
+def release_competing_model_caches(provider: str, provider_device: str) -> dict:
+    if provider != "triposg" or not str(provider_device).lower().startswith("cuda"):
+        return {"attempted": False, "status": "not-required"}
+
+    backend_url = os.getenv("RELIEF_BACKEND_URL", "http://127.0.0.1:8014").rstrip("/")
+    endpoint = f"{backend_url}/runtime/release-models"
+    request = Request(endpoint, data=b"", method="POST")
+    try:
+        with urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        return {
+            "attempted": True,
+            "status": "released",
+            "endpoint": endpoint,
+            "details": payload,
+        }
+    except HTTPError as exc:
+        error = f"HTTP {exc.code}"
+    except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        error = f"{type(exc).__name__}: {exc}"
+    return {
+        "attempted": True,
+        "status": "unavailable",
+        "endpoint": endpoint,
+        "error": error,
+    }
+
+
+def run_serialized_image_to_mesh_job(args):
+    with IMAGE_TO_MESH_RUN_LOCK:
+        resource_release = release_competing_model_caches(
+            args.provider,
+            args.provider_device,
+        )
+        mesh_path, stl_path = run_provider_job(args)
+        return mesh_path, stl_path, resource_release
 
 
 def safe_upload_filename(filename: str | None, fallback: str) -> str:
@@ -469,6 +511,16 @@ app.add_middleware(
 MODEL_GROUPS = {
     "selection": [
         {
+            "id": "sam3-person-aware",
+            "label": "SAM 3 Person-aware",
+            "model": "facebook/sam3",
+            "role": "cached full-person masks with point-tracker fallback for non-person objects",
+            "local": True,
+            "gpu_supported": True,
+            "availability": "configured",
+            "notes": "Pinned gated checkpoint; promoted after the exact shirt-omission regression reached 1.0 face/torso consistency.",
+        },
+        {
             "id": "turntable-grabcut",
             "label": "Turntable foreground",
             "model": "OpenCV GrabCut with temporal mask prior",
@@ -477,6 +529,16 @@ MODEL_GROUPS = {
             "gpu_supported": False,
             "availability": "configured",
             "notes": "Live deterministic video baseline with mask drift and coverage gates; best on a static, contrasting background.",
+        },
+        {
+            "id": "sam2.1-hiera-tiny",
+            "label": "SAM 2.1 Tiny",
+            "model": "facebook/sam2.1-hiera-tiny",
+            "role": "whole-object point-prompted masks for still photos",
+            "local": True,
+            "gpu_supported": True,
+            "availability": "configured",
+            "notes": "Pinned still-image selector; favors complete click-anchored objects and removes disconnected mask islands.",
         },
         {
             "id": "detr-resnet-50-panoptic",
@@ -832,7 +894,7 @@ MODEL_GROUPS = {
 }
 
 DEFAULTS = {
-    "selection": "detr-resnet-50-panoptic",
+    "selection": "sam3-person-aware",
     "frame_selection": "uniform-frame-sampler",
     "camera_pose": "turntable-orbit",
     "video_reconstruction": "multiview-visual-hull",
@@ -1291,7 +1353,10 @@ async def run_image_to_mesh(
     started_at = datetime.utcnow().isoformat() + "Z"
     try:
         stage_started = time.perf_counter()
-        mesh_path, stl_path = await run_in_threadpool(run_provider_job, provider_args)
+        mesh_path, stl_path, resource_release = await run_in_threadpool(
+            run_serialized_image_to_mesh_job,
+            provider_args,
+        )
         provider_seconds = round(time.perf_counter() - stage_started, 3)
         stl_path = Path(stl_path or output_stl)
         if not stl_path.exists():
@@ -1341,6 +1406,7 @@ async def run_image_to_mesh(
             "provider_python_configured": provider_python_configured,
             "provider_device": provider_device,
             "provider_timeout_seconds": runtime_config["timeout"],
+            "resource_release": resource_release,
             "mesh_repair": mesh_repair,
             "mesh_repair_preconditioner": mesh_repair_preconditioner,
             "mesh_repair_voxel_resolution": mesh_repair_voxel_resolution,

@@ -49,6 +49,8 @@ test('selected relief sends the selected preview and atomic compose job', async 
   let composeMultipartBody = '';
   let processMultipartBody = '';
   let processMultipartBuffer = Buffer.alloc(0);
+  let precomputedMaskMultipartBody = '';
+  let liveSelectionMaskRequests = 0;
   await page.route('**/health', (route) =>
     route.fulfill({
       contentType: 'application/json',
@@ -63,7 +65,7 @@ test('selected relief sends the selected preview and atomic compose job', async 
       contentType: 'application/json',
       body: JSON.stringify({
         defaults: {
-          selection: 'detr-resnet-50-panoptic',
+          selection: 'sam3-person-aware',
           frame_selection: 'uniform-frame-sampler',
           camera_pose: 'turntable-orbit',
           video_reconstruction: 'multiview-visual-hull',
@@ -71,7 +73,7 @@ test('selected relief sends the selected preview and atomic compose job', async 
           stl_postprocess: 'trimesh-repair',
         },
         groups: {
-          selection: [{ id: 'detr-resnet-50-panoptic', label: 'DETR Panoptic', availability: 'configured' }],
+          selection: [{ id: 'sam3-person-aware', label: 'SAM 3 Person-aware', availability: 'configured' }],
           frame_selection: [{ id: 'uniform-frame-sampler', label: 'Uniform frames' }],
           camera_pose: [{ id: 'turntable-orbit', label: 'Turntable orbit' }],
           video_reconstruction: [{ id: 'multiview-visual-hull', label: 'Visual hull' }],
@@ -87,11 +89,29 @@ test('selected relief sends the selected preview and atomic compose job', async 
   await page.route('**/selection/precompute', (route) =>
     route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ precompute_supported: false, model_status: 'live-mask' }),
+      body: JSON.stringify({
+        precompute_supported: true,
+        precompute_id: 'sam3-cache-1',
+        model_status: 'sam3-concepts-precomputed',
+        segment_count: 3,
+      }),
     }),
   );
-  await page.route('**/selection/mask', (route) =>
-    route.fulfill({
+  await page.route('**/selection/precomputed_mask', (route) => {
+    precomputedMaskMultipartBody = (route.request().postDataBuffer() || Buffer.alloc(0)).toString('utf8');
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        mask: 'selection/preview/mask.png',
+        mask_url: '/selection-assets/mask.png',
+        tint_url: '/selection-assets/tint.png',
+        model_status: 'sam3-concept-precomputed-point',
+      }),
+    });
+  });
+  await page.route('**/selection/mask', (route) => {
+    liveSelectionMaskRequests += 1;
+    return route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
         mask: 'selection/preview/mask.png',
@@ -99,8 +119,8 @@ test('selected relief sends the selected preview and atomic compose job', async 
         tint_url: '/selection-assets/tint.png',
         model_status: 'ready',
       }),
-    }),
-  );
+    });
+  });
   await page.route('**/selection/compose', (route) => {
     composeMultipartBody = (route.request().postDataBuffer() || Buffer.alloc(0)).toString('utf8');
     return route.fulfill({
@@ -143,6 +163,13 @@ test('selected relief sends the selected preview and atomic compose job', async 
           stl_single_component: true,
           stl_passes_hard_checks: true,
           stl_faces: 4,
+          relief_postprocess: {
+            emitted_printability: {
+              supported: true,
+              recognition_first_oversampling: true,
+              slope_limit_passed: false,
+            },
+          },
         },
       }),
     });
@@ -161,6 +188,7 @@ test('selected relief sends the selected preview and atomic compose job', async 
     buffer: originalPng,
   });
   await page.getByRole('button', { name: 'Object selection' }).click();
+  await expect(page.getByText('Precomputed 3 segments', { exact: true })).toBeVisible();
   const selectionImage = page.locator('img.cursor-crosshair');
   await expect(selectionImage).toBeVisible();
   await selectionImage.click({ position: { x: 1, y: 1 } });
@@ -168,19 +196,31 @@ test('selected relief sends the selected preview and atomic compose job', async 
   await page.getByRole('button', { name: 'Apply' }).click();
   await expect(page.getByText('Selection preview', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Run' }).click();
-  await expect(page.getByText('STL ready', { exact: true })).toBeVisible();
+  await expect(page.getByText('STL ready; scale warning', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Full detail is retained at this size/)).toBeVisible();
 
   expect(composeMultipartBody).toContain('name="selection_infill_mode"');
   expect(composeMultipartBody).toContain('none');
+  expect(precomputedMaskMultipartBody).toContain('name="precompute_id"');
+  expect(precomputedMaskMultipartBody).toContain('sam3-cache-1');
+  expect(liveSelectionMaskRequests).toBe(0);
   expect(processMultipartBody).toContain('name="file"; filename="selected-llama.png"');
   expect(processMultipartBody).toContain('name="selection_job_id"');
   expect(processMultipartBody).toContain('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
   expect(processMultipartBody).toContain('name="selection_mode"');
   expect(processMultipartBody).toContain('context');
+  expect(processMultipartBody).toContain('name="selection_emission_only"');
+  expect(processMultipartBody).toMatch(/name="selection_emission_only"\r\n\r\ntrue\r\n/);
   expect(processMultipartBody).not.toContain('name="completion_mode"');
-  expect(processMultipartBody).not.toContain('isolate');
+  expect(processMultipartBody).not.toContain('name="selection_background_depth_ratio"');
+  expect(processMultipartBody).not.toContain('source-depth-isolate');
   expect(processMultipartBody).toContain('name="selection_subject_lock"');
   expect(processMultipartBody).toContain('true');
+  expect(processMultipartBody).toContain('name="depth_downsample_sharpening"');
+  expect(processMultipartBody).toContain('0.35');
+  expect(processMultipartBody).toContain('name="base_thickness_mm"');
+  expect(processMultipartBody).toContain('2.4');
+  expect(processMultipartBody).toMatch(/name="detail_basis_mm"\r\n\r\n256\r\n/);
   expect(processMultipartBody).not.toContain('name="depth_context_file"');
   expect(processMultipartBuffer.includes(selectedPng)).toBe(true);
   expect(processMultipartBuffer.includes(originalPng)).toBe(false);
@@ -204,7 +244,7 @@ test('late compose response cannot attach an old mask to a replacement photo', a
       contentType: 'application/json',
       body: JSON.stringify({
         defaults: {
-          selection: 'detr-resnet-50-panoptic',
+          selection: 'sam3-person-aware',
           frame_selection: 'uniform-frame-sampler',
           camera_pose: 'turntable-orbit',
           video_reconstruction: 'multiview-visual-hull',
@@ -212,7 +252,7 @@ test('late compose response cannot attach an old mask to a replacement photo', a
           stl_postprocess: 'trimesh-repair',
         },
         groups: {
-          selection: [{ id: 'detr-resnet-50-panoptic', label: 'DETR Panoptic' }],
+          selection: [{ id: 'sam3-person-aware', label: 'SAM 3 Person-aware' }],
           frame_selection: [{ id: 'uniform-frame-sampler', label: 'Uniform frames' }],
           camera_pose: [{ id: 'turntable-orbit', label: 'Turntable orbit' }],
           video_reconstruction: [{ id: 'multiview-visual-hull', label: 'Visual hull' }],

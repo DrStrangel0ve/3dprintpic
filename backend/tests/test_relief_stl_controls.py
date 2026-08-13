@@ -22,6 +22,7 @@ from backend.pic_to_3d import (
     _align_stabilized_head_to_reference_boundary,
     _attach_face_boundary_to_local_surface,
     _audit_bounded_compression_surface,
+    _audit_emitted_relief_printability,
     _background_relief_preservation_metrics,
     _cap_selection_background_relief,
     _bridge_weighted_face_features,
@@ -32,7 +33,12 @@ from backend.pic_to_3d import (
     _guard_face_detail_updates,
     _inject_photo_relief_detail,
     _photo_detail_background_gate,
+    _prepare_depth_downsample_input,
+    _depth_processor_output_size,
     _limit_positive_relief_slope,
+    _minimal_component_connector_mask,
+    _selection_enclosed_hole_fill_mask,
+    _selection_grounded_backing_mask,
     _prepare_relief_for_printing,
     _relax_selection_attachment_conflicts,
     _restore_background_from_reference,
@@ -50,6 +56,243 @@ from backend.pic_to_3d import (
 
 
 class ReliefStlControlsTest(unittest.TestCase):
+    def test_enclosed_hole_fill_preserves_border_connected_sky(self):
+        surface = np.zeros((20, 24), dtype=bool)
+        surface[3:17, 3:21] = True
+        surface[6:10, 7:11] = False
+        surface[6:9, 15:18] = False
+        surface[5, 14] = False
+        surface[4, 13] = False
+        surface[3, 12] = False
+
+        fill, stats = _selection_enclosed_hole_fill_mask(surface)
+
+        self.assertTrue(np.all(fill[6:10, 7:11]))
+        self.assertFalse(np.any(fill[6:9, 15:18]))
+        self.assertFalse(fill[5, 14])
+        self.assertEqual(stats["connectivity"], 8)
+        self.assertEqual(stats["enclosed_component_count"], 1)
+        self.assertEqual(stats["enclosed_hole_pixels"], 16)
+        self.assertTrue(stats["accepted"])
+
+    def test_selection_backing_fills_only_below_lowest_selected_pixel(self):
+        selected = np.zeros((24, 32), dtype=bool)
+        selected[4:10, 2:9] = True
+        selected[8:23, 13:19] = True
+        selected[6:14, 24:30] = True
+
+        foundation, stats = _selection_grounded_backing_mask(
+            selected,
+            sample_pitch_mm=0.2,
+            minimum_width_mm=0.8,
+        )
+        expected = np.zeros_like(selected)
+        expected[10:23, 2:9] = True
+        expected[14:23, 24:30] = True
+        expected[19:23, 2:30] = True
+        expected &= ~selected
+
+        np.testing.assert_array_equal(foundation, expected)
+        self.assertTrue(stats["enabled"])
+        self.assertTrue(stats["accepted"])
+        self.assertEqual(stats["bottom_row"], 22)
+        self.assertEqual(stats["active_columns"], 19)
+        self.assertEqual(stats["foundation_pixels"], int(expected.sum()))
+        self.assertEqual(stats["base_rail_height_px"], 4)
+        self.assertFalse(np.any(foundation & selected))
+        self.assertFalse(np.any(foundation[:10, 2:9]))
+
+    def test_backing_connector_handles_diagonal_pixel_connection(self):
+        selected = np.zeros((24, 32), dtype=bool)
+        selected[2:11, 2:11] = True
+        selected[11:21, 11:23] = True
+
+        bridge, stats = _minimal_component_connector_mask(
+            selected,
+            sample_pitch_mm=0.2,
+            minimum_width_mm=0.8,
+        )
+        connected = selected | bridge
+        valid_cells = (
+            connected[:-1, :-1]
+            & connected[1:, :-1]
+            & connected[:-1, 1:]
+            & connected[1:, 1:]
+        )
+        _, component_count = pic_to_3d.label(
+            valid_cells,
+            structure=np.array(
+                [[0, 1, 0], [1, 1, 1], [0, 1, 0]],
+                dtype=np.uint8,
+            ),
+        )
+
+        self.assertTrue(stats["enabled"])
+        self.assertTrue(stats["accepted"])
+        self.assertEqual(stats["pixel_component_count_before"], 1)
+        self.assertEqual(stats["mesh_component_count_before"], 2)
+        self.assertEqual(stats["mesh_component_count_after"], 1)
+        self.assertGreater(stats["mesh_bridge_segments"], 0)
+        self.assertEqual(component_count, 1)
+        self.assertFalse(np.any(bridge & selected))
+
+    def test_backing_connector_rejects_fragmented_selection(self):
+        selected = np.zeros((96, 96), dtype=bool)
+        for row in range(8):
+            for column in range(8):
+                top = 2 + 11 * row
+                left = 2 + 11 * column
+                selected[top : top + 3, left : left + 3] = True
+
+        bridge, stats = _minimal_component_connector_mask(
+            selected,
+            sample_pitch_mm=0.2,
+            minimum_width_mm=0.8,
+        )
+
+        self.assertFalse(stats["accepted"])
+        self.assertEqual(stats["reason"], "component_budget_exceeded")
+        self.assertEqual(stats["component_count_before"], 64)
+        self.assertFalse(np.any(bridge))
+
+    def test_backing_connector_gives_thin_selection_pixels_mesh_support(self):
+        selected = np.zeros((72, 96), dtype=bool)
+        selected[10:60, 10:55] = True
+        selected[34, 55:88] = True
+
+        bridge, stats = _minimal_component_connector_mask(
+            selected,
+            sample_pitch_mm=0.2,
+            minimum_width_mm=0.8,
+        )
+        supported = pic_to_3d._mesh_vertex_support_mask(selected | bridge)
+
+        self.assertTrue(stats["accepted"])
+        self.assertGreater(stats["initially_unsupported_selected_pixels"], 0)
+        self.assertEqual(stats["unsupported_selected_mesh_pixels"], 0)
+        self.assertTrue(np.all(supported[selected]))
+        self.assertLessEqual(
+            stats["bridge_ratio"],
+            stats["maximum_bridge_ratio"],
+        )
+
+    def test_backing_connector_rejects_oversized_bridge(self):
+        selected = np.zeros((96, 160), dtype=bool)
+        selected[10:20, 10:20] = True
+        selected[70:80, 140:150] = True
+
+        _bridge, stats = _minimal_component_connector_mask(
+            selected,
+            sample_pitch_mm=0.2,
+            minimum_width_mm=0.8,
+        )
+
+        self.assertFalse(stats["accepted"])
+        self.assertEqual(stats["reason"], "bridge_budget_exceeded")
+        self.assertGreater(stats["bridge_pixels"], stats["bridge_budget_pixels"])
+
+    def test_grounded_backing_fills_below_component_bridge(self):
+        selected = np.zeros((32, 48), dtype=bool)
+        selected[4:24, 3:18] = True
+        selected[10:31, 21:45] = True
+        connector, connector_stats = _minimal_component_connector_mask(
+            selected,
+            sample_pitch_mm=0.2,
+            minimum_width_mm=0.8,
+        )
+        foundation, foundation_stats = _selection_grounded_backing_mask(
+            selected | connector,
+            sample_pitch_mm=0.2,
+            minimum_width_mm=0.8,
+        )
+
+        connector_rows, connector_columns = np.where(connector)
+        self.assertTrue(connector_stats["accepted"])
+        self.assertTrue(foundation_stats["accepted"])
+        self.assertGreater(connector_columns.size, 0)
+        grounded = selected | connector | foundation
+        bottom_row = int(foundation_stats["bottom_row"])
+        for column in np.unique(connector_columns):
+            lowest_connector_row = int(connector_rows[connector_columns == column].max())
+            self.assertTrue(
+                np.all(
+                    grounded[
+                        lowest_connector_row + 1 : bottom_row + 1,
+                        column,
+                    ]
+                )
+            )
+
+    def test_depth_processor_output_size_matches_aspect_preserving_dpt_resize(self):
+        source = Image.new("RGB", (3840, 2160), (80, 120, 160))
+        processor = SimpleNamespace(
+            do_resize=True,
+            size={"width": 518, "height": 518},
+            keep_aspect_ratio=True,
+            ensure_multiple_of=14,
+        )
+
+        self.assertEqual(
+            _depth_processor_output_size(source, processor),
+            (924, 518),
+        )
+
+    def test_depth_input_sharpening_preserves_edges_through_model_resize(self):
+        width = 1024
+        x = np.arange(width, dtype=np.float32)
+        signal = 127.0 + 54.0 * np.sin(2.0 * np.pi * x / 18.0)
+        values = np.repeat(signal[None, :, None], width, axis=0)
+        values = np.repeat(values, 3, axis=2).clip(0, 255).astype(np.uint8)
+        source = Image.fromarray(values, mode="RGB")
+        processor = SimpleNamespace(
+            do_resize=True,
+            size={"width": 128, "height": 128},
+            keep_aspect_ratio=True,
+            ensure_multiple_of=1,
+        )
+
+        prepared, metadata = _prepare_depth_downsample_input(
+            source,
+            processor,
+            sharpening=0.35,
+        )
+        baseline = np.asarray(
+            source.resize((128, 128), Image.Resampling.BICUBIC).convert("L"),
+            dtype=np.float32,
+        )
+        sharpened = np.asarray(
+            prepared.resize((128, 128), Image.Resampling.BICUBIC).convert("L"),
+            dtype=np.float32,
+        )
+        baseline_gradient = float(np.mean(np.abs(np.diff(baseline, axis=1))))
+        sharpened_gradient = float(np.mean(np.abs(np.diff(sharpened, axis=1))))
+
+        self.assertTrue(metadata["enabled"])
+        self.assertEqual(
+            metadata["method"],
+            "scale_aware_luminance_unsharp_before_model_resize_v1",
+        )
+        self.assertAlmostEqual(metadata["downsample_scale"], 8.0)
+        self.assertGreater(sharpened_gradient, baseline_gradient * 1.05)
+
+    def test_depth_input_sharpening_is_bounded_and_skips_small_images(self):
+        source = Image.new("RGB", (96, 64), (80, 120, 160))
+        processor = SimpleNamespace(
+            do_resize=True,
+            size={"width": 518, "height": 518},
+        )
+
+        prepared, metadata = _prepare_depth_downsample_input(
+            source,
+            processor,
+            sharpening=4.0,
+        )
+
+        np.testing.assert_array_equal(np.asarray(prepared), np.asarray(source))
+        self.assertFalse(metadata["enabled"])
+        self.assertEqual(metadata["reason"], "input_not_downsampled")
+        self.assertEqual(metadata["strength"], 1.0)
+
     def test_modern_selection_inpaint_never_conditions_on_removed_pixels(self):
         rows, cols = np.indices((32, 48))
         source_values = np.zeros((32, 48, 3), dtype=np.uint8)
@@ -1015,6 +1258,7 @@ class ReliefStlControlsTest(unittest.TestCase):
                     "apple/DepthPro-hf",
                     "cpu",
                     "Depth Pro unavailable",
+                    downsample_sharpening=0.35,
                 )
 
         self.assertEqual(result, "depth.npy")
@@ -1025,6 +1269,8 @@ class ReliefStlControlsTest(unittest.TestCase):
             device="cpu",
             requested_model_name="apple/DepthPro-hf",
             fallback_reason="Depth Pro unavailable",
+            downsample_sharpening=0.35,
+            inference_precision="auto",
         )
 
     def test_depth_fallback_rejects_recursive_fallback_model(self):
@@ -1261,7 +1507,199 @@ class ReliefStlControlsTest(unittest.TestCase):
         # The helper flips horizontally to match the STL coordinate system.
         skyline_rows = np.argmax(silhouette, axis=0)
         np.testing.assert_array_equal(skyline_rows[:13], np.full(13, 3))
-        np.testing.assert_array_equal(skyline_rows[13:], np.full(11, 7))
+        np.testing.assert_array_equal(skyline_rows[-9:], np.full(9, 7))
+        self.assertTrue(np.all(np.diff(skyline_rows) >= 0))
+        self.assertEqual(stats["method"], "structural_boundary_skyline_v2")
+
+    def test_top_silhouette_ignores_smooth_cloud_gradient_but_keeps_structures(self):
+        height, width = 80, 120
+        yy, xx = np.indices((height, width), dtype=np.float32)
+        sky = np.empty((height, width, 3), dtype=np.float32)
+        sky[..., 0] = 38.0 + 0.18 * yy
+        sky[..., 1] = 46.0 + 0.13 * yy
+        sky[..., 2] = 59.0 + 0.08 * yy
+        cloud = 30.0 * np.exp(-(((xx - 28.0) / 24.0) ** 2 + ((yy - 17.0) / 12.0) ** 2))
+        sky += cloud[..., None]
+        source = np.clip(sky, 0, 255).astype(np.uint8)
+        source[42:, :35] = (35, 28, 24)
+        source[8:, 48:62] = (118, 74, 35)
+        source[30:, 80:] = (12, 34, 86)
+        source[60:, :] = (32, 38, 34)
+
+        silhouette, stats = _top_silhouette_mask(source, source.shape[:2], padding_px=0)
+        skyline_rows = np.argmax(np.flip(silhouette, axis=1), axis=0)
+
+        self.assertTrue(stats["enabled"])
+        self.assertEqual(stats["method"], "structural_boundary_skyline_v2")
+        self.assertGreater(stats["removed_area_ratio"], 0.35)
+        self.assertGreaterEqual(int(np.median(skyline_rows[5:30])), 39)
+        self.assertLessEqual(int(np.median(skyline_rows[5:30])), 43)
+        self.assertLessEqual(int(np.median(skyline_rows[50:60])), 10)
+        self.assertGreaterEqual(int(np.median(skyline_rows[88:112])), 27)
+        self.assertLessEqual(int(np.median(skyline_rows[88:112])), 31)
+
+    def test_top_silhouette_requires_sustained_depth_below_cloud_edges(self):
+        height, width = 80, 120
+        source = np.full((height, width, 3), (32, 40, 54), dtype=np.uint8)
+        source[12:15, :] = (112, 116, 120)
+        source[44:, :38] = (42, 28, 20)
+        source[8:, 52:66] = (126, 78, 34)
+        source[31:, 84:] = (14, 36, 90)
+        depth = np.full((height, width), 0.12, dtype=np.float32)
+        depth[44:, :38] = 0.64
+        depth[8:, 52:66] = 0.82
+        depth[31:, 84:] = 0.71
+
+        silhouette, stats = _top_silhouette_mask(
+            source,
+            source.shape[:2],
+            padding_px=0,
+            depth_values=depth,
+        )
+        skyline_rows = np.argmax(np.flip(silhouette, axis=1), axis=0)
+
+        self.assertTrue(stats["enabled"])
+        self.assertEqual(stats["method"], "depth_supported_structural_skyline_v3")
+        self.assertTrue(stats["depth_evidence"]["supported"])
+        self.assertGreaterEqual(int(np.median(skyline_rows[5:32])), 43)
+        self.assertLessEqual(int(np.median(skyline_rows[5:32])), 45)
+        self.assertLessEqual(int(np.median(skyline_rows[55:63])), 8)
+        self.assertGreaterEqual(int(np.median(skyline_rows[90:114])), 30)
+
+    def test_top_silhouette_never_removes_selected_spire_pixels(self):
+        height, width = 72, 96
+        source = np.full((height, width, 3), (28, 35, 48), dtype=np.uint8)
+        source[40:, :] = (44, 31, 22)
+        protected = np.zeros((height, width), dtype=bool)
+        protected[3:, 47] = True
+        depth = np.full((height, width), 0.15, dtype=np.float32)
+        depth[40:, :] = 0.72
+
+        silhouette, stats = _top_silhouette_mask(
+            source,
+            source.shape[:2],
+            padding_px=0,
+            depth_values=depth,
+            protected_region_mask=protected,
+        )
+        source_silhouette = np.flip(silhouette, axis=1)
+
+        self.assertTrue(np.all(source_silhouette[protected]))
+        self.assertEqual(stats["protected_removed_pixels"], 0)
+        self.assertEqual(stats["protected_column_count"], 1)
+        self.assertTrue(stats["protected_region_used"])
+        self.assertLessEqual(int(np.argmax(source_silhouette[:, 47])), 3)
+
+    def test_top_silhouette_selection_changes_only_protected_columns(self):
+        height, width = 72, 96
+        source = np.full((height, width, 3), (28, 35, 48), dtype=np.uint8)
+        source[40:, :] = (44, 31, 22)
+        depth = np.full((height, width), 0.15, dtype=np.float32)
+        depth[40:, :] = 0.72
+        protected = np.zeros((height, width), dtype=bool)
+        protected[3:, 47] = True
+
+        baseline, _ = _top_silhouette_mask(
+            source,
+            source.shape[:2],
+            padding_px=0,
+            depth_values=depth,
+        )
+        selected, _ = _top_silhouette_mask(
+            source,
+            source.shape[:2],
+            padding_px=0,
+            depth_values=depth,
+            protected_region_mask=protected,
+        )
+        baseline_source = np.flip(baseline, axis=1)
+        selected_source = np.flip(selected, axis=1)
+
+        np.testing.assert_array_equal(
+            selected_source[:, np.arange(width) != 47],
+            baseline_source[:, np.arange(width) != 47],
+        )
+        self.assertTrue(np.all(selected_source[protected]))
+
+    def test_top_silhouette_changes_only_final_mesh_coverage(self):
+        height, width = 36, 48
+        yy, xx = np.indices((height, width), dtype=np.float32)
+        depth = 0.12 + 0.008 * yy + 0.004 * xx
+        source = np.full((height, width, 3), (30, 39, 52), dtype=np.uint8)
+        source[15:, :18] = (65, 42, 24)
+        source[5:, 22:29] = (132, 78, 34)
+        source[20:, 34:] = (18, 40, 88)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            depth_path = root / "depth.npy"
+            source_path = root / "source.png"
+            trimmed_surface_path = root / "trimmed.npy"
+            rectangular_surface_path = root / "rectangular.npy"
+            np.save(depth_path, depth)
+            Image.fromarray(source).save(source_path)
+            trimmed_stats = depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=root / "trimmed.stl",
+                target_dimension=-1,
+                z_scale=10.0,
+                max_xy_size=48.0,
+                source_image=source_path,
+                trim_top_background=True,
+                surface_output_path=trimmed_surface_path,
+                base_thickness_mm=2.4,
+            )
+            depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=root / "rectangular.stl",
+                target_dimension=-1,
+                z_scale=10.0,
+                max_xy_size=48.0,
+                source_image=source_path,
+                trim_top_background=False,
+                surface_output_path=rectangular_surface_path,
+                base_thickness_mm=2.4,
+            )
+
+            trimmed = np.load(trimmed_surface_path)
+            rectangular = np.load(rectangular_surface_path)
+            top, left, bottom, right = trimmed_stats["surface_grid_transform"][
+                "crop_bbox_rc"
+            ]
+            rectangular_crop = rectangular[top:bottom, left:right]
+            common = np.isfinite(trimmed) & np.isfinite(rectangular_crop)
+
+            self.assertGreater(np.count_nonzero(~np.isfinite(trimmed)), 0)
+            np.testing.assert_array_equal(trimmed[common], rectangular_crop[common])
+            self.assertEqual(
+                trimmed_stats["top_silhouette"]["application_stage"],
+                "final_mesh_emission",
+            )
+
+    def test_top_silhouette_uses_alpha_without_color_guessing(self):
+        source = np.zeros((30, 40, 4), dtype=np.uint8)
+        source[..., :3] = (220, 30, 180)
+        source[12:, 8:32, 3] = 255
+
+        silhouette, stats = _top_silhouette_mask(source, source.shape[:2], padding_px=0)
+        skyline_rows = np.argmax(np.flip(silhouette, axis=1), axis=0)
+
+        self.assertTrue(stats["enabled"])
+        self.assertTrue(stats["source_alpha_used"])
+        self.assertEqual(stats["method"], "alpha_silhouette_v2")
+        np.testing.assert_array_equal(skyline_rows[9:31], np.full(22, 12))
+        self.assertFalse(np.any(silhouette[:, :7]))
+        self.assertFalse(np.any(silhouette[:, 33:]))
+        self.assertEqual(stats["interpolated_column_count"], 0)
+
+    def test_top_silhouette_fails_closed_without_a_structural_boundary(self):
+        source = np.full((30, 40, 3), 90, dtype=np.uint8)
+
+        silhouette, stats = _top_silhouette_mask(source, source.shape[:2], padding_px=0)
+
+        np.testing.assert_array_equal(silhouette, np.ones(source.shape[:2], dtype=bool))
+        self.assertFalse(stats["enabled"])
+        self.assertEqual(stats["reason"], "no_trustworthy_structural_boundary")
 
     def test_weighted_feature_depth_is_signed_bounded_and_masked(self):
         yy, xx = np.indices((48, 48), dtype=np.float32)
@@ -1584,6 +2022,68 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertAlmostEqual(stats["input_sample_pitch_mm"], 0.1)
         self.assertAlmostEqual(stats["mesh_sample_pitch_mm"], 0.4)
         self.assertLess(float(filtered.max()), 1.0)
+
+    def test_print_filter_uses_full_detail_basis_before_final_xy_scaling(self):
+        values = np.tile(np.linspace(0.0, 1.0, 401, dtype=np.float32), (301, 1))
+
+        filtered, stats = _prepare_relief_for_printing(
+            values,
+            max_xy_size=40.0,
+            minimum_feature_mm=0.8,
+            detail_basis_mm=256.0,
+        )
+
+        self.assertEqual(filtered.shape, values.shape)
+        self.assertTrue(stats["enabled"])
+        self.assertFalse(stats["resampled"])
+        self.assertTrue(stats["processed_before_final_xy_scale"])
+        self.assertAlmostEqual(stats["detail_basis_mm"], 256.0)
+        self.assertAlmostEqual(stats["processing_mesh_sample_pitch_mm"], 256.0 / 400.0)
+        self.assertAlmostEqual(stats["mesh_sample_pitch_mm"], 40.0 / 400.0)
+        self.assertAlmostEqual(stats["emitted_mesh_sample_pitch_mm"], 40.0 / 400.0)
+        self.assertAlmostEqual(stats["final_xy_scale_ratio"], 40.0 / 256.0)
+
+    def test_emitted_printability_audits_diagonal_stl_edges(self):
+        values = np.array(
+            [
+                [1.5, 3.0],
+                [0.0, 1.5],
+            ],
+            dtype=np.float32,
+        )
+
+        audit = _audit_emitted_relief_printability(
+            values,
+            sample_pitch_mm=1.0,
+            max_relief_slope=2.0,
+            minimum_feature_mm=0.8,
+            final_xy_scale_ratio=1.0,
+        )
+
+        self.assertFalse(audit["slope_limit_passed"])
+        self.assertEqual(audit["edge_sample_counts"]["cell_diagonal"], 1)
+        self.assertAlmostEqual(audit["slope_max_mm_per_mm"], 3.0 / np.sqrt(2.0))
+
+    def test_emitted_printability_ignores_edges_outside_valid_cells(self):
+        values = np.array(
+            [
+                [0.0, 0.0, 10.0],
+                [0.0, 0.0, np.nan],
+            ],
+            dtype=np.float32,
+        )
+
+        audit = _audit_emitted_relief_printability(
+            values,
+            sample_pitch_mm=1.0,
+            max_relief_slope=2.0,
+            minimum_feature_mm=0.8,
+            final_xy_scale_ratio=1.0,
+        )
+
+        self.assertTrue(audit["slope_limit_passed"])
+        self.assertEqual(audit["slope_violation_edge_count"], 0)
+        self.assertAlmostEqual(audit["slope_max_mm_per_mm"], 0.0)
 
     def test_slope_limiter_caps_narrow_positive_extrusions_in_mm(self):
         values = np.zeros((21, 21), dtype=np.float32)
@@ -2535,6 +3035,7 @@ class ReliefStlControlsTest(unittest.TestCase):
                 "sigma": 0.35,
                 "relief_gamma": 1.0,
                 "detail_boost": 0.0,
+                "trim_top_background": True,
                 "low_percentile": 0.0,
                 "high_percentile": 100.0,
                 "base_border_px": 1,
@@ -2574,6 +3075,11 @@ class ReliefStlControlsTest(unittest.TestCase):
             whole_surface[subject_interior],
         )
         self.assertTrue(postprocess["selection_subject_lock"])
+        self.assertEqual(selected_surface.shape, whole_surface.shape)
+        np.testing.assert_array_equal(
+            np.isfinite(selected_surface),
+            np.isfinite(whole_surface),
+        )
         self.assertEqual(
             postprocess["selection_gradient_compression"]["reason"],
             "subject_surface_locked",
@@ -2583,6 +3089,122 @@ class ReliefStlControlsTest(unittest.TestCase):
         )
         self.assertTrue(selected_mesh_is_watertight)
         self.assertTrue(selected_mesh_winding_is_consistent)
+
+    def test_selected_emission_removes_only_unselected_surface_pixels(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            depth_path = root / "depth.npy"
+            context_surface_path = root / "context-surface.npy"
+            emitted_surface_path = root / "emitted-surface.npy"
+            emitted_reference_path = root / "emitted-reference.npy"
+            rows, cols = np.indices((48, 72), dtype=np.float32)
+            selected = np.zeros((48, 72), dtype=bool)
+            selected[9:24, 5:24] = True
+            selected[12:, 29:44] = True
+            selected[14:31, 47:68] = True
+            selected[:22, 34:39] = True
+            depth = 0.08 + 0.0017 * rows + 0.0021 * cols
+            depth += selected * (
+                0.42
+                + 0.04 * np.cos(rows / 4.0)
+                + 0.03 * np.sin(cols / 3.0)
+            )
+            np.save(depth_path, depth.astype(np.float32))
+            common = {
+                "target_dimension": -1,
+                "z_scale": 10.0,
+                "max_xy_size": 48.0,
+                "sigma": 0.35,
+                "relief_gamma": 1.0,
+                "detail_boost": 0.0,
+                "trim_top_background": False,
+                "low_percentile": 0.0,
+                "high_percentile": 100.0,
+                "base_border_px": 1,
+                "minimum_feature_mm": 0.8,
+                "max_relief_slope": 2.0,
+                "selection_region_mask": selected,
+                "selection_background_depth_ratio": 0.65,
+                "selection_subject_lock": True,
+            }
+
+            depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(root / "context.stl"),
+                surface_output_path=context_surface_path,
+                **common,
+            )
+            postprocess = depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(root / "selected-only.stl"),
+                surface_output_path=emitted_surface_path,
+                reference_surface_output_path=emitted_reference_path,
+                selection_emission_only=True,
+                **common,
+            )
+            context_surface = np.load(context_surface_path)
+            emitted_surface = np.load(emitted_surface_path)
+            emitted_reference = np.load(emitted_reference_path)
+            crop_top, crop_left, crop_bottom, crop_right = postprocess[
+                "surface_grid_transform"
+            ]["crop_bbox_rc"]
+            context_surface = context_surface[
+                crop_top:crop_bottom,
+                crop_left:crop_right,
+            ]
+            emitted_selection = np.flip(selected, axis=1)[
+                crop_top:crop_bottom,
+                crop_left:crop_right,
+            ]
+            emitted_mesh = trimesh.load_mesh(root / "selected-only.stl", force="mesh")
+
+        self.assertEqual(emitted_surface.shape, context_surface.shape)
+        emitted_coverage = np.isfinite(emitted_surface)
+        backing_only = emitted_coverage & ~emitted_selection
+        self.assertTrue(np.all(emitted_coverage[emitted_selection]))
+        np.testing.assert_array_equal(
+            emitted_surface[emitted_selection],
+            context_surface[emitted_selection],
+        )
+        self.assertTrue(np.any(backing_only))
+        np.testing.assert_array_equal(
+            emitted_surface[backing_only],
+            np.full(np.count_nonzero(backing_only), 0.01, dtype=np.float32),
+        )
+        np.testing.assert_array_equal(
+            emitted_reference[backing_only],
+            emitted_surface[backing_only],
+        )
+        np.testing.assert_array_equal(
+            np.isfinite(emitted_reference),
+            emitted_coverage,
+        )
+        emission = postprocess["selection_emission"]
+        self.assertTrue(emission["enabled"])
+        self.assertEqual(
+            emission["method"],
+            "full_scene_depth_grounded_closed_hole_free_selection_emission_v3",
+        )
+        self.assertEqual(emission["retained_unselected_pixels"], 0)
+        self.assertEqual(emission["removed_selected_pixels"], 0)
+        self.assertEqual(emission["retained_selection_ratio"], 1.0)
+        self.assertGreater(emission["backing_foundation_pixels"], 0)
+        self.assertEqual(
+            emission["backing_foundation_pixels"]
+            + emission["backing_connector_pixels"]
+            + emission["enclosed_hole_fill_pixels"],
+            np.count_nonzero(backing_only),
+        )
+        self.assertTrue(emission["enclosed_hole_fill"]["accepted"])
+        self.assertEqual(emission["closed_hole_pixels_after"], 0)
+        self.assertEqual(emission["unsupported_selected_mesh_pixels"], 0)
+        self.assertEqual(
+            emission["backing_connector"]["component_count_after"],
+            1,
+        )
+        self.assertTrue(emitted_mesh.is_watertight)
+        self.assertTrue(emitted_mesh.is_winding_consistent)
+        self.assertEqual(len(emitted_mesh.split(only_watertight=False)), 1)
 
     def test_selected_surface_appearance_holds_across_physical_sample_pitches(self):
         from backend.benchmark.run_relief_visual_sweep import (
@@ -2820,6 +3442,77 @@ class ReliefStlControlsTest(unittest.TestCase):
         self.assertTrue(np.all(flattened[-1, :] == 0))
         self.assertTrue(np.all(flattened[:, -1] == 0))
 
+    def test_explicit_backing_plate_is_flat_and_preserves_relief_shape(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            depth_path = root / "depth.npy"
+            rows, cols = np.indices((12, 16), dtype=np.float32)
+            np.save(depth_path, 0.2 + 0.01 * rows + 0.02 * cols)
+            for base_border_px in (0, 2):
+                with self.subTest(base_border_px=base_border_px):
+                    common = {
+                        "target_dimension": -1,
+                        "z_scale": 10.0,
+                        "max_xy_size": 32.0,
+                        "sigma": 0.0,
+                        "relief_gamma": 1.0,
+                        "detail_boost": 0.0,
+                        "low_percentile": 0.0,
+                        "high_percentile": 100.0,
+                        "base_border_px": base_border_px,
+                    }
+                    legacy_surface_path = root / f"legacy-surface-{base_border_px}.npy"
+                    legacy_stl_path = root / f"legacy-{base_border_px}.stl"
+                    depth_data_to_3d_model(
+                        depth_path,
+                        output_stl_path=str(legacy_stl_path),
+                        surface_output_path=legacy_surface_path,
+                        **common,
+                    )
+                    backed_surface_path = root / f"backed-surface-{base_border_px}.npy"
+                    backed_stl_path = root / f"backed-{base_border_px}.stl"
+                    postprocess = depth_data_to_3d_model(
+                        depth_path,
+                        output_stl_path=str(backed_stl_path),
+                        surface_output_path=backed_surface_path,
+                        base_thickness_mm=2.4,
+                        **common,
+                    )
+                    legacy_surface = np.load(legacy_surface_path)
+                    backed_surface = np.load(backed_surface_path)
+                    legacy_mesh = trimesh.load_mesh(legacy_stl_path, force="mesh")
+                    backed_mesh = trimesh.load_mesh(backed_stl_path, force="mesh")
+
+                    np.testing.assert_allclose(
+                        backed_surface - 2.4,
+                        legacy_surface - 0.01,
+                        atol=2e-6,
+                    )
+                    np.testing.assert_allclose(
+                        backed_mesh.bounds[:, :2],
+                        legacy_mesh.bounds[:, :2],
+                        atol=1e-6,
+                    )
+                    self.assertEqual(len(backed_mesh.faces), len(legacy_mesh.faces))
+                    self.assertAlmostEqual(
+                        float(np.nanmin(backed_surface)),
+                        2.4,
+                        places=5,
+                    )
+                    self.assertAlmostEqual(float(backed_mesh.bounds[0, 2]), 0.0, places=6)
+                    self.assertGreaterEqual(float(backed_mesh.bounds[1, 2]), 2.4)
+                    intermediate_backing = (
+                        (backed_mesh.vertices[:, 2] > 1e-6)
+                        & (backed_mesh.vertices[:, 2] < 2.4 - 1e-6)
+                    )
+                    self.assertFalse(np.any(intermediate_backing))
+                    self.assertTrue(backed_mesh.is_watertight)
+                    self.assertTrue(backed_mesh.is_winding_consistent)
+                    self.assertTrue(backed_mesh.is_volume)
+                    self.assertEqual(postprocess["backing_plate"]["thickness_mm"], 2.4)
+                    self.assertEqual(postprocess["backing_plate"]["bottom_z_mm"], 0.0)
+                    self.assertEqual(postprocess["backing_plate"]["top_z_mm"], 2.4)
+
     def test_positive_context_preserves_cropped_selection_border_only(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -2927,6 +3620,70 @@ class ReliefStlControlsTest(unittest.TestCase):
             self.assertLessEqual(extents[2], 12.1)
             self.assertEqual(postprocess["mesh_grid_shape"], [67, 101])
             self.assertAlmostEqual(postprocess["mesh_sample_pitch_mm"], 0.4)
+
+    def test_detail_basis_preserves_heightfield_when_output_xy_is_smaller(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            depth_path = root / "depth.npy"
+            data = np.linspace(0.0, 1.0, 80 * 120, dtype=np.float32).reshape(80, 120)
+            selection = np.zeros(data.shape, dtype=bool)
+            selection[8:72, 12:108] = True
+            data = np.where(selection, data, np.nan)
+            np.save(depth_path, data)
+            large_surface = root / "large.npy"
+            small_surface = root / "small.npy"
+
+            common = {
+                "target_dimension": 120,
+                "z_scale": 12,
+                "invert": False,
+                "sigma": 0,
+                "detail_boost": 0,
+                "base_border_px": 0,
+                "detail_basis_mm": 256.0,
+                "surface_output_path": large_surface,
+            }
+            large = depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(root / "large.stl"),
+                max_xy_size=256.0,
+                **common,
+            )
+            common["surface_output_path"] = small_surface
+            small = depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(root / "small.stl"),
+                max_xy_size=40.0,
+                **common,
+            )
+
+            np.testing.assert_array_equal(np.load(large_surface), np.load(small_surface))
+            self.assertEqual(large["mesh_grid_shape"], small["mesh_grid_shape"])
+            self.assertAlmostEqual(
+                large["processing_mesh_sample_pitch_mm"],
+                small["processing_mesh_sample_pitch_mm"],
+            )
+            self.assertNotAlmostEqual(large["mesh_sample_pitch_mm"], small["mesh_sample_pitch_mm"])
+            self.assertEqual(small["mesh_grid_shape"], [64, 96])
+            self.assertAlmostEqual(small["emitted_mesh_sample_pitch_mm"], 40.0 / 95.0)
+            self.assertTrue(small["processed_before_final_xy_scale"])
+            self.assertTrue(small["emitted_printability"]["recognition_first_oversampling"])
+            expected_scale_ratio = (40.0 / 95.0) / (256.0 / 119.0)
+            self.assertAlmostEqual(small["final_xy_scale_ratio"], expected_scale_ratio)
+            self.assertAlmostEqual(
+                small["emitted_printability"][
+                    "processing_minimum_feature_scaled_to_output_mm"
+                ],
+                0.8 * expected_scale_ratio,
+            )
+
+            large_mesh = mesh.Mesh.from_file(str(root / "large.stl"))
+            small_mesh = mesh.Mesh.from_file(str(root / "small.stl"))
+            large_extents = np.ptp(large_mesh.vectors.reshape(-1, 3), axis=0)
+            small_extents = np.ptp(small_mesh.vectors.reshape(-1, 3), axis=0)
+            self.assertAlmostEqual(max(large_extents[:2]), 256.0, places=4)
+            self.assertAlmostEqual(max(small_extents[:2]), 40.0, places=4)
+            self.assertAlmostEqual(large_extents[2], small_extents[2], places=5)
 
     def test_depth_resize_preserves_near_target_detail_instead_of_stride_halving(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

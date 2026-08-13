@@ -9,10 +9,24 @@ import numpy as np
 
 DA3_LARGE_MODEL_ID = "depth-anything/DA3-LARGE-1.1"
 DA3_LARGE_MODEL_REVISION = "0e109ae307c5982f319a67cf6f9f99ccdc0ec97c"
+DA3_MONO_MODEL_ID = "depth-anything/DA3MONO-LARGE"
+DA3_MONO_MODEL_REVISION = "f465978e618db8cc79c83b8bbf24964857db1875"
 DA3_SOURCE_REPOSITORY = "https://github.com/ByteDance-Seed/Depth-Anything-3"
 DA3_SOURCE_COMMIT = "3fe327a6abe2e5db95b54444ea95463dbfef5610"
 DA3_PROCESS_RESOLUTION = 504
-DA3_MODEL_IDS = frozenset({DA3_LARGE_MODEL_ID})
+DA3_MODEL_SPECS = {
+    DA3_LARGE_MODEL_ID: {
+        "revision": DA3_LARGE_MODEL_REVISION,
+        "license": "CC BY-NC 4.0",
+        "role": "any-view relative depth",
+    },
+    DA3_MONO_MODEL_ID: {
+        "revision": DA3_MONO_MODEL_REVISION,
+        "license": "Apache-2.0",
+        "role": "monocular relative depth",
+    },
+}
+DA3_MODEL_IDS = frozenset(DA3_MODEL_SPECS)
 
 _MODEL_CACHE: dict[tuple[str, str], object] = {}
 
@@ -104,9 +118,10 @@ def infer_da3_depth(
 
     resolved_device = _resolved_device(torch, device)
     source = _source_provenance(da3_api.__file__)
+    model_spec = DA3_MODEL_SPECS[model_id]
     snapshot = snapshot_download(
         model_id,
-        revision=DA3_LARGE_MODEL_REVISION,
+        revision=model_spec["revision"],
         allow_patterns=("config.json", "model.safetensors"),
     )
 
@@ -149,11 +164,12 @@ def infer_da3_depth(
     metadata = {
         "provider": "depth-anything-3",
         "model": model_id,
-        "model_revision": DA3_LARGE_MODEL_REVISION,
+        "model_revision": model_spec["revision"],
+        "model_role": model_spec["role"],
         "source_repository": DA3_SOURCE_REPOSITORY,
         "source_commit": DA3_SOURCE_COMMIT,
         "source_checkout": source,
-        "license": "Apache-2.0",
+        "license": model_spec["license"],
         "depth_value_semantics": "relative_distance_far_high",
         "process_resolution": int(process_resolution),
         "process_resolution_method": "upper_bound_resize",

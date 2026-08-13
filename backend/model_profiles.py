@@ -33,7 +33,7 @@ MODEL_PROFILES = (
             "Advanced controls can override any setting per run."
         ),
         "models": {
-            "selection": "detr-resnet-50-panoptic",
+            "selection": "sam3-person-aware",
             "depth": "depth-anything/Depth-Anything-V2-Large-hf",
             "image_to_mesh": "triposg",
             "video_reconstruction": "multiview-visual-hull",
@@ -41,14 +41,15 @@ MODEL_PROFILES = (
         },
         "production_features": {
             "photo_object_selection": {
-                "model": "facebook/detr-resnet-50-panoptic",
-                "runtime_id": "detr-resnet-50-panoptic",
+                "model": "facebook/sam3",
+                "runtime_id": "sam3-person-aware",
+                "revision": "3c879f39826c281e95690f02c7821c4de09afae7",
                 "reason": (
-                    "It is the locally configured click-to-segment path with cached panoptic "
-                    "precomputation; alternatives remain benchmark-only until they have equivalent "
-                    "offline readiness and regression coverage."
+                    "On the exact three-person shirt-omission photo, face and torso clicks selected "
+                    "the same full silhouette at 1.0 IoU for all three people; the direct point-only "
+                    "SAM2 and SAM3 paths measured 0.0-0.115 IoU."
                 ),
-                "evidence": "backend/tests/test_main_stl_contract.py",
+                "evidence": "docs/object-selection-sam3.md",
             },
             "photo_relief_depth": {
                 "model": "depth-anything/Depth-Anything-V2-Large-hf",

@@ -9,7 +9,7 @@ set of research candidates retained for auditability.
 
 At close-out the repository contains:
 
-- 79 compact benchmark-evidence bundles and 346 evidence files;
+- 83 compact benchmark-evidence bundles and 354 evidence files;
 - 55 repeatable experiment configurations;
 - 95 backend test modules and 6 Playwright specifications;
 - local 3080 Ti runs, Colab G4 Blackwell runs, checksum-pinned payloads, and
@@ -26,7 +26,7 @@ unless the emitted mesh also satisfies the applicable printability gates.
 flowchart LR
     UI["Next.js workspace"] --> MAIN["FastAPI relief service"]
     UI --> PLAN["FastAPI model and video service"]
-    MAIN --> SELECT["Photo object selection"]
+    MAIN --> SELECT["SAM 3 photo selection"]
     MAIN --> DEPTH["Depth Anything V2 Large"]
     DEPTH --> RELIEF["Face/context-aware relief compositor"]
     RELIEF --> STL["Watertight STL writer"]
@@ -59,8 +59,8 @@ candidate metadata, where they cannot be mistaken for shipped defaults.
 
 | Product feature | Production choice | Why it was selected |
 | --- | --- | --- |
-| Still-image object selection | `facebook/detr-resnet-50-panoptic` | The configured offline click-to-segment route supports cached panoptic precomputation and has end-to-end selection/STL contract coverage. |
-| Photo and scene depth | `depth-anything/Depth-Anything-V2-Large-hf` | It is the verified CUDA path used by the face, background, height, exact-shell, and object-depth regressions. |
+| Still-image object selection | `facebook/sam3` | The pinned concept path reached 1.0 face/torso mask IoU for all three people on the exact shirt-omission regression; the same checkpoint also selected buildings and a vehicle through cached open-vocabulary masks. |
+| Photo and scene depth | `depth-anything/Depth-Anything-V2-Large-hf` | It is the verified CUDA path used by the face, background, height, exact-shell, and object-depth regressions. An August 2026 audit held DA3MONO, InfiniDepth, and both MetricAnything students because every challenger regressed 30 mm eyes/nose/mouth geometry or worse. Its pinned model-card weights are CC BY-NC 4.0, so this quality selection is not commercial-license clearance. |
 | Single-image full mesh | `VAST-AI/TripoSG` | It is the only measured single-image provider promoted on the held-out ten-object STL-quality slice with zero failed checks. |
 | Controlled turntable segmentation | Temporal-prior GrabCut | It is deterministic, offline, and directly covered by the controlled-video mask and STL regressions. |
 | Tracked-video segmentation | `facebook/sam2.1-hiera-tiny` | It is the attached temporal propagation path that fits the local GPU budget; larger/gated checkpoints remain research candidates. |
@@ -90,6 +90,11 @@ component. Face handling is deliberately bounded: it cannot alter pixels
 outside the face/subject support or silently violate attachment and height
 constraints.
 
+The production backing is a user-controlled flat plate (`2.4 mm` by default),
+not the legacy `0.01 mm` numerical buffer. It translates the approved front
+surface without changing its relief span or gradients and closes on an exact
+`Z=0` print plane.
+
 The 30 mm production path preserves:
 
 - face height and six named facial-part measurements;
@@ -104,6 +109,39 @@ The complete algorithm history and current gates are in
 are under
 [`benchmark-evidence/cc0_live_api_face_background_30mm_n3`](benchmark-evidence/cc0_live_api_face_background_30mm_n3)
 and the surrounding face/background evidence bundles.
+
+Print scale is now independent of relief calculation resolution. The route
+processes filtering, background context, face protection, and geometry guards
+on `detail_basis_mm`, then applies `max_xy_size` only to emitted X/Y
+coordinates. A measured 30% private group-photo replay retained the exact
+`384 x 512` Z field from the accepted 256 mm run (`0.0 mm` maximum delta,
+`0.0` RMSE, correlation `1.0`) while exporting a 76 mm footprint. All three
+face components passed detail retention and the STL remained one watertight,
+manifold component with zero degenerates. Private pixels and derived geometry
+remain local. Post-scale slope and feature telemetry is reported separately
+because a tiny physical print cannot reproduce every retained sub-nozzle
+sample. See
+[relief-scale-independent-sampling.md](relief-scale-independent-sampling.md).
+
+The default `Trim empty sky` pass no longer treats every strong image edge as
+the skyline. The structural v2 detector fixed the original single-color mask,
+but a difficult night photo showed that high-contrast clouds could still form
+a broad blank slab around a narrow clock tower. The production v3 detector
+requires sustained depth departure below an image boundary and treats the SAM
+selection as a hard preservation constraint. Alpha remains authoritative for
+transparent sources; missing or ambiguous depth fails closed to the structural
+or complete-rectangle path. The mask is applied only at final mesh emission,
+after depth shaping, smoothing, face guards, and background constraints.
+
+On the exact private 2,048 x 1,536 replay, v3 removed `0.359029` of the upper
+grid versus `0.276123` for v2. It removed zero selected or face pixels and all
+`126,020/126,020` retained Z samples matched an untrimmed current-build control
+bit-for-bit. The resulting 504,076-face STL remained one watertight, manifold,
+winding-consistent positive volume with zero degenerate or non-manifold faces.
+Private pixels and derived geometry remain local. Aggregate evidence is under
+[`benchmark-evidence/relief_depth_supported_skyline_20260813`](benchmark-evidence/relief_depth_supported_skyline_20260813);
+the earlier v2 record remains under
+[`benchmark-evidence/relief_structural_skyline_20260812`](benchmark-evidence/relief_structural_skyline_20260812).
 
 ### Scene diorama
 

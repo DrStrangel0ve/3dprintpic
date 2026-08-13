@@ -29,6 +29,7 @@ try:
         release_depth_pipelines,
         release_inpaint_pipelines,
         relief_value_transform_for_model,
+        normalize_depth_inference_precision,
     )
     from .face_depth_refinement import (
         DEFAULT_FACE_DETAIL_STRENGTH,
@@ -48,6 +49,7 @@ except ImportError:  # pragma: no cover - supports running uvicorn from backend/
         release_depth_pipelines,
         release_inpaint_pipelines,
         relief_value_transform_for_model,
+        normalize_depth_inference_precision,
     )
     from face_depth_refinement import (
         DEFAULT_FACE_DETAIL_STRENGTH,
@@ -135,12 +137,31 @@ DEPTH_PRELOAD_STATE = {
 SELECTION_MODEL_LOCK = Lock()
 SELECTION_MODEL_CACHE = {}
 SELECTION_MODEL_IDS = {
+    "sam3-person-aware": "facebook/sam3",
+    "sam2.1-hiera-tiny": "facebook/sam2.1-hiera-tiny",
     "sam2.1-hiera-large": "facebook/sam2.1-hiera-large",
     "sam2.1-hiera-base-plus": "facebook/sam2.1-hiera-base-plus",
     "grounding-dino-sam2": "facebook/sam2.1-hiera-large",
 }
+SELECTION_MODEL_REVISIONS = {
+    "facebook/sam3": "3c879f39826c281e95690f02c7821c4de09afae7",
+    "facebook/sam2.1-hiera-tiny": "de431c4043854a71d8101e17995dfe596bf101a5",
+    "facebook/sam2.1-hiera-large": "665f8e2ad61cf5f53d65644ff27c8ee525124610",
+}
+SAM2_SELECTION_MAX_COVERAGE = 0.65
+SAM2_SELECTION_SCORE_MARGIN = 0.75
+SAM2_SELECTION_MIN_CREDIBLE_SCORE = 0.20
+SAM3_SELECTION_RUNTIME_ID = "sam3-person-aware"
+SAM3_SELECTION_MODEL_ID = "facebook/sam3"
+SAM3_PERSON_DETECTION_THRESHOLD = 0.30
+SAM3_PERSON_MASK_THRESHOLD = 0.20
+SAM3_PERSON_MIN_COVERAGE = 0.002
+SAM3_OTHER_CONCEPT_MIN_COVERAGE = 0.0005
+SAM3_PERSON_MAX_HOLE_IMAGE_RATIO = 0.001
+SAM3_SELECTION_CONCEPTS = ("person", "building", "vehicle", "animal", "plant", "furniture")
 PANOPTIC_SELECTION_MODEL_ID = os.getenv("SELECTION_PANOPTIC_MODEL", "facebook/detr-resnet-50-panoptic")
 SELECTION_PRECOMPUTE_LOCK = Lock()
+SELECTION_INFERENCE_LOCK = Lock()
 SELECTION_PRECOMPUTE_CACHE: dict[str, dict] = {}
 SELECTION_PRECOMPUTE_MAX_ENTRIES = int(os.getenv("SELECTION_PRECOMPUTE_MAX_ENTRIES", "12"))
 RELIEF_MIN_DETAIL_DIMENSION = int(os.getenv("RELIEF_MIN_DETAIL_DIMENSION", "192"))
@@ -155,7 +176,7 @@ DEPTH_MODELS = [
         "provider": "transformers",
         "recommended": False,
         "depth_value_semantics": "relative_distance_far_high",
-        "notes": "Modern any-view depth with direct distance output; 1.64 GB first download.",
+        "notes": "Research-only any-view checkpoint under CC BY-NC 4.0; not eligible for production promotion.",
     },
     {
         "id": "apple/DepthPro-hf",
@@ -203,7 +224,7 @@ DEPTH_MODELS = [
         "provider": "transformers",
         "recommended": True,
         "depth_value_semantics": "relative_close_high",
-        "notes": "Best verified local quality option for CUDA relief generation.",
+        "notes": "Best verified local quality option for CUDA relief generation; pinned model-card weights are CC BY-NC 4.0.",
     },
 ]
 
@@ -211,7 +232,10 @@ DEPTH_MODELS = [
 def depth_model_far_is_high(model_id: str | None) -> bool:
     for model in DEPTH_MODELS:
         if model.get("id") == model_id:
-            return model.get("depth_value_semantics") == "metric_far_high"
+            return model.get("depth_value_semantics") in {
+                "metric_far_high",
+                "relative_distance_far_high",
+            }
     return False
 
 
@@ -220,6 +244,13 @@ def relief_invert_for_model(model_id: str | None, relief_polarity: str, requeste
         return requested_invert
     far_is_high = depth_model_far_is_high(model_id)
     return far_is_high if relief_polarity == "raised-print" else not far_is_high
+
+
+def depth_downsample_sharpening_supported(provider: str | None, model_id: str | None) -> bool:
+    return str(provider or "").strip().lower() in {
+        "depth-anything-v2",
+        "transformers",
+    } and "depth-anything-v2" in str(model_id or "").strip().lower()
 
 
 def _positive_float(value: float | None) -> float | None:
@@ -267,6 +298,19 @@ def relief_sample_pitch_mm(max_xy_size: float | None, target_dimension: int) -> 
     if physical_xy is None or target_dimension in (-1, 0, 1):
         return None
     return physical_xy / float(max(1, target_dimension - 1))
+
+
+def resolve_relief_detail_basis_mm(
+    max_xy_size: float | None,
+    detail_basis_mm: float | None,
+) -> float | None:
+    output_size = _positive_float(max_xy_size)
+    requested_basis = _positive_float(detail_basis_mm)
+    if requested_basis is None:
+        return output_size
+    if output_size is None:
+        return requested_basis
+    return max(output_size, requested_basis)
 
 
 def resolve_minimum_feature_mm(
@@ -613,23 +657,119 @@ def fallback_selection_mask(image: Image.Image, points: list[dict[str, float]], 
 
 def load_sam2_selection_model(model_id: str, device: str):
     import torch
+    from huggingface_hub import hf_hub_download
     from transformers import Sam2Model, Sam2Processor
 
     hf_model_id = SELECTION_MODEL_IDS.get(model_id, model_id if "/" in model_id else SELECTION_MODEL_IDS["sam2.1-hiera-large"])
-    cache_key = (hf_model_id, device)
+    revision = SELECTION_MODEL_REVISIONS.get(hf_model_id)
+    cache_key = (hf_model_id, revision, device)
     with SELECTION_MODEL_LOCK:
         if cache_key in SELECTION_MODEL_CACHE:
             return SELECTION_MODEL_CACHE[cache_key]
 
         allow_download = os.getenv("SELECTION_ALLOW_MODEL_DOWNLOAD", "").lower() in {"1", "true", "yes", "on"}
         local_files_only = not allow_download
-        processor = Sam2Processor.from_pretrained(hf_model_id, local_files_only=local_files_only)
+        load_source = hf_model_id
+        load_kwargs = {"local_files_only": local_files_only}
+        if revision:
+            load_kwargs["revision"] = revision
+            if local_files_only:
+                # Loading a pinned Transformers processor by repo id can miss
+                # processor-side files in an otherwise complete Windows cache.
+                # Resolve the immutable snapshot first and load every component
+                # from that same directory.
+                load_source = str(
+                    Path(
+                        hf_hub_download(
+                            hf_model_id,
+                            filename="config.json",
+                            revision=revision,
+                            local_files_only=True,
+                        )
+                    ).parent
+                )
+                load_kwargs = {"local_files_only": True}
+        processor = Sam2Processor.from_pretrained(load_source, **load_kwargs)
         torch_dtype = torch.float16 if str(device).startswith("cuda") else torch.float32
-        model = Sam2Model.from_pretrained(hf_model_id, torch_dtype=torch_dtype, local_files_only=local_files_only)
+        model = Sam2Model.from_pretrained(load_source, torch_dtype=torch_dtype, **load_kwargs)
         model.to(device)
         model.eval()
         SELECTION_MODEL_CACHE[cache_key] = (processor, model, hf_model_id)
         return SELECTION_MODEL_CACHE[cache_key]
+
+
+def release_selection_models() -> None:
+    with SELECTION_MODEL_LOCK:
+        SELECTION_MODEL_CACHE.clear()
+    try:
+        import gc
+        import torch
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except (ImportError, RuntimeError):
+        pass
+
+
+def seeded_sam2_component(candidate: np.ndarray, pixel_points: list[list[float]]) -> np.ndarray:
+    binary = np.asarray(candidate, dtype=bool)
+    component_count, labels = cv2.connectedComponents(binary.astype(np.uint8), connectivity=8)
+    if component_count <= 1:
+        return binary
+
+    selected_labels: set[int] = set()
+    height, width = binary.shape
+    for px_float, py_float in pixel_points:
+        px = int(np.clip(round(px_float), 0, max(0, width - 1)))
+        py = int(np.clip(round(py_float), 0, max(0, height - 1)))
+        component_label = int(labels[py, px])
+        if component_label > 0:
+            selected_labels.add(component_label)
+
+    if not selected_labels:
+        return binary
+    return np.isin(labels, list(selected_labels))
+
+
+def select_sam2_object_candidate(
+    candidates: np.ndarray,
+    scores: np.ndarray | None,
+    pixel_points: list[list[float]],
+) -> tuple[np.ndarray, int]:
+    cleaned_candidates = [seeded_sam2_component(candidate, pixel_points) for candidate in candidates]
+    coverages = np.asarray([float(candidate.mean()) for candidate in cleaned_candidates], dtype=np.float64)
+    nonempty = [index for index, coverage in enumerate(coverages) if coverage > 0.0]
+    if not nonempty:
+        raise RuntimeError("SAM2 returned an empty selection mask")
+
+    plausible = [index for index in nonempty if coverages[index] <= SAM2_SELECTION_MAX_COVERAGE]
+    if not plausible:
+        plausible = nonempty
+
+    score_values = None if scores is None else np.asarray(scores, dtype=np.float64).reshape(-1)
+    if score_values is not None and len(score_values) == len(cleaned_candidates):
+        credible = [
+            index
+            for index in plausible
+            if np.isfinite(score_values[index])
+            and score_values[index] >= SAM2_SELECTION_MIN_CREDIBLE_SCORE
+        ]
+        if credible:
+            plausible = credible
+        finite_scores = [score_values[index] for index in plausible if np.isfinite(score_values[index])]
+        if finite_scores:
+            minimum_score = max(finite_scores) - SAM2_SELECTION_SCORE_MARGIN
+            within_margin = [
+                index
+                for index in plausible
+                if np.isfinite(score_values[index]) and score_values[index] >= minimum_score
+            ]
+            if within_margin:
+                plausible = within_margin
+
+    selected_index = max(plausible, key=lambda index: (coverages[index], -index))
+    return cleaned_candidates[selected_index], int(selected_index)
 
 
 def sam2_selection_mask(image: Image.Image, points: list[dict[str, float]], model_id: str, device: str = "auto") -> tuple[Image.Image, str]:
@@ -664,15 +804,350 @@ def sam2_selection_mask(image: Image.Image, points: list[dict[str, float]], mode
     candidates = masks.reshape((-1, masks.shape[-2], masks.shape[-1]))
     scores = getattr(outputs, "iou_scores", None)
     if scores is not None and scores.numel() == len(candidates):
-        best_index = int(torch.argmax(scores.detach().cpu().reshape(-1)).item())
+        score_values = scores.detach().cpu().reshape(-1).numpy()
     else:
-        areas = candidates.reshape((len(candidates), -1)).sum(axis=1)
-        best_index = int(np.argmax(areas))
+        score_values = None
 
-    selected_mask = candidates[best_index]
-    if not np.any(selected_mask):
-        raise RuntimeError("SAM2 returned an empty selection mask")
+    selected_mask, _selected_index = select_sam2_object_candidate(candidates, score_values, pixel_points)
     return Image.fromarray((selected_mask.astype(np.uint8) * 255), mode="L"), hf_model_id
+
+
+def _cached_selection_snapshot(model_id: str, revision: str) -> Path:
+    from huggingface_hub import hf_hub_download
+
+    return Path(
+        hf_hub_download(
+            model_id,
+            filename="config.json",
+            revision=revision,
+            local_files_only=True,
+        )
+    ).parent
+
+
+def selection_checkpoint_load_source(model_id: str, revision: str) -> tuple[str, dict]:
+    allow_download = os.getenv("SELECTION_ALLOW_MODEL_DOWNLOAD", "").lower() in {"1", "true", "yes", "on"}
+    if allow_download:
+        return model_id, {"revision": revision, "local_files_only": False}
+    return str(_cached_selection_snapshot(model_id, revision)), {"local_files_only": True}
+
+
+def load_sam3_selection_model(component: str, device: str):
+    import torch
+    from transformers import Sam3Model, Sam3Processor, Sam3TrackerModel, Sam3TrackerProcessor
+
+    revision = SELECTION_MODEL_REVISIONS[SAM3_SELECTION_MODEL_ID]
+    cache_key = (SAM3_SELECTION_MODEL_ID, revision, device, component)
+    with SELECTION_MODEL_LOCK:
+        if cache_key in SELECTION_MODEL_CACHE:
+            return SELECTION_MODEL_CACHE[cache_key]
+
+        load_source, load_kwargs = selection_checkpoint_load_source(SAM3_SELECTION_MODEL_ID, revision)
+        torch_dtype = torch.float16 if str(device).startswith("cuda") else torch.float32
+        if component == "concept":
+            processor = Sam3Processor.from_pretrained(load_source, **load_kwargs)
+            model = Sam3Model.from_pretrained(
+                load_source,
+                dtype=torch_dtype,
+                low_cpu_mem_usage=True,
+                **load_kwargs,
+            )
+        elif component == "tracker":
+            processor = Sam3TrackerProcessor.from_pretrained(load_source, **load_kwargs)
+            model = Sam3TrackerModel.from_pretrained(
+                load_source,
+                dtype=torch_dtype,
+                low_cpu_mem_usage=True,
+                **load_kwargs,
+            )
+        else:
+            raise ValueError(f"Unknown SAM3 component: {component}")
+        model.to(device)
+        model.eval()
+        SELECTION_MODEL_CACHE[cache_key] = (processor, model, SAM3_SELECTION_MODEL_ID)
+        return SELECTION_MODEL_CACHE[cache_key]
+
+
+def fill_bounded_selection_holes(mask: np.ndarray, max_hole_image_ratio: float) -> np.ndarray:
+    binary = np.asarray(mask, dtype=bool)
+    if not np.any(binary) or max_hole_image_ratio <= 0.0:
+        return binary
+
+    height, width = binary.shape
+    max_hole_pixels = max(1, int(math.floor(height * width * max_hole_image_ratio)))
+    inverse = (~binary).astype(np.uint8)
+    component_count, labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        inverse,
+        connectivity=8,
+    )
+    filled = binary.copy()
+    for component_index in range(1, component_count):
+        x = int(stats[component_index, cv2.CC_STAT_LEFT])
+        y = int(stats[component_index, cv2.CC_STAT_TOP])
+        component_width = int(stats[component_index, cv2.CC_STAT_WIDTH])
+        component_height = int(stats[component_index, cv2.CC_STAT_HEIGHT])
+        component_pixels = int(stats[component_index, cv2.CC_STAT_AREA])
+        touches_border = (
+            x == 0
+            or y == 0
+            or x + component_width >= width
+            or y + component_height >= height
+        )
+        if not touches_border and component_pixels <= max_hole_pixels:
+            filled[labels == component_index] = True
+    return filled
+
+
+def compute_sam3_selection_instances(
+    image: Image.Image,
+    device: str = "auto",
+) -> tuple[np.ndarray, np.ndarray, list[str], str]:
+    import torch
+
+    selected_device = device
+    if selected_device == "auto":
+        selected_device = "cuda" if torch.cuda.is_available() else "cpu"
+    processor, model, resolved_model_id = load_sam3_selection_model("concept", selected_device)
+    kept_masks = []
+    kept_scores = []
+    kept_labels = []
+    with SELECTION_INFERENCE_LOCK:
+        for concept in SAM3_SELECTION_CONCEPTS:
+            inputs = processor(images=image, text=concept, return_tensors="pt").to(selected_device)
+            with torch.inference_mode():
+                outputs = model(**inputs)
+            processed = processor.post_process_instance_segmentation(
+                outputs,
+                threshold=SAM3_PERSON_DETECTION_THRESHOLD,
+                mask_threshold=SAM3_PERSON_MASK_THRESHOLD,
+                target_sizes=inputs["original_sizes"].detach().cpu().tolist(),
+            )[0]
+            raw_masks = processed["masks"].detach().cpu().numpy().astype(bool)
+            raw_scores = processed["scores"].detach().cpu().numpy().reshape(-1)
+            minimum_coverage = (
+                SAM3_PERSON_MIN_COVERAGE
+                if concept == "person"
+                else SAM3_OTHER_CONCEPT_MIN_COVERAGE
+            )
+            for raw_mask, raw_score in zip(raw_masks, raw_scores):
+                filled = fill_bounded_selection_holes(
+                    raw_mask,
+                    SAM3_PERSON_MAX_HOLE_IMAGE_RATIO,
+                )
+                coverage = float(filled.mean())
+                if minimum_coverage <= coverage <= SAM2_SELECTION_MAX_COVERAGE:
+                    kept_masks.append(filled)
+                    kept_scores.append(float(raw_score))
+                    kept_labels.append(concept)
+    if not kept_masks:
+        return (
+            np.empty((0, image.height, image.width), dtype=bool),
+            np.empty((0,), dtype=np.float32),
+            [],
+            resolved_model_id,
+        )
+    return (
+        np.asarray(kept_masks, dtype=bool),
+        np.asarray(kept_scores, dtype=np.float32),
+        kept_labels,
+        resolved_model_id,
+    )
+
+
+def sam3_selection_mask_from_instances(
+    masks: np.ndarray,
+    scores: np.ndarray,
+    labels: list[str],
+    points: list[dict[str, float]],
+    image_size: tuple[int, int],
+) -> tuple[Image.Image | None, list[int], list[str]]:
+    width, height = image_size
+    pixel_points = selection_points_to_pixels(points, width, height)
+    selected_masks = []
+    selected_indices: set[int] = set()
+    selected_labels: set[str] = set()
+    for pixel_point in pixel_points:
+        px = int(np.clip(round(pixel_point[0]), 0, max(0, width - 1)))
+        py = int(np.clip(round(pixel_point[1]), 0, max(0, height - 1)))
+        matching = [index for index, candidate in enumerate(masks) if candidate[py, px]]
+        if not matching:
+            continue
+        selected_index = max(matching, key=lambda index: float(scores[index]))
+        if selected_index in selected_indices:
+            continue
+        selected_indices.add(selected_index)
+        selected_labels.add(labels[selected_index])
+        selected_masks.append(seeded_sam2_component(masks[selected_index], [pixel_point]))
+    if not selected_masks:
+        return None, [], []
+    selected = np.logical_or.reduce(selected_masks)
+    return (
+        Image.fromarray((selected.astype(np.uint8) * 255), mode="L"),
+        sorted(selected_indices),
+        sorted(selected_labels),
+    )
+
+
+def sam3_selection_mask_from_packed_instances(
+    packed_masks: np.ndarray,
+    mask_width: int,
+    scores: np.ndarray,
+    labels: list[str],
+    points: list[dict[str, float]],
+    image_size: tuple[int, int],
+) -> tuple[Image.Image | None, list[int], list[str]]:
+    width, height = image_size
+    if mask_width != width:
+        raise ValueError("Cached SAM3 mask width does not match its source image")
+    pixel_points = selection_points_to_pixels(points, width, height)
+    selected_indices: set[int] = set()
+    selected_labels: set[str] = set()
+    selected_points: dict[int, list[list[float]]] = {}
+    for pixel_point in pixel_points:
+        px = int(np.clip(round(pixel_point[0]), 0, max(0, width - 1)))
+        py = int(np.clip(round(pixel_point[1]), 0, max(0, height - 1)))
+        byte_index = px // 8
+        bit_shift = 7 - (px % 8)
+        containing = np.flatnonzero((packed_masks[:, py, byte_index] >> bit_shift) & 1)
+        if not len(containing):
+            continue
+        selected_index = max(containing.tolist(), key=lambda index: float(scores[index]))
+        selected_indices.add(selected_index)
+        selected_labels.add(labels[selected_index])
+        selected_points.setdefault(selected_index, []).append(pixel_point)
+    if not selected_indices:
+        return None, [], []
+
+    selected_masks = []
+    for selected_index in sorted(selected_indices):
+        candidate = np.unpackbits(
+            packed_masks[selected_index],
+            axis=1,
+            count=width,
+        ).astype(bool)
+        selected_masks.append(
+            seeded_sam2_component(candidate, selected_points[selected_index])
+        )
+    selected = np.logical_or.reduce(selected_masks)
+    return (
+        Image.fromarray((selected.astype(np.uint8) * 255), mode="L"),
+        sorted(selected_indices),
+        sorted(selected_labels),
+    )
+
+
+def sam3_unmatched_points_from_instances(
+    masks: np.ndarray,
+    points: list[dict[str, float]],
+    image_size: tuple[int, int],
+) -> list[dict[str, float]]:
+    width, height = image_size
+    pixel_points = selection_points_to_pixels(points, width, height)
+    unmatched = []
+    for point, pixel_point in zip(points, pixel_points):
+        px = int(np.clip(round(pixel_point[0]), 0, max(0, width - 1)))
+        py = int(np.clip(round(pixel_point[1]), 0, max(0, height - 1)))
+        if len(masks) == 0 or not np.any(masks[:, py, px]):
+            unmatched.append(point)
+    return unmatched
+
+
+def sam3_unmatched_points_from_packed_instances(
+    packed_masks: np.ndarray,
+    mask_width: int,
+    points: list[dict[str, float]],
+    image_size: tuple[int, int],
+) -> list[dict[str, float]]:
+    width, height = image_size
+    if mask_width != width:
+        raise ValueError("Cached SAM3 mask width does not match its source image")
+    pixel_points = selection_points_to_pixels(points, width, height)
+    unmatched = []
+    for point, pixel_point in zip(points, pixel_points):
+        px = int(np.clip(round(pixel_point[0]), 0, max(0, width - 1)))
+        py = int(np.clip(round(pixel_point[1]), 0, max(0, height - 1)))
+        byte_index = px // 8
+        bit_shift = 7 - (px % 8)
+        if len(packed_masks) == 0 or not np.any((packed_masks[:, py, byte_index] >> bit_shift) & 1):
+            unmatched.append(point)
+    return unmatched
+
+
+def union_binary_selection_masks(masks: list[Image.Image], image_size: tuple[int, int]) -> Image.Image:
+    if not masks:
+        raise RuntimeError("SAM3 returned no selection masks")
+    combined = np.zeros((image_size[1], image_size[0]), dtype=bool)
+    for mask in masks:
+        combined |= np.asarray(mask.convert("L")) > 0
+    return Image.fromarray((combined.astype(np.uint8) * 255), mode="L")
+
+
+def sam3_tracker_selection_mask(
+    image: Image.Image,
+    points: list[dict[str, float]],
+    device: str = "auto",
+) -> tuple[Image.Image, str]:
+    import torch
+
+    selected_device = device
+    if selected_device == "auto":
+        selected_device = "cuda" if torch.cuda.is_available() else "cpu"
+    processor, model, resolved_model_id = load_sam3_selection_model("tracker", selected_device)
+    pixel_points = selection_points_to_pixels(points, *image.size)
+    with SELECTION_INFERENCE_LOCK:
+        inputs = processor(
+            images=image,
+            input_points=[[pixel_points]],
+            input_labels=[[[1 for _ in pixel_points]]],
+            return_tensors="pt",
+        ).to(selected_device)
+        with torch.inference_mode():
+            outputs = model(**inputs)
+        post_masks = processor.post_process_masks(
+            outputs.pred_masks.detach().cpu(),
+            inputs["original_sizes"].detach().cpu(),
+            mask_threshold=0.0,
+            binarize=True,
+            max_hole_area=256.0,
+            max_sprinkle_area=128.0,
+        )[0]
+    masks = post_masks.detach().cpu().numpy().astype(bool)
+    candidates = masks.reshape((-1, masks.shape[-2], masks.shape[-1]))
+    scores = outputs.iou_scores.detach().cpu().reshape(-1).numpy()
+    selected_mask, _selected_index = select_sam2_object_candidate(candidates, scores, pixel_points)
+    return Image.fromarray((selected_mask.astype(np.uint8) * 255), mode="L"), resolved_model_id
+
+
+def sam3_person_aware_selection_mask(
+    image: Image.Image,
+    points: list[dict[str, float]],
+    device: str = "auto",
+) -> tuple[Image.Image, str, str, list[str]]:
+    masks, scores, labels, resolved_model_id = compute_sam3_selection_instances(image, device=device)
+    concept_mask, _selected_indices, selected_labels = sam3_selection_mask_from_instances(
+        masks,
+        scores,
+        labels,
+        points,
+        image.size,
+    )
+    unmatched_points = sam3_unmatched_points_from_instances(masks, points, image.size)
+    if concept_mask is not None and not unmatched_points:
+        return concept_mask, resolved_model_id, "sam3-open-vocabulary-concept", selected_labels
+    selected_masks = [concept_mask] if concept_mask is not None else []
+    for unmatched_point in unmatched_points:
+        tracker_mask, resolved_model_id = sam3_tracker_selection_mask(
+            image,
+            [unmatched_point],
+            device=device,
+        )
+        selected_masks.append(tracker_mask)
+    model_status = (
+        "sam3-open-vocabulary-concept+tracker"
+        if concept_mask is not None
+        else "sam3-tracker-fallback"
+    )
+    return union_binary_selection_masks(selected_masks, image.size), resolved_model_id, model_status, selected_labels
 
 
 def load_panoptic_selection_model(device: str):
@@ -800,6 +1275,18 @@ def selection_mask_for_points(
     mask_max_dimension: int = 1024,
 ) -> tuple[Image.Image, str, str | None, str, list[str]]:
     model_error = None
+    if model_id == SAM3_SELECTION_RUNTIME_ID or model_id == SAM3_SELECTION_MODEL_ID:
+        try:
+            mask, resolved_model_id, model_status, labels = sam3_person_aware_selection_mask(
+                image,
+                points,
+                device=device,
+            )
+            return mask, resolved_model_id, model_error, model_status, labels
+        except Exception as exc:
+            model_error = compact_selection_error(exc, "SAM3")
+            logger.warning("SAM3 selection failed; trying panoptic segmenter: %s", model_error)
+
     if model_id.startswith("sam2") or model_id == "grounding-dino-sam2":
         try:
             mask, resolved_model_id = sam2_selection_mask(image, points, model_id=model_id, device=device)
@@ -837,10 +1324,35 @@ def cache_panoptic_precompute(
     precompute_id = uuid4().hex
     with SELECTION_PRECOMPUTE_LOCK:
         SELECTION_PRECOMPUTE_CACHE[precompute_id] = {
+            "kind": "panoptic",
             "segmentation": segmentation,
             "segment_labels": segment_labels,
             "model_id": model_id,
             "image_size": image_size,
+            "created_at_epoch": time.time(),
+        }
+        trim_selection_precompute_cache()
+    return precompute_id
+
+
+def cache_sam3_precompute(
+    image: Image.Image,
+    masks: np.ndarray,
+    scores: np.ndarray,
+    labels: list[str],
+    model_id: str,
+) -> str:
+    precompute_id = uuid4().hex
+    with SELECTION_PRECOMPUTE_LOCK:
+        SELECTION_PRECOMPUTE_CACHE[precompute_id] = {
+            "kind": "sam3-person-aware",
+            "image": image.copy(),
+            "packed_masks": np.packbits(np.asarray(masks, dtype=bool), axis=2),
+            "mask_width": image.width,
+            "scores": np.asarray(scores, dtype=np.float32),
+            "labels": list(labels),
+            "model_id": model_id,
+            "image_size": image.size,
             "created_at_epoch": time.time(),
         }
         trim_selection_precompute_cache()
@@ -855,6 +1367,47 @@ def get_selection_precompute(precompute_id: str) -> dict:
     if not cached:
         raise HTTPException(status_code=404, detail="Selection precompute session not found")
     return cached
+
+
+def sam3_selection_mask_from_precompute(
+    cached: dict,
+    points: list[dict[str, float]],
+) -> tuple[Image.Image, list[int], list[str], str]:
+    mask, selected_segment_ids, selection_labels = sam3_selection_mask_from_packed_instances(
+        cached["packed_masks"],
+        int(cached["mask_width"]),
+        cached["scores"],
+        cached["labels"],
+        points,
+        cached["image_size"],
+    )
+    unmatched_points = sam3_unmatched_points_from_packed_instances(
+        cached["packed_masks"],
+        int(cached["mask_width"]),
+        points,
+        cached["image_size"],
+    )
+    if mask is not None and not unmatched_points:
+        return mask, selected_segment_ids, selection_labels, "sam3-concept-precomputed-point"
+
+    selected_masks = [mask] if mask is not None else []
+    for unmatched_point in unmatched_points:
+        tracker_mask, _resolved_model_id = sam3_tracker_selection_mask(
+            cached["image"],
+            [unmatched_point],
+        )
+        selected_masks.append(tracker_mask)
+    model_status = (
+        "sam3-concept-precomputed+tracker-point"
+        if mask is not None
+        else "sam3-tracker-fallback-point"
+    )
+    return (
+        union_binary_selection_masks(selected_masks, cached["image_size"]),
+        selected_segment_ids,
+        selection_labels,
+        model_status,
+    )
 
 
 def save_selection_mask_artifacts(
@@ -933,21 +1486,6 @@ def _fill_small_selection_holes(
             filled[labels == component_index] = True
             filled_hole_pixels += area
     return filled, filled_hole_pixels, max_hole_pixels
-
-
-def release_selection_models():
-    import gc
-
-    with SELECTION_MODEL_LOCK:
-        SELECTION_MODEL_CACHE.clear()
-    gc.collect()
-    try:
-        import torch
-
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except ImportError:
-        pass
 
 
 def structural_context_selection_infill(
@@ -1317,6 +1855,121 @@ def crop_selection_artifacts(
     }
 
 
+def crop_depth_to_selection_artifacts(
+    depth_path: str | Path,
+    selection_crop: dict,
+    output_path: Path,
+) -> dict:
+    depth = np.load(depth_path).astype(np.float32)
+    if depth.ndim != 2:
+        raise ValueError(f"Selection depth must be a 2D array, got shape {depth.shape}")
+
+    source_width, source_height = (int(value) for value in selection_crop["source_size"])
+    left, top, right, bottom = (
+        int(value) for value in selection_crop["crop_bbox_xyxy"]
+    )
+    if source_width <= 0 or source_height <= 0:
+        raise ValueError("Selection source dimensions must be positive")
+
+    depth_height, depth_width = depth.shape
+    resampled = depth.shape != (source_height, source_width)
+    if resampled:
+        finite = np.isfinite(depth)
+        if not np.any(finite):
+            raise ValueError("Selection depth has no finite samples")
+        fill_value = float(np.median(depth[finite]))
+        resize_values = np.where(finite, depth, fill_value).astype(np.float32)
+        depth = np.asarray(
+            Image.fromarray(resize_values, mode="F").resize(
+                (source_width, source_height),
+                Image.Resampling.BILINEAR,
+            ),
+            dtype=np.float32,
+        )
+        if not np.all(finite):
+            resized_finite = np.asarray(
+                Image.fromarray(finite.astype(np.uint8) * 255, mode="L").resize(
+                    (source_width, source_height),
+                    Image.Resampling.NEAREST,
+                )
+            ) > 0
+            depth = np.where(resized_finite, depth, np.nan)
+
+    cropped_depth = depth[top:bottom, left:right]
+    crop_width, crop_height = (int(value) for value in selection_crop["crop_size"])
+    if cropped_depth.shape != (crop_height, crop_width):
+        raise ValueError(
+            "Selection depth crop does not match source crop: "
+            f"{cropped_depth.shape} != {(crop_height, crop_width)}"
+        )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(output_path, cropped_depth.astype(np.float32, copy=False))
+    return {
+        "depth_path": output_path,
+        "source_depth_size": [int(depth_width), int(depth_height)],
+        "aligned_source_depth_size": [int(source_width), int(source_height)],
+        "source_depth_crop_bbox_xyxy": [left, top, right, bottom],
+        "output_depth_size": [int(cropped_depth.shape[1]), int(cropped_depth.shape[0])],
+        "resampled_to_source_crop": bool(resampled),
+    }
+
+
+def crop_face_refinement_artifacts(
+    face_refinement: dict,
+    selection_crop: dict,
+    output_dir: Path,
+) -> dict:
+    if not face_refinement.get("applied"):
+        return face_refinement
+
+    source_width, source_height = (int(value) for value in selection_crop["source_size"])
+    crop_box = tuple(int(value) for value in selection_crop["crop_bbox_xyxy"])
+    cropped = dict(face_refinement)
+    artifact_specs = {
+        "weight_file": ("output_face_refinement_weight_crop.png", Image.Resampling.BILINEAR),
+        "region_file": ("output_face_refinement_region_crop.png", Image.Resampling.NEAREST),
+        "occlusion_file": (
+            "output_face_refinement_occlusion_crop.png",
+            Image.Resampling.BILINEAR,
+        ),
+    }
+    for metadata_key, (output_name, resampling) in artifact_specs.items():
+        artifact_name = face_refinement.get(metadata_key)
+        if not artifact_name:
+            raise ValueError(f"Applied face refinement is missing {metadata_key}")
+        artifact_path = output_dir / str(artifact_name)
+        with Image.open(artifact_path) as artifact_image:
+            artifact = artifact_image.convert("L")
+            if artifact.size != (source_width, source_height):
+                artifact = artifact.resize((source_width, source_height), resampling)
+            artifact = artifact.crop(crop_box)
+            output_path = output_dir / output_name
+            artifact.save(output_path)
+        cropped[metadata_key] = output_name
+    cropped["source_aligned_selection_crop"] = {
+        "source_size": [source_width, source_height],
+        "crop_bbox_xyxy": list(crop_box),
+        "crop_size": [int(value) for value in selection_crop["crop_size"]],
+    }
+    original_metadata_file = face_refinement.get("metadata_file")
+    if original_metadata_file:
+        original_metadata_path = output_dir / str(original_metadata_file)
+        if not original_metadata_path.is_file():
+            raise ValueError(
+                "Applied face refinement metadata file is missing: "
+                f"{original_metadata_file}"
+            )
+        cropped["full_source_metadata_file"] = str(original_metadata_file)
+    cropped_metadata_path = output_dir / "output_face_refinement_selection_crop_metadata.json"
+    cropped["metadata_file"] = cropped_metadata_path.name
+    cropped_metadata_path.write_text(
+        json.dumps(cropped, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return cropped
+
+
 def get_runtime_info() -> dict:
     try:
         import torch
@@ -1354,6 +2007,30 @@ async def precompute_selection_model(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
 
+    if model_id == SAM3_SELECTION_RUNTIME_ID or model_id == SAM3_SELECTION_MODEL_ID:
+        try:
+            masks, scores, labels, resolved_model_id = await asyncio.to_thread(
+                compute_sam3_selection_instances,
+                image,
+                device,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=compact_selection_error(exc, "SAM3")) from exc
+        precompute_id = cache_sam3_precompute(image, masks, scores, labels, resolved_model_id)
+        return {
+            "job_id": job_id,
+            "precompute_id": precompute_id,
+            "model_id": resolved_model_id,
+            "model_status": "sam3-concepts-precomputed",
+            "precompute_supported": True,
+            "message": "SAM3 semantic masks are cached; unmatched clicks use its tracker head.",
+            "image_size": {"width": image.width, "height": image.height},
+            "segment_count": len(masks),
+            "selection_labels": sorted(set(labels)),
+            "timings": {"precompute_seconds": round(time.perf_counter() - started, 3)},
+            "created_at": datetime.utcnow().isoformat() + "Z",
+        }
+
     if model_id.startswith("sam2") or model_id == "grounding-dino-sam2":
         try:
             selected_device = device
@@ -1361,7 +2038,11 @@ async def precompute_selection_model(
                 import torch
 
                 selected_device = "cuda" if torch.cuda.is_available() else "cpu"
-            _processor, _model, resolved_model_id = load_sam2_selection_model(model_id, selected_device)
+            _processor, _model, resolved_model_id = await asyncio.to_thread(
+                load_sam2_selection_model,
+                model_id,
+                selected_device,
+            )
             return {
                 "job_id": job_id,
                 "precompute_id": None,
@@ -1377,7 +2058,11 @@ async def precompute_selection_model(
             raise HTTPException(status_code=503, detail=compact_selection_error(exc, "SAM2")) from exc
 
     try:
-        segmentation, segment_labels, resolved_model_id = compute_panoptic_segmentation(image, device=device)
+        segmentation, segment_labels, resolved_model_id = await asyncio.to_thread(
+            compute_panoptic_segmentation,
+            image,
+            device,
+        )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=compact_selection_error(exc, "Panoptic")) from exc
 
@@ -1412,13 +2097,20 @@ async def preview_precomputed_selection_mask(
     job_dir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     cached = get_selection_precompute(precompute_id)
-
-    mask, selection_labels, selected_segment_ids = panoptic_mask_from_segmentation(
-        cached["segmentation"],
-        cached["segment_labels"],
-        points,
-        cached["image_size"],
-    )
+    if cached.get("kind") == "sam3-person-aware":
+        mask, selected_segment_ids, selection_labels, model_status = await asyncio.to_thread(
+            sam3_selection_mask_from_precompute,
+            cached,
+            points,
+        )
+    else:
+        mask, selection_labels, selected_segment_ids = panoptic_mask_from_segmentation(
+            cached["segmentation"],
+            cached["segment_labels"],
+            points,
+            cached["image_size"],
+        )
+        model_status = "panoptic-precomputed-point"
     mask_pixels = int(np.count_nonzero(np.asarray(mask) > 0))
     width, height = cached["image_size"]
     metadata = {
@@ -1426,7 +2118,7 @@ async def preview_precomputed_selection_mask(
         "precompute_id": precompute_id,
         "points": points,
         "model_id": cached["model_id"],
-        "model_status": "panoptic-precomputed-point",
+        "model_status": model_status,
         "selection_labels": selection_labels,
         "selected_segment_ids": selected_segment_ids,
         "image_size": {"width": width, "height": height},
@@ -1443,7 +2135,7 @@ async def preview_precomputed_selection_mask(
 async def keep_selected_objects(
     file: UploadFile = File(...),
     points_json: str = Form("[]"),
-    model_id: str = Form("sam2.1-hiera-large"),
+    model_id: str = Form(SAM3_SELECTION_RUNTIME_ID),
     device: str = Form("auto"),
     background_mode: str = Form("neutral"),
     mask_max_dimension: int = Form(1024),
@@ -1463,12 +2155,13 @@ async def keep_selected_objects(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
 
-    mask, model_id, model_error, model_status, selection_labels = selection_mask_for_points(
+    mask, model_id, model_error, model_status, selection_labels = await asyncio.to_thread(
+        selection_mask_for_points,
         image,
         points,
-        model_id=model_id,
-        device=device,
-        mask_max_dimension=mask_max_dimension,
+        model_id,
+        device,
+        mask_max_dimension,
     )
 
     selected = selected_image_from_mask(image, mask, background_mode=background_mode)
@@ -1528,7 +2221,7 @@ async def keep_selected_objects(
 async def preview_selection_mask(
     file: UploadFile = File(...),
     points_json: str = Form("[]"),
-    model_id: str = Form("sam2.1-hiera-large"),
+    model_id: str = Form(SAM3_SELECTION_RUNTIME_ID),
     device: str = Form("auto"),
     mask_max_dimension: int = Form(1024),
 ):
@@ -1547,12 +2240,13 @@ async def preview_selection_mask(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
 
-    mask, model_id, model_error, model_status, selection_labels = selection_mask_for_points(
+    mask, model_id, model_error, model_status, selection_labels = await asyncio.to_thread(
+        selection_mask_for_points,
         image,
         points,
-        model_id=model_id,
-        device=device,
-        mask_max_dimension=mask_max_dimension,
+        model_id,
+        device,
+        mask_max_dimension,
     )
 
     mask_path = job_dir / "selection_mask.png"
@@ -1620,6 +2314,11 @@ async def compose_selected_objects(
                 "reapply the selection without image completion"
             ),
         )
+
+    # The still-image segmenter is no longer needed after the masks are
+    # composed. Releasing it here preserves the full CUDA budget for depth and
+    # face inference on 12 GB cards.
+    await asyncio.to_thread(release_selection_models)
 
     job_id = uuid4().hex
     job_dir = OUTPUT_DIR / "selection" / job_id
@@ -1710,12 +2409,17 @@ async def process_image(
     selection_job_id: str | None = Form(None),
     selection_mode: str = Form("context"),
     selection_subject_lock: bool = Form(False),
+    selection_emission_only: bool = Form(False),
     depth_provider: str = Form(DEFAULT_DEPTH_PROVIDER),
     depth_model: str | None = Form(None),
     device: str = Form("auto"),
+    depth_downsample_sharpening: float = Form(0.0, ge=0.0, le=1.0),
+    depth_inference_precision: str = Form("auto"),
     target_dimension: int = Form(300),
     z_scale: float = Form(10),
-    max_xy_size: float | None = Form(None),
+    base_thickness_mm: float = Form(2.4, ge=0.4, le=20.0),
+    max_xy_size: float | None = Form(None, ge=1.0, le=2000.0),
+    detail_basis_mm: float | None = Form(None, ge=1.0, le=2000.0),
     printer_profile: str | None = Form(None),
     printer_max_x_mm: float | None = Form(None),
     printer_max_y_mm: float | None = Form(None),
@@ -1751,6 +2455,17 @@ async def process_image(
     face_max_correction_ratio: float = Form(DEFAULT_FACE_MAX_CORRECTION_RATIO),
 ):
     logger.info(f"Received file: {file.filename}")
+    try:
+        normalized_depth_inference_precision = normalize_depth_inference_precision(
+            depth_inference_precision
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if detail_basis_mm is not None and max_xy_size is None:
+        raise HTTPException(
+            status_code=400,
+            detail="detail_basis_mm requires max_xy_size for final STL scaling",
+        )
 
     job_id = uuid4().hex
     job_dir = OUTPUT_DIR / job_id
@@ -1784,15 +2499,40 @@ async def process_image(
                 ),
             )
         resolved_selection_mode = str(selection_mode or "context").strip().lower()
-        if resolved_selection_mode not in {"context", "isolate"}:
+        isolated_selection_modes = {"isolate", "source-depth-isolate"}
+        if resolved_selection_mode not in {"context", *isolated_selection_modes}:
             raise HTTPException(
                 status_code=400,
-                detail="Selection mode must be either context or isolate",
+                detail=(
+                    "Selection mode must be context, isolate, or "
+                    "source-depth-isolate"
+                ),
             )
         if selection_job is None and resolved_selection_mode != "context":
             raise HTTPException(
                 status_code=400,
                 detail="Selection isolate mode requires a composed selection job",
+            )
+        if selection_emission_only and selection_job is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Selected-only emission requires a composed selection job",
+            )
+        if selection_emission_only and resolved_selection_mode != "context":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Selected-only emission requires context mode so depth is "
+                    "estimated from the complete original photograph"
+                ),
+            )
+        if selection_emission_only and not selection_subject_lock:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Selected-only emission requires selection_subject_lock so "
+                    "the retained subject uses the unmodified full-scene surface"
+                ),
             )
         resolved_completion_mode = str(completion_mode or "none").strip().lower()
         if resolved_completion_mode not in ("", "none"):
@@ -1815,14 +2555,18 @@ async def process_image(
             except Exception as exc:
                 raise HTTPException(status_code=400, detail=f"Could not read uploaded image: {exc}") from exc
         selection_crop = None
-        if selection_job and resolved_selection_mode == "isolate":
+        if selection_job and resolved_selection_mode in isolated_selection_modes:
             selection_crop = crop_selection_artifacts(
                 selection_job["source_path"],
                 selection_job["selected_path"],
                 selection_job["mask_path"],
                 job_dir,
             )
-            image_input_path = str(selection_crop["selected_path"])
+            image_input_path = str(
+                selection_crop["selected_path"]
+                if resolved_selection_mode == "isolate"
+                else selection_job["source_path"]
+            )
         else:
             image_input_path = (
                 str(selection_job["source_path"])
@@ -1832,6 +2576,17 @@ async def process_image(
 
         # Process the image and get depth data
         selected_model = depth_model or DEFAULT_DEPTH_MODEL
+        if depth_downsample_sharpening > 0 and not depth_downsample_sharpening_supported(
+            depth_provider,
+            selected_model,
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Depth downsample sharpening is supported only by "
+                    "Depth Anything V2 transformer models"
+                ),
+            )
         logger.info(
             "Processing image to get depth data with provider=%s model=%s device=%s",
             depth_provider,
@@ -1839,14 +2594,17 @@ async def process_image(
             device,
         )
         image_for_depth = image_input_path
-        # Context selections keep the original scene for depth and face geometry.
-        # The selected artifact is only an isolated preview/input for isolate mode.
+        # Context and source-depth-isolate preserve the full photograph for depth.
+        # Legacy isolate intentionally estimates depth from the edited crop.
         depth_inference_source = image_for_depth
         face_refinement_source = image_for_depth
         face_detection_source = None
         if selection_job is not None:
-            face_detection_source = selection_job["face_detection_path"]
-            if selection_crop is not None:
+            # Detect on the untouched photograph, then constrain accepted face
+            # regions with the composed selection mask. Cutout backgrounds can
+            # clip hair, ears, or shoulders before the face crop is inferred.
+            face_detection_source = selection_job["source_path"]
+            if selection_crop is not None and resolved_selection_mode == "isolate":
                 face_detection_crop_path = job_dir / "selection_face_detection_crop.png"
                 with Image.open(face_detection_source) as detection_image:
                     detection_image.crop(
@@ -1861,6 +2619,8 @@ async def process_image(
             provider=depth_provider,
             model_name=selected_model,
             device=device,
+            downsample_sharpening=depth_downsample_sharpening,
+            inference_precision=normalized_depth_inference_precision,
         )
         record_timing("depth_seconds", stage_started)
         logger.info(f"Depth data saved as: {depth_data_path}")
@@ -1879,11 +2639,13 @@ async def process_image(
                 provider=depth_provider,
                 model_name=effective_depth_model,
                 device=device,
+                downsample_sharpening=depth_downsample_sharpening,
+                inference_precision=normalized_depth_inference_precision,
             )
 
         selection_region_mask_path = (
             selection_crop["mask_path"]
-            if selection_crop
+            if selection_crop is not None and resolved_selection_mode == "isolate"
             else (selection_job["mask_path"] if selection_job is not None else None)
         )
         depth_data_path, face_refinement = refine_depth_for_faces(
@@ -1897,12 +2659,33 @@ async def process_image(
             max_correction_ratio=face_max_correction_ratio,
             detection_roi_mask=selection_region_mask_path,
             detection_image_path=face_detection_source,
+            detection_image_mode=(
+                "selection-source" if face_detection_source is not None else None
+            ),
         )
         record_timing("face_refinement_seconds", stage_started)
+
+        source_depth_crop = None
+        if selection_crop is not None and resolved_selection_mode == "source-depth-isolate":
+            stage_started = time.perf_counter()
+            source_depth_crop = crop_depth_to_selection_artifacts(
+                depth_data_path,
+                selection_crop,
+                job_dir / "output_depth_data_source_crop.npy",
+            )
+            depth_data_path = str(source_depth_crop["depth_path"])
+            face_refinement = crop_face_refinement_artifacts(
+                face_refinement,
+                selection_crop,
+                job_dir,
+            )
+            selection_region_mask_path = selection_crop["mask_path"]
+            record_timing("selection_depth_crop_seconds", stage_started)
+
         depth_metadata["face_refinement"] = face_refinement
         selection_depth_context = {"enabled": False, "reason": "not_requested"}
         effective_selection_background_depth_ratio = selection_background_depth_ratio
-        if selection_job is not None and resolved_selection_mode == "isolate":
+        if selection_job is not None and resolved_selection_mode in isolated_selection_modes:
             stage_started = time.perf_counter()
             with Image.open(selection_region_mask_path) as selection_mask_image:
                 selection_mask = np.asarray(selection_mask_image.convert("L")) > 0
@@ -1918,17 +2701,29 @@ async def process_image(
                 np.float32,
                 copy=False,
             )
-            isolated_depth_path = job_dir / "output_depth_data_selected_isolate.npy"
+            isolated_depth_path = job_dir / (
+                "output_depth_data_selected_source_isolate.npy"
+                if resolved_selection_mode == "source-depth-isolate"
+                else "output_depth_data_selected_isolate.npy"
+            )
             np.save(isolated_depth_path, isolated_depth)
             depth_data_path = str(isolated_depth_path)
             effective_selection_background_depth_ratio = 0.0
             selection_depth_context = {
                 "enabled": True,
-                "method": "crop_first_isolated_selection_v1",
+                "method": (
+                    "full_source_depth_then_isolated_crop_v1"
+                    if resolved_selection_mode == "source-depth-isolate"
+                    else "crop_first_isolated_selection_v1"
+                ),
                 "selection_job_id": selection_job["job_id"],
                 "selection_mask": output_relative_path(selection_region_mask_path),
                 "depth_file": isolated_depth_path.name,
-                "depth_source": "selection_edited_image",
+                "depth_source": (
+                    "selection_original_source"
+                    if resolved_selection_mode == "source-depth-isolate"
+                    else "selection_edited_image"
+                ),
                 "depth_source_file": output_relative_path(depth_inference_source),
                 "background_depth_ratio": 0.0,
                 "mask_pixels": int(np.count_nonzero(selection_mask)),
@@ -1939,6 +2734,12 @@ async def process_image(
                     if key not in {"source_path", "selected_path", "mask_path"}
                 },
             }
+            if source_depth_crop is not None:
+                selection_depth_context["source_depth_crop"] = {
+                    key: value
+                    for key, value in source_depth_crop.items()
+                    if key != "depth_path"
+                }
             record_timing("selection_depth_context_seconds", stage_started)
         elif selection_job is not None:
             stage_started = time.perf_counter()
@@ -1959,12 +2760,22 @@ async def process_image(
                     "mask_pixels": int(np.count_nonzero(selection_mask)),
                     "mask_coverage_ratio": float(np.mean(selection_mask)),
                     "subject_surface_locked": True,
+                    "emission_scope": (
+                        "selected-mask-only"
+                        if selection_emission_only
+                        else "full-scene"
+                    ),
                 }
             else:
                 context_depth = np.load(depth_data_path).astype(np.float32)
+                effective_detail_basis_mm = resolve_relief_detail_basis_mm(
+                    max_xy_size,
+                    detail_basis_mm,
+                )
                 context_sample_pitch_mm = (
-                    float(max_xy_size) / max(max(context_depth.shape) - 1, 1)
-                    if max_xy_size is not None and float(max_xy_size) > 0
+                    float(effective_detail_basis_mm)
+                    / max(max(context_depth.shape) - 1, 1)
+                    if effective_detail_basis_mm is not None
                     else 1.0
                 )
                 try:
@@ -2028,7 +2839,15 @@ async def process_image(
             printer_clearance_mm=printer_clearance_mm,
             mesh_resolution_multiplier=mesh_resolution_multiplier,
         )
+        effective_detail_basis_mm = resolve_relief_detail_basis_mm(
+            max_xy_size,
+            detail_basis_mm,
+        )
         effective_sample_pitch_mm = relief_sample_pitch_mm(max_xy_size, effective_target_dimension)
+        effective_detail_sample_pitch_mm = relief_sample_pitch_mm(
+            effective_detail_basis_mm,
+            effective_target_dimension,
+        )
         effective_minimum_feature_mm = resolve_minimum_feature_mm(
             nozzle_diameter_mm,
             minimum_feature_mm,
@@ -2042,18 +2861,26 @@ async def process_image(
             bool(selection_subject_lock)
             or not bool(selection_depth_context.get("enabled", False))
         )
+        mesh_source_image = (
+            str(selection_crop["source_path"])
+            if selection_crop is not None
+            and resolved_selection_mode == "source-depth-isolate"
+            else depth_inference_source
+        )
         relief_postprocess = depth_data_to_3d_model(
             depth_data_path,
             output_stl_path=str(stl_path),
             target_dimension=effective_target_dimension,
             z_scale=z_scale,
+            base_thickness_mm=base_thickness_mm,
             max_xy_size=max_xy_size,
+            detail_basis_mm=effective_detail_basis_mm,
             invert=effective_invert,
             sigma=sigma,
             relief_gamma=relief_gamma,
             detail_boost=detail_boost,
             background_detail_boost=background_detail_boost,
-            source_image=depth_inference_source,
+            source_image=mesh_source_image,
             background_photo_detail_mm=background_photo_detail_mm,
             trim_top_background=effective_trim_top_background,
             feature_weight_mask=(
@@ -2082,10 +2909,13 @@ async def process_image(
                 else None
             ),
             selection_region_mask=(
-                None if resolved_selection_mode == "isolate" else selection_region_mask_path
+                None
+                if resolved_selection_mode in isolated_selection_modes
+                else selection_region_mask_path
             ),
             selection_background_depth_ratio=effective_selection_background_depth_ratio,
             selection_subject_lock=selection_subject_lock,
+            selection_emission_only=selection_emission_only,
             surface_output_path=job_dir / "output_surface.npy",
             reference_surface_output_path=job_dir / "output_reference_surface.npy",
         )
@@ -2098,11 +2928,32 @@ async def process_image(
 
         stage_started = time.perf_counter()
         diagnostics = json_safe_stl_diagnostics(stl_diagnostics(stl_path))
+        if selection_emission_only:
+            required_selected_topology = {
+                "stl_is_watertight": True,
+                "stl_is_volume": True,
+                "stl_is_manifold": True,
+                "stl_winding_consistent": True,
+                "stl_single_component": True,
+            }
+            failed_selected_topology = [
+                name
+                for name, expected in required_selected_topology.items()
+                if diagnostics.get(name) is not expected
+            ]
+            if diagnostics.get("stl_degenerate_face_count") != 0:
+                failed_selected_topology.append("stl_degenerate_face_count")
+            if failed_selected_topology:
+                raise ValueError(
+                    "Selected relief failed printable topology checks: "
+                    + ", ".join(failed_selected_topology)
+                )
         diagnostics.update(
             {
                 "job_id": job_id,
                 "runner": "depth-relief",
                 "artifact_contract": "output_model.stl + diagnostics.json",
+                "relief_postprocess": relief_postprocess,
             }
         )
         record_timing("diagnostics_seconds", stage_started)
@@ -2122,11 +2973,16 @@ async def process_image(
             "depth_fallback_reason": depth_metadata.get("fallback_reason"),
             "depth_metadata": depth_metadata,
             "device": device,
+            "requested_depth_inference_precision": normalized_depth_inference_precision,
+            "depth_inference_precision": depth_metadata.get("effective_inference_precision"),
             "target_dimension": effective_target_dimension,
             "requested_target_dimension": requested_target_dimension,
             "relief_sample_pitch_mm": effective_sample_pitch_mm,
+            "detail_sample_pitch_mm": effective_detail_sample_pitch_mm,
             "z_scale": z_scale,
+            "base_thickness_mm": base_thickness_mm,
             "max_xy_size": max_xy_size,
+            "detail_basis_mm": effective_detail_basis_mm,
             "printer": {
                 "profile": printer_profile,
                 "max_x_mm": printer_max_x_mm,
@@ -2160,6 +3016,7 @@ async def process_image(
             "effective_selection_background_depth_ratio": effective_selection_background_depth_ratio,
             "selection_mode": resolved_selection_mode,
             "selection_subject_lock": bool(selection_subject_lock),
+            "selection_emission_only": bool(selection_emission_only),
             "selection_crop": (
                 {
                     key: value
@@ -2656,6 +3513,51 @@ async def health():
         "output_dir": str(OUTPUT_DIR),
         "runtime": get_runtime_info(),
     }
+
+
+def release_runtime_models_for_heavy_gpu_job() -> dict:
+    selection_models = len(SELECTION_MODEL_CACHE)
+    started = time.perf_counter()
+    cuda_before = None
+    cuda_after = None
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            cuda_before = {
+                "allocated_bytes": int(torch.cuda.memory_allocated()),
+                "reserved_bytes": int(torch.cuda.memory_reserved()),
+            }
+    except (ImportError, RuntimeError):
+        torch = None
+
+    release_selection_models()
+    release_depth_pipelines()
+    release_inpaint_pipelines()
+
+    if torch is not None:
+        try:
+            if torch.cuda.is_available():
+                cuda_after = {
+                    "allocated_bytes": int(torch.cuda.memory_allocated()),
+                    "reserved_bytes": int(torch.cuda.memory_reserved()),
+                }
+        except RuntimeError:
+            pass
+    return {
+        "status": "released",
+        "selection_models_released": int(selection_models),
+        "released_caches": ["selection", "depth", "inpaint"],
+        "cuda_before": cuda_before,
+        "cuda_after": cuda_after,
+        "release_seconds": round(time.perf_counter() - started, 3),
+    }
+
+
+@app.post("/runtime/release-models")
+async def release_runtime_models():
+    """Yield this process's model memory to a heavier local GPU runner."""
+    return await asyncio.to_thread(release_runtime_models_for_heavy_gpu_job)
 
 
 @app.get("/depth/preload/depthpro/status")

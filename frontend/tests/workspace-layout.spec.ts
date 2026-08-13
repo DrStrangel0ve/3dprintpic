@@ -172,3 +172,29 @@ test('run plan is available without dominating the workspace', async ({ page }) 
   await runPlan.locator('summary').click();
   await expect(runPlan.locator('pre')).toBeVisible();
 });
+
+test('print footprint reports independent X and Y dimensions from the media aspect ratio', async ({ page }) => {
+  await mockBackendServices(page);
+  await page.goto('/');
+
+  await expect(page.getByTestId('print-size-x')).toHaveText('--');
+  await expect(page.getByTestId('print-size-y')).toHaveText('--');
+
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'wide.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="400" height="200" fill="white"/></svg>'),
+  });
+
+  await expect(page.getByText('Trim empty sky')).toBeVisible();
+  await expect(page.getByTestId('print-size-x')).toHaveText('256.0 mm');
+  await expect(page.getByTestId('print-size-y')).toHaveText('128.0 mm');
+
+  await page.getByLabel('Print size').fill('50');
+  await expect(page.getByTestId('print-size-x')).toHaveText('128.0 mm');
+  await expect(page.getByTestId('print-size-y')).toHaveText('64.0 mm');
+  await expect(page.getByText('512 depth / 512 STL samples, 0.25 mm/sample')).toBeVisible();
+
+  await page.getByLabel('Nozzle').fill('0.6');
+  await expect(page.getByText('512 depth / 427 STL samples, 0.30 mm/sample')).toBeVisible();
+});
