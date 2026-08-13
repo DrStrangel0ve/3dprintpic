@@ -695,7 +695,7 @@ class SpaceRuntimeTests(unittest.TestCase):
     def test_model_and_source_revisions_are_immutable(self):
         self.assertEqual(
             space_runtime.PROJECT_REVISION,
-            "824c4552a238aa44ac3693cfb62be07f66ecec91",
+            "cbaa459ac672a62c0374946b0ba3a5601a2a407d",
         )
         self.assertEqual(
             space_runtime.TRIPOSG_SOURCE_REVISION,
