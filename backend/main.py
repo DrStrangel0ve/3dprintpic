@@ -2407,6 +2407,7 @@ async def process_image(
     selection_job_id: str | None = Form(None),
     selection_mode: str = Form("context"),
     selection_subject_lock: bool = Form(False),
+    selection_emission_only: bool = Form(False),
     depth_provider: str = Form(DEFAULT_DEPTH_PROVIDER),
     depth_model: str | None = Form(None),
     device: str = Form("auto"),
@@ -2502,6 +2503,27 @@ async def process_image(
             raise HTTPException(
                 status_code=400,
                 detail="Selection isolate mode requires a composed selection job",
+            )
+        if selection_emission_only and selection_job is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Selected-only emission requires a composed selection job",
+            )
+        if selection_emission_only and resolved_selection_mode != "context":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Selected-only emission requires context mode so depth is "
+                    "estimated from the complete original photograph"
+                ),
+            )
+        if selection_emission_only and not selection_subject_lock:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Selected-only emission requires selection_subject_lock so "
+                    "the retained subject uses the unmodified full-scene surface"
+                ),
             )
         resolved_completion_mode = str(completion_mode or "none").strip().lower()
         if resolved_completion_mode not in ("", "none"):
@@ -2727,6 +2749,11 @@ async def process_image(
                     "mask_pixels": int(np.count_nonzero(selection_mask)),
                     "mask_coverage_ratio": float(np.mean(selection_mask)),
                     "subject_surface_locked": True,
+                    "emission_scope": (
+                        "selected-mask-only"
+                        if selection_emission_only
+                        else "full-scene"
+                    ),
                 }
             else:
                 context_depth = np.load(depth_data_path).astype(np.float32)
@@ -2877,6 +2904,7 @@ async def process_image(
             ),
             selection_background_depth_ratio=effective_selection_background_depth_ratio,
             selection_subject_lock=selection_subject_lock,
+            selection_emission_only=selection_emission_only,
             surface_output_path=job_dir / "output_surface.npy",
             reference_surface_output_path=job_dir / "output_reference_surface.npy",
         )
@@ -2889,6 +2917,26 @@ async def process_image(
 
         stage_started = time.perf_counter()
         diagnostics = json_safe_stl_diagnostics(stl_diagnostics(stl_path))
+        if selection_emission_only:
+            required_selected_topology = {
+                "stl_is_watertight": True,
+                "stl_is_volume": True,
+                "stl_is_manifold": True,
+                "stl_winding_consistent": True,
+                "stl_single_component": True,
+            }
+            failed_selected_topology = [
+                name
+                for name, expected in required_selected_topology.items()
+                if diagnostics.get(name) is not expected
+            ]
+            if diagnostics.get("stl_degenerate_face_count") != 0:
+                failed_selected_topology.append("stl_degenerate_face_count")
+            if failed_selected_topology:
+                raise ValueError(
+                    "Selected relief failed printable topology checks: "
+                    + ", ".join(failed_selected_topology)
+                )
         diagnostics.update(
             {
                 "job_id": job_id,
@@ -2955,6 +3003,7 @@ async def process_image(
             "effective_selection_background_depth_ratio": effective_selection_background_depth_ratio,
             "selection_mode": resolved_selection_mode,
             "selection_subject_lock": bool(selection_subject_lock),
+            "selection_emission_only": bool(selection_emission_only),
             "selection_crop": (
                 {
                     key: value

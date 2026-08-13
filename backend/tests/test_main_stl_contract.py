@@ -595,6 +595,7 @@ class MainStlContractTest(unittest.TestCase):
                     {
                         "depth_path": Path(depth_path),
                         "selection_subject_lock": kwargs["selection_subject_lock"],
+                        "selection_emission_only": kwargs["selection_emission_only"],
                         "selection_region_mask": Path(kwargs["selection_region_mask"]),
                         "selection_background_depth_ratio": kwargs[
                             "selection_background_depth_ratio"
@@ -605,6 +606,13 @@ class MainStlContractTest(unittest.TestCase):
                 Path(output_stl_path).write_bytes(b"solid fixture\nendsolid fixture\n")
                 return {
                     "selection_subject_lock": kwargs["selection_subject_lock"],
+                    "selection_emission": {
+                        "enabled": kwargs["selection_emission_only"],
+                        "method": "full_scene_depth_selected_mask_emission_v1",
+                        "retained_unselected_pixels": 0,
+                        "removed_selected_pixels": 0,
+                        "retained_selection_ratio": 1.0,
+                    },
                     "selection_gradient_compression": {
                         "enabled": False,
                         "reason": "subject_surface_locked",
@@ -635,6 +643,11 @@ class MainStlContractTest(unittest.TestCase):
                     "stl_diagnostics",
                     return_value={
                         "stl_is_watertight": True,
+                        "stl_is_volume": True,
+                        "stl_is_manifold": True,
+                        "stl_winding_consistent": True,
+                        "stl_single_component": True,
+                        "stl_degenerate_face_count": 0,
                         "stl_passes_hard_checks": True,
                         "stl_failed_checks": [],
                     },
@@ -678,6 +691,7 @@ class MainStlContractTest(unittest.TestCase):
                         "selection_job_id": selection_job_id,
                         "selection_mode": "context",
                         "selection_subject_lock": "true",
+                        "selection_emission_only": "true",
                         "target_dimension": "-1",
                         "trim_top_background": "true",
                     },
@@ -686,6 +700,7 @@ class MainStlContractTest(unittest.TestCase):
             self.assertEqual(response.status_code, 200, response.text)
             payload = response.json()
             self.assertTrue(observed_mesh["selection_subject_lock"])
+            self.assertTrue(observed_mesh["selection_emission_only"])
             self.assertEqual(observed_mesh["depth_path"].name, "output_depth_data.npy")
             self.assertEqual(
                 observed_mesh["selection_region_mask"],
@@ -700,6 +715,7 @@ class MainStlContractTest(unittest.TestCase):
             )
             self.assertEqual(observed_mesh["base_thickness_mm"], 2.4)
             self.assertTrue(payload["selection_subject_lock"])
+            self.assertTrue(payload["selection_emission_only"])
             self.assertTrue(payload["effective_trim_top_background"])
             self.assertEqual(
                 payload["selection_depth_context"]["method"],
@@ -707,6 +723,10 @@ class MainStlContractTest(unittest.TestCase):
             )
             self.assertTrue(
                 payload["selection_depth_context"]["subject_surface_locked"]
+            )
+            self.assertEqual(
+                payload["selection_depth_context"]["emission_scope"],
+                "selected-mask-only",
             )
             self.assertTrue(payload["depth_data"].endswith("output_depth_data.npy"))
             self.assertFalse(

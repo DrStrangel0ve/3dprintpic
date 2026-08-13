@@ -56,6 +56,8 @@ HIGH_RELIEF_FACE_MIN_DETAIL_CORRELATION = 0.85
 HIGH_RELIEF_SELECTION_SCREENING_WEIGHT = 2.0
 HIGH_RELIEF_SELECTION_DETAIL_GRADIENT_RETENTION = 0.9
 DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO = 0.65
+MAX_SELECTION_EMISSION_COMPONENTS = 32
+MAX_SELECTION_BACKING_CONNECTOR_RATIO = 0.10
 NORMALIZATION_REFERENCE_BOUNDARY_PX = 1.0
 NORMALIZATION_REFERENCE_TAPER_PX = 4.0
 METRIC_FAR_HIGH_DEPTH_MODELS = frozenset(
@@ -3466,6 +3468,318 @@ def _physical_sample_pitch_mm(shape, max_xy_size):
     return physical_size / float(coordinate_max)
 
 
+def _physical_sample_pitch_mm_for_mask(surface_mask, max_xy_size):
+    mask = np.asarray(surface_mask, dtype=bool)
+    rows, columns = np.where(mask)
+    if rows.size == 0:
+        return _physical_sample_pitch_mm(mask.shape, max_xy_size)
+    bbox_shape = (
+        int(rows.max() - rows.min() + 1),
+        int(columns.max() - columns.min() + 1),
+    )
+    return _physical_sample_pitch_mm(bbox_shape, max_xy_size)
+
+
+def _valid_relief_cells(surface_mask):
+    mask = np.asarray(surface_mask, dtype=bool)
+    return (
+        mask[:-1, :-1]
+        & mask[1:, :-1]
+        & mask[:-1, 1:]
+        & mask[1:, 1:]
+    )
+
+
+def _mesh_vertex_support_mask(surface_mask):
+    mask = np.asarray(surface_mask, dtype=bool)
+    supported = np.zeros(mask.shape, dtype=bool)
+    valid_cells = _valid_relief_cells(mask)
+    supported[:-1, :-1] |= valid_cells
+    supported[1:, :-1] |= valid_cells
+    supported[:-1, 1:] |= valid_cells
+    supported[1:, 1:] |= valid_cells
+    return supported
+
+
+def _minimal_component_connector_mask(
+    surface_mask,
+    *,
+    sample_pitch_mm,
+    minimum_width_mm,
+):
+    """Connect detached relief islands with narrow backing-only supports."""
+    selected = np.asarray(surface_mask, dtype=bool)
+    components, component_count = label(
+        selected,
+        structure=np.ones((3, 3), dtype=np.uint8),
+    )
+    stats = {
+        "enabled": False,
+        "method": "minimum_spanning_backing_bridge_v1",
+        "component_count_before": int(component_count),
+        "component_count_after": int(component_count),
+        "accepted": False,
+        "bridge_pixels": 0,
+        "bridge_segments": 0,
+        "bridge_length_px": 0.0,
+    }
+    try:
+        pitch = float(sample_pitch_mm)
+    except (TypeError, ValueError):
+        pitch = 1.0
+    if not np.isfinite(pitch) or pitch <= 0:
+        pitch = 1.0
+    try:
+        width_mm = float(minimum_width_mm)
+    except (TypeError, ValueError):
+        width_mm = pitch
+    if not np.isfinite(width_mm) or width_mm <= 0:
+        width_mm = pitch
+    width_px = max(1, int(np.ceil(width_mm / pitch)))
+    selected_pixels = int(np.count_nonzero(selected))
+    bridge_budget_pixels = int(
+        np.floor(selected_pixels * MAX_SELECTION_BACKING_CONNECTOR_RATIO)
+    )
+
+    stats.update(
+        {
+            "selected_pixels": selected_pixels,
+            "maximum_component_count": int(MAX_SELECTION_EMISSION_COMPONENTS),
+            "maximum_bridge_ratio": float(
+                MAX_SELECTION_BACKING_CONNECTOR_RATIO
+            ),
+            "bridge_budget_pixels": bridge_budget_pixels,
+        }
+    )
+    if selected_pixels == 0:
+        stats["reason"] = "empty_selection"
+        return np.zeros(selected.shape, dtype=bool), stats
+    if component_count > MAX_SELECTION_EMISSION_COMPONENTS:
+        stats["reason"] = "component_budget_exceeded"
+        return np.zeros(selected.shape, dtype=bool), stats
+
+    bridge = np.zeros(selected.shape, dtype=bool)
+    segment_lengths = []
+
+    if component_count > 1:
+        component_sizes = np.bincount(
+            components.ravel(),
+            minlength=component_count + 1,
+        )
+        primary_label = int(np.argmax(component_sizes[1:]) + 1)
+        connected = components == primary_label
+        remaining = set(range(1, component_count + 1)) - {primary_label}
+
+        while remaining:
+            distance, nearest = distance_transform_edt(
+                ~connected,
+                return_indices=True,
+            )
+            best = None
+            for component_label in sorted(remaining):
+                component_rows, component_cols = np.where(
+                    components == component_label
+                )
+                if component_rows.size == 0:
+                    continue
+                component_distances = distance[component_rows, component_cols]
+                endpoint_index = int(np.argmin(component_distances))
+                candidate = (
+                    float(component_distances[endpoint_index]),
+                    component_label,
+                    int(component_rows[endpoint_index]),
+                    int(component_cols[endpoint_index]),
+                )
+                if best is None or candidate < best:
+                    best = candidate
+            if best is None:
+                break
+
+            segment_length, component_label, target_row, target_col = best
+            source_row = int(nearest[0, target_row, target_col])
+            source_col = int(nearest[1, target_row, target_col])
+            segment = np.zeros(selected.shape, dtype=np.uint8)
+            cv2.line(
+                segment,
+                (source_col, source_row),
+                (target_col, target_row),
+                color=255,
+                thickness=width_px,
+                lineType=cv2.LINE_8,
+            )
+            segment_mask = segment > 0
+            bridge |= segment_mask & ~selected
+            connected |= segment_mask | (components == component_label)
+            remaining.remove(component_label)
+            segment_lengths.append(segment_length)
+            if np.count_nonzero(bridge) > bridge_budget_pixels:
+                break
+
+    connected_mask = selected | bridge
+    initial_mesh_support = _mesh_vertex_support_mask(connected_mask)
+    initially_unsupported_selected = selected & ~initial_mesh_support
+    if np.any(initially_unsupported_selected):
+        support_patch = (
+            maximum_filter(
+                initially_unsupported_selected.astype(np.uint8),
+                size=3,
+                mode="constant",
+                cval=0,
+            )
+            > 0
+        )
+        bridge |= support_patch & ~selected
+        connected_mask = selected | bridge
+
+    mesh_component_count_after = 0
+    mesh_bridge_segments = 0
+    initial_valid_cells = _valid_relief_cells(connected_mask)
+    _, initial_mesh_component_count = label(
+        initial_valid_cells,
+        structure=np.array(
+            [[0, 1, 0], [1, 1, 1], [0, 1, 0]],
+            dtype=np.uint8,
+        ),
+    )
+    mesh_component_count_before = int(initial_mesh_component_count)
+    max_mesh_bridge_attempts = max(0, int(initial_mesh_component_count) - 1)
+    for _attempt in range(max_mesh_bridge_attempts):
+        valid_cells = _valid_relief_cells(connected_mask)
+        cell_labels, cell_component_count = label(
+            valid_cells,
+            structure=np.array(
+                [[0, 1, 0], [1, 1, 1], [0, 1, 0]],
+                dtype=np.uint8,
+            ),
+        )
+        mesh_component_count_after = int(cell_component_count)
+        if cell_component_count <= 1:
+            break
+
+        cell_sizes = np.bincount(
+            cell_labels.ravel(),
+            minlength=cell_component_count + 1,
+        )
+        primary_cell_label = int(np.argmax(cell_sizes[1:]) + 1)
+
+        def cell_vertices(component_label):
+            rows, columns = np.where(cell_labels == component_label)
+            vertices = np.zeros(connected_mask.shape, dtype=bool)
+            vertices[rows, columns] = True
+            vertices[rows + 1, columns] = True
+            vertices[rows, columns + 1] = True
+            vertices[rows + 1, columns + 1] = True
+            return vertices
+
+        primary_vertices = cell_vertices(primary_cell_label)
+        distance, nearest = distance_transform_edt(
+            ~primary_vertices,
+            return_indices=True,
+        )
+        best = None
+        for cell_label in range(1, cell_component_count + 1):
+            if cell_label == primary_cell_label:
+                continue
+            component_vertices = cell_vertices(cell_label)
+            target_rows, target_cols = np.where(component_vertices)
+            if target_rows.size == 0:
+                continue
+            component_distances = distance[target_rows, target_cols]
+            endpoint_index = int(np.argmin(component_distances))
+            candidate = (
+                float(component_distances[endpoint_index]),
+                int(cell_label),
+                int(target_rows[endpoint_index]),
+                int(target_cols[endpoint_index]),
+            )
+            if best is None or candidate < best:
+                best = candidate
+        if best is None:
+            break
+
+        segment_length, _cell_label, target_row, target_col = best
+        source_row = int(nearest[0, target_row, target_col])
+        source_col = int(nearest[1, target_row, target_col])
+        segment = np.zeros(selected.shape, dtype=np.uint8)
+        cv2.line(
+            segment,
+            (source_col, source_row),
+            (target_col, target_row),
+            color=255,
+            thickness=max(2, width_px),
+            lineType=cv2.LINE_8,
+        )
+        segment_mask = segment > 0
+        new_bridge = segment_mask & ~selected
+        if not np.any(new_bridge & ~bridge):
+            break
+        bridge |= new_bridge
+        connected_mask = selected | bridge
+        segment_lengths.append(segment_length)
+        mesh_bridge_segments += 1
+        if np.count_nonzero(bridge) > bridge_budget_pixels:
+            break
+
+    valid_cells = _valid_relief_cells(connected_mask)
+    _, final_component_count = label(
+        valid_cells,
+        structure=np.array(
+            [[0, 1, 0], [1, 1, 1], [0, 1, 0]],
+            dtype=np.uint8,
+        ),
+    )
+    mesh_component_count_after = int(final_component_count)
+    final_mesh_support = _mesh_vertex_support_mask(connected_mask)
+    unsupported_selected_pixels = int(
+        np.count_nonzero(selected & ~final_mesh_support)
+    )
+    bridge_pixels = int(np.count_nonzero(bridge))
+    bridge_ratio = float(bridge_pixels / max(selected_pixels, 1))
+    within_bridge_budget = bool(bridge_pixels <= bridge_budget_pixels)
+    accepted = bool(
+        final_component_count == 1
+        and unsupported_selected_pixels == 0
+        and within_bridge_budget
+    )
+    if final_component_count != 1:
+        reason = "connection_incomplete"
+    elif unsupported_selected_pixels:
+        reason = "selected_pixels_without_mesh_support"
+    elif not within_bridge_budget:
+        reason = "bridge_budget_exceeded"
+    else:
+        reason = None
+    stats.update(
+        {
+            "enabled": bool(np.any(bridge)),
+            "accepted": accepted,
+            "reason": reason,
+            "component_count_after": int(final_component_count),
+            "pixel_component_count_before": int(component_count),
+            "mesh_component_count_before": int(mesh_component_count_before),
+            "mesh_component_count_after": int(mesh_component_count_after),
+            "bridge_pixels": bridge_pixels,
+            "bridge_ratio": bridge_ratio,
+            "within_bridge_budget": within_bridge_budget,
+            "bridge_segments": int(len(segment_lengths)),
+            "mesh_bridge_segments": int(mesh_bridge_segments),
+            "initially_unsupported_selected_pixels": int(
+                np.count_nonzero(initially_unsupported_selected)
+            ),
+            "unsupported_selected_mesh_pixels": unsupported_selected_pixels,
+            "mesh_supported_selected_pixels": int(
+                selected_pixels - unsupported_selected_pixels
+            ),
+            "bridge_length_px": float(np.sum(segment_lengths)),
+            "bridge_width_px": int(width_px),
+            "bridge_width_mm": float(width_px * pitch),
+            "minimum_width_mm": float(width_mm),
+            "sample_pitch_mm": float(pitch),
+        }
+    )
+    return bridge, stats
+
+
 def _resolve_detail_basis_mm(max_xy_size, detail_basis_mm):
     def positive_size(value):
         try:
@@ -6385,6 +6699,7 @@ def depth_data_to_3d_model(
     selection_region_mask=None,
     selection_background_depth_ratio=DEFAULT_SELECTION_BACKGROUND_DEPTH_RATIO,
     selection_subject_lock=False,
+    selection_emission_only=False,
     background_detail_boost=1.0,
     source_image=None,
     background_photo_detail_mm=0.0,
@@ -6508,6 +6823,10 @@ def depth_data_to_3d_model(
     subject_surface_locked = bool(
         selection_subject_lock and selected_region is not None
     )
+    if selection_emission_only and selected_region is None:
+        raise ValueError(
+            "selection_emission_only requires a selection_region_mask"
+        )
     detail_protection_mask = None
     if region_mask is not None or (
         selected_region is not None and not subject_surface_locked
@@ -7503,6 +7822,66 @@ def depth_data_to_3d_model(
     # Every finite top-surface sample must stay on or above the backing plate,
     # including exports that disable the optional flattened border.
     top_silhouette_mask = emission_top_silhouette_mask
+    selection_emission_stats = {
+        "enabled": False,
+        "reason": "not_requested",
+        "application_stage": "final_mesh_emission",
+    }
+    selection_backing_connector_mask = np.zeros(z.shape, dtype=bool)
+    if selection_emission_only:
+        selected_emission_mask = _resize_binary_mask(selected_region, z.shape)
+        finite_surface_mask = np.isfinite(z)
+        candidate_mask = finite_surface_mask & top_silhouette_mask
+        retained_mask = candidate_mask & selected_emission_mask
+        removed_mask = candidate_mask & ~selected_emission_mask
+        removed_selected_mask = selected_emission_mask & ~candidate_mask
+        removed_selected_pixels = int(np.count_nonzero(removed_selected_mask))
+        if removed_selected_pixels:
+            raise ValueError(
+                "Selected relief lost source-supported pixels before mesh emission"
+            )
+        selected_output_mask = candidate_mask & selected_emission_mask
+        connector_mask, connector_stats = _minimal_component_connector_mask(
+            selected_output_mask,
+            sample_pitch_mm=_physical_sample_pitch_mm_for_mask(
+                selected_output_mask,
+                max_xy_size,
+            ),
+            minimum_width_mm=minimum_feature_mm,
+        )
+        selection_backing_connector_mask = connector_mask
+        if connector_stats.get("accepted") is not True:
+            raise ValueError(
+                "Selected relief could not be emitted with bounded backing supports: "
+                f"{connector_stats.get('reason', 'unknown')}"
+            )
+        top_silhouette_mask = selected_output_mask | connector_mask
+        if np.any(connector_mask):
+            z = np.where(connector_mask, backing_thickness_mm, z)
+        selection_emission_stats = {
+            "enabled": True,
+            "method": "full_scene_depth_selected_mask_emission_v1",
+            "application_stage": "final_mesh_emission",
+            "candidate_pixels": int(np.count_nonzero(candidate_mask)),
+            "selection_pixels": int(np.count_nonzero(selected_emission_mask)),
+            "retained_pixels": int(np.count_nonzero(retained_mask)),
+            "removed_unselected_pixels": int(np.count_nonzero(removed_mask)),
+            "removed_selected_pixels": removed_selected_pixels,
+            "retained_unselected_pixels": int(
+                np.count_nonzero(
+                    top_silhouette_mask
+                    & ~selected_emission_mask
+                    & ~connector_mask
+                )
+            ),
+            "backing_connector_pixels": int(np.count_nonzero(connector_mask)),
+            "backing_connector_height_mm": float(backing_thickness_mm),
+            "backing_connector": connector_stats,
+            "retained_selection_ratio": float(
+                np.count_nonzero(retained_mask)
+                / max(np.count_nonzero(selected_emission_mask), 1)
+            ),
+        }
     z = np.where(
         top_silhouette_mask,
         np.maximum(z, backing_thickness_mm),
@@ -7574,9 +7953,14 @@ def depth_data_to_3d_model(
     # Crop the data to the bounding box
     z = z[top:bottom, left:right]
     mask = mask[top:bottom, left:right]
+    emitted_reference_surface = np.where(
+        selection_backing_connector_mask,
+        backing_thickness_mm,
+        unstabilized_scene,
+    )
     reference_surface = np.where(
         top_silhouette_mask,
-        unstabilized_scene,
+        emitted_reference_surface,
         np.nan,
     )[top:bottom, left:right]
     surface_grid_transform = {
@@ -7734,6 +8118,7 @@ def depth_data_to_3d_model(
         "background_photo_detail_mm": float(background_photo_detail_mm),
         "background_photo_detail": photo_detail_stats,
         "selection_background_depth_ratio": float(selection_background_depth_ratio),
+        "selection_emission": selection_emission_stats,
         "normalization_reference_depth": {
             "enabled": normalization_reference is not None,
             "method": (

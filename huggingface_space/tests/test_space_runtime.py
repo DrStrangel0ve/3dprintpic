@@ -414,10 +414,26 @@ class SpaceRuntimeTests(unittest.TestCase):
                 "stl_diagnostics": {"is_watertight": True, "component_count": 1},
                 "selection_mode": "context",
                 "selection_subject_lock": True,
+                "selection_emission_only": True,
                 "selection_crop": None,
                 "selection_depth_context": {
                     "method": "full_scene_subject_locked_background_v1",
                     "subject_surface_locked": True,
+                    "emission_scope": "selected-mask-only",
+                },
+                "relief_postprocess": {
+                    "selection_emission": {
+                        "enabled": True,
+                        "method": "full_scene_depth_selected_mask_emission_v1",
+                        "retained_unselected_pixels": 0,
+                        "removed_selected_pixels": 0,
+                        "retained_selection_ratio": 1.0,
+                        "backing_connector": {
+                            "accepted": True,
+                            "within_bridge_budget": True,
+                            "unsupported_selected_mesh_pixels": 0,
+                        },
+                    }
                 },
             }
             with (
@@ -444,6 +460,7 @@ class SpaceRuntimeTests(unittest.TestCase):
                 {
                     "selection_mode",
                     "selection_subject_lock",
+                    "selection_emission_only",
                     "selection_job_id",
                     "depth_provider",
                     "depth_model",
@@ -488,6 +505,7 @@ class SpaceRuntimeTests(unittest.TestCase):
             self.assertNotIn("selection_background_depth_ratio", request_data)
             self.assertEqual(request_data["selection_mode"], "context")
             self.assertEqual(request_data["selection_subject_lock"], "true")
+            self.assertEqual(request_data["selection_emission_only"], "true")
             self.assertEqual(request_data["device"], "auto")
             self.assertEqual(request_data["invert"], "false")
             self.assertEqual(request_data["target_dimension"], "512")
@@ -516,7 +534,7 @@ class SpaceRuntimeTests(unittest.TestCase):
             self.assertEqual(result[3]["summary"]["base_thickness_mm"], 2.4)
             self.assertEqual(
                 result[3]["summary"]["scope"],
-                "selected-objects-local-context",
+                "selected-objects-full-source-depth",
             )
             self.assertEqual(
                 result[3]["summary"]["selection_mode"],
@@ -524,7 +542,7 @@ class SpaceRuntimeTests(unittest.TestCase):
             )
             self.assertEqual(
                 result[3]["summary"]["local_relief_parity"],
-                "full-scene-subject-lock-v1",
+                "full-source-depth-selected-emission-v1",
             )
             self.assertFalse(result[3]["summary"]["inpainting"])
 
@@ -543,7 +561,7 @@ class SpaceRuntimeTests(unittest.TestCase):
                     520,
                 )
 
-    def test_selected_relief_matches_local_full_scene_topology_end_to_end(self):
+    def test_selected_relief_uses_full_scene_depth_then_exact_mask_emission(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             output_dir = root / "output"
@@ -644,17 +662,33 @@ class SpaceRuntimeTests(unittest.TestCase):
             selected_surface = np.load(selected_job_dir / "output_surface.npy")
             full_surface = np.load(full_job_dir / "output_surface.npy")
             selected_mesh = trimesh.load_mesh(selected_result[0], force="mesh")
-            full_mesh = trimesh.load_mesh(full_result[0], force="mesh")
-
-            self.assertEqual(selected_surface.shape, full_surface.shape)
-            selected_coverage = np.isfinite(selected_surface)
-            full_coverage = np.isfinite(full_surface)
-            emitted_selection = np.flip(mask_values > 0, axis=1)
-            self.assertTrue(np.all(selected_coverage[full_coverage]))
-            self.assertFalse(
-                np.any((selected_coverage & ~full_coverage) & ~emitted_selection)
+            selected_diagnostics = json.loads(
+                Path(selected_result[3]["full_report"]).read_text(encoding="utf-8")
             )
-            self.assertGreaterEqual(len(selected_mesh.faces), len(full_mesh.faces))
+            crop_top, crop_left, crop_bottom, crop_right = selected_diagnostics[
+                "relief_postprocess"
+            ]["surface_grid_transform"]["crop_bbox_rc"]
+            selected_coverage = np.isfinite(selected_surface)
+            emitted_selection = np.flip(mask_values > 0, axis=1)
+            cropped_selection = emitted_selection[
+                crop_top:crop_bottom,
+                crop_left:crop_right,
+            ]
+            cropped_full_surface = full_surface[
+                crop_top:crop_bottom,
+                crop_left:crop_right,
+            ]
+
+            self.assertEqual(selected_surface.shape, cropped_selection.shape)
+            np.testing.assert_array_equal(selected_coverage, cropped_selection)
+            np.testing.assert_array_equal(
+                selected_surface[selected_coverage],
+                cropped_full_surface[selected_coverage],
+            )
+            emission = selected_diagnostics["relief_postprocess"]["selection_emission"]
+            self.assertEqual(emission["retained_unselected_pixels"], 0)
+            self.assertEqual(emission["removed_selected_pixels"], 0)
+            self.assertEqual(emission["retained_selection_ratio"], 1.0)
             self.assertTrue(selected_mesh.is_watertight)
             self.assertTrue(selected_mesh.is_winding_consistent)
 

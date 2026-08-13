@@ -790,10 +790,11 @@ def generate_relief(
     depth_model_source = _depth_model_source()
     data = {
         # Keep this request contract aligned with the local Next.js frontend.
-        # Selection identifies the protected subject; it does not remove depth
-        # samples or change the rectangular relief topology.
+        # Infer and refine from the complete photograph, then apply the exact
+        # selection only when the final printable surface is emitted.
         "selection_mode": "context",
         "selection_subject_lock": "true" if selected else "false",
+        "selection_emission_only": "true" if selected else "false",
         "depth_provider": "transformers",
         "depth_model": depth_model_source,
         "device": "auto",
@@ -852,10 +853,35 @@ def generate_relief(
         if not isinstance(selection_context, dict) or not (
             selection_context.get("method") == "full_scene_subject_locked_background_v1"
             and selection_context.get("subject_surface_locked") is True
+            and selection_context.get("emission_scope") == "selected-mask-only"
             and result.get("selection_subject_lock") is True
+            and result.get("selection_emission_only") is True
             and result.get("selection_crop") is None
         ):
-            raise RuntimeError("Selected relief did not preserve the local full-scene subject-lock contract")
+            raise RuntimeError("Selected relief did not preserve the local full-source selected-emission contract")
+        selection_emission = result.get("relief_postprocess", {}).get(
+            "selection_emission"
+        )
+        backing_connector = (
+            selection_emission.get("backing_connector")
+            if isinstance(selection_emission, dict)
+            else None
+        )
+        if not isinstance(selection_emission, dict) or not (
+            selection_emission.get("enabled") is True
+            and selection_emission.get("method")
+            == "full_scene_depth_selected_mask_emission_v1"
+            and selection_emission.get("retained_unselected_pixels") == 0
+            and selection_emission.get("removed_selected_pixels") == 0
+            and selection_emission.get("retained_selection_ratio") == 1.0
+            and isinstance(backing_connector, dict)
+            and backing_connector.get("accepted") is True
+            and backing_connector.get("within_bridge_budget") is True
+            and backing_connector.get("unsupported_selected_mesh_pixels") == 0
+        ):
+            raise RuntimeError(
+                "Selected relief failed exact bounded-emission validation"
+            )
     job_dir = OUTPUT_DIR / result["job_id"]
     stl_path = OUTPUT_DIR / result["stl_model"]
     preview_path = job_dir / "output_relief_preview.png"
@@ -871,9 +897,9 @@ def generate_relief(
     }
     summary["relief_height_mm"] = float(relief_height_mm)
     summary["base_thickness_mm"] = float(base_thickness_mm)
-    summary["scope"] = "selected-objects-local-context" if selected else "full-scene"
+    summary["scope"] = "selected-objects-full-source-depth" if selected else "full-scene"
     summary["selection_mode"] = result.get("selection_mode", data["selection_mode"])
-    summary["local_relief_parity"] = "full-scene-subject-lock-v1"
+    summary["local_relief_parity"] = "full-source-depth-selected-emission-v1"
     summary["inpainting"] = False
     return (
         _safe_file(stl_path),

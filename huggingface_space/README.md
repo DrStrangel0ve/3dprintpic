@@ -69,13 +69,17 @@ The neutral preview is not used for depth estimation.
 For printable reliefs, `Select object` now uses the exact local frontend
 contract: `selection_mode=context` with `selection_subject_lock=true`. Depth
 Anything V2 and face preservation both see the complete original photograph.
-The selection protects the chosen subject while the same full, finite depth
-grid proceeds into the rectangular relief mesher. The selection mask does not
-change any sample to `NaN`, no selected-only crop is substituted, and the
-background remains at the backend's local `0.65` depth default. The normal local
-top-edge trim still applies identically in both modes. This prevents mask-shaped
-through-holes while preserving the local face, background, attachment, and
-watertight-shell behavior.
+The complete finite depth grid proceeds through the same local face,
+background, detail, and skyline stages. Only at final mesh emission is it
+intersected with the exact composed selection mask. Selected samples retain
+their full-scene Z values; unselected relief-height context is omitted.
+Disconnected selected islands receive only the minimum backing-height support
+needed for one printable component. That support is capped at 10% of selected
+area, selection input is capped at 32 islands, and thin selected edges must
+participate in real mesh cells. Generation fails closed if any selected sample
+is lost, support exceeds its bound, or final topology is not one clean volume.
+This preserves local-quality faces and depth without the broad compressed
+context plateaus produced by the former rectangular output scope.
 The Mesh detail menu also mirrors the local Bambu Lab P1S production presets:
 `1.5x`/384, `2x`/512, `3x`/768, and capped `4x`/900 samples. The Space sends the
 same printer bounds, nozzle, feature-width, scale, and mesh-multiplier fields as
@@ -139,7 +143,8 @@ The Space clones one immutable 3dprintpic GitHub revision and calls the same
 backend relief route as the local frontend. Relief generation uses the same
 Depth Anything V2 Large model, SAM 3 subject-lock context, 256 mm detail basis,
 scale-independent sampling, face guards, background controls, and
-depth-supported emission-only skyline trimming. For equal controls, the Space
+depth-supported skyline trimming. Selected reliefs additionally use the same
+exact-mask, bounded-backing final emission gate. For equal controls, the Space
 and local app therefore execute the same `backend/pic_to_3d.py` implementation
 instead of maintaining separate mesh algorithms.
 

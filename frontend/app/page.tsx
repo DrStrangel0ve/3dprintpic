@@ -2283,6 +2283,7 @@ export default function Home() {
           formData.append('selection_job_id', selectionJobId);
           formData.append('selection_mode', 'context');
           formData.append('selection_subject_lock', 'true');
+          formData.append('selection_emission_only', 'true');
         }
         formData.append('depth_provider', 'transformers');
         formData.append('depth_model', depthModel);

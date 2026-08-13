@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "date": "2026-08-13",
+  "method": "full_scene_depth_selected_mask_emission_v1",
+  "application_stage": "final_mesh_emission",
+  "source_artifacts_published": false,
+  "limits": {
+    "maximum_selection_components": 32,
+    "maximum_backing_connector_ratio": 0.1,
+    "backing_connector_height_mm": 2.4
+  },
+  "private_replay": {
+    "source_shape": [1536, 2048],
+    "surface_shape": [384, 512],
+    "relief_height_mm": 10.0,
+    "base_thickness_mm": 2.4,
+    "long_edge_mm": 76.0,
+    "detail_basis_mm": 256.0,
+    "selected_surface_samples": 68751,
+    "retained_selected_samples": 68751,
+    "removed_selected_samples": 0,
+    "mesh_supported_selected_samples": 68751,
+    "unsupported_selected_mesh_samples": 0,
+    "retained_selected_max_abs_z_delta_mm": 0.0,
+    "unselected_context_candidates_suppressed": 57269,
+    "backing_connector_pixels": 585,
+    "backing_connector_ratio": 0.008508967142296112,
+    "backing_connector_z_mm": [2.4, 2.4],
+    "reference_surface_coverage_exact": true,
+    "stl_faces": 277376,
+    "stl_bytes": 13868884,
+    "stl_sha256": "468b26d1463743413c9396f093432d9c146958c4fec7282655c1596a9aae715e",
+    "bbox_mm": [76.0, 56.96281814575195, 12.399999618530273],
+    "watertight": true,
+    "is_volume": true,
+    "manifold": true,
+    "winding_consistent": true,
+    "component_count": 1,
+    "nonmanifold_edge_count": 0,
+    "degenerate_face_count": 0,
+    "positive_volume": true
+  },
+  "privacy": {
+    "source_image_committed": false,
+    "selection_mask_committed": false,
+    "depth_tensor_committed": false,
+    "surface_tensor_committed": false,
+    "stl_committed": false
+  },
+  "validation": {
+    "backend_tests_passed": 1196,
+    "backend_subtests_passed": 129,
+    "space_tests_passed": 28,
+    "frontend_playwright_tests_passed": 11,
+    "frontend_playwright_tests_skipped": 1,
+    "frontend_lint_passed": true,
+    "frontend_typecheck_passed": true
+  }
+}

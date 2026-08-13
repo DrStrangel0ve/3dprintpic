@@ -36,6 +36,7 @@ from backend.pic_to_3d import (
     _prepare_depth_downsample_input,
     _depth_processor_output_size,
     _limit_positive_relief_slope,
+    _minimal_component_connector_mask,
     _prepare_relief_for_printing,
     _relax_selection_attachment_conflicts,
     _restore_background_from_reference,
@@ -53,6 +54,95 @@ from backend.pic_to_3d import (
 
 
 class ReliefStlControlsTest(unittest.TestCase):
+    def test_backing_connector_handles_diagonal_pixel_connection(self):
+        selected = np.zeros((24, 32), dtype=bool)
+        selected[2:11, 2:11] = True
+        selected[11:21, 11:23] = True
+
+        bridge, stats = _minimal_component_connector_mask(
+            selected,
+            sample_pitch_mm=0.2,
+            minimum_width_mm=0.8,
+        )
+        connected = selected | bridge
+        valid_cells = (
+            connected[:-1, :-1]
+            & connected[1:, :-1]
+            & connected[:-1, 1:]
+            & connected[1:, 1:]
+        )
+        _, component_count = pic_to_3d.label(
+            valid_cells,
+            structure=np.array(
+                [[0, 1, 0], [1, 1, 1], [0, 1, 0]],
+                dtype=np.uint8,
+            ),
+        )
+
+        self.assertTrue(stats["enabled"])
+        self.assertTrue(stats["accepted"])
+        self.assertEqual(stats["pixel_component_count_before"], 1)
+        self.assertEqual(stats["mesh_component_count_before"], 2)
+        self.assertEqual(stats["mesh_component_count_after"], 1)
+        self.assertGreater(stats["mesh_bridge_segments"], 0)
+        self.assertEqual(component_count, 1)
+        self.assertFalse(np.any(bridge & selected))
+
+    def test_backing_connector_rejects_fragmented_selection(self):
+        selected = np.zeros((96, 96), dtype=bool)
+        for row in range(8):
+            for column in range(8):
+                top = 2 + 11 * row
+                left = 2 + 11 * column
+                selected[top : top + 3, left : left + 3] = True
+
+        bridge, stats = _minimal_component_connector_mask(
+            selected,
+            sample_pitch_mm=0.2,
+            minimum_width_mm=0.8,
+        )
+
+        self.assertFalse(stats["accepted"])
+        self.assertEqual(stats["reason"], "component_budget_exceeded")
+        self.assertEqual(stats["component_count_before"], 64)
+        self.assertFalse(np.any(bridge))
+
+    def test_backing_connector_gives_thin_selection_pixels_mesh_support(self):
+        selected = np.zeros((72, 96), dtype=bool)
+        selected[10:60, 10:55] = True
+        selected[34, 55:88] = True
+
+        bridge, stats = _minimal_component_connector_mask(
+            selected,
+            sample_pitch_mm=0.2,
+            minimum_width_mm=0.8,
+        )
+        supported = pic_to_3d._mesh_vertex_support_mask(selected | bridge)
+
+        self.assertTrue(stats["accepted"])
+        self.assertGreater(stats["initially_unsupported_selected_pixels"], 0)
+        self.assertEqual(stats["unsupported_selected_mesh_pixels"], 0)
+        self.assertTrue(np.all(supported[selected]))
+        self.assertLessEqual(
+            stats["bridge_ratio"],
+            stats["maximum_bridge_ratio"],
+        )
+
+    def test_backing_connector_rejects_oversized_bridge(self):
+        selected = np.zeros((96, 160), dtype=bool)
+        selected[10:20, 10:20] = True
+        selected[70:80, 140:150] = True
+
+        _bridge, stats = _minimal_component_connector_mask(
+            selected,
+            sample_pitch_mm=0.2,
+            minimum_width_mm=0.8,
+        )
+
+        self.assertFalse(stats["accepted"])
+        self.assertEqual(stats["reason"], "bridge_budget_exceeded")
+        self.assertGreater(stats["bridge_pixels"], stats["bridge_budget_pixels"])
+
     def test_depth_processor_output_size_matches_aspect_preserving_dpt_resize(self):
         source = Image.new("RGB", (3840, 2160), (80, 120, 160))
         processor = SimpleNamespace(
@@ -2918,6 +3008,106 @@ class ReliefStlControlsTest(unittest.TestCase):
         )
         self.assertTrue(selected_mesh_is_watertight)
         self.assertTrue(selected_mesh_winding_is_consistent)
+
+    def test_selected_emission_removes_only_unselected_surface_pixels(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            depth_path = root / "depth.npy"
+            context_surface_path = root / "context-surface.npy"
+            emitted_surface_path = root / "emitted-surface.npy"
+            emitted_reference_path = root / "emitted-reference.npy"
+            rows, cols = np.indices((48, 72), dtype=np.float32)
+            selected = np.zeros((48, 72), dtype=bool)
+            selected[-5:, :] = True
+            selected[9:, 5:24] = True
+            selected[14:, 47:68] = True
+            selected[:22, 34:39] = True
+            depth = 0.08 + 0.0017 * rows + 0.0021 * cols
+            depth += selected * (
+                0.42
+                + 0.04 * np.cos(rows / 4.0)
+                + 0.03 * np.sin(cols / 3.0)
+            )
+            np.save(depth_path, depth.astype(np.float32))
+            common = {
+                "target_dimension": -1,
+                "z_scale": 10.0,
+                "max_xy_size": 48.0,
+                "sigma": 0.35,
+                "relief_gamma": 1.0,
+                "detail_boost": 0.0,
+                "trim_top_background": False,
+                "low_percentile": 0.0,
+                "high_percentile": 100.0,
+                "base_border_px": 1,
+                "minimum_feature_mm": 0.8,
+                "max_relief_slope": 2.0,
+                "selection_region_mask": selected,
+                "selection_background_depth_ratio": 0.65,
+                "selection_subject_lock": True,
+            }
+
+            depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(root / "context.stl"),
+                surface_output_path=context_surface_path,
+                **common,
+            )
+            postprocess = depth_data_to_3d_model(
+                depth_path,
+                output_stl_path=str(root / "selected-only.stl"),
+                surface_output_path=emitted_surface_path,
+                reference_surface_output_path=emitted_reference_path,
+                selection_emission_only=True,
+                **common,
+            )
+            context_surface = np.load(context_surface_path)
+            emitted_surface = np.load(emitted_surface_path)
+            emitted_reference = np.load(emitted_reference_path)
+            emitted_selection = np.flip(selected, axis=1)
+            emitted_mesh = trimesh.load_mesh(root / "selected-only.stl", force="mesh")
+
+        self.assertEqual(emitted_surface.shape, context_surface.shape)
+        emitted_coverage = np.isfinite(emitted_surface)
+        connector = emitted_coverage & ~emitted_selection
+        self.assertTrue(np.all(emitted_coverage[emitted_selection]))
+        np.testing.assert_array_equal(
+            emitted_surface[emitted_selection],
+            context_surface[emitted_selection],
+        )
+        self.assertTrue(np.any(connector))
+        np.testing.assert_array_equal(
+            emitted_surface[connector],
+            np.full(np.count_nonzero(connector), 0.01, dtype=np.float32),
+        )
+        np.testing.assert_array_equal(
+            emitted_reference[connector],
+            emitted_surface[connector],
+        )
+        np.testing.assert_array_equal(
+            np.isfinite(emitted_reference),
+            emitted_coverage,
+        )
+        emission = postprocess["selection_emission"]
+        self.assertTrue(emission["enabled"])
+        self.assertEqual(
+            emission["method"],
+            "full_scene_depth_selected_mask_emission_v1",
+        )
+        self.assertEqual(emission["retained_unselected_pixels"], 0)
+        self.assertEqual(emission["removed_selected_pixels"], 0)
+        self.assertEqual(emission["retained_selection_ratio"], 1.0)
+        self.assertEqual(
+            emission["backing_connector_pixels"],
+            np.count_nonzero(connector),
+        )
+        self.assertEqual(
+            emission["backing_connector"]["component_count_after"],
+            1,
+        )
+        self.assertTrue(emitted_mesh.is_watertight)
+        self.assertTrue(emitted_mesh.is_winding_consistent)
+        self.assertEqual(len(emitted_mesh.split(only_watertight=False)), 1)
 
     def test_selected_surface_appearance_holds_across_physical_sample_pitches(self):
         from backend.benchmark.run_relief_visual_sweep import (
